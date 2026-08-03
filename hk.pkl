@@ -1,0 +1,50 @@
+amends "package://github.com/jdx/hk/releases/download/v1.53.0/hk@1.53.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v1.53.0/hk@1.53.0#/Builtins.pkl"
+
+local python_files = List("*.py")
+local frontend_ts_files = List("frontend/**/*.ts", "frontend/**/*.tsx")
+
+local linters = new Mapping<String, Step> {
+    ["ruff-check"] {
+        glob = python_files
+        check = "uv run ruff check {{files}}"
+        fix = "uv run ruff check --fix {{files}}"
+    }
+    ["ruff-format"] {
+        glob = python_files
+        check = "uv run ruff format --check {{files}}"
+        fix = "uv run ruff format {{files}}"
+    }
+    ["mypy"] {
+        glob = python_files
+        check = "uv run mypy src"
+        // kein fix — Type-Fehler werden nicht automatisch behoben,
+        // sondern blockieren den Commit bewusst
+    }
+    ["prettier"] = (Builtins.prettier) {
+        glob = List("frontend/**/*.ts", "frontend/**/*.tsx", "frontend/**/*.json")
+    }
+    ["eslint"] {
+        glob = frontend_ts_files
+        check = "npm --prefix frontend run lint"
+        fix = "npm --prefix frontend run lint:fix"
+    }
+}
+
+hooks {
+    ["pre-commit"] {
+        fix = true       // Auto-Fix läuft direkt beim Commit
+        stash = "git"    // unstaged Änderungen werden währenddessen weggesichert
+        steps = linters
+    }
+    ["pre-push"] {
+        steps {
+            ["pytest-unit"] {
+                check = "uv run pytest -m 'not integration'"
+            }
+            ["pytest-cov"] {
+                check = "uv run pytest -m 'not integration' --cov=src/tripplanner --cov-report=term-missing --cov-fail-under=85"
+            }
+        }
+    }
+}

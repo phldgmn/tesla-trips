@@ -1,0 +1,40 @@
+site_name: Tesla-Tripplaner API
+theme:
+  name: "material"
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      primary: "indigo"
+    - media: "(prefers-color-scheme: dark)"
+      scheme: "default"
+      primary: "indigo"
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: "google"
+            show_root_heading: true
+            show_source: true
+            separate_signature: true
+            merge_init_into_class: true
+            heading_level: 2
+
+nav:
+  - Home: index.md
+  - Modules:
+      - routing: tripplanner.routing.md
+      - elevation: tripplanner.elevation.md
+      - weather: tripplanner.weather.md
+      - wind: tripplanner.wind.md
+      - construction: tripplanner.construction.md
+      - energy: tripplanner.energy.md
+      - battery: tripplanner.battery.md
+      - charging_infrastructure: tripplanner.charging_infrastructure.md
+      - optimization: tripplanner.optimization.md
+      - simulation: tripplanner.simulation.md
+      - trip_input: tripplanner.trip_input.md
+
+watch:
+  - src/tripplanner
