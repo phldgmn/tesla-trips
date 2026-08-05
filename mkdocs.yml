@@ -23,7 +23,25 @@ plugins:
 
 nav:
   - Home: index.md
-  - Modules:
+  - Spezifikation:
+      - Projektspezifikation: 01-projektspezifikation.md
+      - Architektur: 02-architektur.md
+      - Modulspezifikationen: 03-modulspezifikationen.md
+      - Repo-Tooling-Setup: 04-repo-tooling-setup.md
+      - Agent-Leitlinien: 05-agent-guidelines.md
+      - Offene Punkte: 06-offene-punkte-widersprueche.md
+  - Implementierungsplan:
+      - Master-Plan: 07-implementierungsplan.md
+      - Fundament & Tooling: plans/00-foundation-tooling.md
+      - routing: plans/01-routing.md
+      - elevation: plans/02-elevation.md
+      - weather/wind: plans/03-weather-wind.md
+      - construction: plans/04-construction.md
+      - battery/charging_infrastructure: plans/05-battery-charging-infrastructure.md
+      - energy: plans/06-energy.md
+      - optimization: plans/07-optimization.md
+      - simulation/visualization/API: plans/08-simulation-visualization-api.md
+  - API-Referenz:
       - routing: tripplanner.routing.md
       - elevation: tripplanner.elevation.md
       - weather: tripplanner.weather.md
