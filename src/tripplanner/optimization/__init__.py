@@ -1,0 +1,26 @@
+"""Optimierungs-Modul für Tesla-Reisen.
+
+Berechnet den optimalen Ladeplan entlang einer bereits von GraphHopper
+festgelegten Route. Löst ein diskretisiertes Zustandsraum-Suchproblem
+mit NetworkX (Prototyp) oder OR-Tools (spätere Ausbaustufe).
+"""
+
+from tripplanner.optimization.models import (
+    ChargingPlan,
+    ChargingStop,
+    OptimizationConstraints,
+    OptimizerInterface,
+)
+from tripplanner.optimization.optimizer import (
+    create_networkx_optimizer,
+    create_ortools_optimizer,
+)
+
+__all__ = [
+    "ChargingPlan",
+    "ChargingStop",
+    "OptimizationConstraints",
+    "OptimizerInterface",
+    "create_networkx_optimizer",
+    "create_ortools_optimizer",
+]
