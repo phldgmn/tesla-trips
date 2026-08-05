@@ -121,6 +121,52 @@ async def test_create_trip_simulation_vollstaendiger_durchlauf(
 
 
 @pytest.mark.asyncio
+async def test_create_trip_simulation_e2e_regression_abfahrtszeit_und_soc(
+    valid_trip_request: dict,
+    fake_routing_provider: FakeRoutingProvider,
+    fake_weather_provider: FakeWeatherProvider,
+    fake_charging_provider: FakeChargingStationProvider,
+    fake_construction_provider: FakeConstructionProvider,
+) -> None:
+    """End-to-End-Regressionstest (formalisiert den manuellen CLI-Smoke-Test).
+
+    Pinnt zwei zuvor per manuellem End-to-End-Lauf gefundene Bugs, die vom generischen
+    "vollstaendiger_durchlauf"-Test NICHT erkannt wurden, weil `0 <= soc_pct <= 100` auch
+    bei physikalisch falschem Verhalten (SoC-Crash auf 0%, Zeitstempel auf Unix-Epoch 1970)
+    technisch gueltig waere:
+    1. Frame-Zeitstempel muessen auf der tatsaechlichen `abfahrtszeit` basieren, nicht auf
+       Unix-Epoch (1970-01-01).
+    2. Der End-SoC darf nicht unrealistisch auf nahe 0% abstuerzen, wenn der Energiebedarf
+       relativ zur Batteriekapazitaet moderat ist.
+    """
+    result = await create_trip_simulation(
+        valid_trip_request,
+        routing_provider=fake_routing_provider,
+        weather_provider=fake_weather_provider,
+        construction_provider=fake_construction_provider,
+        start_soc_pct=80.0,
+        ziel_soc_pct=20.0,
+    )
+
+    abfahrtszeit = valid_trip_request["abfahrtszeit"]
+    assert result.frames[0].zeitpunkt.year == abfahrtszeit.year
+    assert result.frames[0].zeitpunkt.date() == abfahrtszeit.date()
+    assert all(f.zeitpunkt.year != 1970 for f in result.frames)
+
+    # Zeitstempel muessen monoton steigen und mit abfahrtszeit beginnen
+    assert result.frames[0].zeitpunkt >= abfahrtszeit
+    for a, b in zip(result.frames, result.frames[1:], strict=False):
+        assert b.zeitpunkt >= a.zeitpunkt
+
+    # SoC darf nicht auf (nahezu) 0% abstuerzen, solange kein realer Reichweitenmangel vorliegt
+    fahren_frames = [f for f in result.frames if f.zustand.value == "FAHREN"]
+    assert all(f.soc_pct > 1.0 for f in fahren_frames), (
+        "SoC waehrend der Fahrt fiel auf nahezu 0% -- deutet auf falsche "
+        "SoC-Depletionsformel hin (siehe Bugfix in simulate.py)"
+    )
+
+
+@pytest.mark.asyncio
 async def test_create_trip_simulation_mit_zwischenstopp(
     fake_routing_provider: FakeRoutingProvider,
     fake_weather_provider: FakeWeatherProvider,
