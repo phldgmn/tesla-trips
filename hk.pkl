@@ -32,6 +32,15 @@ local linters = new Mapping<String, Step> {
 }
 
 hooks {
+    ["check"] {
+        // Ermöglicht `hk check --all` gemäß AGENTS.md / docs/05-agent-guidelines.md;
+        // reine Prüfung ohne Auto-Fix (Gegenstück zu `hk fix --all`).
+        steps = linters
+    }
+    ["fix"] {
+        fix = true
+        steps = linters
+    }
     ["pre-commit"] {
         fix = true       // Auto-Fix läuft direkt beim Commit
         stash = "git"    // unstaged Änderungen werden währenddessen weggesichert

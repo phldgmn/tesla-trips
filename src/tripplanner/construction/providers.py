@@ -8,7 +8,7 @@ Enthält:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from httpx import AsyncClient, TimeoutException
@@ -137,7 +137,7 @@ class ConstructionProviderImpl(ConstructionProvider):
         coords = self._route_to_bounding_box(route)
         return {
             "coords": coords,
-            "startDate": (datetime.utcnow().isoformat() + "Z"),
+            "startDate": (datetime.now(UTC).replace(tzinfo=None).isoformat() + "Z"),
             "format": "datex2",
         }
 
