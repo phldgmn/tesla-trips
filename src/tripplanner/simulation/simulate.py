@@ -6,7 +6,7 @@ SegmentEnergyResult und WeatherSample.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timedelta
 
 from tripplanner.energy.models import SegmentEnergyResult
 from tripplanner.optimization.models import ChargingPlan
@@ -96,10 +96,11 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     segment_energy: list[SegmentEnergyResult],
     weather_samples: list[WeatherSample],
     start_soc_pct: float,
+    abfahrtszeit: datetime,
     max_iterations: int = 3,
     convergence_threshold_minutes: float = 30.0,
     output_resolution_seconds: int = 60,
-    vehicle_battery_params: object | None = None,
+    battery_capacity_kwh: float = 62.5,
 ) -> TripSimulationResult:
     """Simuliert die komplette Reise entlang der Route unter Beruecksichtigung des Ladeplans.
 
@@ -112,13 +113,14 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         max_iterations: Max. Anzahl Iterationen fuer ETA-Wetter-Konvergenz (nicht verwendet)
         convergence_threshold_minutes: Schwelle in Minuten fuer Iterationserneuerung
         output_resolution_seconds: Zeitauflösung der Ausgabe (default: 60s)
-        vehicle_battery_params: Fahrzeug-Batterie-Parameter fuer Ladeberechnung (optional)
+        abfahrtszeit: Abfahrtszeitpunkt der Reise (timezone-aware datetime)
+        battery_capacity_kwh: Nutzbare Batteriekapazitaet in kWh (default: 62.5 kWh)
 
     Returns:
         TripSimulationResult: Zeitreihe aus Frames (Zeit, Position, SoC, Zustand, Geschwindigkeit)
 
     Raises:
-        ValueError: Wenn SoC-Werte gueltig sind oder keine passenden Energy-Ergebnisse vorliegen.
+        ValueError: Wenn SoC-Werte ungueltig sind oder keine passenden Energy-Ergebnisse vorliegen.
     """
     if not (_MIN_SOC_PCT <= start_soc_pct <= _MAX_SOC_PCT):
         raise ValueError("Start-SoC muss zwischen 0% und 100% liegen")
@@ -150,8 +152,8 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     current_time_s = 0.0
     ms_to_kmh = 3.6
 
-    # Base time fuer Ladeplan-Vergleich (8:00 Uhr am 15.8.2026)
-    base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
+    # Verwende uebergebene Abfahrtszeit als Basis
+    base_time = abfahrtszeit
 
     while current_time_s <= end_time_s + 1e-6:
         # Berechne zurückgelegte Distanz proportional zur Zeit
@@ -190,15 +192,18 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
                 energy = energy_map[segment_idx]
                 geschwindigkeit_kmh = energy.geschwindigkeit_m_s * ms_to_kmh
 
-                energy_used_kwh = energy.energiebedarf_kwh * progress_in_segment
-                total_energy_kwh = sum(e.energiebedarf_kwh for e in energy_map.values())
+                # Kumulative Energie seit Fahrtbeginn berechnen:
+                # Summe aller vollstaendig durchfahrenen Segmente + anteilig aktuelles Segment
+                completed_segments_energy_kwh = sum(
+                    energy_map[i].energiebedarf_kwh for i in range(segment_idx) if i in energy_map
+                )
+                current_segment_energy_kwh = energy.energiebedarf_kwh * progress_in_segment
+                cumulative_energy_kwh = completed_segments_energy_kwh + current_segment_energy_kwh
 
-                if total_energy_kwh > 0:
-                    energy_fraction = energy_used_kwh / total_energy_kwh
-                    total_consumption_pct = _MAX_SOC_PCT - start_soc_pct
+                if battery_capacity_kwh > 0:
                     current_soc_pct = max(
                         _MIN_SOC_PCT,
-                        current_soc_pct - energy_fraction * total_consumption_pct,
+                        start_soc_pct - (cumulative_energy_kwh / battery_capacity_kwh) * 100.0,
                     )
             else:
                 geschwindigkeit_kmh = 0.0
@@ -208,9 +213,8 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         position = _interpolate_position_along_segment(
             segment, start_pt_idx, end_pt_idx, progress_in_segment
         )
-
         frame = SimulationFrame(
-            zeitpunkt=datetime.fromtimestamp(current_time_s, tz=UTC),
+            zeitpunkt=abfahrtszeit + timedelta(seconds=current_time_s),
             position=position,
             soc_pct=current_soc_pct,
             zustand=zustand,

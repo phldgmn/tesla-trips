@@ -440,6 +440,8 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
         max_iterations=3,
         convergence_threshold_minutes=30.0,
         output_resolution_seconds=60,
+        abfahrtszeit=anfrage.abfahrtszeit,
+        battery_capacity_kwh=anfrage.fahrzeugprofil.batteriekapazitaet_kwh,
     )
 
     # 12. Step 11: Ergebnis zurückgeben

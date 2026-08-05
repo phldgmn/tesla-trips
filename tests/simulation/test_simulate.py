@@ -131,6 +131,7 @@ class TestPositionsInterpolation:
             weather_samples=[],
             start_soc_pct=80.0,
             output_resolution_seconds=4500,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert len(result.frames) == 2
@@ -153,7 +154,6 @@ class TestPositionsInterpolation:
             ladehalte=[],
             gesamtreisezeit_s=4500,
         )
-
         result = simulate_trip(
             route=route_3_segments,
             charging_plan=plan,
@@ -161,6 +161,7 @@ class TestPositionsInterpolation:
             weather_samples=[],
             start_soc_pct=80.0,
             output_resolution_seconds=100,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert len(result.frames) > 1
@@ -178,7 +179,6 @@ class TestPositionsInterpolation:
             ladehalte=[],
             gesamtreisezeit_s=4500,
         )
-
         result = simulate_trip(
             route=route_3_segments,
             charging_plan=plan,
@@ -186,6 +186,7 @@ class TestPositionsInterpolation:
             weather_samples=[],
             start_soc_pct=80.0,
             output_resolution_seconds=750,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         frame_at_750s = result.frames[1]
@@ -226,6 +227,7 @@ class TestStateTransitions:
             weather_samples=[],
             start_soc_pct=80.0,
             output_resolution_seconds=60,
+            abfahrtszeit=base_time,
         )
 
         zustande = [f.zustand for f in result.frames]
@@ -264,6 +266,7 @@ class TestStateTransitions:
             weather_samples=[],
             start_soc_pct=80.0,
             output_resolution_seconds=600,
+            abfahrtszeit=base_time,
         )
 
         laden_frames = [f for f in result.frames if f.zustand == TripState.LADEN]
@@ -294,6 +297,7 @@ class TestSocChanges:
             weather_samples=[],
             start_soc_pct=80.0,
             output_resolution_seconds=60,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         first_soc = result.frames[0].soc_pct
@@ -322,7 +326,6 @@ class TestSocChanges:
             ],
             gesamtreisezeit_s=6300,
         )
-
         result = simulate_trip(
             route=route_3_segments,
             charging_plan=plan,
@@ -330,6 +333,7 @@ class TestSocChanges:
             weather_samples=[],
             start_soc_pct=80.0,
             output_resolution_seconds=600,
+            abfahrtszeit=base_time,
         )
 
         laden_frames = [f for f in result.frames if f.zustand == TripState.LADEN]
@@ -358,6 +362,7 @@ class TestTotals:
             weather_samples=[],
             start_soc_pct=80.0,
             output_resolution_seconds=60,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert result.gesamt_distanz_km == pytest.approx(150.0, abs=0.1)
@@ -372,7 +377,6 @@ class TestTotals:
             ladehalte=[],
             gesamtreisezeit_s=4500,
         )
-
         result = simulate_trip(
             route=route_3_segments,
             charging_plan=plan,
@@ -380,6 +384,7 @@ class TestTotals:
             weather_samples=[],
             start_soc_pct=80.0,
             output_resolution_seconds=60,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert result.gesamt_fahrzeit_min == pytest.approx(75.0, abs=0.1)
@@ -406,7 +411,6 @@ class TestTotals:
             ],
             gesamtreisezeit_s=6300,
         )
-
         result = simulate_trip(
             route=route_3_segments,
             charging_plan=plan,
@@ -414,6 +418,7 @@ class TestTotals:
             weather_samples=[],
             start_soc_pct=80.0,
             output_resolution_seconds=60,
+            abfahrtszeit=base_time,
         )
 
         assert result.gesamt_ladezeit_min == pytest.approx(30.0, abs=0.1)
@@ -440,6 +445,7 @@ class TestResolution:
             weather_samples=[],
             start_soc_pct=80.0,
             output_resolution_seconds=10,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert len(result.frames) >= 360
@@ -454,7 +460,6 @@ class TestResolution:
             ladehalte=[],
             gesamtreisezeit_s=3600,
         )
-
         result = simulate_trip(
             route=route_3_segments,
             charging_plan=plan,
@@ -462,6 +467,7 @@ class TestResolution:
             weather_samples=[],
             start_soc_pct=80.0,
             output_resolution_seconds=600,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert len(result.frames) >= 6
@@ -487,9 +493,113 @@ class TestNoChargingScenario:
             segment_energy=energy_results_3_segments,
             weather_samples=[],
             start_soc_pct=80.0,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
             output_resolution_seconds=60,
         )
 
         assert all(f.zustand == TripState.FAHREN for f in result.frames)
         assert result.gesamt_ladezeit_min == pytest.approx(0.0, abs=0.01)
         assert result.start_soc_pct > result.ziel_soc_pct
+
+
+class TestAbfahrtszeitBasis:
+    """Regressionstests Bug 1: Zeitstempel muessen auf abfahrtszeit basieren, nicht Unix-Epoch."""
+
+    def test_zeitpunkt_basiert_auf_abfahrtszeit(
+        self,
+        route_3_segments: Route,
+        energy_results_3_segments: list[SegmentEnergyResult],
+    ) -> None:
+        """Erster Frame-Zeitpunkt entspricht exakt der uebergebenen abfahrtszeit (nicht 1970)."""
+        abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
+        plan = ChargingPlan(ladehalte=[], gesamtreisezeit_s=600)
+
+        result = simulate_trip(
+            route=route_3_segments,
+            charging_plan=plan,
+            segment_energy=energy_results_3_segments,
+            weather_samples=[],
+            start_soc_pct=80.0,
+            abfahrtszeit=abfahrtszeit,
+            output_resolution_seconds=60,
+        )
+
+        assert result.frames[0].zeitpunkt == abfahrtszeit
+        assert result.frames[1].zeitpunkt == abfahrtszeit + timedelta(seconds=60)
+
+    def test_zeitpunkt_mit_anderer_abfahrtszeit(
+        self,
+        route_3_segments: Route,
+        energy_results_3_segments: list[SegmentEnergyResult],
+    ) -> None:
+        """Eine voellig andere abfahrtszeit fuehrt zu entsprechend verschobenen Zeitstempeln."""
+        abfahrtszeit = datetime(2030, 1, 1, 12, 0, 0, tzinfo=UTC)
+        plan = ChargingPlan(ladehalte=[], gesamtreisezeit_s=600)
+
+        result = simulate_trip(
+            route=route_3_segments,
+            charging_plan=plan,
+            segment_energy=energy_results_3_segments,
+            weather_samples=[],
+            start_soc_pct=80.0,
+            abfahrtszeit=abfahrtszeit,
+            output_resolution_seconds=60,
+        )
+
+        assert result.frames[0].zeitpunkt == abfahrtszeit
+        assert result.frames[0].zeitpunkt.year == 2030
+        assert result.frames[-1].zeitpunkt > abfahrtszeit
+
+
+class TestSocDepletionPhysikalischKorrekt:
+    """Regressionstests: Bug 2 - SoC-Abfall muss auf Energie/Batteriekapazitaet basieren."""
+
+    def test_soc_verbrauch_proportional_zu_energiebedarf_und_batteriekapazitaet(self) -> None:
+        """1 Segment, 10 kWh Verbrauch, 50 kWh Kapazitaet -> Abfall exakt 20 Prozentpunkte."""
+        route = Route(
+            segments=[make_route_segment(0, [BERLIN_COORD, LEIPZIG_COORD], 100_000)],
+            gesamtlaenge_m=100_000,
+            geometrie=[BERLIN_COORD, LEIPZIG_COORD],
+        )
+        energy_results = [
+            make_energy_result(0, 10.0, 3600.0, 27.78, 100_000),
+        ]
+        plan = ChargingPlan(ladehalte=[], gesamtreisezeit_s=3600)
+
+        result = simulate_trip(
+            route=route,
+            charging_plan=plan,
+            segment_energy=energy_results,
+            weather_samples=[],
+            start_soc_pct=80.0,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            output_resolution_seconds=3600,
+            battery_capacity_kwh=50.0,
+        )
+
+        assert result.frames[-1].soc_pct == pytest.approx(60.0, abs=0.5)
+        assert result.frames[-1].soc_pct != pytest.approx(0.0, abs=1.0)
+
+    def test_soc_verbrauch_kumulativ_ueber_mehrere_segmente(
+        self,
+        route_3_segments: Route,
+        energy_results_3_segments: list[SegmentEnergyResult],
+    ) -> None:
+        """End-SoC ueber 3 Segmente entspricht Gesamtenergie/Batteriekapazitaet, nicht 100-start."""
+        plan = ChargingPlan(ladehalte=[], gesamtreisezeit_s=4500)
+        battery_capacity_kwh = 62.5
+        gesamt_energie_kwh = sum(e.energiebedarf_kwh for e in energy_results_3_segments)
+
+        result = simulate_trip(
+            route=route_3_segments,
+            charging_plan=plan,
+            segment_energy=energy_results_3_segments,
+            weather_samples=[],
+            start_soc_pct=80.0,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            output_resolution_seconds=60,
+            battery_capacity_kwh=battery_capacity_kwh,
+        )
+
+        erwarteter_end_soc = 80.0 - (gesamt_energie_kwh / battery_capacity_kwh) * 100.0
+        assert result.frames[-1].soc_pct == pytest.approx(erwarteter_end_soc, abs=0.5)
