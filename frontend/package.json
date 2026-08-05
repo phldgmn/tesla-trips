@@ -1,0 +1,40 @@
+{
+  "name": "tesla-trips-visualization",
+  "version": "1.0.0",
+  "description": "Frontend für Tesla Trip Planner Visualization (MapLibre GL JS)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "lint": "eslint src --ext ts,tsx",
+    "lint:fix": "eslint src --ext ts,tsx --fix",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "gen:types": "python -m tripplanner.simulation.generate_schema && json2ts -i frontend/src/types/simulation.schema.json -o frontend/src/types/generated.ts"
+  },
+  "dependencies": {
+    "maplibre-gl": "^4.7.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/geojson": "^7946.0.14",
+    "@types/node": "^22.13.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@typescript-eslint/eslint-plugin": "^8.24.0",
+    "@typescript-eslint/parser": "^8.24.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^10.0.1",
+    "eslint-plugin-prettier": "^5.2.1",
+    "eslint-plugin-react": "^7.37.4",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "json-schema-to-typescript": "^15.0.3",
+    "prettier": "^3.5.3",
+    "typescript": "^5.7.3",
+    "vite": "^6.2.0",
+    "vitest": "^3.0.0"
+  }
+}
