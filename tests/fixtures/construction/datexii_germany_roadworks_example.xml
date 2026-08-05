@@ -1,0 +1,55 @@
+<!-- DATEX II v3.3 Example: German Roadworks (MDM) -->
+<situation id="DE001" xmlns="http://datex2.eu/schema/2/2_0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://datex2.eu/schema/2/2_0 DATEXII_2_2_0.xsd">
+
+    <situationRecord id="RWS01_M311126_MAIN_ROADWORKS_D2"
+        xsi:type="Roadworks"
+        version="4">
+
+        <situationRecordCreationTime>2024-03-15T18:03:11Z</situationRecordCreationTime>
+        <situationRecordVersionTime>2024-03-15T18:29:27Z</situationRecordVersionTime>
+        <probabilityOfOccurrence>probable</probabilityOfOccurrence>
+
+        <source>
+            <sourceName>
+                <values>
+                    <value lang="de">WNN-Z [RWS West-Nederland Noord District Zuid]</value>
+                </values>
+            </sourceName>
+        </source>
+
+        <validity>
+            <validityStatus>definedByValidityTimeSpec</validityStatus>
+            <validityTimeSpecification>
+                <overallStartTime>2024-03-20T21:01:00Z</overallStartTime>
+                <overallEndTime>2024-03-21T03:00:00Z</overallEndTime>
+            </validityTimeSpecification>
+        </validity>
+
+        <impact>
+            <residualRoadWidth>10.5</residualRoadWidth>
+            <delays>
+                <delayBand>tenToTwentyMinutes</delayBand>
+                <delayTimeValue>300.0</delayTimeValue>
+            </delays>
+        </impact>
+
+        <groupOfLocations>
+            <location>
+                <geographicPosition>
+                    <latitude>52.5200</latitude>
+                    <longitude>13.4050</longitude>
+                </geographicPosition>
+            </location>
+            <location>
+                <geographicPosition>
+                    <latitude>52.5210</latitude>
+                    <longitude>13.4060</longitude>
+                </geographicPosition>
+            </location>
+        </groupOfLocations>
+
+    </situationRecord>
+
+</situation>

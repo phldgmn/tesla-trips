@@ -1,0 +1,22 @@
+{
+  "paths": [
+    {
+      "distance": 2345.6,
+      "time": 123000,
+      "points_encoded": true,
+      "points": "_yp_IgdypAo}@g^o}@o}@",
+      "details": {
+        "road_class": ["MOTORWAY", "PRIMARY"],
+        "max_speed": [130, 0],
+        "average_slope": [1.5, -0.5],
+        "surface": ["asphalt", "gravel"]
+      },
+      "instructions": []
+    }
+  ],
+  "info": {
+    "copyright": ["GraphHopper", "OpenStreetMap contributors"],
+    "hints": [],
+    "took": 6
+  }
+}

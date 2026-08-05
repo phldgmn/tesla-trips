@@ -1,0 +1,17 @@
+{
+  "paths": [
+    {
+      "distance": 2345.6,
+      "time": 123000,
+      "points_encoded": true,
+      "points": "_yp_IgdypAo}@g^o}@o}@",
+      "details": {},
+      "instructions": []
+    }
+  ],
+  "info": {
+    "copyright": ["GraphHopper", "OpenStreetMap contributors"],
+    "hints": [],
+    "took": 4
+  }
+}

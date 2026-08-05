@@ -1,0 +1,70 @@
+<!-- DATEX II v3.3 Example: Danish Lane Closure (Dataudveksleren) -->
+<situation id="DK001" xmlns="http://datex2.eu/schema/2/2_0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://datex2.eu/schema/2/2_0 DATEXII_2_2_0.xsd">
+
+    <situationRecord id="DK_LANE_CLOSURE_E47"
+        xsi:type="LaneClosed"
+        version="1">
+
+        <situationRecordCreationTime>2024-03-16T08:00:00Z</situationRecordCreationTime>
+        <situationRecordVersionTime>2024-03-16T08:15:00Z</situationRecordVersionTime>
+        <probabilityOfOccurrence>probable</probabilityOfOccurrence>
+
+        <source>
+            <sourceName>
+                <values>
+                    <value lang="da">Vejdirektoratet - Trafikinformation</value>
+                </values>
+            </sourceName>
+        </source>
+
+        <validity>
+            <validityStatus>definedByValidityTimeSpec</validityStatus>
+            <validityTimeSpecification>
+                <overallStartTime>2024-03-17T06:00:00Z</overallStartTime>
+                <overallEndTime>2024-03-17T18:00:00Z</overallEndTime>
+            </validityTimeSpecification>
+        </validity>
+
+        <impact>
+            <residualRoadWidth>3.5</residualRoadWidth>
+            <delays>
+                <delayBand>upToTenMinutes</delayBand>
+                <delayTimeValue>120.0</delayTimeValue>
+            </delays>
+        </impact>
+
+        <groupOfLocations>
+            <location>
+                <geographicPosition>
+                    <latitude>55.6762</latitude>
+                    <longitude>12.5681</longitude>
+                </geographicPosition>
+            </location>
+            <location>
+                <geographicPosition>
+                    <latitude>55.6770</latitude>
+                    <longitude>12.5690</longitude>
+                </geographicPosition>
+            </location>
+            <location>
+                <geographicPosition>
+                    <latitude>55.6775</latitude>
+                    <longitude>12.5695</longitude>
+                </geographicPosition>
+            </location>
+        </groupOfLocations>
+
+        <roadworks>
+            <roadworkType>laneClosed</roadworkType>
+            <laneStatus>closed</laneStatus>
+            <duration>
+                <duration>2</duration>
+                <unitOfTime>hour</unitOfTime>
+            </duration>
+        </roadworks>
+
+    </situationRecord>
+
+</situation>

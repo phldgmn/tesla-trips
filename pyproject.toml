@@ -51,6 +51,7 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D", "PLR2004"]
+"src/tripplanner/construction/*" = ["D105", "D107", "PLR0912", "PLR0915", "PLR2004"]
 
 [tool.ruff.format]
 quote-style = "double"
