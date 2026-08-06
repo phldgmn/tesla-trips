@@ -28,6 +28,10 @@ class Waypoint(BaseModel):
     aufenthaltsdauer: timedelta | None = Field(
         default=None, description="Optionale Mindestaufenthaltsdauer an diesem Wegpunkt"
     )
+    geplante_abfahrt: datetime | None = Field(
+        default=None,
+        description="Gewünschter frühester Abfahrtszeitpunkt an diesem Wegpunkt",
+    )
 
 
 class VehicleProfile(BaseModel):

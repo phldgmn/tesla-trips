@@ -24,6 +24,7 @@ from tripplanner.elevation.models import ElevationPoint, SegmentGradient
 from tripplanner.elevation.providers import FakeDataSource
 from tripplanner.energy import berechne_segment_verbrauch
 from tripplanner.energy.models import SegmentEnergyResult, VehicleEnergyParameters
+from tripplanner.geo import haversine_distance_m
 from tripplanner.optimization import create_networkx_optimizer
 from tripplanner.optimization.models import ChargingPlan, OptimizationConstraints
 from tripplanner.routing import FakeRoutingProvider, RoutingProvider
@@ -265,6 +266,7 @@ async def _step_8_ladeplan_optimieren(  # noqa: PLR0913, PLR0917
     ziel_soc_pct: float,
     construction_zones: list[ConstructionZone],
     abfahrtszeit: datetime,
+    zwischenstopps: list[Waypoint] | None = None,
 ) -> ChargingPlan:
     """Schritt 8: Optimalen Ladeplan bestimmen.
 
@@ -289,10 +291,7 @@ async def _step_8_ladeplan_optimieren(  # noqa: PLR0913, PLR0917
     for station_list in stations_dict.values():
         charging_stations.extend(station_list)
 
-    waypoints = [
-        Waypoint(koordinate=s, aufenthaltsdauer=timedelta(minutes=10))
-        for s in [route.segments[0].geometrie[0]]
-    ]
+    waypoints = list(zwischenstopps) if zwischenstopps else []
 
     # Gradients für Optimizer (vereinfacht)
     gradients = [
@@ -347,6 +346,48 @@ def _step_9_eta_aktualisieren(
     return neue_eta_liste
 
 
+def _segment_index_fuer_koordinate(koordinate: Coordinate, segments: list[RouteSegment]) -> int:
+    """Segment, dessen Ende der gegebenen Koordinate am nächsten liegt (haversine)."""
+    best_idx, best_dist = 0, float("inf")
+    for idx, seg in enumerate(segments):
+        dist = haversine_distance_m(koordinate, seg.geometrie[-1])
+        if dist < best_dist:
+            best_dist, best_idx = dist, idx
+    return best_idx
+
+
+def _mit_abgeleiteter_wartezeit(
+    zwischenstopps: list[Waypoint],
+    segment_eta_liste: list[tuple[RouteSegment, timedelta]],
+    abfahrtszeit: datetime,
+) -> list[Waypoint]:
+    """Leitet aus einem optionalen `geplante_abfahrt` je Wegpunkt eine effektive Wartezeit ab.
+
+    Heuristik: einmalige Annäherung anhand der initialen ETA-Schätzung, keine
+    iterative Konvergenz — konsistent mit dem bestehenden Ansatz der iterativen
+    ETA/Wetter-Schätzung an anderer Stelle im Modul, hier aber bewusst einstufig.
+    """
+    segments = [seg for seg, _ in segment_eta_liste]
+    kumuliert: list[timedelta] = []
+    laufend = timedelta()
+    for _, dauer in segment_eta_liste:
+        laufend += dauer
+        kumuliert.append(laufend)
+    ergebnis: list[Waypoint] = []
+    for wp in zwischenstopps:
+        if wp.geplante_abfahrt is None:
+            ergebnis.append(wp)
+            continue
+        seg_idx = _segment_index_fuer_koordinate(wp.koordinate, segments)
+        geschaetzte_ankunft = abfahrtszeit + kumuliert[seg_idx]
+        abgeleitete_wartezeit = max(timedelta(), wp.geplante_abfahrt - geschaetzte_ankunft)
+        bestehende = wp.aufenthaltsdauer or timedelta()
+        ergebnis.append(
+            wp.model_copy(update={"aufenthaltsdauer": max(bestehende, abgeleitete_wartezeit)})
+        )
+    return ergebnis
+
+
 # =============================================================================
 # Kernfunktion: Orchestrierung aller 11 Schritte
 # =============================================================================
@@ -394,6 +435,12 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
 
     # 5. Step 4: Initiale ETA-Schätzung
     segment_eta_liste = _step_4_initiale_eta_schaetzen(route, anfrage.abfahrtszeit)
+    # Hinweis: Die abgeleitete Wartezeit ist ein Kostenfaktor im Optimierer, keine
+    # erzwungene Mindestaufenthaltsdauer - der A*-Pfad kann sie umgehen, wenn kein
+    # SoC-/Ladebedarf sie erfordert (Prototyp-Optimizer, siehe docs).
+    zwischenstopps_mit_wartezeit = _mit_abgeleiteter_wartezeit(
+        anfrage.zwischenstopps, segment_eta_liste, anfrage.abfahrtszeit
+    )
 
     # 6. Step 5: Wetterabfrage
     wetter_samples = await _step_5_wetterabfrage(
@@ -425,6 +472,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
         ziel_soc_pct,
         baustellen,
         anfrage.abfahrtszeit,
+        zwischenstopps=zwischenstopps_mit_wartezeit,
     )
 
     # 10. Step 9: ETA aktualisieren
@@ -463,6 +511,10 @@ class WaypointAPI(BaseModel):
     aufenthaltsdauer_s: int | None = Field(
         None, ge=0, description="Mindestaufenthaltsdauer in Sekunden"
     )
+    geplante_abfahrt: str | None = Field(
+        None,
+        description="Gewünschter frühester Abfahrtszeitpunkt (ISO-8601)",
+    )
 
 
 class TripRequestAPI(BaseModel):
@@ -477,6 +529,8 @@ class TripRequestAPI(BaseModel):
         ..., description="ISO-8601 Abfahrtszeit (z. B. '2026-08-15T08:30:00')"
     )
     fahrzeugprofil: VehicleProfile = Field(..., description="Physikalisches Fahrzeugprofil")
+    start_soc_pct: float = Field(80.0, ge=0.0, le=100.0, description="Start-SoC in Prozent")
+    ziel_soc_pct: float = Field(20.0, ge=0.0, le=100.0, description="Ziel-SoC in Prozent")
     praeferenzen: dict[str, object] = Field(default_factory=dict, description="Nutzerpräferenzen")
 
 
@@ -519,6 +573,9 @@ async def create_trip_endpoint(request: TripRequestAPI) -> TripSimulationResultA
                 "aufenthaltsdauer": timedelta(seconds=wp.aufenthaltsdauer_s)
                 if wp.aufenthaltsdauer_s
                 else None,
+                "geplante_abfahrt": datetime.fromisoformat(wp.geplante_abfahrt)
+                if wp.geplante_abfahrt
+                else None,
             }
             for wp in request.zwischenstopps
         ],
@@ -528,7 +585,11 @@ async def create_trip_endpoint(request: TripRequestAPI) -> TripSimulationResultA
     }
 
     try:
-        ergebnis = await create_trip_simulation(anfrage_dict)
+        ergebnis = await create_trip_simulation(
+            anfrage_dict,
+            start_soc_pct=request.start_soc_pct,
+            ziel_soc_pct=request.ziel_soc_pct,
+        )
 
         return TripSimulationResultAPI(
             gesamt_distanz_km=ergebnis.gesamt_distanz_km,
@@ -547,5 +608,10 @@ async def create_trip_endpoint(request: TripRequestAPI) -> TripSimulationResultA
                 for f in ergebnis.frames
             ],
         )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Route nicht durchführbar: {e!s}",
+        ) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Simulation fehlgeschlagen: {e!s}") from e

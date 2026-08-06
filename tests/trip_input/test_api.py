@@ -13,9 +13,11 @@ from datetime import datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
+import tripplanner.trip_input.api as trip_api
 from tripplanner.charging_infrastructure import FakeChargingStationProvider
 from tripplanner.construction.providers import FakeConstructionProvider
 from tripplanner.routing import FakeRoutingProvider
+from tripplanner.routing.models import RouteSegment
 from tripplanner.trip_input.api import app, create_trip_simulation
 from tripplanner.trip_input.cli import parse_coord, parse_waypoint
 from tripplanner.trip_input.models import VehicleProfile, Waypoint
@@ -356,6 +358,119 @@ def _make_fahrzeugprofil_dict() -> dict:
     }
 
 
+def test_mit_abgeleiteter_wartezeit_erzwingt_wartezeit_bei_spaeterer_geplanter_abfahrt() -> None:
+    """Leitet aus einer spaet geplanten Abfahrt eine Mindestaufenthaltsdauer ab.
+
+    Liegt `geplante_abfahrt` spaeter als die geschaetzte Ankunft, wird die
+    Differenz als Aufenthaltsdauer erzwungen.
+    """
+    abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0)
+    segment = RouteSegment(
+        segment_index=0,
+        geometrie=[(52.0, 13.0), (52.1, 13.1)],
+        laenge_m=50_000.0,
+        strassenklasse="PRIMARY",
+        oberflaeche="asphalt",
+        tempolimit_kmh=100,
+        steigung_rohdaten=0.0,
+        bearing_deg=45.0,
+    )
+    segment_eta_liste = [(segment, timedelta(minutes=27))]
+    # Geschaetzte Ankunft am Wegpunkt (Ende von Segment 0) liegt 27 Min. nach
+    # Abfahrt; geplante Abfahrt hier 30 Min. nach der geschaetzten Ankunft.
+    wp = Waypoint(
+        koordinate=(52.1, 13.1),
+        aufenthaltsdauer=None,
+        geplante_abfahrt=abfahrtszeit + timedelta(minutes=57),
+    )
+
+    ergebnis = trip_api._mit_abgeleiteter_wartezeit([wp], segment_eta_liste, abfahrtszeit)
+
+    assert len(ergebnis) == 1
+    assert ergebnis[0].aufenthaltsdauer is not None
+    assert ergebnis[0].aufenthaltsdauer >= timedelta(minutes=25)
+
+
+def test_mit_abgeleiteter_wartezeit_keine_wartezeit_bei_bereits_verspaeteter_abfahrt() -> None:
+    """Liegt `geplante_abfahrt` vor der geschaetzten Ankunft, wird keine
+    zusaetzliche Wartezeit erzwungen (man ist ohnehin schon spaeter dran)."""
+    abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0)
+    segment = RouteSegment(
+        segment_index=0,
+        geometrie=[(52.0, 13.0), (52.1, 13.1)],
+        laenge_m=50_000.0,
+        strassenklasse="PRIMARY",
+        oberflaeche="asphalt",
+        tempolimit_kmh=100,
+        steigung_rohdaten=0.0,
+        bearing_deg=45.0,
+    )
+    segment_eta_liste = [(segment, timedelta(minutes=27))]
+    wp = Waypoint(
+        koordinate=(52.1, 13.1),
+        aufenthaltsdauer=None,
+        geplante_abfahrt=abfahrtszeit + timedelta(minutes=5),
+    )
+
+    ergebnis = trip_api._mit_abgeleiteter_wartezeit([wp], segment_eta_liste, abfahrtszeit)
+
+    assert ergebnis[0].aufenthaltsdauer == timedelta(0)
+
+
+def test_mit_abgeleiteter_wartezeit_unveraendert_ohne_geplante_abfahrt() -> None:
+    """Wegpunkte ohne `geplante_abfahrt` werden unveraendert durchgereicht."""
+    abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0)
+    segment = RouteSegment(
+        segment_index=0,
+        geometrie=[(52.0, 13.0), (52.1, 13.1)],
+        laenge_m=50_000.0,
+        strassenklasse="PRIMARY",
+        oberflaeche="asphalt",
+        tempolimit_kmh=100,
+        steigung_rohdaten=0.0,
+        bearing_deg=45.0,
+    )
+    segment_eta_liste = [(segment, timedelta(minutes=27))]
+    wp = Waypoint(koordinate=(52.1, 13.1), aufenthaltsdauer=timedelta(minutes=10))
+
+    ergebnis = trip_api._mit_abgeleiteter_wartezeit([wp], segment_eta_liste, abfahrtszeit)
+
+    assert ergebnis[0] is wp
+
+
+def test_fastapi_endpoint_mit_geplanter_abfahrt_gibt_201(client: TestClient) -> None:
+    """Endpunkt akzeptiert `geplante_abfahrt` an einem Zwischenstopp fehlerfrei.
+
+    Hinweis: Der aktuelle Prototyp-Optimierer (`tripplanner.optimization.optimizer`)
+    behandelt Zwischenstopp-Wartezeiten als optionalen Kostenfaktor im A*-Suchgraphen,
+    nicht als erzwungene Mindestaufenthaltsdauer -- der A*-Pfad kann die Wartekante
+    umgehen, wenn kein SoC-/Ladebedarf sie erfordert. Dieser Test prueft daher nur die
+    fehlerfreie Verarbeitung (Datenfluss bis in das Domaenenmodell), nicht eine
+    konkrete Zeitverschiebung in der Antwort -- siehe `_mit_abgeleiteter_wartezeit`-Tests
+    oben fuer die Verifikation der eigentlichen Ableitungslogik.
+    """
+    api_request = {
+        "start": (52.52, 13.405),
+        "ziel": (53.5511, 9.9937),
+        "zwischenstopps": [
+            {
+                "koordinate": (52.6, 13.5),
+                "aufenthaltsdauer_s": None,
+                "geplante_abfahrt": "2026-08-15T09:00:00",
+            }
+        ],
+        "abfahrtszeit": "2026-08-15T08:30:00",
+        "fahrzeugprofil": _make_fahrzeugprofil_dict(),
+        "praeferenzen": {},
+    }
+
+    response = client.post("/trips", json=api_request)
+
+    assert response.status_code == 201
+    data = response.json()
+    assert len(data["frames"]) > 0
+
+
 def test_fastapi_endpoint_creates_trip(client: TestClient, valid_trip_request: dict) -> None:
     """Test: FastAPI-Endpunkt liefert 201 mit gültigem Response-Body."""
     api_request = {
@@ -379,6 +494,29 @@ def test_fastapi_endpoint_creates_trip(client: TestClient, valid_trip_request: d
     assert "ziel_soc_pct" in data
     assert "frames" in data
     assert len(data["frames"]) > 0
+
+
+def test_fastapi_endpoint_custom_soc(client: TestClient, valid_trip_request: dict) -> None:
+    """Test: FastAPI-Endpunkt akzeptiert benutzerdefinierte Start-/Ziel-SoC."""
+    api_request = {
+        "start": valid_trip_request["start"],
+        "ziel": valid_trip_request["ziel"],
+        "zwischenstopps": [],
+        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "praeferenzen": {},
+        "start_soc_pct": 95.0,
+        "ziel_soc_pct": 15.0,
+    }
+
+    response = client.post("/trips", json=api_request)
+
+    assert response.status_code == 201
+    data = response.json()
+    # Start-SoC wird direkt durchgereicht (Eingabe = Ausgabe)
+    assert data["start_soc_pct"] == 95.0
+    # Ziel-SoC ist das tatsächliche Simulationsergebnis (kann vom Zielwert abweichen)
+    assert 0.0 <= data["ziel_soc_pct"] <= 100.0
 
 
 def test_fastapi_endpoint_invalid_coordinates(client: TestClient) -> None:
