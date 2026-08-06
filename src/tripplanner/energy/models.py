@@ -5,7 +5,7 @@ Pydantic-Modelle zur Darstellung von Fahrzeugparametern und Segment-Ergebnissen.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class VehicleEnergyParameters(BaseModel):
@@ -42,10 +42,11 @@ class VehicleEnergyParameters(BaseModel):
     masse_kg: float = Field(
         default=1706.0,
         ge=1500.0,
-        le=1900.0,
+        le=2200.0,
         description="Fahrzeuggewicht in kg. Basis: "
         "Rear-Wheel Drive 3,759 lbs ≈ 1,706 kg. "
-        "Long Range AWD ≈ 1,828 kg, Performance ≈ 1,845 kg.",
+        "Long Range AWD ≈ 1,828 kg, Performance ≈ 1,845 kg. "
+        "Obere Grenze 2200 kg für alle Frontend-Presets.",
     )
 
     # Batterie & Antrieb
@@ -125,9 +126,8 @@ class VehicleEnergyParameters(BaseModel):
         """Passive Anpassung des cw-Werts bei Dachbox."""
         return v  # Wird in Berechnungsmethode berücksichtigt
 
-    @field_validator("rollwiderstandsbeiwert")
-    @classmethod
-    def adjust_cr_for_reifentyp(cls, v: float) -> float:
+    @model_validator(mode="after")
+    def adjust_cr_for_reifentyp(self) -> VehicleEnergyParameters:
         """Passive Anpassung des Rollwiderstands für verschiedene Reifentypen."""
         typ_factors = {
             "standard": 1.0,
@@ -135,7 +135,9 @@ class VehicleEnergyParameters(BaseModel):
             "low_rolling_resistance": 0.9,
             "performance": 1.1,
         }
-        return v * typ_factors.get("standard", 1.0)
+        factor = typ_factors.get(self.reifentyp, 1.0)
+        self.rollwiderstandsbeiwert *= factor
+        return self
 
 
 class SegmentEnergyResult(BaseModel):

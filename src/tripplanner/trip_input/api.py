@@ -7,6 +7,8 @@ Diese Modul implementiert:
 
 from __future__ import annotations
 
+import logging
+import traceback
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -501,7 +503,19 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
 # =============================================================================
 
 
+logger = logging.getLogger(__name__)
+
+
 app = FastAPI(title="Tesla Trip Planner API", version="0.1.0")
+
+
+@app.get("/health")
+async def health_check() -> dict[str, str]:
+    """Health-Check-Endpunkt.
+
+    Ermöglicht dem Frontend zu prüfen, ob das Backend erreichbar ist.
+    """
+    return {"status": "ok"}
 
 
 class WaypointAPI(BaseModel):
@@ -614,4 +628,7 @@ async def create_trip_endpoint(request: TripRequestAPI) -> TripSimulationResultA
             detail=f"Route nicht durchführbar: {e!s}",
         ) from e
     except Exception as e:
+        logger.exception(
+            "Fehler bei der Routensimulation: %s", e, extra={"traceback": traceback.format_exc()}
+        )
         raise HTTPException(status_code=500, detail=f"Simulation fehlgeschlagen: {e!s}") from e

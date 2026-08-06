@@ -54,7 +54,13 @@ export async function submitTripRequest(
         }
       }
     } catch {
-      // Antwort war kein JSON – Default-Meldung beibehalten.
+      // Antwort war kein JSON – leeren body auf Backend-Connectivity prüfen
+      if (response.status === 500) {
+        detail =
+          "Backend nicht erreichbar oder fehlerhaft. " +
+          "Stelle sicher, dass der Server unter http://localhost:8000 läuft " +
+          "(siehe README.md für Start-Kommando).";
+      }
     }
     throw new TripApiError(detail, response.status);
   }
