@@ -1,19 +1,24 @@
 """CLI-Entry-Point für trip_input: Reiseplanung über Typer-CLI.
 
-Aufruf: `python -m tripplanner.cli trips [OPTIONEN]`
+Aufruf: `python -m tripplanner.trip_input.cli trips [OPTIONEN]`
+        `python -m tripplanner.trip_input.cli charger refresh supercharge-info`
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
 import typer
 from pydantic import ValidationError
 
+from tripplanner.charging_infrastructure.client import TeslaLocationsClient
+from tripplanner.charging_infrastructure.providers import (
+    TeslaChargingStationProvider,
+)
 from tripplanner.trip_input.api import create_trip_simulation
 
 # Konstanten für CLI
@@ -22,6 +27,8 @@ _COORD_SEPARATOR = ","
 _DURATION_SEPARATOR = ":"
 
 app = typer.Typer(help="Tesla Trip Planner - CLI für Reiseplanung und Simulation")
+charger_app = typer.Typer(help="Supercharger-Daten von externen Quellen verwalten")
+app.add_typer(charger_app, name="charger")
 
 
 def parse_coord(s: str) -> tuple[float, float]:
@@ -157,6 +164,125 @@ def trips(  # noqa: PLR0913, PLR0917
     except Exception as e:
         typer.echo(f"Fehler bei der Berechnung: {e}", err=True)
         raise typer.Exit(code=1) from None
+
+
+@charger_app.command()
+def refresh(  # noqa: PLR0913, PLR0917
+    source: Annotated[
+        str,
+        typer.Argument(help="Datenquelle: 'supercharge-info' oder 'tesla'"),
+    ],
+    countries: Annotated[
+        str,
+        typer.Option("--countries", "-c", help="Länder (Komma-getrennt, default DE,DK,SE)"),
+    ] = "DE,DK,SE",
+    enrich: Annotated[
+        bool,
+        typer.Option("--enrich", "-e", help="Tesla-Detaildaten abrufen (Stallzahlen, Leistung)"),
+    ] = False,
+    resume_from: Annotated[
+        str | None,
+        typer.Option("--resume-from", "-r", help="Ab diesem Slug fortfahren (nach 403-Abbruch)"),
+    ] = None,
+    db_path: Annotated[
+        str | None,
+        typer.Option("--db-path", "-d", help="Pfad zur SQLite-Datenbank"),
+    ] = None,
+    debug: Annotated[
+        bool,
+        typer.Option("--debug", help="Request/Response-Debug-Log in charger_debug.log"),
+    ] = False,
+) -> None:
+    """Aktualisiert Supercharger-Daten von einer externen Quelle.
+
+    Die Daten werden in die lokale SQLite-Datenbank geladen und stehen
+    danach offline für Routenplanung zur Verfügung.
+
+    Bei Quelle 'tesla' wird zunaechst die Standortliste (get-locations)
+    abgerufen und gespeichert. Mit --enrich werden zusaetzlich Detaildaten
+    pro Station geholt (tqdm-Progress-Bar). Bei 403 wird abgebrochen und
+    der fehlgeschlagene Slug ausgegeben. Mit --resume-from kann spaeter
+    ab diesem Slug fortgefahren werden.
+
+    Beispiele:
+        python -m tripplanner.trip_input.cli charger refresh supercharge-info
+        python -m tripplanner.trip_input.cli charger refresh tesla
+        python -m tripplanner.trip_input.cli charger refresh tesla --enrich
+        python -m tripplanner.trip_input.cli charger refresh tesla
+            --enrich --resume-from rhudensupercharger
+        python -m tripplanner.trip_input.cli charger refresh supercharge-info
+            --debug
+    """
+    valid_sources = {"supercharge-info", "tesla"}
+    if source not in valid_sources:
+        typer.echo(
+            f"Ungültige Quelle '{source}'. Erlaubt: {', '.join(sorted(valid_sources))}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    country_list = [c.strip() for c in countries.split(",") if c.strip()]
+    if not country_list:
+        typer.echo("Mindestens ein Land muss angegeben werden.", err=True)
+        raise typer.Exit(code=1)
+
+    db_path_obj = Path(db_path) if db_path else None
+
+    debug_log: Path | None = None
+    if debug:
+        debug_log = Path.cwd() / "charger_debug.log"
+        # Leere Datei anlegen (vorherigen Inhalt verwerfen)
+        debug_log.write_text(f"=== charger refresh {source} {datetime.now(UTC).isoformat()} ===\n")
+        typer.echo(f"Debug-Log: {debug_log}")
+
+    typer.echo(f"Lade Supercharger-Daten von '{source}' für Länder: {', '.join(country_list)}...")
+
+    async def _run_refresh() -> int:
+        provider = TeslaChargingStationProvider(
+            db_path=db_path_obj,
+            debug_log=debug_log,
+        )
+        if source == "supercharge-info":
+            return await provider.refresh()
+        return await provider.refresh_from_tesla_api(
+            countries=country_list,
+            enrich_details=enrich,
+            resume_from_slug=resume_from,
+            delay_s=0.5,
+        )
+
+    try:
+        count = asyncio.run(_run_refresh())
+    except TeslaLocationsClient.CurlError as e:
+        typer.echo(
+            f"Tesla API nicht erreichbar: {e}\n"
+            "Hinweis: Die Tesla API ist durch Akamai WAF geschuetzt. "
+            "Bei wiederholten Fehlversuchen wird die IP temporaer "
+            "blockiert.\n"
+            "Alternativ 'charger refresh supercharge-info' nutzen.",
+            err=True,
+        )
+        raise typer.Exit(code=1) from e
+    except Exception as e:
+        typer.echo(f"Fehler beim Aktualisieren: {e}", err=True)
+        raise typer.Exit(code=1) from e
+
+    if count > 0:
+        typer.echo(f"Erfolgreich {count} Stationen geladen und gespeichert.")
+        return
+
+    if source == "tesla":
+        typer.echo(
+            "Keine Stationen geladen. Die Tesla API ist ggf. nicht "
+            "erreichbar (Rate-Limit oder WAF-Block).\n"
+            "Alternativ: 'charger refresh supercharge-info' "
+            "nutzen (kein WAF).",
+            err=True,
+        )
+    else:
+        typer.echo("Keine Stationen gefunden.", err=True)
+
+    raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,11 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { toLngLat } from "../utils/geo-utils";
 import { TripSimulationResult } from "../types";
 import type { Stop } from "../types/trip-request";
+import {
+  fetchSuperchargers,
+  refreshSupercharger,
+  type SuperchargerStation,
+} from "../api/chargingApi";
 
 // Farbpalette für SoC-Verlauf: rot → orange → gelb → grün
 export function socToColor(soc: number): string {
@@ -99,6 +104,105 @@ export function buildMarkerElement(role: StopRole): HTMLElement {
   return el;
 }
 
+/** Erzeugt ein gestyltes DOM-Element fuer einen Supercharger-Marker (Blitz-Symbol). */
+export function buildSuperchargerMarkerElement(): HTMLElement {
+  const el = document.createElement("div");
+  el.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="#ffffff" style="pointer-events:none;">
+    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+  </svg>`;
+  el.style.cssText = [
+    "display:flex",
+    "align-items:center",
+    "justify-content:center",
+    "width:28px",
+    "height:28px",
+    "border-radius:50%",
+    "background-color:#2563eb",
+    "border:2px solid #ffffff",
+    "box-shadow:0 1px 4px rgba(0,0,0,0.35)",
+    "cursor:pointer",
+  ].join(";");
+  return el;
+}
+
+/** Baut ein DOM-Element fuer ein Supercharger-Popover mit Refresh-Button. */
+export function buildSuperchargerPopoverElement(
+  station: SuperchargerStation,
+  isRefreshing: boolean,
+  onRefresh: () => void,
+): HTMLElement {
+  const statusColor =
+    station.status === "OPEN"
+      ? "#22c55e"
+      : station.status === "TEMP_CLOSED"
+        ? "#ef4444"
+        : "#f59e0b";
+
+  const container = document.createElement("div");
+  container.style.cssText =
+    "font-family:system-ui,sans-serif;font-size:13px;min-width:200px;";
+
+  const title = document.createElement("strong");
+  title.style.cssText = "font-size:14px;";
+  title.textContent = station.name;
+  container.appendChild(title);
+
+  const statusRow = document.createElement("div");
+  statusRow.style.cssText =
+    "margin:6px 0 4px;display:flex;gap:6px;align-items:center;";
+  const dot = document.createElement("span");
+  dot.style.cssText = `display:inline-block;width:8px;height:8px;border-radius:50%;background:${statusColor};`;
+  statusRow.appendChild(dot);
+  const statusText = document.createElement("span");
+  statusText.textContent = station.status;
+  statusRow.appendChild(statusText);
+  container.appendChild(statusRow);
+
+  const table = document.createElement("table");
+  table.style.cssText = "width:100%;border-collapse:collapse;";
+  const rows: [string, string][] = [
+    [
+      "Stalls",
+      `${station.total_stalls} (V2:${station.stalls_v2} V3:${station.stalls_v3} V4:${station.stalls_v4})`,
+    ],
+    ["Leistung", `${station.power_kilowatt} kW`],
+    ["24/7", station.ist_24_7 ? "Ja" : "Nein"],
+    ["Eroeffnet", station.date_opened || "Unbekannt"],
+  ];
+  for (const [label, value] of rows) {
+    const tr = document.createElement("tr");
+    const tdLabel = document.createElement("td");
+    tdLabel.style.cssText = "padding:2px 4px;color:#666;";
+    tdLabel.textContent = label;
+    tr.appendChild(tdLabel);
+    const tdValue = document.createElement("td");
+    tdValue.style.cssText = "padding:2px 4px;text-align:right;";
+    tdValue.textContent = value;
+    tr.appendChild(tdValue);
+    table.appendChild(tr);
+  }
+  container.appendChild(table);
+
+  const btnRow = document.createElement("div");
+  btnRow.style.cssText = "margin-top:6px;";
+  if (isRefreshing) {
+    const spinner = document.createElement("span");
+    spinner.style.cssText = "color:#666;font-style:italic;";
+    spinner.textContent = "Aktualisiere…";
+    btnRow.appendChild(spinner);
+  } else {
+    const btn = document.createElement("button");
+    btn.style.cssText =
+      "padding:4px 12px;background:#2563eb;color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;";
+    btn.textContent = "\u{1F504} Von Tesla aktualisieren";
+    btn.onclick = onRefresh;
+    btnRow.appendChild(btn);
+  }
+  container.appendChild(btnRow);
+
+  return container;
+}
+
 /** Popup-Text für einen Stopp: Adresse falls vorhanden, sonst Rolle + gerundete Koordinaten. */
 export function buildPopupText(stop: Stop, role: StopRole): string {
   if (stop.address) return stop.address;
@@ -119,6 +223,10 @@ interface MapProps {
   onPickPosition?: (stopId: string, position: [number, number]) => void;
   /** Callback beim Verschieben eines Stopp-Markers (dragend). */
   onStopMove?: (stopId: string, position: [number, number]) => void;
+  /** Ob die Supercharger-Overlay auf der Karte sichtbar ist. */
+  superchargerVisible?: boolean;
+  /** Callback zum Umschalten der Supercharger-Sichtbarkeit. */
+  onToggleSuperchargers?: () => void;
 }
 
 /** Map-Komponente für die Visualisierung der Simulationsergebnisse.
@@ -131,6 +239,8 @@ interface MapProps {
  *   draggable, mit Popup und dragend-Callback. Stopps ohne Position
  *   werden übersprungen.
  * - Kartenklick im Auswahlmodus (`pickingStopId`) liefert Koordinate zurück
+ * - Supercharger-Overlay mit Ein-/Ausblend-Toggle, Klick → Popover,
+ *   Refresh-Button (Browser ruft Tesla-API direkt auf)
  */
 export function MapVisualization({
   simulationResult,
@@ -138,6 +248,8 @@ export function MapVisualization({
   pickingStopId,
   onPickPosition,
   onStopMove,
+  superchargerVisible,
+  onToggleSuperchargers,
 }: MapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
@@ -149,6 +261,18 @@ export function MapVisualization({
   // Anzahl der zuletzt hinzugefügten Routensegmente (für Cleanup bei Wechsel
   // in den Planungsmodus ohne simulationResult)
   const segmentCountRef = useRef<number>(0);
+
+  // Supercharger-Overlay
+  const [superchargerStations, setSuperchargerStations] = useState<
+    SuperchargerStation[]
+  >([]);
+  const [superchargerLoading, setSuperchargerLoading] = useState(false);
+  const [superchargerError, setSuperchargerError] = useState<string | null>(
+    null,
+  );
+  const [refreshingSlug, setRefreshingSlug] = useState<string | null>(null);
+  const superchargerMarkersRef = useRef<Record<string, Marker>>({});
+  const activePopoverRef = useRef<Popup | null>(null);
 
   useEffect(() => {
     // Map initialisieren
@@ -173,30 +297,38 @@ export function MapVisualization({
     };
   }, []);
 
+  /** Entfernt alle Routen- und Marker-Sources/Layer aus der Karte. */
+  function clearSimulationLayers(map: Map) {
+    // Segment-Layer und -Quellen entfernen
+    const segmentCount = segmentCountRef.current;
+    for (let i = 0; i < segmentCount; i++) {
+      const layerId = `route-segment-${i}`;
+      if (map.getLayer(layerId)) map.removeLayer(layerId);
+      if (map.getSource(layerId)) map.removeSource(layerId);
+    }
+    segmentCountRef.current = 0;
+    // Haupt-Route
+    if (map.getLayer("route")) map.removeLayer("route");
+    if (map.getSource("route")) map.removeSource("route");
+    // Ladehalte
+    if (map.getLayer("charger-markers")) map.removeLayer("charger-markers");
+    if (map.getSource("chargers")) map.removeSource("chargers");
+    // Zwischenstopps
+    if (map.getLayer("waypoint-markers")) map.removeLayer("waypoint-markers");
+    if (map.getSource("waypoints")) map.removeSource("waypoints");
+  }
+
   useEffect(() => {
     if (!isMapLoaded || !mapRef.current) return;
     const map = mapRef.current;
 
-    // Wenn kein Simulationsergebnis vorhanden ist: bisherige Routen-/Marker-
-    // Quellen und Layer entfernen, damit der Planungsmodus sauber ist.
+    // IMMER zuerst alte Layer/Sources entfernen – egal ob wir in den
+    // Planungsmodus wechseln (simulationResult = null) oder ein neues
+    // Simulationsergebnis laden.
+    clearSimulationLayers(map);
+
+    // Wenn kein Simulationsergebnis vorhanden ist: hier aufhören.
     if (!simulationResult) {
-      // Segment-Layer und -Quellen entfernen ( IDs: route-segment-i )
-      const segmentCount = segmentCountRef.current;
-      for (let i = 0; i < segmentCount; i++) {
-        const layerId = `route-segment-${i}`;
-        if (map.getLayer(layerId)) map.removeLayer(layerId);
-        if (map.getSource(layerId)) map.removeSource(layerId);
-      }
-      segmentCountRef.current = 0;
-      // Haupt-Route
-      if (map.getLayer("route")) map.removeLayer("route");
-      if (map.getSource("route")) map.removeSource("route");
-      // Ladehalte
-      if (map.getLayer("charger-markers")) map.removeLayer("charger-markers");
-      if (map.getSource("chargers")) map.removeSource("chargers");
-      // Zwischenstopps
-      if (map.getLayer("waypoint-markers")) map.removeLayer("waypoint-markers");
-      if (map.getSource("waypoints")) map.removeSource("waypoints");
       return;
     }
 
@@ -214,24 +346,23 @@ export function MapVisualization({
       },
     };
 
-    // Bestehende Quellen entfernen, um Konflikte zu vermeiden
-    if (map.getSource("route")) {
-      map.removeSource("route");
-    }
-    if (map.getSource("chargers")) {
-      map.removeSource("chargers");
-    }
-    if (map.getSource("waypoints")) {
-      map.removeSource("waypoints");
-    }
-
-    // Route als GeoJSON Source hinzufügen
+    // Route als GeoJSON Source + Hauptlinie hinzufügen
     map.addSource("route", {
       type: "geojson" as const,
       data: routeGeoJson,
     });
+    map.addLayer({
+      id: "route",
+      type: "line" as const,
+      source: "route",
+      paint: {
+        "line-color": "#3b82f6",
+        "line-width": 3,
+        "line-opacity": 0.6,
+      } satisfies LayerSpecification["paint"],
+    } satisfies LayerSpecification);
 
-    // Route-Linie mit segmentierten Farben (kein echter Gradient, sondern viele einzelne Linien)
+    // Route-Linie mit segmentierten SoC-Farben (viele kleine Linienabschnitte)
     const frames = simulationResult.frames;
     const numSegments = Math.max(10, frames.length - 1);
 
@@ -273,19 +404,13 @@ export function MapVisualization({
         } satisfies LayerSpecification["paint"],
       } satisfies LayerSpecification);
     }
-    // Für das Cleanup beim Wechsel in den Planungsmodus merken
+    // Für das nächste Cleanup merken
     segmentCountRef.current = numSegments;
 
     // Ladehalte-Marker hinzufügen (aus SimulationResult)
-    // Wir simulieren hier Ladehalte, indem wir Frames mit Zustand 'LADEN' nutzen
     const chargerStops = simulationResult.frames.filter(
       (f) => f.zustand === "LADEN",
     );
-
-    // Entferne alte Marker-Source
-    if (map.getSource("chargers")) {
-      map.removeSource("chargers");
-    }
 
     if (chargerStops.length > 0) {
       const chargerCoords = chargerStops.map((f) => toLngLat(f.position));
@@ -344,10 +469,6 @@ export function MapVisualization({
         })),
       };
 
-      if (map.getSource("waypoints")) {
-        map.removeSource("waypoints");
-      }
-
       map.addSource("waypoints", {
         type: "geojson" as const,
         data: waypointsGeoJson,
@@ -366,9 +487,9 @@ export function MapVisualization({
       } satisfies LayerSpecification);
     }
 
-    // Kamera auf Route zentrieren
+    // Kamera auf gesamte Route zentrieren
     const bounds = routeCoordinates.reduce(
-      (bounds, coord) => bounds.extend(coord),
+      (b, coord) => b.extend(coord),
       new LngLatBounds(),
     );
     map.fitBounds(bounds, { padding: 50 });
@@ -459,12 +580,221 @@ export function MapVisualization({
     };
   }, [pickingStopId, isMapLoaded, onPickPosition]);
 
+  // Supercharger-Overlay: Daten laden und Marker rendern
+  useEffect(() => {
+    if (!isMapLoaded || !mapRef.current) return;
+    const map = mapRef.current;
+    const markers = superchargerMarkersRef.current;
+
+    if (!superchargerVisible) {
+      // Alle Supercharger-Marker entfernen
+      for (const id of Object.keys(markers)) {
+        markers[id].remove();
+        delete markers[id];
+      }
+      setSuperchargerStations([]);
+      setSuperchargerError(null);
+      return;
+    }
+
+    if (superchargerStations.length > 0) {
+      // Marker rendern (bereits geladen)
+      renderSuperchargerMarkers(map, markers, superchargerStations);
+      return;
+    }
+
+    if (superchargerLoading) return;
+
+    // Daten laden
+    setSuperchargerLoading(true);
+    setSuperchargerError(null);
+    fetchSuperchargers()
+      .then((stations) => {
+        setSuperchargerStations(stations);
+        setSuperchargerLoading(false);
+        renderSuperchargerMarkers(map, markers, stations);
+      })
+      .catch((err: unknown) => {
+        setSuperchargerLoading(false);
+        const msg = err instanceof Error ? err.message : "Unbekannter Fehler";
+        setSuperchargerError(msg);
+      });
+    // Wir muessen superchargerStations.length nicht in dependencies,
+    // da wir den state explizit setzen
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [superchargerVisible, isMapLoaded]);
+
+  /** Helfer: Rendert Supercharger-Marker auf der Karte. */
+  function renderSuperchargerMarkers(
+    map: Map,
+    markers: Record<string, Marker>,
+    stations: SuperchargerStation[],
+  ) {
+    const seen = new Set<string>();
+
+    for (const station of stations) {
+      const id = station.slug;
+      seen.add(id);
+
+      const existing = markers[id];
+      if (existing) {
+        existing.setLngLat([station.longitude, station.latitude]);
+      } else {
+        const element = buildSuperchargerMarkerElement();
+        const marker = new Marker({ element })
+          .setLngLat([station.longitude, station.latitude])
+          .addTo(map);
+
+        // Popover beim Klick: Details + Refresh-Button
+        // Hinweis: maplibre-gl's Marker feuert selbst nie ein "click"-Event
+        // (nur dragstart/drag/dragend) – daher Listener direkt am DOM-Element.
+        element.addEventListener("click", (e) => {
+          e.stopPropagation();
+          // Vorheriges Popover schliessen
+          activePopoverRef.current?.remove();
+
+          const popup = new Popup({ offset: 14, closeButton: true });
+          const popupEl = buildSuperchargerPopoverElement(
+            station,
+            refreshingSlug === station.slug,
+            () => handleSuperchargerRefresh(station, popup),
+          );
+          popup.setDOMContent(popupEl);
+          popup.setLngLat([station.longitude, station.latitude]);
+          popup.addTo(map);
+          activePopoverRef.current = popup;
+        });
+
+        markers[id] = marker;
+      }
+    }
+
+    // Marker entfernen, die nicht mehr in der Liste sind
+    for (const id of Object.keys(markers)) {
+      if (!seen.has(id)) {
+        markers[id].remove();
+        delete markers[id];
+      }
+    }
+  }
+
+  /** Helfer: Supercharger von Tesla aktualisieren und Popover neu bauen. */
+  async function handleSuperchargerRefresh(
+    station: SuperchargerStation,
+    popup: Popup,
+  ) {
+    const slug = station.slug;
+    setRefreshingSlug(slug);
+
+    try {
+      const updated = await refreshSupercharger(slug);
+
+      // Station in der Liste aktualisieren
+      setSuperchargerStations((prev) =>
+        prev.map((s) => (s.slug === slug ? updated : s)),
+      );
+
+      // Popover-Inhalt mit aktualisierten Daten neu bauen
+      const popupEl = buildSuperchargerPopoverElement(updated, false, () =>
+        handleSuperchargerRefresh(updated, popup),
+      );
+      popup.setDOMContent(popupEl);
+    } catch (err: unknown) {
+      // Fehler im Popover anzeigen, letzten bekannten Stand beibehalten
+      const msg = err instanceof Error ? err.message : "Fehler";
+      const popupEl = buildSuperchargerPopoverElement(station, false, () =>
+        handleSuperchargerRefresh(station, popup),
+      );
+      const errorBanner = document.createElement("div");
+      errorBanner.style.cssText =
+        "color:#ef4444;font-size:12px;margin-top:4px;";
+      errorBanner.textContent = `Fehler: ${msg}`;
+      popupEl.appendChild(errorBanner);
+      popup.setDOMContent(popupEl);
+    } finally {
+      setRefreshingSlug(null);
+    }
+  }
+
   return (
     <div
       className="map-container"
       ref={mapContainerRef}
       style={{ width: "100%", height: "100%" }}
-    />
+    >
+      {/* Supercharger-Toggle-Button */}
+      <button
+        onClick={onToggleSuperchargers}
+        style={{
+          position: "absolute",
+          top: "1rem",
+          left: "1rem",
+          zIndex: 10,
+          padding: "8px 14px",
+          fontSize: "13px",
+          fontWeight: 600,
+          border: "none",
+          borderRadius: "6px",
+          cursor: "pointer",
+          background: superchargerVisible ? "#2563eb" : "#ffffff",
+          color: superchargerVisible ? "#ffffff" : "#333333",
+          boxShadow: "0 1px 6px rgba(0,0,0,0.18)",
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+        }}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill={superchargerVisible ? "#fff" : "#2563eb"}
+        >
+          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+        </svg>
+        Supercharger
+      </button>
+
+      {/* Lade-Indikator */}
+      {superchargerLoading && (
+        <div
+          style={{
+            position: "absolute",
+            top: "1rem",
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 10,
+            padding: "6px 16px",
+            fontSize: "13px",
+            borderRadius: "6px",
+            background: "rgba(0,0,0,0.7)",
+            color: "#fff",
+          }}
+        >
+          Lade Supercharger…
+        </div>
+      )}
+
+      {/* Fehler-Indikator */}
+      {superchargerError && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "1rem",
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 10,
+            padding: "6px 16px",
+            fontSize: "13px",
+            borderRadius: "6px",
+            background: "#ef4444",
+            color: "#fff",
+          }}
+        >
+          {superchargerError}
+        </div>
+      )}
+    </div>
   );
 }
 

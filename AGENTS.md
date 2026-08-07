@@ -12,6 +12,37 @@ Code gilt nur dann als fertig, wenn **alle** der folgenden Punkte erfüllt sind 
 4. Die Coverage-Schwelle aus `docs/04-repo-tooling-setup.md` wird nicht unterschritten (85 % für `src/tripplanner/`).
 5. Keine neue Abhängigkeit zwischen Modulen außer über die in `models.py` definierten Schnittstellen (siehe `docs/03-modulspezifikationen.md`).
 
+## Services starten und stoppen
+
+Für Integrationstests und das manuelle Prüfen von API/Frontend wird **ausschließlich** `./run.sh` verwendet — nicht `uvicorn` direkt, nicht `npm run dev` direkt. Das Skript sorgt für:
+
+1. **Stoppen laufender Instanzen** vor dem Neustart — auch wenn sie von einem vorherigen Agenten-Lauf übrig sind.
+2. **Farbig markierte, identifizierbare Ausgabe** (`[BACKEND]` / `[FRONTEND]`) in einem gemeinsamen Terminal.
+3. **PID-Tracking in `.run/`**, sodass auch nach einem Session-Wechsel klar ist, was läuft.
+4. **Einheitliche Log-Dateien** (`.run/backend.log`, `.run/frontend.log`) für Debugging.
+
+```bash
+# Beide Dienste starten (Default; stoppt vorher, falls bereits etwas läuft)
+./run.sh start
+
+# Nur Backend
+./run.sh start backend
+
+# Nur Frontend
+./run.sh start frontend
+
+# Status prüfen
+./run.sh status
+
+# Stoppen
+./run.sh stop
+
+# Neu starten (stop + start)
+./run.sh restart
+```
+
+**Regel:** Agenten, die für eine Aufgabe Backend oder Frontend benötigen (Integrationstests, visuelle Prüfung, API-Tests gegen einen laufenden Server), starten die Dienste über `./run.sh` und beenden sie nach Abschluss der Aufgabe über `./run.sh stop`. Der direkte Aufruf von `uvicorn` oder `npm run dev` zum Start von Diensten ist nicht zulässig.
+
 ## Verbotene Abkürzungen
 
 Agenten dürfen **nicht**:

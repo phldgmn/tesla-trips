@@ -1,0 +1,11 @@
+services:
+  graphhopper:
+    image: israelhikingmap/graphhopper:11.0
+    container_name: tesla-trips-graphhopper
+    ports:
+      - "8989:8989"
+    volumes:
+      - ./data:/data
+    environment:
+      - GRAPHHOPPER_JAVA_OPTS=-Xms1g -Xmx4g
+    restart: unless-stopped

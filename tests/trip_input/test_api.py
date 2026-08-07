@@ -8,17 +8,24 @@ enthält:
 
 from __future__ import annotations
 
+import math
+from collections.abc import Iterator
 from datetime import datetime, timedelta
 
+import httpx
+import polyline
 import pytest
 from fastapi.testclient import TestClient
 
 import tripplanner.trip_input.api as trip_api
 from tripplanner.charging_infrastructure import FakeChargingStationProvider
+from tripplanner.charging_infrastructure.client import TeslaLocationsClient
+from tripplanner.charging_infrastructure.models import ChargingStation, ConnectorType, StallType
+from tripplanner.charging_infrastructure.providers import TeslaChargingStationProvider
 from tripplanner.construction.providers import FakeConstructionProvider
-from tripplanner.routing import FakeRoutingProvider
+from tripplanner.routing import FakeRoutingProvider, GraphHopperClient, GraphHopperRoutingProvider
 from tripplanner.routing.models import RouteSegment
-from tripplanner.trip_input.api import app, create_trip_simulation
+from tripplanner.trip_input.api import app, create_trip_simulation, get_routing_provider
 from tripplanner.trip_input.cli import parse_coord, parse_waypoint
 from tripplanner.trip_input.models import VehicleProfile, Waypoint
 from tripplanner.weather.providers import FakeWeatherProvider
@@ -53,9 +60,15 @@ def fake_construction_provider() -> FakeConstructionProvider:
 
 
 @pytest.fixture
-def client() -> TestClient:
-    """Erstelle TestClient für FastAPI-Endpunkte."""
-    return TestClient(app)
+def client() -> Iterator[TestClient]:
+    """TestClient für FastAPI-Endpunkte mit `FakeRoutingProvider` statt echtem
+    GraphHopper-Server (keine Live-Calls externer Datenquellen in Unit-Tests,
+    siehe AGENTS.md).
+    """
+    app.dependency_overrides[get_routing_provider] = FakeRoutingProvider
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.pop(get_routing_provider, None)
 
 
 @pytest.fixture
@@ -573,6 +586,296 @@ def test_fastapi_endpoint_mit_zwischenstopp(client: TestClient) -> None:
     assert response.status_code == 201
     data = response.json()
     assert len(data["frames"]) > 0
+
+
+# =============================================================================
+# Testfälle für GraphHopper-Provider-Wiring
+# =============================================================================
+
+
+def test_lifespan_uses_default_graphhopper_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ohne `GRAPHHOPPER_URL` wird der GraphHopper-Client mit dem dokumentierten
+    Default (`http://localhost:8989`) initialisiert.
+    """
+    monkeypatch.delenv("GRAPHHOPPER_URL", raising=False)
+    with TestClient(app):
+        gh_client = app.state.graphhopper_client
+        assert gh_client.base_url == "http://localhost:8989"
+
+
+def test_lifespan_respects_graphhopper_url_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`GRAPHHOPPER_URL` überschreibt die Default-Basis-URL des GraphHopper-Clients."""
+    monkeypatch.setenv("GRAPHHOPPER_URL", "http://gh.internal:9999")
+    with TestClient(app):
+        gh_client = app.state.graphhopper_client
+        assert gh_client.base_url == "http://gh.internal:9999"
+
+
+def _make_graphhopper_provider(handler: object) -> GraphHopperRoutingProvider:
+    """Baut einen `GraphHopperRoutingProvider` mit gemocktem HTTP-Transport
+    (keine Live-Calls, siehe AGENTS.md)."""
+    gh_client = GraphHopperClient(base_url="http://localhost:8989")
+    gh_client._client = httpx.AsyncClient(
+        base_url="http://localhost:8989",
+        timeout=60.0,
+        transport=httpx.MockTransport(handler),  # type: ignore[arg-type]
+    )
+    return GraphHopperRoutingProvider(client=gh_client)
+
+
+def _cross_track_distance_km(
+    point: tuple[float, float],
+    line_start: tuple[float, float],
+    line_end: tuple[float, float],
+) -> float:
+    """Senkrechter Abstand von `point` zur Geraden `line_start`-`line_end` in km.
+
+    Nutzt eine equirektangulare Näherung (Längengrad skaliert mit cos(mittlerer
+    Breite)) - ausreichend, um eine gekrümmte Route eindeutig von einer Luftlinie
+    zu unterscheiden, keine geodätische Präzision nötig.
+    """
+    lat0 = (line_start[0] + line_end[0]) / 2.0
+    km_per_deg_lat = 111.32
+    km_per_deg_lon = 111.32 * math.cos(math.radians(lat0))
+
+    def to_xy(p: tuple[float, float]) -> tuple[float, float]:
+        return (p[1] * km_per_deg_lon, p[0] * km_per_deg_lat)
+
+    sx, sy = to_xy(line_start)
+    ex, ey = to_xy(line_end)
+    px, py = to_xy(point)
+
+    dx, dy = ex - sx, ey - sy
+    line_len = math.hypot(dx, dy)
+    if line_len == 0:
+        return math.hypot(px - sx, py - sy)
+    return abs(dx * (sy - py) - (sx - px) * dy) / line_len
+
+
+def test_fastapi_endpoint_preserves_curved_graphhopper_geometry() -> None:
+    """Regressionstest: `/trips` nutzt GraphHopper-Geometrie (nicht die
+    Luftlinie zwischen Start und Ziel) - deckt den Bug ab, bei dem die Karte
+    unabhängig vom tatsächlichen Straßenverlauf nur eine gerade Linie zeigte.
+    """
+    # Kurze Strecke (~9 km) mit deutlichem seitlichem Schlenker, damit keine
+    # Ladehalte benötigt werden (isoliert diesen Test von der Ladeplan-
+    # Optimierung/Ladeinfrastruktur - reine Geometrie-Regression).
+    detour_points: list[tuple[float, float]] = [
+        (52.5200, 13.4050),
+        (52.5100, 13.4400),
+        (52.5050, 13.4700),
+        (52.5150, 13.4950),
+        (52.5300, 13.5200),
+    ]
+    encoded = polyline.encode(detour_points)
+    gh_response = {
+        "paths": [
+            {
+                "distance": 9_100.0,
+                "time": 900_000,
+                "points_encoded": True,
+                "points": encoded,
+                "details": {
+                    "road_class": ["PRIMARY"],
+                    "max_speed": [100],
+                    "average_slope": [0.0],
+                    "surface": ["asphalt"],
+                },
+                "instructions": [],
+            }
+        ],
+        "info": {"copyright": ["GraphHopper"], "hints": [], "took": 5},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/route"
+        return httpx.Response(200, json=gh_response)
+
+    provider = _make_graphhopper_provider(handler)
+    app.dependency_overrides[get_routing_provider] = lambda: provider
+    try:
+        with TestClient(app) as test_client:
+            api_request = {
+                "start": (52.5200, 13.4050),
+                "ziel": (52.5300, 13.5200),
+                "zwischenstopps": [],
+                "abfahrtszeit": "2026-08-15T08:30:00",
+                "fahrzeugprofil": _make_fahrzeugprofil_dict(),
+                "praeferenzen": {},
+            }
+            response = test_client.post("/trips", json=api_request)
+    finally:
+        app.dependency_overrides.pop(get_routing_provider, None)
+
+    assert response.status_code == 201
+    data = response.json()
+    positions = [tuple(f["position"]) for f in data["frames"]]
+    assert len(positions) > 2
+
+    start, end = positions[0], positions[-1]
+    max_offset_km = max(_cross_track_distance_km(p, start, end) for p in positions)
+    assert max_offset_km > 1.0, (
+        "Route-Frames liegen auf einer Luftlinie statt der gekrümmten "
+        f"GraphHopper-Geometrie zu folgen (max. Abweichung: {max_offset_km:.2f} km)"
+    )
+
+
+def test_fastapi_endpoint_graphhopper_unreachable_returns_502() -> None:
+    """Nicht erreichbarer GraphHopper-Server liefert 502 statt eines stillen
+    Fallbacks oder eines generischen 500ers.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    provider = _make_graphhopper_provider(handler)
+    app.dependency_overrides[get_routing_provider] = lambda: provider
+    try:
+        with TestClient(app) as test_client:
+            api_request = {
+                "start": (52.52, 13.405),
+                "ziel": (48.1351, 11.582),
+                "zwischenstopps": [],
+                "abfahrtszeit": "2026-08-15T08:30:00",
+                "fahrzeugprofil": _make_fahrzeugprofil_dict(),
+                "praeferenzen": {},
+            }
+            response = test_client.post("/trips", json=api_request)
+    finally:
+        app.dependency_overrides.pop(get_routing_provider, None)
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "GraphHopper" in detail or "Routing" in detail
+
+
+# =============================================================================
+# Testfälle für POST /superchargers/{slug}/refresh
+# =============================================================================
+
+
+def _make_test_charging_station() -> ChargingStation:
+    """Erzeugt eine ChargingStation fuer Mock-Rueckgaben in Refresh-Tests."""
+    return ChargingStation(
+        station_id="muenchensupercharger",
+        name="Tesla Supercharger - Muenchen",
+        coordinate=(48.13, 11.58),
+        stalls={StallType.V3: 16},
+        max_ladeleistung_kw=250.0,
+        connector_types=[ConnectorType.NACS],
+        country="DE",
+        ist_24_7=True,
+    )
+
+
+def test_refresh_supercharger_endpoint_success(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Erfolgreicher Refresh liefert 200 mit aktualisierten Stationsdaten."""
+
+    async def fake_refresh_single_station(
+        self: TeslaChargingStationProvider,
+        slug: str,
+        country: str | None = None,
+        tesla_client: object | None = None,
+    ) -> ChargingStation:
+        assert slug == "muenchensupercharger"
+        return _make_test_charging_station()
+
+    monkeypatch.setattr(
+        TeslaChargingStationProvider,
+        "refresh_single_station",
+        fake_refresh_single_station,
+    )
+
+    response = client.post("/superchargers/muenchensupercharger/refresh")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["slug"] == "muenchensupercharger"
+    assert data["total_stalls"] == 16
+
+
+def test_refresh_supercharger_endpoint_not_found(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unbekannter Slug / leere Tesla-Antwort liefert 404."""
+
+    async def fake_refresh_single_station(
+        self: TeslaChargingStationProvider,
+        slug: str,
+        country: str | None = None,
+        tesla_client: object | None = None,
+    ) -> ChargingStation | None:
+        return None
+
+    monkeypatch.setattr(
+        TeslaChargingStationProvider,
+        "refresh_single_station",
+        fake_refresh_single_station,
+    )
+
+    response = client.post("/superchargers/unknown-slug/refresh")
+
+    assert response.status_code == 404
+
+
+def test_refresh_supercharger_endpoint_waf_block(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WAF-Block/Netzwerkfehler (CurlError) wird als 502 durchgereicht."""
+
+    async def fake_refresh_single_station(
+        self: TeslaChargingStationProvider,
+        slug: str,
+        country: str | None = None,
+        tesla_client: object | None = None,
+    ) -> ChargingStation | None:
+        raise TeslaLocationsClient.CurlError("403 Access Denied")
+
+    monkeypatch.setattr(
+        TeslaChargingStationProvider,
+        "refresh_single_station",
+        fake_refresh_single_station,
+    )
+
+    response = client.post("/superchargers/muenchensupercharger/refresh")
+
+    assert response.status_code == 502
+
+
+def test_refresh_supercharger_endpoint_unmappable_response(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Tesla-Antwort ausserhalb des unterstuetzten Laenderraums (DE/DK/SE)
+    wird als 502 statt als unbehandelter 500 durchgereicht."""
+
+    async def fake_refresh_single_station(
+        self: TeslaChargingStationProvider,
+        slug: str,
+        country: str | None = None,
+        tesla_client: object | None = None,
+    ) -> ChargingStation | None:
+        # ChargingStation.country ist auf Literal["DE","DK","SE"] beschraenkt
+        return ChargingStation(
+            station_id="ukstation",
+            name="UK Supercharger",
+            coordinate=(52.0, -1.0),
+            stalls={StallType.V3: 8},
+            max_ladeleistung_kw=250.0,
+            connector_types=[ConnectorType.NACS],
+            country="GB",  # type: ignore[arg-type]
+        )
+
+    monkeypatch.setattr(
+        TeslaChargingStationProvider,
+        "refresh_single_station",
+        fake_refresh_single_station,
+    )
+
+    response = client.post("/superchargers/ukstation/refresh")
+
+    assert response.status_code == 502
 
 
 # =============================================================================

@@ -29,18 +29,16 @@ function formatZeitpunkt(iso: string | null): string {
   }
 }
 
-/** Liefert den deutschen Anzeigenamen eines Stopps basierend auf seinem
- *  Array-Index. */
-function roleLabel(idx: number, total: number): string {
-  if (idx === 0) return "Start";
-  if (idx === total - 1) return "Ziel";
-  return `Zwischenstopp ${idx}`;
+/** Kurzadresse: nur der erste Teil vor dem ersten Komma (Stadt oder Straße). */
+function shortAddress(address: string): string {
+  const comma = address.indexOf(",");
+  return comma > 0 ? address.slice(0, comma) : address;
 }
 
-/** Gibt die Anzeigeadresse eines Stopps zurück: Adressfeld falls vorhanden,
+/** Gibt eine kurze Anzeigeadresse eines Stopps zurück: Kurzform der Adresse,
  *  sonst gerundete Koordinaten, sonst "(unbekannt)". */
 function stopLabel(stop: Stop): string {
-  if (stop.address) return stop.address;
+  if (stop.address) return shortAddress(stop.address);
   if (stop.position) {
     return `(${stop.position[0].toFixed(4)}, ${stop.position[1].toFixed(4)})`;
   }
@@ -51,7 +49,12 @@ function TripSummary({ result, stops }: TripSummaryProps) {
   const timings = estimateWaypointTimings(result, stops);
 
   return (
-    <div style={{ padding: "1rem" }}>
+    <div
+      style={{
+        padding: "1rem",
+        fontFamily: "system-ui, -apple-system, sans-serif",
+      }}
+    >
       <h2 style={{ marginBottom: "0.75rem" }}>Reisezusammenfassung</h2>
 
       <table
@@ -102,10 +105,8 @@ function TripSummary({ result, stops }: TripSummaryProps) {
         <thead>
           <tr>
             <th style={headerCellStyle}>Stopp</th>
-            <th style={headerCellStyle}>Rolle</th>
             <th style={headerCellStyle}>Ankunft</th>
             <th style={headerCellStyle}>Abfahrt</th>
-            <th style={headerCellStyle}>Geplante Abfahrt</th>
           </tr>
         </thead>
         <tbody>
@@ -115,12 +116,8 @@ function TripSummary({ result, stops }: TripSummaryProps) {
             return (
               <tr key={stop.id}>
                 <td style={cellStyle}>{stopLabel(stop)}</td>
-                <td style={cellStyle}>{roleLabel(i, stops.length)}</td>
                 <td style={cellStyle}>{formatZeitpunkt(timing.arrival)}</td>
                 <td style={cellStyle}>{formatZeitpunkt(timing.departure)}</td>
-                <td style={cellStyle}>
-                  {stop.leaveAt ? formatZeitpunkt(stop.leaveAt) : "–"}
-                </td>
               </tr>
             );
           })}
@@ -132,7 +129,7 @@ function TripSummary({ result, stops }: TripSummaryProps) {
 
 function formatMinuten(min: number): string {
   const h = Math.floor(min / 60);
-  const m = min % 60;
+  const m = Math.round(min % 60);
   if (h > 0) return `${h} h ${m} min`;
   return `${m} min`;
 }

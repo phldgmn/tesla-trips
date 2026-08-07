@@ -21,7 +21,6 @@ from tripplanner.optimization.discretizer import (
     SOC_STEP_PCT_DEFAULT,
     TIME_STEP_MIN_DEFAULT,
     bucket_to_soc,
-    bucket_to_zeit,
     soc_to_bucket,
     zeit_to_bucket,
 )
@@ -172,7 +171,7 @@ class NetworkXOptimizer(OptimizerInterface):
             target_candidates = [
                 (seg_idx, soc_b, zeit_b)
                 for seg_idx, soc_b, zeit_b in G.nodes()
-                if seg_idx == len(segments) - 1 and soc_b >= ziel_soc_bucket
+                if seg_idx == len(segments) and soc_b >= ziel_soc_bucket
             ]
 
             if not target_candidates:
@@ -199,6 +198,7 @@ class NetworkXOptimizer(OptimizerInterface):
 
         # Extrahiere ChargingStop-Objekte aus dem Pfad
         ladehalte = self._extract_charging_stops(
+            G=G,
             path=path,
             segments=segments,
             charging_stations=charging_stations,
@@ -207,15 +207,14 @@ class NetworkXOptimizer(OptimizerInterface):
             constraints=constraints,
         )
 
-        # Berechne Gesamtreisezeit
+        # Berechne Gesamtreisezeit: der Zielknoten hat immer segment_index ==
+        # len(segments) (alle Segmente vollstaendig abgefahren). `zeitpunkt`
+        # ist die tatsaechliche kumulierte Ankunftszeit (siehe _add_drive_edge
+        # etc.) statt einer aus dem gerundeten Zeit-Bucket rekonstruierten
+        # Naeherung, die bei feingranularen Segmenten Praezision verlieren
+        # wuerde.
         last_node = path[-1]
-        last_zeitpunkt = bucket_to_zeit(last_node[2], abfahrtszeit, self.time_step_min)
-
-        # Addiere Fahrzeit des letzten Segments (falls Ziel nicht am Segmentende)
-        if last_node[0] < len(segments) - 1:
-            remaining_distance = sum(seg.laenge_m for seg in segments[last_node[0] + 1 :])
-            remaining_time_s = remaining_distance / (DEFAULT_SPEED_KMH * 1000 / 3600)
-            last_zeitpunkt += timedelta(seconds=remaining_time_s)
+        last_zeitpunkt = G.nodes[last_node]["zeitpunkt"]
 
         gesamtreisezeit = int((last_zeitpunkt - abfahrtszeit).total_seconds())
 
@@ -337,17 +336,19 @@ class NetworkXOptimizer(OptimizerInterface):
 
             seg_idx, soc_bucket, time_bucket = current
 
-            # Prüfe, ob Ziel erreicht
-            if seg_idx == len(segments) - 1 and soc_bucket >= ziel_soc_bucket:
+            # Prüfe, ob Ziel erreicht (alle Segmente abgefahren)
+            if seg_idx == len(segments) and soc_bucket >= ziel_soc_bucket:
                 continue  # Ziel erreicht, nicht weiter erweitern
 
-            # 1. Fahrtkante: Nächstes Segment fahren
-            if seg_idx < len(segments) - 1:
-                next_seg_idx = seg_idx + 1
+            # 1. Fahrtkante: naechstes noch zu befahrendes Segment fahren.
+            # seg_idx zaehlt bereits abgefahrene Segmente (0 = Start,
+            # len(segments) = Ziel erreicht); segments[seg_idx] ist also das
+            # naechste Segment, das noch gefahren werden muss.
+            if seg_idx < len(segments):
                 self._add_drive_edge(
                     G=G,
                     current=current,
-                    next_seg_idx=next_seg_idx,
+                    drive_seg_idx=seg_idx,
                     segments=segments,
                     energy_results=energy_results,
                     soc_bucket=soc_bucket,
@@ -394,7 +395,7 @@ class NetworkXOptimizer(OptimizerInterface):
         self,
         G: DiGraph,
         current: tuple[int, int, int],
-        next_seg_idx: int,
+        drive_seg_idx: int,
         segments: list[RouteSegment],
         energy_results: list[SegmentEnergyResult],
         soc_bucket: int,
@@ -405,9 +406,9 @@ class NetworkXOptimizer(OptimizerInterface):
         ladekurve: ChargingCurve,
         queue: list[tuple[int, int, int]],
     ) -> None:
-        """Füge eine Fahrtkante zum nächsten Segment hinzu."""
-        next_seg = segments[next_seg_idx]
-        energy_result = energy_results[next_seg_idx]
+        """Füge eine Fahrtkante für segments[drive_seg_idx] hinzu (naechstes Segment)."""
+        next_seg = segments[drive_seg_idx]
+        energy_result = energy_results[drive_seg_idx]
 
         # SoC-Verbrauch für dieses Segment
         verbrauch_pct = self._calc_soc_verbrauch_pct(
@@ -417,14 +418,27 @@ class NetworkXOptimizer(OptimizerInterface):
 
         new_soc_bucket = soc_bucket - round(verbrauch_pct / self.soc_step_pct)
 
-        # Prüfe, ob SoC unter Min-SoC fällt
+        # Prüfe, ob SoC unter Min-SoC (oder gar unter 0%) fällt. Der negative
+        # Bucket-Fall wird hier abgefangen, bevor bucket_to_soc() ihn als
+        # ungueltigen Bucket-Index zurueckweist -- ein negativer Bucket
+        # bedeutet schlicht "Reichweite reicht fuer dieses Segment nicht",
+        # also eine unzulaessige Kante wie jede andere Unterschreitung von
+        # min_soc_pct.
+        if new_soc_bucket < 0:
+            return  # Unzulässig
         new_soc_pct = bucket_to_soc(new_soc_bucket, self.soc_step_pct)
         if new_soc_pct < constraints.min_soc_pct:
             return  # Unzulässig
 
-        # Fahrzeit berechnen
+        # Fahrzeit berechnen. Der neue Zeit-Bucket wird aus der TATSAECHLICHEN
+        # kumulierten Zeit des Vorgaengerknotens abgeleitet (nicht inkrementell
+        # aus dem bereits gerundeten Bucket) -- sonst wuerde bei feingranularen
+        # Segmenten (z. B. Fake-Provider-Segmente von wenigen km, jeweils
+        # deutlich kuerzer als ein Zeit-Bucket) jede einzelne Fahrtkante auf 0
+        # Minuten abgerundet und die gesamte Fahrzeit ginge verloren.
         fahrzeit_s = next_seg.laenge_m / (DEFAULT_SPEED_KMH * 1000 / 3600)
-        new_time_bucket = time_bucket + int(fahrzeit_s / (self.time_step_min * 60))
+        neuer_zeitpunkt = G.nodes[current]["zeitpunkt"] + timedelta(seconds=fahrzeit_s)
+        new_time_bucket = zeit_to_bucket(neuer_zeitpunkt, self._base_time, self.time_step_min)
 
         if new_time_bucket > max_time_buckets:
             return  # Zeitlimit überschritten
@@ -432,6 +446,9 @@ class NetworkXOptimizer(OptimizerInterface):
         # Kosten berechnen
         kosten = fahrzeit_s  # Nur Fahrzeit, keine Ladezeit
 
+        # Nach dem Durchfahren von segments[drive_seg_idx] ist ein weiteres
+        # Segment abgefahren -> Landeknoten zaehlt eins mehr.
+        next_seg_idx = drive_seg_idx + 1
         next_node = (next_seg_idx, new_soc_bucket, new_time_bucket)
 
         if next_node not in G.nodes:
@@ -439,7 +456,7 @@ class NetworkXOptimizer(OptimizerInterface):
                 next_node,
                 type="drive",
                 soc_pct=new_soc_pct,
-                zeitpunkt=bucket_to_zeit(new_time_bucket, self._base_time, self.time_step_min),
+                zeitpunkt=neuer_zeitpunkt,
                 segment_index=next_seg_idx,
                 total_cost=COST_INF,
                 parent=None,
@@ -454,6 +471,7 @@ class NetworkXOptimizer(OptimizerInterface):
             G.add_edge(current, next_node, cost=kosten)
             G.nodes[next_node]["total_cost"] = new_total_cost
             G.nodes[next_node]["parent"] = current
+            G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
 
     def _add_charging_edges(  # noqa: PLR0913, PLR0917 -- Ladekanten-Konstruktion braucht den vollen Kantenkontext
         self,
@@ -507,7 +525,10 @@ class NetworkXOptimizer(OptimizerInterface):
                     continue  # Zu lange Ladezeit
 
                 new_soc_bucket = soc_to_bucket(Ziel_soc, self.soc_step_pct)
-                new_time_bucket = time_bucket + int(ladezeit_s / (self.time_step_min * 60))
+                neuer_zeitpunkt = G.nodes[current]["zeitpunkt"] + timedelta(seconds=ladezeit_s)
+                new_time_bucket = zeit_to_bucket(
+                    neuer_zeitpunkt, self._base_time, self.time_step_min
+                )
 
                 if new_time_bucket > max_time_buckets:
                     continue  # Zeitlimit überschritten
@@ -523,9 +544,7 @@ class NetworkXOptimizer(OptimizerInterface):
                         type="charge",
                         station_id=station.station_id,
                         soc_pct=Ziel_soc,
-                        zeitpunkt=bucket_to_zeit(
-                            new_time_bucket, self._base_time, self.time_step_min
-                        ),
+                        zeitpunkt=neuer_zeitpunkt,
                         segment_index=seg_idx,
                         total_cost=COST_INF,
                         parent=None,
@@ -539,6 +558,7 @@ class NetworkXOptimizer(OptimizerInterface):
                     G.add_edge(current, next_node, cost=kosten)
                     G.nodes[next_node]["total_cost"] = new_total_cost
                     G.nodes[next_node]["parent"] = current
+                    G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
 
     def _add_waypoint_wait_edge(  # noqa: PLR0913, PLR0917 -- Wartekanten-Konstruktion braucht den vollen Kantenkontext
         self,
@@ -555,7 +575,8 @@ class NetworkXOptimizer(OptimizerInterface):
             return
 
         wait_time_s = int(waypoint.aufenthaltsdauer.total_seconds())
-        new_time_bucket = time_bucket + int(wait_time_s / (self.time_step_min * 60))
+        neuer_zeitpunkt = G.nodes[current]["zeitpunkt"] + timedelta(seconds=wait_time_s)
+        new_time_bucket = zeit_to_bucket(neuer_zeitpunkt, self._base_time, self.time_step_min)
 
         if new_time_bucket > max_time_buckets:
             return  # Zeitlimit überschritten
@@ -571,7 +592,7 @@ class NetworkXOptimizer(OptimizerInterface):
                 type="waypoint_wait",
                 waypoint_koordinate=waypoint.koordinate,
                 soc_pct=bucket_to_soc(current[1], self.soc_step_pct),
-                zeitpunkt=bucket_to_zeit(new_time_bucket, self._base_time, self.time_step_min),
+                zeitpunkt=neuer_zeitpunkt,
                 segment_index=seg_idx,
                 total_cost=COST_INF,
                 parent=None,
@@ -585,6 +606,7 @@ class NetworkXOptimizer(OptimizerInterface):
             G.add_edge(current, next_node, cost=kosten)
             G.nodes[next_node]["total_cost"] = new_total_cost
             G.nodes[next_node]["parent"] = current
+            G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
 
     def _calc_soc_verbrauch_pct(
         self,
@@ -686,6 +708,7 @@ class NetworkXOptimizer(OptimizerInterface):
 
     def _extract_charging_stops(  # noqa: PLR0913, PLR0917 -- Pfad-Extraktion braucht den vollen Ladeplan-Kontext
         self,
+        G: DiGraph,
         path: list[tuple[int, int, int]],
         segments: list[RouteSegment],
         charging_stations: list[ChargingStation],
@@ -723,7 +746,7 @@ class NetworkXOptimizer(OptimizerInterface):
                     )
 
                     # Zeitpunkte
-                    start_zeit = bucket_to_zeit(prev_node[2], self._base_time, self.time_step_min)
+                    start_zeit = G.nodes[prev_node]["zeitpunkt"]
                     end_zeit = start_zeit + timedelta(seconds=ladezeit_s)
 
                     ladehalte.append(

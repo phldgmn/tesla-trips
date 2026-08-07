@@ -9,7 +9,7 @@ Exportiert:
 - Coordinate: Typ-Alias für (lat, lon) Koordinaten
 - GraphHopperResponse, GraphHopperPath: Internes Response-Mapping
 - RoutingProvider: Interface für Routing-Anbieter
-- FakeRoutingProvider: Fake-Implementierung für Tests
+- GraphHopperRoutingProvider: Implementierung über GraphHopper HTTP API
 - GraphHopperClient: HTTP-Client für GraphHopper API
 """
 
@@ -21,7 +21,11 @@ from tripplanner.routing.models import (
     Route,
     RouteSegment,
 )
-from tripplanner.routing.providers import FakeRoutingProvider, RoutingProvider
+from tripplanner.routing.providers import (
+    FakeRoutingProvider,
+    GraphHopperRoutingProvider,
+    RoutingProvider,
+)
 
 __all__ = [
     "Coordinate",
@@ -29,6 +33,7 @@ __all__ = [
     "GraphHopperClient",
     "GraphHopperPath",
     "GraphHopperResponse",
+    "GraphHopperRoutingProvider",
     "Route",
     "RouteSegment",
     "RoutingProvider",

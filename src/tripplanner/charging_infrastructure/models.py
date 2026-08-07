@@ -208,3 +208,53 @@ class ChargingStationProvider(Protocol):
             (nur Segmente mit mindestens einer Station)
         """
         raise NotImplementedError
+
+
+class ChargingPricingTier(BaseModel):
+    """Ein Preistier mit optionalen zeitbasierten Raten.
+
+    Kann eine Flatrate (time_label=None) oder zeitabhängige Raten abbilden.
+    """
+
+    tier_label: str = Field(
+        ...,
+        description='Name des Preistiers, z.B. "Charging Fees for Tesla Owner"',
+    )
+    time_label: str | None = Field(
+        default=None,
+        description=(
+            'Zeitfenster als Text, z.B. "4:00 PM - 8:00 PM". None = Flatrate (immer gültig)'
+        ),
+    )
+    currency: str = Field(
+        ...,
+        min_length=3,
+        max_length=3,
+        description="Währung als ISO-4217-Code (EUR, SEK, DKK, ...)",
+    )
+    amount: float = Field(
+        ...,
+        gt=0,
+        description="Preis pro Einheit (z.B. 0.39 EUR/kWh)",
+    )
+    unit: Literal["kWh", "min"] = Field(
+        ...,
+        description='Abrechnungseinheit: "kWh" (Energie) oder "min" (Zeit)',
+    )
+    idle_fee_text: str | None = Field(
+        default=None,
+        description="Idle-Fee als Rohtext, z.B. '0.50 EUR/min idle'",
+    )
+
+
+class ChargingStationWithPricing(BaseModel):
+    """ChargingStation mit zugehörigen Preisdaten."""
+
+    station: ChargingStation = Field(
+        ...,
+        description="Die zugehörige Ladestation",
+    )
+    pricing: list[ChargingPricingTier] = Field(
+        default_factory=list,
+        description="Preisinformationen für diese Station",
+    )

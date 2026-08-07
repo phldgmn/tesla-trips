@@ -217,7 +217,15 @@ class TestNetworkXOptimizer:
         assert plan.min_zwischenstopp_ankunftszeit == {}
 
     def test_grenzfall_minimaler_soc(self) -> None:
-        """Test: Grenzfall - Start-SoC knapp unter Verbrauch → muss laden."""
+        """Test: Grenzfall - Start-SoC knapp unter Verbrauch → muss laden.
+
+        `ziel_soc_pct=45.0`: das einzige Segment kostet 40% SoC (25 kWh von
+        62.5 kWh); ein Ankunfts-Ziel von >55% waere selbst mit einer Vollladung
+        (100%) am Start physikalisch unerreichbar. 45% (minus 5% Reserve = 40%
+        Ziel-Bucket) ist mit einer Ladung auf 80-90% erreichbar und erfordert
+        dennoch zwingend einen Ladehalt, da der Start-SoC (20%) allein nicht
+        einmal die Segmentfahrt selbst decken wuerde.
+        """
         route = Route(
             segments=[
                 RouteSegment(
@@ -256,7 +264,7 @@ class TestNetworkXOptimizer:
 
         constraints = OptimizationConstraints(
             min_soc_pct=15.0,
-            ziel_soc_pct=80.0,
+            ziel_soc_pct=45.0,
         )
 
         station = ChargingStation(

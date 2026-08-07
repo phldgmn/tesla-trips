@@ -8,7 +8,9 @@ import pytest
 from pydantic import ValidationError
 
 from tripplanner.charging_infrastructure.models import (
+    ChargingPricingTier,
     ChargingStation,
+    ChargingStationWithPricing,
     ConnectorType,
     StallType,
 )
@@ -279,3 +281,116 @@ def sample_station() -> ChargingStation:
         country="DE",
         letzte_datenAktualisierung=datetime.now(UTC),
     )
+
+
+class TestChargingPricingTier:
+    """Tests für das ChargingPricingTier-Modell."""
+
+    def test_minimal_pricing_tier(self) -> None:
+        """Testet Minimal-Erzeugung (nur Pflichtfelder)."""
+        tier = ChargingPricingTier(
+            tier_label="Charging Fees for Tesla Owner",
+            currency="EUR",
+            amount=0.39,
+            unit="kWh",
+        )
+        assert tier.tier_label == "Charging Fees for Tesla Owner"
+        assert tier.currency == "EUR"
+        assert tier.amount == 0.39
+        assert tier.unit == "kWh"
+        assert tier.time_label is None
+        assert tier.idle_fee_text is None
+
+    def test_full_pricing_tier(self) -> None:
+        """Testet vollständige Erzeugung mit allen Feldern."""
+        tier = ChargingPricingTier(
+            tier_label="Charging Fees for Other EV",
+            time_label="4:00 PM - 8:00 PM",
+            currency="DKK",
+            amount=1.75,
+            unit="kWh",
+            idle_fee_text="0.50 EUR/min idle",
+        )
+        assert tier.time_label == "4:00 PM - 8:00 PM"
+        assert tier.currency == "DKK"
+        assert tier.amount == 1.75
+        assert tier.idle_fee_text == "0.50 EUR/min idle"
+
+    def test_validation_amount_must_be_positive(self) -> None:
+        """Negativer oder Null-Preis muss fehlschlagen."""
+        with pytest.raises(ValidationError):
+            ChargingPricingTier(
+                tier_label="Test",
+                currency="EUR",
+                amount=0,
+                unit="kWh",
+            )
+        with pytest.raises(ValidationError):
+            ChargingPricingTier(
+                tier_label="Test",
+                currency="EUR",
+                amount=-1.0,
+                unit="kWh",
+            )
+
+    def test_validation_currency_length(self) -> None:
+        """Falsche Währungslänge muss fehlschlagen."""
+        with pytest.raises(ValidationError):
+            ChargingPricingTier(
+                tier_label="Test",
+                currency="EURO",
+                amount=0.39,
+                unit="kWh",
+            )
+        with pytest.raises(ValidationError):
+            ChargingPricingTier(
+                tier_label="Test",
+                currency="EU",
+                amount=0.39,
+                unit="kWh",
+            )
+
+    def test_validation_unit_must_be_kwh_or_min(self) -> None:
+        """Ungültige Einheit muss fehlschlagen."""
+        with pytest.raises(ValidationError):
+            ChargingPricingTier(
+                tier_label="Test",
+                currency="EUR",
+                amount=0.39,
+                unit="hour",  # type: ignore[arg-type]
+            )
+
+    def test_min_unit(self) -> None:
+        """Testet Abrechnung pro Minute."""
+        tier = ChargingPricingTier(
+            tier_label="Idle Fee",
+            currency="EUR",
+            amount=0.50,
+            unit="min",
+        )
+        assert tier.unit == "min"
+
+
+class TestChargingStationWithPricing:
+    """Tests für das ChargingStationWithPricing-Modell."""
+
+    def test_minimal(self, sample_station: ChargingStation) -> None:
+        """Testet Minimal-Erzeugung (nur Station, kein Pricing)."""
+        swp = ChargingStationWithPricing(station=sample_station)
+        assert swp.station.station_id == "test-001"
+        assert swp.pricing == []
+
+    def test_with_pricing(self, sample_station: ChargingStation) -> None:
+        """Testet Erzeugung mit Pricing-Daten."""
+        tiers = [
+            ChargingPricingTier(
+                tier_label="Charging Fees for Tesla Owner",
+                currency="EUR",
+                amount=0.39,
+                unit="kWh",
+            ),
+        ]
+        swp = ChargingStationWithPricing(station=sample_station, pricing=tiers)
+        assert len(swp.pricing) == 1
+        assert swp.pricing[0].amount == 0.39
+        assert swp.pricing[0].currency == "EUR"

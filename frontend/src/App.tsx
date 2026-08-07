@@ -45,6 +45,7 @@ export function App() {
   >(undefined);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [superchargerVisible, setSuperchargerVisible] = useState(false);
 
   /** Einmaliger Kartenklick im Auswahlmodus: Koordinate speichern,
    *  dann den Auswahlmodus verlassen. */
@@ -107,6 +108,8 @@ export function App() {
           pickingStopId={pickingStopId}
           onPickPosition={handlePickPosition}
           onStopMove={handleStopMove}
+          superchargerVisible={superchargerVisible}
+          onToggleSuperchargers={() => setSuperchargerVisible((v) => !v)}
         />
         {simulationResult && (
           <div

@@ -17,6 +17,7 @@ dependencies = [
     "shapely>=2.0.0",
     "geographiclib>=2.0",
     "polyline>=2.0.0",
+    "tqdm>=4.66.0",
 ]
 
 [dependency-groups]
@@ -30,6 +31,9 @@ dev = [
     "mkdocs-material>=9.5.0",
     "mkdocstrings[python]>=0.26.0",
 ]
+
+[project.scripts]
+ttp = "tripplanner.trip_input.cli:app"
 
 [build-system]
 requires = ["hatchling"]

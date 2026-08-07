@@ -40,23 +40,23 @@ class TestInitChargingInfrastructure:
 
     def test_init_with_explicit_data_path(self) -> None:
         """Test Initialisierung mit explizitem data_path."""
-        init_charging_infrastructure(data_path=FIXTURE_PATH)
+        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
         assert ci_module._DEFAULT_PROVIDER is not None
         assert isinstance(ci_module._DEFAULT_PROVIDER, LocalFileChargingStationProvider)
         assert ci_module._DEFAULT_PROVIDER.data_path == FIXTURE_PATH
 
     def test_init_with_none_uses_default_path(self) -> None:
         """Test Initialisierung ohne data_path nutzt Default-Pfad."""
-        init_charging_infrastructure(data_path=None)
+        init_charging_infrastructure(data_path=None, provider_type="local_file")
         assert ci_module._DEFAULT_PROVIDER is not None
         assert isinstance(ci_module._DEFAULT_PROVIDER, LocalFileChargingStationProvider)
 
     def test_init_idempotent_second_call_reuses_provider(self) -> None:
         """Test: Zweiter Aufruf gibt bestehenden Provider zurück (kein Neuerstellen)."""
-        init_charging_infrastructure(data_path=FIXTURE_PATH)
+        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
         first_provider = ci_module._DEFAULT_PROVIDER
 
-        init_charging_infrastructure(data_path=FIXTURE_PATH)
+        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
         second_provider = ci_module._DEFAULT_PROVIDER
 
         assert first_provider is second_provider
@@ -64,10 +64,10 @@ class TestInitChargingInfrastructure:
     def test_init_with_different_path_after_first_call_ignored(self) -> None:
         """Test: Bei zweitem Aufruf mit anderem Pfad wird der erste Provider beibehalten."""
         other_fixture = Path("/tmp/nonexistent.json")
-        init_charging_infrastructure(data_path=FIXTURE_PATH)
+        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
         first_provider = ci_module._DEFAULT_PROVIDER
 
-        init_charging_infrastructure(data_path=other_fixture)
+        init_charging_infrastructure(data_path=other_fixture, provider_type="local_file")
         second_provider = ci_module._DEFAULT_PROVIDER
 
         assert first_provider is second_provider
@@ -81,7 +81,7 @@ class TestGetChargingStationsInRadius:
     async def test_auto_initializes_provider(self) -> None:
         """Test: Funktion initialisiert Provider automatisch bei Bedarf."""
         assert ci_module._DEFAULT_PROVIDER is None
-        init_charging_infrastructure(data_path=FIXTURE_PATH)
+        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
 
         coordinate: Coordinate = (52.5200, 13.4050)
         stations = await get_charging_stations_in_radius(coordinate, radius_km=10.0)
@@ -93,7 +93,7 @@ class TestGetChargingStationsInRadius:
     @pytest.mark.asyncio
     async def test_returns_stations_sorted_by_distance(self) -> None:
         """Test: Stationen sind nach Distanz sortiert."""
-        init_charging_infrastructure(data_path=FIXTURE_PATH)
+        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
         coordinate: Coordinate = (52.5200, 13.4050)
 
         stations = await get_charging_stations_in_radius(coordinate, radius_km=50.0)
@@ -105,7 +105,7 @@ class TestGetChargingStationsInRadius:
     @pytest.mark.asyncio
     async def test_country_filter(self) -> None:
         """Test: Länderfilter funktioniert."""
-        init_charging_infrastructure(data_path=FIXTURE_PATH)
+        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
         coordinate: Coordinate = (52.5200, 13.4050)
 
         stations_de = await get_charging_stations_in_radius(
@@ -121,7 +121,7 @@ class TestGetChargingStationsInRadius:
     @pytest.mark.asyncio
     async def test_empty_result_for_small_radius(self) -> None:
         """Test: Leeres Ergebnis bei sehr kleinem Radius weit weg von Stationen."""
-        init_charging_infrastructure(data_path=FIXTURE_PATH)
+        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
         coordinate: Coordinate = (0.0, 0.0)
 
         stations = await get_charging_stations_in_radius(coordinate, radius_km=1.0)
@@ -161,7 +161,7 @@ class TestGetChargingStationsAlongRoute:
         assert ci_module._DEFAULT_PROVIDER is None
 
         route = self._create_test_route()
-        init_charging_infrastructure(data_path=FIXTURE_PATH)
+        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
 
         result = await get_charging_stations_along_route(route, search_radius_km=5.0)
 
@@ -171,7 +171,7 @@ class TestGetChargingStationsAlongRoute:
     @pytest.mark.asyncio
     async def test_returns_dict_with_segment_indices(self) -> None:
         """Test: Ergebnis ist Dict mit Segment-Indizes als Keys."""
-        init_charging_infrastructure(data_path=FIXTURE_PATH)
+        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
 
         route = self._create_test_route()
 
@@ -190,7 +190,7 @@ class TestGetChargingStationsAlongRoute:
     @pytest.mark.asyncio
     async def test_different_search_radius(self) -> None:
         """Test: Unterschiedliche Suchradien liefern unterschiedliche Ergebnisse."""
-        init_charging_infrastructure(data_path=FIXTURE_PATH)
+        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
 
         route = self._create_test_route()
 
@@ -204,7 +204,7 @@ class TestGetChargingStationsAlongRoute:
     @pytest.mark.asyncio
     async def test_empty_route_segments(self) -> None:
         """Test: Route ohne Segmente liefert leeres Dict."""
-        init_charging_infrastructure(data_path=FIXTURE_PATH)
+        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
 
         route = Route(
             segments=[],

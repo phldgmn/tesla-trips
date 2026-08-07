@@ -8,16 +8,26 @@ Diese Modul implementiert:
 from __future__ import annotations
 
 import logging
+import os
 import traceback
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+import httpx
+from fastapi import Depends, FastAPI, HTTPException, Request
+from pydantic import BaseModel, Field, ValidationError
 
 from tripplanner.charging_infrastructure import (
     ChargingStation,
     FakeChargingStationProvider,
+    StallType,
+    get_all_charging_stations,
+)
+from tripplanner.charging_infrastructure.client import TeslaLocationsClient
+from tripplanner.charging_infrastructure.providers import (
+    TeslaChargingStationProvider,
 )
 from tripplanner.construction.models import ConstructionZone, Land
 from tripplanner.construction.providers import FakeConstructionProvider
@@ -29,7 +39,12 @@ from tripplanner.energy.models import SegmentEnergyResult, VehicleEnergyParamete
 from tripplanner.geo import haversine_distance_m
 from tripplanner.optimization import create_networkx_optimizer
 from tripplanner.optimization.models import ChargingPlan, OptimizationConstraints
-from tripplanner.routing import FakeRoutingProvider, RoutingProvider
+from tripplanner.routing import (
+    FakeRoutingProvider,
+    GraphHopperClient,
+    GraphHopperRoutingProvider,
+    RoutingProvider,
+)
 from tripplanner.routing.models import Coordinate, Route, RouteSegment
 from tripplanner.simulation import simulate_trip
 from tripplanner.simulation.models import TripSimulationResult
@@ -41,6 +56,17 @@ from tripplanner.wind.models import WindComponents
 
 if TYPE_CHECKING:
     pass
+
+# =============================================================================
+# GraphHopper-Konfiguration
+# =============================================================================
+
+# Umgebungsvariable für die GraphHopper-Basis-URL (siehe README.md,
+# .github/workflows/ci.yml).
+GRAPHHOPPER_URL_ENV_VAR = "GRAPHHOPPER_URL"
+
+# Default-Basis-URL, falls GRAPHHOPPER_URL nicht gesetzt ist.
+DEFAULT_GRAPHHOPPER_BASE_URL = "http://localhost:8989"
 
 # =============================================================================
 # Helper-Funktionen für die 11 Datenfluss-Schritte
@@ -506,7 +532,37 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
 logger = logging.getLogger(__name__)
 
 
-app = FastAPI(title="Tesla Trip Planner API", version="0.1.0")
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Verwaltet den Lebenszyklus des GraphHopper-HTTP-Clients für den Prozess.
+
+    Der Client wird einmalig beim Start erzeugt (Connection-Pooling über alle
+    Requests hinweg) und beim Shutdown sauber geschlossen, statt pro Request
+    neu aufgebaut zu werden. Die Basis-URL ist über die Umgebungsvariable
+    `GRAPHHOPPER_URL` konfigurierbar (Default: `http://localhost:8989`,
+    siehe README.md).
+    """
+    base_url = os.environ.get(GRAPHHOPPER_URL_ENV_VAR, DEFAULT_GRAPHHOPPER_BASE_URL)
+    app.state.graphhopper_client = GraphHopperClient(base_url=base_url)
+    try:
+        yield
+    finally:
+        await app.state.graphhopper_client.close()
+
+
+app = FastAPI(title="Tesla Trip Planner API", version="0.1.0", lifespan=_lifespan)
+
+
+def get_routing_provider(request: Request) -> RoutingProvider:
+    """FastAPI-Dependency: liefert den produktiven RoutingProvider für `/trips`.
+
+    Nutzt den in `_lifespan` erzeugten, prozessweit wiederverwendeten
+    `GraphHopperClient` für echtes Straßenrouting über OSM-Daten. In Tests via
+    `app.dependency_overrides[get_routing_provider]` durch `FakeRoutingProvider`
+    ersetzbar (siehe AGENTS.md: keine Live-Calls externer Datenquellen in
+    Unit-Tests).
+    """
+    return GraphHopperRoutingProvider(request.app.state.graphhopper_client)
 
 
 @app.get("/health")
@@ -516,6 +572,150 @@ async def health_check() -> dict[str, str]:
     Ermöglicht dem Frontend zu prüfen, ob das Backend erreichbar ist.
     """
     return {"status": "ok"}
+
+
+# ── Supercharger API ─────────────────────────────────────────────────────
+
+
+class SuperchargerStationAPI(BaseModel):
+    """API-Response-Modell fuer eine Supercharger-Station."""
+
+    slug: str = Field(..., description="tesla_location_id (location_url_slug)")
+    name: str = Field(..., description="Standortname")
+    latitude: float = Field(..., description="WGS84 Breitengrad")
+    longitude: float = Field(..., description="WGS84 Laengengrad")
+    country: str = Field(..., description="ISO-2 Laendercode")
+    total_stalls: int = Field(..., description="Anzahl Ladeplaetze")
+    power_kilowatt: int = Field(..., description="Maximale Ladeleistung kW")
+    status: str = Field(..., description="Betriebsstatus (OPEN, TEMP_CLOSED, ...)")
+    stalls_v2: int = Field(default=0)
+    stalls_v3: int = Field(default=0)
+    stalls_v3_ultra: int = Field(default=0)
+    stalls_v4: int = Field(default=0)
+    ist_24_7: bool = Field(default=True, description="24/7 zugaenglich")
+    date_opened: str | None = Field(default=None, description="Eroeffnungsdatum")
+
+
+class SuperchargerStationDetailAPI(SuperchargerStationAPI):
+    """Detaillierte API-Response fuer eine Supercharger-Station."""
+
+    connector_types: list[str] = Field(default_factory=list)
+    last_updated_utc: str = Field(..., description="Letzte Aktualisierung ISO-8601")
+    access_type: str | None = Field(default=None)
+    open_to_non_tesla: bool = Field(default=False)
+
+
+def _station_to_api(station: ChargingStation) -> SuperchargerStationAPI:
+    """Wandelt ein ChargingStation-Modell in das API-Response-Modell um."""
+    return SuperchargerStationAPI(
+        slug=station.station_id,
+        name=station.name.replace("Tesla Supercharger - ", ""),
+        latitude=station.coordinate[0],
+        longitude=station.coordinate[1],
+        country=station.country,
+        total_stalls=sum(station.stalls.values()) if station.stalls else 0,
+        power_kilowatt=int(station.max_ladeleistung_kw),
+        status=station.status,
+        stalls_v2=station.stalls.get(StallType.V2, 0) if station.stalls else 0,
+        stalls_v3=station.stalls.get(StallType.V3, 0) if station.stalls else 0,
+        stalls_v3_ultra=station.stalls.get(StallType.V3_ULTRA, 0) if station.stalls else 0,
+        stalls_v4=station.stalls.get(StallType.V4, 0) if station.stalls else 0,
+        ist_24_7=station.ist_24_7 if hasattr(station, "ist_24_7") else True,
+        date_opened=None,
+    )
+
+
+@app.get("/superchargers")
+async def list_superchargers(
+    country: str | None = None,
+) -> list[SuperchargerStationAPI]:
+    """Listet alle Supercharger-Stationen aus der Datenbank.
+
+    Args:
+        country: Optionaler ISO-2 Laenderfilter.
+
+    Returns:
+        Liste von SuperchargerStationAPI.
+    """
+    stations = get_all_charging_stations()
+    if country:
+        stations = [s for s in stations if s.country == country]
+    return [_station_to_api(s) for s in stations]
+
+
+@app.get("/superchargers/{slug}")
+async def get_supercharger_detail(
+    slug: str,
+) -> SuperchargerStationAPI:
+    """Liefert Details zu einer Supercharger-Station.
+
+    Args:
+        slug: tesla_location_id (location_url_slug).
+
+    Returns:
+        SuperchargerStationAPI.
+
+    Raises:
+        HTTPException: 404 wenn Station nicht gefunden.
+    """
+    stations = get_all_charging_stations()
+    station = next(
+        (s for s in stations if _station_to_api(s).slug == slug),
+        None,
+    )
+    if station is None:
+        raise HTTPException(status_code=404, detail="Station nicht gefunden")
+    return _station_to_api(station)
+
+
+@app.post("/superchargers/{slug}/refresh")
+async def refresh_supercharger(slug: str) -> SuperchargerStationAPI:
+    """Aktualisiert eine Supercharger-Station mit frischen Daten von der Tesla API.
+
+    Ruft die Tesla API server-seitig ueber System-curl auf (siehe
+    `TeslaLocationsClient`), der per SecureTransport-TLS-Fingerprint wie ein
+    echter Browser behandelt wird und so den Akamai-WAF-Block umgeht, dem
+    Python-HTTP-Clients (httpx) unterliegen. Ein direkter Cross-Origin-Fetch
+    aus dem Frontend-JS ist keine Alternative: die Tesla-API liefert keine
+    Access-Control-Allow-Origin-Header, wodurch der Browser das Lesen der
+    Antwort unabhaengig vom WAF-Status verweigert.
+
+    Args:
+        slug: tesla_location_id (location_url_slug).
+
+    Returns:
+        Aktualisierte SuperchargerStationAPI.
+
+    Raises:
+        HTTPException: 404 wenn Station unbekannt oder Tesla-API keine Daten
+            liefert, 502 bei WAF-Block, Netzwerkfehlern oder wenn die
+            Tesla-Antwort nicht auf ChargingStation abgebildet werden kann
+            (z. B. Land ausserhalb DE/DK/SE).
+    """
+    provider = TeslaChargingStationProvider()
+    try:
+        station = await provider.refresh_single_station(slug)
+    except TeslaLocationsClient.CurlError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Tesla API nicht erreichbar: {e}",
+        ) from e
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Tesla-Antwort konnte nicht verarbeitet werden: {e}",
+        ) from e
+    finally:
+        # Verbindung deterministisch schliessen: verhindert, dass eine
+        # offene Transaktion (z. B. nach einem Fehler) den SQLite-
+        # Schreibsperren-Lock fuer nachfolgende Requests blockiert.
+        provider._db.close()
+    if station is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Station nicht gefunden oder Tesla-API lieferte keine Daten",
+        )
+    return _station_to_api(station)
 
 
 class WaypointAPI(BaseModel):
@@ -572,10 +772,17 @@ class TripSimulationResultAPI(BaseModel):
 
 
 @app.post("/trips", response_model=TripSimulationResultAPI, status_code=201)
-async def create_trip_endpoint(request: TripRequestAPI) -> TripSimulationResultAPI:
+async def create_trip_endpoint(
+    request: TripRequestAPI,
+    # B008: Depends(...) im Default ist das FastAPI-Standardidiom für Dependency
+    # Injection, kein veränderliches Objekt/kein echter Bug (siehe FastAPI-Doku).
+    routing_provider: RoutingProvider = Depends(get_routing_provider),  # noqa: B008
+) -> TripSimulationResultAPI:
     """Erstellt eine neue Reise-Simulation.
 
     Nutzt `create_trip_simulation()` zur Orchestrierung aller 11 Datenfluss-Schritte.
+    Routing erfolgt über den echten GraphHopper-Server (`get_routing_provider`);
+    ohne laufenden Server (siehe README.md) schlägt der Request mit 502 fehl.
     """
     # TripRequestAPI nach TripRequest konvertieren
     anfrage_dict: dict[str, object] = {
@@ -601,6 +808,7 @@ async def create_trip_endpoint(request: TripRequestAPI) -> TripSimulationResultA
     try:
         ergebnis = await create_trip_simulation(
             anfrage_dict,
+            routing_provider=routing_provider,
             start_soc_pct=request.start_soc_pct,
             ziel_soc_pct=request.ziel_soc_pct,
         )
@@ -626,6 +834,11 @@ async def create_trip_endpoint(request: TripRequestAPI) -> TripSimulationResultA
         raise HTTPException(
             status_code=422,
             detail=f"Route nicht durchführbar: {e!s}",
+        ) from e
+    except httpx.HTTPError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Routing-Server (GraphHopper) nicht erreichbar oder lieferte einen Fehler: {e}",
         ) from e
     except Exception as e:
         logger.exception(

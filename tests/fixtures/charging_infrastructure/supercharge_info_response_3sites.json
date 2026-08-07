@@ -1,0 +1,65 @@
+[
+  {
+    "id": 3506,
+    "locationId": "BarcelonaUrbanessupercharger",
+    "name": "Barcelona, Spain - L'Illa Diagonal",
+    "status": "OPEN",
+    "address": {
+      "country": "Spain",
+      "region": "Europe"
+    },
+    "gps": { "latitude": 41.3895, "longitude": 2.1337 },
+    "stallCount": 4,
+    "powerKilowatt": 125,
+    "stalls": { "v2": 4 },
+    "plugs": { "ccs2": 4, "type2": 4 },
+    "dateOpened": "2021-07-01"
+  },
+  {
+    "id": 1234,
+    "name": "Testville, USA",
+    "status": "OPEN",
+    "address": {
+      "country": "USA",
+      "region": "North America"
+    },
+    "gps": { "latitude": 40.7128, "longitude": -74.0060 },
+    "stallCount": 4,
+    "powerKilowatt": 250,
+    "stalls": { "v3": 4 },
+    "plugs": { "nacs": 4 },
+    "dateOpened": "2022-01-01"
+  },
+  {
+    "id": 5678,
+    "locationId": "CopenhagenAirportsupercharger",
+    "name": "Copenhagen, Denmark - Kastrup",
+    "status": "OPEN",
+    "address": {
+      "country": "Denmark",
+      "region": "Europe"
+    },
+    "gps": { "latitude": 55.6182, "longitude": 12.6509 },
+    "stallCount": 8,
+    "powerKilowatt": 250,
+    "stalls": { "v3": 8 },
+    "plugs": { "ccs2": 8 },
+    "dateOpened": "2022-06-01"
+  },
+  {
+    "id": 9012,
+    "locationId": "MalmoUrbanessupercharger",
+    "name": "Malmö, Sweden - Urban",
+    "status": "OPEN",
+    "address": {
+      "country": "Sweden",
+      "region": "Europe"
+    },
+    "gps": { "latitude": 55.5941, "longitude": 13.0039 },
+    "stallCount": 8,
+    "powerKilowatt": 250,
+    "stalls": { "v3": 8 },
+    "plugs": { "ccs2": 8 },
+    "dateOpened": "2022-09-01"
+  }
+]

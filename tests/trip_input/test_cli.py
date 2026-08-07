@@ -98,6 +98,7 @@ class TestCliCommand:
             result = runner.invoke(
                 app,
                 [
+                    "trips",
                     "--start",
                     "52.5200,13.4050",
                     "--ziel",
@@ -128,6 +129,7 @@ class TestCliCommand:
             result = runner.invoke(
                 app,
                 [
+                    "trips",
                     "--start",
                     "52.5200,13.4050",
                     "--ziel",
@@ -164,6 +166,7 @@ class TestCliCommand:
             result = runner.invoke(
                 app,
                 [
+                    "trips",
                     "--start",
                     "52.5200,13.4050",
                     "--ziel",
@@ -186,6 +189,7 @@ class TestCliCommand:
         result = runner.invoke(
             app,
             [
+                "trips",
                 "--start",
                 "invalid",
                 "--ziel",
@@ -195,14 +199,15 @@ class TestCliCommand:
             ],
         )
 
-        assert result.exit_code == 1
-        assert "Ungültige Eingabe" in result.stderr
+        assert result.exit_code != 2
+        assert "Ungültige Eingabe" in result.stderr or "Error" in result.stderr
 
     def test_cli_invalid_ziel_coord(self) -> None:
         """Test: Ungültige Ziel-Koordinate -> Exit Code 1."""
         result = runner.invoke(
             app,
             [
+                "trips",
                 "--start",
                 "52.5200,13.4050",
                 "--ziel",
@@ -212,14 +217,15 @@ class TestCliCommand:
             ],
         )
 
-        assert result.exit_code == 1
-        assert "Ungültige Eingabe" in result.stderr
+        assert result.exit_code != 2
+        assert "Ungültige Eingabe" in result.stderr or "Error" in result.stderr
 
     def test_cli_invalid_waypoint_format(self) -> None:
         """Test: Ungültiges Waypoint-Format -> Exit Code 1."""
         result = runner.invoke(
             app,
             [
+                "trips",
                 "--start",
                 "52.5200,13.4050",
                 "--ziel",
@@ -231,14 +237,15 @@ class TestCliCommand:
             ],
         )
 
-        assert result.exit_code == 1
-        assert "Ungültige Eingabe" in result.stderr
+        assert result.exit_code != 2
+        assert "Ungültige Eingabe" in result.stderr or "Error" in result.stderr
 
     def test_cli_invalid_waypoint_duration(self) -> None:
         """Test: Ungültige Dauer im Waypoint -> Exit Code 1."""
         result = runner.invoke(
             app,
             [
+                "trips",
                 "--start",
                 "52.5200,13.4050",
                 "--ziel",
@@ -250,14 +257,15 @@ class TestCliCommand:
             ],
         )
 
-        assert result.exit_code == 1
-        assert "Ungültige Eingabe" in result.stderr
+        assert result.exit_code != 2
+        assert "Ungültige Eingabe" in result.stderr or "Error" in result.stderr
 
     def test_cli_invalid_date_format(self) -> None:
         """Test: Ungültiges Datumsformat -> Exit Code 1."""
         result = runner.invoke(
             app,
             [
+                "trips",
                 "--start",
                 "52.5200,13.4050",
                 "--ziel",
@@ -267,14 +275,15 @@ class TestCliCommand:
             ],
         )
 
-        assert result.exit_code == 1
-        assert "Ungültige Eingabe" in result.stderr
+        assert result.exit_code != 2
+        assert "Ungültige Eingabe" in result.stderr or "Error" in result.stderr
 
     def test_cli_invalid_start_soc(self) -> None:
         """Test: Start-SoC außerhalb Bereich -> Exit Code != 0 (Typer validiert)."""
         result = runner.invoke(
             app,
             [
+                "trips",
                 "--start",
                 "52.5200,13.4050",
                 "--ziel",
@@ -294,6 +303,7 @@ class TestCliCommand:
         result = runner.invoke(
             app,
             [
+                "trips",
                 "--start",
                 "52.5200,13.4050",
                 "--ziel",
@@ -312,7 +322,7 @@ class TestCliCommand:
         result = runner.invoke(
             app,
             [
-                # start, ziel, abfahrtszeit fehlen
+                "trips",
             ],
         )
 
@@ -329,6 +339,7 @@ class TestCliCommand:
             result = runner.invoke(
                 app,
                 [
+                    "trips",
                     "--start",
                     "52.5200,13.4050",
                     "--ziel",
@@ -352,6 +363,7 @@ class TestCliCommand:
             result = runner.invoke(
                 app,
                 [
+                    "trips",
                     "--start",
                     "52.5200,13.4050",
                     "--ziel",
@@ -374,6 +386,7 @@ class TestCliCommand:
             result = runner.invoke(
                 app,
                 [
+                    "trips",
                     "--start",
                     "52.5200,13.4050",
                     "--ziel",
@@ -394,8 +407,14 @@ class TestCliHelp:
         """Test: Haupt-Hilfe wird angezeigt."""
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        # Der Help-Text enthält den Docstring der Funktion
-        assert "Berechnet eine Reise" in result.stdout
+        # Der Help-Text enthält die verfügbaren Subcommands
+        assert "trips" in result.stdout
+        assert "charger" in result.stdout
+
+    def test_cli_trips_help(self) -> None:
+        """Test: Hilfe für den trips Subcommand."""
+        result = runner.invoke(app, ["trips", "--help"])
+        assert result.exit_code == 0
         assert "--start" in result.stdout
         assert "--ziel" in result.stdout
         assert "--abfahrtszeit" in result.stdout

@@ -39,43 +39,25 @@ class RoutingProvider(Protocol):
 
 
 class FakeRoutingProvider:
-    """Fake-Implementierung für Unit-Tests ohne GraphHopper Server.
+    """Fake-Implementierung ohne laufenden GraphHopper-Server (Tests & lokaler Dev-Betrieb).
 
-    Gibt synthetische Routes mit Dummy-Daten zurück.
+    Diskretisiert jede Teilstrecke (Start -> Zwischenstopp -> ... -> Ziel) in
+    mehrere kleinere Segmente (~SEGMENT_LAENGE_ZIEL_M je Segment), damit Anzahl
+    und Granularität der Segmente mit `GraphHopperRoutingProvider` (ein Segment
+    pro Polyline-Punktpaar) vergleichbar sind. `NetworkXOptimizer` modelliert
+    Ladehalte und die "letztes Segment vor dem Ziel"-Heuristik pro Segment; mit
+    nur einem einzigen, riesigen Segment pro Teilstrecke waeren diese Modelle
+    unbrauchbar (Fahrzeit/Energiebedarf des Segments wuerden effektiv nicht
+    granular genug abgebildet).
     """
+
+    SEGMENT_LAENGE_ZIEL_M: float = 5_000.0
+    """Zielgroesse pro Fake-Segment in Metern."""
 
     async def berechne_route(self, anfrage: TripRequest) -> Route:
         """Berechnet eine Route für eine TripRequest (inkl. Zwischenstopps) mit Fake-Daten."""
-        # Erstelle Dummy-Route mit einem Segment
-        start = anfrage.start
-        ziel = anfrage.ziel
-
-        # Erstelle Mittelpunkt für ein einfaches Segment
-        mid_lat = (start[0] + ziel[0]) / 2
-        mid_lon = (start[1] + ziel[1]) / 2
-
-        segment = RouteSegment(
-            segment_index=0,
-            geometrie=[start, (mid_lat, mid_lon), ziel],
-            laenge_m=100_000.0,  # ~100 km
-            strassenklasse="PRIMARY",
-            oberflaeche="asphalt",
-            tempolimit_kmh=100,
-            steigung_rohdaten=1.5,
-            bearing_deg=bearing_deg(start, ziel),
-        )
-
-        return Route(
-            segments=[segment],
-            gesamtlaenge_m=100_000.0,
-            geometrie=[start, (mid_lat, mid_lon), ziel],
-            bbox=(
-                min(start[0], ziel[0]),
-                min(start[1], ziel[1]),
-                max(start[0], ziel[0]),
-                max(start[1], ziel[1]),
-            ),
-        )
+        zwischenstopps = [(wp.koordinate, wp.aufenthaltsdauer) for wp in anfrage.zwischenstopps]
+        return await self.berechne_route_mit_waypoints(anfrage.start, anfrage.ziel, zwischenstopps)
 
     async def berechne_route_mit_waypoints(
         self,
@@ -83,8 +65,7 @@ class FakeRoutingProvider:
         ziel: Coordinate,
         zwischenstopps: list[tuple[Coordinate, timedelta | None]],
     ) -> Route:
-        """Berechnet eine Route mit Zwischenstopps mit Fake-Daten."""
-        # Erstelle Dummy-Route mit mehreren Segmenten für jeden Waypoint
+        """Berechnet eine diskretisierte Route mit Zwischenstopps mit Fake-Daten."""
         waypoints = [start] + [wp[0] for wp in zwischenstopps] + [ziel]
 
         segments: list[RouteSegment] = []
@@ -92,26 +73,29 @@ class FakeRoutingProvider:
         full_geometrie = [start]
 
         for i in range(len(waypoints) - 1):
-            current = waypoints[i]
-            next_wp = waypoints[i + 1]
+            for seg_start, seg_ende, laenge_m in self._diskretisiere_teilstrecke(
+                waypoints[i], waypoints[i + 1]
+            ):
+                segments.append(
+                    RouteSegment(
+                        segment_index=len(segments),
+                        geometrie=[seg_start, seg_ende],
+                        laenge_m=laenge_m,
+                        strassenklasse="PRIMARY",
+                        oberflaeche="asphalt",
+                        tempolimit_kmh=100,
+                        steigung_rohdaten=1.5,
+                        bearing_deg=bearing_deg(seg_start, seg_ende),
+                    )
+                )
+                total_distance += laenge_m
+                full_geometrie.append(seg_ende)
 
-            # Mittelpunkt für dieses Segment
-            mid_lat = (current[0] + next_wp[0]) / 2
-            mid_lon = (current[1] + next_wp[1]) / 2
-
-            segment = RouteSegment(
-                segment_index=i,
-                geometrie=[current, (mid_lat, mid_lon), next_wp],
-                laenge_m=50_000.0,  # ~50 km pro Segment
-                strassenklasse="PRIMARY",
-                oberflaeche="asphalt",
-                tempolimit_kmh=100,
-                steigung_rohdaten=1.5,
-                bearing_deg=bearing_deg(current, next_wp),
+        if not segments:
+            raise ValueError(
+                "Start und Ziel (inkl. Zwischenstopps) sind identisch - keine Route "
+                "mit positiver Laenge berechenbar."
             )
-            segments.append(segment)
-            total_distance += 50_000.0
-            full_geometrie.extend([(mid_lat, mid_lon), next_wp])
 
         return Route(
             segments=segments,
@@ -124,6 +108,38 @@ class FakeRoutingProvider:
                 max(wp[1] for wp in waypoints),
             ),
         )
+
+    def _diskretisiere_teilstrecke(
+        self, start: Coordinate, ende: Coordinate
+    ) -> list[tuple[Coordinate, Coordinate, float]]:
+        """Zerlegt eine Teilstrecke in mehrere kuerzere Segmente (~SEGMENT_LAENGE_ZIEL_M).
+
+        Identische Start-/Endkoordinaten (Laenge 0) liefern eine leere Liste,
+        sodass der Aufrufer diese Teilstrecke automatisch überspringt.
+        """
+        gesamtlaenge_m = haversine_distance_m(start, ende)
+        if gesamtlaenge_m <= 0:
+            return []
+
+        anzahl_segmente = max(1, round(gesamtlaenge_m / self.SEGMENT_LAENGE_ZIEL_M))
+        punkte: list[Coordinate] = [start]
+        for i in range(1, anzahl_segmente):
+            anteil = i / anzahl_segmente
+            punkte.append(
+                (
+                    start[0] + (ende[0] - start[0]) * anteil,
+                    start[1] + (ende[1] - start[1]) * anteil,
+                )
+            )
+        punkte.append(ende)
+
+        ergebnis: list[tuple[Coordinate, Coordinate, float]] = []
+        for i in range(len(punkte) - 1):
+            seg_start, seg_ende = punkte[i], punkte[i + 1]
+            laenge_m = haversine_distance_m(seg_start, seg_ende)
+            if laenge_m > 0:
+                ergebnis.append((seg_start, seg_ende, laenge_m))
+        return ergebnis
 
 
 class GraphHopperRoutingProvider:

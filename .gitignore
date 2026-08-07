@@ -19,5 +19,8 @@ frontend/.vite/
 # Data (large, not committed)
 data/
 
+# Runtime state (PIDs, logs from scripts/run.sh)
+.run/
+
 # OS
 .DS_Store
