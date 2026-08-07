@@ -57,7 +57,10 @@ class GraphHopperClient:
 
         # Umwandlung points: (lat, lon) → [lon, lat]
         gh_points = [[lon, lat] for lat, lon in points]
-        payload = {"point": gh_points, "profile": profile, "elevation": elevation}
+        # GraphHopper erwartet im JSON-POST-Body den Schlüssel "points" (Plural,
+        # GeoJSON-artiges Array), nicht "point" (das ist nur die Wiederholungs-
+        # Query-Param-Syntax der GET-Variante: ?point=lat,lon&point=lat,lon).
+        payload = {"points": gh_points, "profile": profile, "elevation": elevation}
 
         if details:
             payload["details"] = details
@@ -69,6 +72,27 @@ class GraphHopperClient:
         response.raise_for_status()
 
         return GraphHopperResponse.model_validate(response.json())
+
+    async def info(self) -> dict[str, object]:
+        """Ruft die GraphHopper `/info`-Metadaten ab.
+
+        Enthält u. a. `encoded_values`: die Path-Details/Encoded-Values, die
+        der verbundene Server tatsächlich unterstützt (abhängig von dessen
+        `graph.encoded_values`-Konfiguration, z. B. `average_slope` setzt
+        eine aktivierte Elevation-Quelle voraus). Wird von
+        `GraphHopperRoutingProvider` genutzt, um nur unterstützte Path-Details
+        anzufragen statt mit HTTP 400 zu scheitern.
+
+        Returns:
+            Rohes JSON-Dict der `/info`-Antwort.
+
+        Raises:
+            httpx.HTTPStatusError: Bei HTTP-Fehlern (4xx/5xx).
+        """
+        response = await self._client.get("/info")
+        response.raise_for_status()
+        result: dict[str, object] = response.json()
+        return result
 
     async def close(self) -> None:
         """Schließt den HTTP Client."""

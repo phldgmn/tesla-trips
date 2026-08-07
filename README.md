@@ -65,32 +65,20 @@ Für Routing-Anfragen wird ein lokaler GraphHopper-Server auf Port `8989` erwart
 docker compose up -d
 ```
 
-Die `docker-compose.yml`-Datei im Repo-Root konfiguriert den GraphHopper-Container mit dem offiziellen Image `israelhikingmap/graphhopper:11.0`. Dieses Image ist aktuell (Stand: Oktober 2025) die stable Release (`11.0`, veröffentlicht am 14. Oktober 2025) und stammt aus demselben Container-Image, das auch in der CI-Pipeline (.github/workflows/ci.yml, Zeile 33) verwendet wird.
+Die `docker-compose.yml`-Datei im Repo-Root konfiguriert den GraphHopper-Container mit dem offiziellen Image `israelhikingmap/graphhopper:11.0` (dieselbe Version wie in der CI-Pipeline, `.github/workflows/ci.yml`, Zeile 33). Das Image selbst enthält **keinen** vorgebauten Graphen – `docker-compose.yml` übergibt daher `--url https://download.geofabrik.de/europe/germany/berlin-latest.osm.pbf`, sodass der Container beim ersten Start automatisch einen kleinen, echten OSM-Extrakt (Berlin-Umgebung, ~95 MB) herunterlädt und importiert (dauert ca. 1–2 Minuten). Der importierte Graph wird in `./data` zwischengespeichert (bereits via `.gitignore` ausgeschlossen), sodass spätere `docker compose up -d`-Aufrufe ihn wiederverwenden statt neu zu importieren.
 
-Das vorkompilierte Demo-Image enthält einen kleinen OSM-Ausschnitt (Berlin-Umgebung), sodass die Health-Check-Abfrage der CI (`point=52.52,13.40&point=52.53,13.41`, zentrale Berlin-Koordinaten) sofort funktioniert – ein vollständiges Routing-Setup ist also ohne weitere Datenbereitstellung schon nach dem `docker compose up -d` gegeben. Der Demo-Ausschnitt deckt aber ausschließlich das Berliner Umland ab, nicht ganz Deutschland.
+Der Berlin-Extrakt deckt nur das Berliner Umland ab, nicht ganz Deutschland.
 
-Für die volle Abdeckung von Deutschland, Dänemark und Schweden (DE/DK/SE) müssen Sie selbst Geofabrik-OSM-Extrakte in das Verzeichnis `./data` herunterladen (dieses Verzeichnis ist bereits via `.gitignore` ausgeschlossen):
+Für die volle Abdeckung von Deutschland, Dänemark und Schweden (DE/DK/SE):
 
-- Deutschland: `germany-latest.osm.pbf` (~4.5 GB)
-- Dänemark: `denmark-latest.osm.pbf` (aus `europe/denmark.html`)
-- Schweden: `sweden-latest.osm.pbf` (~772 MB)
+1. `./data` leeren (sonst wird der zwischengespeicherte Berlin-Graph weiterverwendet): `rm -rf data/*`
+2. In `docker-compose.yml` den `command`-Abschnitt anpassen, z. B. auf einen bereits heruntergeladenen lokalen Extrakt verweisen (Datei zuvor nach `./data` legen) oder eine andere `--url` angeben. Geofabrik-Quellen:
+   - Deutschland: `https://download.geofabrik.de/europe/germany-latest.osm.pbf` (~4.5 GB)
+   - Dänemark: `https://download.geofabrik.de/europe/denmark-latest.osm.pbf`
+   - Schweden: `https://download.geofabrik.de/europe/sweden-latest.osm.pbf` (~772 MB)
+3. `docker compose up -d` (Download + Import der großen Extrakte kann deutlich länger dauern als beim Berlin-Demo-Extrakt).
 
-Download-Befehle (einmalig ausführen):
-
-```bash
-wget https://download.geofabrik.de/europe/germany-latest.osm.pbf -O data/germany-latest.osm.pbf
-wget https://download.geofabrik.de/europe/denmark-latest.osm.pbf -O data/denmark-latest.osm.pbf
-wget https://download.geofabrik.de/europe/sweden-latest.osm.pbf -O data/sweden-latest.osm.pbf
-```
-
-Anschließend müssen Sie den GraphHopper-Container neu starten, damit er den Graphen neu baut:
-
-```bash
-docker compose down
-docker compose up -d
-```
-
-Der erste Start mit großen OSM-Dateien kann mehrere Minuten dauern (Graph-Processing). Erst danach ist die Route-Endpunkt in vollem Umfang nutzbar.
+Cross-Border-Routing über mehrere Länder hinweg erfordert einen zusammenhängenden Extrakt (z. B. den Europe-Gesamtextrakt mit `osmconvert` auf eine DE/DK/SE-Bounding-Box zugeschnitten) statt dreier getrennter Länder-Extrakte.
 
 **Alternativer GraphHopper-Endpunkt (GRAPHHOPPER_URL):**
 

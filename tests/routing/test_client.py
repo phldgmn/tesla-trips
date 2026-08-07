@@ -78,7 +78,7 @@ class TestRouteSuccess:
                     (53.5511, 9.9937),
                 ]
             )
-            assert captured[0]["point"] == [[13.4050, 52.5200], [9.9937, 53.5511]]
+            assert captured[0]["points"] == [[13.4050, 52.5200], [9.9937, 53.5511]]
         finally:
             await client.close()
 

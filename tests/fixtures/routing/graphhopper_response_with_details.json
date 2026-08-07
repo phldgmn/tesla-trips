@@ -6,16 +6,16 @@
       "points_encoded": true,
       "points": "_yp_IgdypAo}@g^o}@o}@",
       "details": {
-        "road_class": ["MOTORWAY", "PRIMARY"],
-        "max_speed": [130, 0],
-        "average_slope": [1.5, -0.5],
-        "surface": ["asphalt", "gravel"]
+        "road_class": [[0, 1, "MOTORWAY"], [1, 2, "PRIMARY"]],
+        "max_speed": [[0, 1, 130], [1, 2, 0]],
+        "average_slope": [[0, 1, 1.5], [1, 2, -0.5]],
+        "surface": [[0, 1, "asphalt"], [1, 2, "gravel"]]
       },
       "instructions": []
     }
   ],
   "info": {
-    "copyright": ["GraphHopper", "OpenStreetMap contributors"],
+    "copyrights": ["GraphHopper", "OpenStreetMap contributors"],
     "hints": [],
     "took": 6
   }

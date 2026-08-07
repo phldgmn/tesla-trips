@@ -9,7 +9,7 @@ enthält:
 from __future__ import annotations
 
 import math
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime, timedelta
 
 import httpx
@@ -611,14 +611,34 @@ def test_lifespan_respects_graphhopper_url_env_var(monkeypatch: pytest.MonkeyPat
         assert gh_client.base_url == "http://gh.internal:9999"
 
 
-def _make_graphhopper_provider(handler: object) -> GraphHopperRoutingProvider:
+def _make_graphhopper_provider(
+    route_handler: Callable[[httpx.Request], httpx.Response],
+) -> GraphHopperRoutingProvider:
     """Baut einen `GraphHopperRoutingProvider` mit gemocktem HTTP-Transport
-    (keine Live-Calls, siehe AGENTS.md)."""
+    (keine Live-Calls, siehe AGENTS.md).
+
+    `/info` wird automatisch mit allen vier Path-Details als "verfügbar"
+    beantwortet, damit `route_handler` sich nur um `/route` kümmern muss
+    (siehe `GraphHopperRoutingProvider._ermittele_verfuegbare_path_details`).
+    """
+
+    def combined_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/info":
+            return httpx.Response(
+                200,
+                json={
+                    "encoded_values": {
+                        name: [] for name in ("road_class", "max_speed", "average_slope", "surface")
+                    }
+                },
+            )
+        return route_handler(request)
+
     gh_client = GraphHopperClient(base_url="http://localhost:8989")
     gh_client._client = httpx.AsyncClient(
         base_url="http://localhost:8989",
         timeout=60.0,
-        transport=httpx.MockTransport(handler),  # type: ignore[arg-type]
+        transport=httpx.MockTransport(combined_handler),
     )
     return GraphHopperRoutingProvider(client=gh_client)
 
@@ -676,15 +696,15 @@ def test_fastapi_endpoint_preserves_curved_graphhopper_geometry() -> None:
                 "points_encoded": True,
                 "points": encoded,
                 "details": {
-                    "road_class": ["PRIMARY"],
-                    "max_speed": [100],
-                    "average_slope": [0.0],
-                    "surface": ["asphalt"],
+                    "road_class": [[0, 4, "PRIMARY"]],
+                    "max_speed": [[0, 4, 100]],
+                    "average_slope": [[0, 4, 0.0]],
+                    "surface": [[0, 4, "asphalt"]],
                 },
                 "instructions": [],
             }
         ],
-        "info": {"copyright": ["GraphHopper"], "hints": [], "took": 5},
+        "info": {"copyrights": ["GraphHopper"], "hints": [], "took": 5},
     }
 
     def handler(request: httpx.Request) -> httpx.Response:

@@ -5,7 +5,21 @@ services:
     ports:
       - "8989:8989"
     volumes:
+      # Cached Graph-Import ueberlebt Container-Neustarts (kein erneuter
+      # Download/Import bei jedem `docker compose up`). Bereits via
+      # `.gitignore` (`data/`) von Git ausgeschlossen.
       - ./data:/data
+    # Laedt beim ersten Start automatisch einen kleinen, echten OSM-Extrakt
+    # (Berlin-Umgebung, ~95 MB, Import dauert ca. 1-2 Minuten) herunter und
+    # importiert ihn - liefert damit sofort echtes strassenbasiertes Routing
+    # ohne manuelle Datenbereitstellung. Fuer volle DE/DK/SE-Abdeckung: `./data`
+    # leeren und `--url` auf einen groesseren Geofabrik-Extrakt umstellen
+    # (siehe README.md).
+    command:
+      - --url
+      - https://download.geofabrik.de/europe/germany/berlin-latest.osm.pbf
+      - --host
+      - "0.0.0.0"
     environment:
       - GRAPHHOPPER_JAVA_OPTS=-Xms1g -Xmx4g
     restart: unless-stopped

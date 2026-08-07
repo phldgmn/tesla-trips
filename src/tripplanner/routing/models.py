@@ -78,15 +78,22 @@ class GraphHopperPath(BaseModel):
     time: int  # Millisekunden
     points: str  # Encodierte Polyline (points_encoded=True)
     points_encoded: bool = True
-    details: dict[str, list[str | float]] = Field(
-        default_factory=dict
-    )  # Details wie road_class, max_speed, average_slope
+    details: dict[str, list[tuple[int, int, str | float | None]]] = Field(
+        default_factory=dict,
+        description=(
+            "Path-Details wie road_class, max_speed, average_slope, surface. "
+            "GraphHopper liefert je Detail eine Liste von "
+            "(start_punkt_idx, end_punkt_idx, wert)-Intervallen, die "
+            "zusammenhängende Geometrie-Abschnitte mit gleichem Wert "
+            "zusammenfassen - kein flacher Wert pro Kante."
+        ),
+    )
     instructions: list[object] = Field(default_factory=list)
 
 
 class GraphHopperInfo(BaseModel):
     """Meta-Informationen zur GraphHopper Antwort."""
 
-    copyright: list[str]
+    copyrights: list[str] = Field(default_factory=list)
     hints: list[dict[str, object]] = Field(default_factory=list)
     took: int  # Millisekunden

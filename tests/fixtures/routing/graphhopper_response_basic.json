@@ -10,7 +10,7 @@
     }
   ],
   "info": {
-    "copyright": ["GraphHopper", "OpenStreetMap contributors"],
+    "copyrights": ["GraphHopper", "OpenStreetMap contributors"],
     "hints": [],
     "took": 4
   }

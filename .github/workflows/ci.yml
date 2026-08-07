@@ -28,20 +28,6 @@ jobs:
 
   integration-tests:
     runs-on: ubuntu-latest
-    services:
-      graphhopper:
-        image: israelhikingmap/graphhopper:11.0  # offizielles Community-Image, aktuellstable Tag
-        ports:
-          - 8989:8989
-        env:
-          JETTY_BASE: /var/lib/graphhopper
-          GH_LOADED_GRAPH_CACHE_DIR: /var/lib/graphhopper/cache
-        options: >-
-          --health-cmd "curl -f http://localhost:8989/route?point=52.52,13.40&point=52.53,13.41 || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-          --health-start-period 30s
     steps:
       - uses: actions/checkout@v4
 
@@ -53,10 +39,38 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      # GitHub Actions `services:`-Container koennen keine zusaetzlichen
+      # CLI-Argumente (z. B. `--url`) an den Entrypoint uebergeben. Das
+      # `israelhikingmap/graphhopper`-Image bringt aber KEINEN vorgebauten
+      # Graphen mit - ohne `--url`/OSM-Quelldatei startet der Server nicht
+      # (siehe README.md, docker-compose.yml). Daher hier als expliziter
+      # `docker run`-Schritt mit demselben kleinen Berlin-Extrakt wie im
+      # lokalen docker-compose.yml-Setup.
+      - name: Start GraphHopper (Berlin-Extrakt)
+        run: |
+          docker run -d --name graphhopper -p 8989:8989 \
+            israelhikingmap/graphhopper:11.0 \
+            --url https://download.geofabrik.de/europe/germany/berlin-latest.osm.pbf \
+            --host 0.0.0.0
+          for i in $(seq 1 40); do
+            if curl -sf "http://localhost:8989/route?point=52.52,13.40&point=52.53,13.41&profile=car" >/dev/null; then
+              echo "GraphHopper ist bereit."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "GraphHopper wurde nicht rechtzeitig bereit." >&2
+          docker logs graphhopper
+          exit 1
+
       - name: Run integration tests
         run: uv run pytest -m integration -v
         env:
           GRAPHHOPPER_URL: http://localhost:8989
+
+      - name: Stop GraphHopper
+        if: always()
+        run: docker rm -f graphhopper || true
 
   frontend:
     runs-on: ubuntu-latest

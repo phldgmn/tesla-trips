@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Protocol
 
+import httpx
 import polyline
 
 from tripplanner.geo import bearing_deg, haversine_distance_m
@@ -145,6 +146,9 @@ class FakeRoutingProvider:
 class GraphHopperRoutingProvider:
     """Konkrete Implementierung über GraphHopper HTTP API."""
 
+    # Alle Path-Details, die `RouteSegment` optional konsumiert (siehe models.py).
+    _ALLE_PATH_DETAILS: tuple[str, ...] = ("road_class", "max_speed", "average_slope", "surface")
+
     def __init__(self, client: GraphHopperClient, use_custom_model: bool = False):
         """Initialisiert den GraphHopper Routing Provider.
 
@@ -154,14 +158,47 @@ class GraphHopperRoutingProvider:
         """
         self.client = client
         self.use_custom_model = use_custom_model
+        self._verfuegbare_details: list[str] | None = None
+
+    async def _ermittele_verfuegbare_path_details(self) -> list[str]:
+        """Ermittelt, welche Path-Details der verbundene Server unterstützt.
+
+        Nicht jeder GraphHopper-Server hat `average_slope`/`surface` als
+        `graph.encoded_values` konfiguriert (z. B. `average_slope` setzt eine
+        aktivierte Elevation-Quelle voraus, siehe README.md). Werden nicht
+        unterstützte Details angefragt, lehnt GraphHopper die *gesamte*
+        `/route`-Anfrage mit HTTP 400 ab. Da alle betroffenen
+        `RouteSegment`-Felder ohnehin optional sind (siehe models.py, `None`
+        wenn nicht verfügbar), wird hier defensiv nur das angefragt, was der
+        Server laut `/info` tatsächlich liefert - Ergebnis wird pro
+        Provider-Instanz gecacht, da sich die Server-Konfiguration während
+        eines Prozesslaufs nicht ändert.
+        """
+        if self._verfuegbare_details is None:
+            try:
+                info = await self.client.info()
+                encoded_values_raw = info.get("encoded_values", {})
+                encoded_values = (
+                    set(encoded_values_raw) if isinstance(encoded_values_raw, dict) else set()
+                )
+            except httpx.HTTPError:
+                # /info nicht erreichbar/nicht unterstützt (z. B. ältere
+                # GraphHopper-Version) - im Zweifel alle Details anfragen wie
+                # bisher; ein tatsächlicher Verbindungsfehler tritt dann beim
+                # folgenden `route()`-Aufruf ohnehin erneut auf.
+                self._verfuegbare_details = list(self._ALLE_PATH_DETAILS)
+            else:
+                self._verfuegbare_details = [
+                    d for d in self._ALLE_PATH_DETAILS if d in encoded_values
+                ]
+        return self._verfuegbare_details
 
     async def berechne_route(self, anfrage: TripRequest) -> Route:
         """Berechnet eine Route für eine TripRequest (inkl. Zwischenstopps)."""
         # Umwandlung TripRequest → GraphHopper Parameter
         points = [anfrage.start] + [wp.koordinate for wp in anfrage.zwischenstopps] + [anfrage.ziel]
 
-        # details_list = ["road_class", "max_speed", "average_slope", "surface"]
-        details_list = ["road_class", "max_speed", "average_slope", "surface"]
+        details_list = await self._ermittele_verfuegbare_path_details()
 
         # custom_model nur verwenden, wenn gewünscht
         custom_model = None
@@ -178,7 +215,12 @@ class GraphHopperRoutingProvider:
         response = await self.client.route(
             points=points,
             profile="car",
-            elevation=True,
+            # elevation=False: der `polyline`-Decoder unterstützt nur 2D
+            # (lat, lon) - eine 3D-kodierte Polyline (mit Elevation) würde
+            # `polyline.decode()` falsch ausrichten und zum Absturz bringen.
+            # `RouteSegment.geometrie` ist ohnehin nur (lat, lon); Steigung
+            # wird separat vom `elevation`-Modul aus DEM-Kacheln berechnet.
+            elevation=False,
             details=details_list,
             custom_model=custom_model,
         )
@@ -196,12 +238,12 @@ class GraphHopperRoutingProvider:
         # Umwandlung waypoints → points list
         points = [start] + [wp[0] for wp in zwischenstopps] + [ziel]
 
-        details_list = ["road_class", "max_speed", "average_slope", "surface"]
+        details_list = await self._ermittele_verfuegbare_path_details()
 
         response = await self.client.route(
             points=points,
             profile="car",
-            elevation=True,
+            elevation=False,
             details=details_list,
         )
 
@@ -216,8 +258,10 @@ class GraphHopperRoutingProvider:
         total_distance = 0.0
         full_geometrie = coordinates
 
-        # Extrahiere Details für jedes Segment
-        # Details: road_class, max_speed, average_slope, surface sind als Listen im dict enthalten
+        # Extrahiere Details für jedes Segment. GraphHopper liefert je Detail
+        # eine Liste von (start_punkt_idx, end_punkt_idx, wert)-Intervallen,
+        # die zusammenhängende Geometrie-Abschnitte mit gleichem Wert
+        # zusammenfassen - kein flacher Wert pro Kante (siehe models.py).
         road_classes = path.details.get("road_class", [])
         max_speeds = path.details.get("max_speed", [])
         average_slopes = path.details.get("average_slope", [])
@@ -232,19 +276,14 @@ class GraphHopperRoutingProvider:
             laenge_m = haversine_distance_m(start_coord, end_coord)
             total_distance += laenge_m
 
-            # Extrahiere Segment-Attribute aus Details
-            # Wenn details kürzer als Edges sind, nutze den letzten Wert oder None
-            idx = min(i, len(road_classes) - 1) if road_classes else None
-            idx_slope = min(i, len(average_slopes) - 1) if average_slopes else None
-
-            strassenklasse = road_classes[idx] if road_classes and idx is not None else "OTHER"
-            tempolimit_kmh = self._normalize_max_speed(
-                max_speeds[idx] if max_speeds and idx is not None else None
-            )
-            steigung_rohdaten = (
-                average_slopes[idx_slope] if average_slopes and idx_slope is not None else None
-            )
-            oberflaeche = surfaces[idx] if surfaces and idx is not None else None
+            # Extrahiere Segment-Attribute aus den Intervall-Details
+            strassenklasse_raw = self._wert_fuer_edge(road_classes, i)
+            strassenklasse = str(strassenklasse_raw) if strassenklasse_raw is not None else "OTHER"
+            tempolimit_kmh = self._normalize_max_speed(self._wert_fuer_edge(max_speeds, i))
+            steigung_raw = self._wert_fuer_edge(average_slopes, i)
+            steigung_rohdaten = float(steigung_raw) if steigung_raw is not None else None
+            oberflaeche_raw = self._wert_fuer_edge(surfaces, i)
+            oberflaeche = str(oberflaeche_raw) if oberflaeche_raw is not None else None
 
             # Berechne Bearing für das Segment
             bearing = bearing_deg(start_coord, end_coord)
@@ -290,3 +329,28 @@ class GraphHopperRoutingProvider:
         if speed <= 0:
             return None
         return int(speed)
+
+    @staticmethod
+    def _wert_fuer_edge(
+        intervalle: list[tuple[int, int, str | float | None]], edge_index: int
+    ) -> str | float | None:
+        """Liefert den Detail-Wert für Kante `edge_index` aus GraphHopper-Intervallen.
+
+        GraphHopper liefert Path-Details als sortierte, lückenlose Liste von
+        `(start_punkt_idx, end_punkt_idx, wert)`-Intervallen statt eines
+        flachen Werts pro Kante - mehrere aufeinanderfolgende Kanten mit
+        gleichem Wert werden zu einem Intervall zusammengefasst.
+
+        Args:
+            intervalle: Liste von (start, end, wert)-Tripeln für ein Detail.
+            edge_index: Index der Kante (zwischen Punkt `edge_index` und
+                `edge_index + 1`).
+
+        Returns:
+            Der Wert des Intervalls, das `edge_index` enthält, oder `None`
+            wenn kein passendes Intervall existiert.
+        """
+        for start, ende, wert in intervalle:
+            if start <= edge_index < ende:
+                return wert
+        return None
