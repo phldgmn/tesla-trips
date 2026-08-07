@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from tripplanner.charging_infrastructure import (
     ChargingStation,
+    ChargingStationProvider,
     FakeChargingStationProvider,
     StallType,
     get_all_charging_stations,
@@ -295,6 +296,7 @@ async def _step_8_ladeplan_optimieren(  # noqa: PLR0913, PLR0917
     construction_zones: list[ConstructionZone],
     abfahrtszeit: datetime,
     zwischenstopps: list[Waypoint] | None = None,
+    charging_provider: ChargingStationProvider | None = None,
 ) -> ChargingPlan:
     """Schritt 8: Optimalen Ladeplan bestimmen.
 
@@ -311,10 +313,8 @@ async def _step_8_ladeplan_optimieren(  # noqa: PLR0913, PLR0917
     )
 
     # Ladeinfrastruktur entlang der Route abrufen (Fake-Provider für Tests)
-    fake_charging_provider = FakeChargingStationProvider()
-    stations_dict = await fake_charging_provider.get_stations_along_route(
-        route, search_radius_km=2.0
-    )
+    charging_provider = charging_provider or FakeChargingStationProvider()
+    stations_dict = await charging_provider.get_stations_along_route(route, search_radius_km=2.0)
     charging_stations: list[ChargingStation] = []
     for station_list in stations_dict.values():
         charging_stations.extend(station_list)
@@ -427,6 +427,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
     elevation_provider: ElevationProvider | None = None,
     weather_provider: FakeWeatherProvider | None = None,
     construction_provider: FakeConstructionProvider | None = None,
+    charging_provider: ChargingStationProvider | None = None,
     start_soc_pct: float = 80.0,
     ziel_soc_pct: float = 20.0,
 ) -> TripSimulationResult:
@@ -438,6 +439,8 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
         elevation_provider: Optionaler ElevationProvider (Default: FakeDataSource).
         weather_provider: Optionaler WeatherProvider (Default: FakeWeatherProvider).
         construction_provider: Optionaler ConstructionProvider (Default: FakeConstructionProvider).
+        charging_provider: Optionaler ChargingStationProvider
+            (Default: FakeChargingStationProvider).
         start_soc_pct: Start-SoC in Prozent (Default: 80%).
         ziel_soc_pct: Ziel-SoC in Prozent (Default: 20%).
 
@@ -501,6 +504,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
         baustellen,
         anfrage.abfahrtszeit,
         zwischenstopps=zwischenstopps_mit_wartezeit,
+        charging_provider=charging_provider,
     )
 
     # 10. Step 9: ETA aktualisieren
@@ -563,6 +567,16 @@ def get_routing_provider(request: Request) -> RoutingProvider:
     Unit-Tests).
     """
     return GraphHopperRoutingProvider(request.app.state.graphhopper_client)
+
+
+def get_charging_provider() -> FakeChargingStationProvider:
+    """FastAPI-Dependency: liefert den ChargingStationProvider für create_trip_simulation().
+
+    In der Produktion würde dies TeslaChargingStationProvider sein.
+    In Tests via `app.dependency_overrides[get_charging_provider]` durch eine
+    Fake-Instanz mit angepassten Stationen ersetzbar.
+    """
+    return FakeChargingStationProvider()
 
 
 @app.get("/health")
@@ -777,6 +791,7 @@ async def create_trip_endpoint(
     # B008: Depends(...) im Default ist das FastAPI-Standardidiom für Dependency
     # Injection, kein veränderliches Objekt/kein echter Bug (siehe FastAPI-Doku).
     routing_provider: RoutingProvider = Depends(get_routing_provider),  # noqa: B008
+    charging_provider: FakeChargingStationProvider = Depends(get_charging_provider),  # noqa: B008
 ) -> TripSimulationResultAPI:
     """Erstellt eine neue Reise-Simulation.
 
@@ -809,6 +824,7 @@ async def create_trip_endpoint(
         ergebnis = await create_trip_simulation(
             anfrage_dict,
             routing_provider=routing_provider,
+            charging_provider=charging_provider,
             start_soc_pct=request.start_soc_pct,
             ziel_soc_pct=request.ziel_soc_pct,
         )

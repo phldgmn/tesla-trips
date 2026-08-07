@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Iterator
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import polyline
@@ -25,7 +25,12 @@ from tripplanner.charging_infrastructure.providers import TeslaChargingStationPr
 from tripplanner.construction.providers import FakeConstructionProvider
 from tripplanner.routing import FakeRoutingProvider, GraphHopperClient, GraphHopperRoutingProvider
 from tripplanner.routing.models import RouteSegment
-from tripplanner.trip_input.api import app, create_trip_simulation, get_routing_provider
+from tripplanner.trip_input.api import (
+    app,
+    create_trip_simulation,
+    get_charging_provider,
+    get_routing_provider,
+)
 from tripplanner.trip_input.cli import parse_coord, parse_waypoint
 from tripplanner.trip_input.models import VehicleProfile, Waypoint
 from tripplanner.weather.providers import FakeWeatherProvider
@@ -60,15 +65,20 @@ def fake_construction_provider() -> FakeConstructionProvider:
 
 
 @pytest.fixture
-def client() -> Iterator[TestClient]:
+def client(
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
+) -> Iterator[TestClient]:
     """TestClient für FastAPI-Endpunkte mit `FakeRoutingProvider` statt echtem
     GraphHopper-Server (keine Live-Calls externer Datenquellen in Unit-Tests,
     siehe AGENTS.md).
     """
+
     app.dependency_overrides[get_routing_provider] = FakeRoutingProvider
+    app.dependency_overrides[get_charging_provider] = lambda: fake_charging_provider_berlin_munich
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.pop(get_routing_provider, None)
+    app.dependency_overrides.pop(get_charging_provider, None)
 
 
 @pytest.fixture
@@ -93,17 +103,122 @@ def valid_trip_request() -> dict:
     }
 
 
-# =============================================================================
-# Testfälle für create_trip_simulation()
-# =============================================================================
+@pytest.fixture
+def fake_charging_provider_berlin_munich() -> FakeChargingStationProvider:
+    """Erstelle FakeChargingStationProvider mit Stationen auf der Berlin→München-Route
+    und ergänzt mit Stationen für Berlin→Hamburg-Route (für API-Tests).
+
+    Routes:
+    - Berlin (52.52, 13.405) → München (48.135, 11.582), ~505 km.
+    - Berlin (52.52, 13.405) → Hamburg (53.551, 9.994), ~290 km via Aachen (51.23, 6.78).
+
+    Stationen sind ca. alle 100-150 km auf den Routen platziert.
+    """
+    stations = [
+        # ====== Berlin-Munich Route ======
+        ChargingStation(
+            station_id="berlin-start",
+            name="Tesla Supercharger - Berlin Mitte",
+            coordinate=(52.52, 13.405),  # Start
+            stalls={StallType.V3: 8},
+            max_ladeleistung_kw=2500.0,
+            connector_types=[ConnectorType.CCS2],
+            country="DE",
+            letzte_datenAktualisierung=datetime.now(UTC),
+        ),
+        ChargingStation(
+            station_id="dresden-stop",
+            name="Tesla Supercharger - Dresden",
+            coordinate=(51.05, 13.74),  # ~150 km südlich Berlin
+            stalls={StallType.V3: 8},
+            max_ladeleistung_kw=2500.0,
+            connector_types=[ConnectorType.CCS2],
+            country="DE",
+            letzte_datenAktualisierung=datetime.now(UTC),
+        ),
+        ChargingStation(
+            station_id="nurnberg-stop",
+            name="Tesla Supercharger - Nürnberg",
+            coordinate=(49.45, 11.08),  # ~350 km von Berlin
+            stalls={StallType.V3: 8},
+            max_ladeleistung_kw=2500.0,
+            connector_types=[ConnectorType.CCS2],
+            country="DE",
+            letzte_datenAktualisierung=datetime.now(UTC),
+        ),
+        ChargingStation(
+            station_id="ingolstadt-stop",
+            name="Tesla Supercharger - Ingolstadt",
+            coordinate=(48.76, 11.43),  # ~450 km von Berlin, nähe München
+            stalls={StallType.V3: 8},
+            max_ladeleistung_kw=2500.0,
+            connector_types=[ConnectorType.CCS2],
+            country="DE",
+            letzte_datenAktualisierung=datetime.now(UTC),
+        ),
+        ChargingStation(
+            station_id="munich-end",
+            name="Tesla Supercharger - München Zentrum",
+            coordinate=(48.135, 11.582),  # Ziel
+            stalls={StallType.V3: 8},
+            max_ladeleistung_kw=2500.0,
+            connector_types=[ConnectorType.CCS2],
+            country="DE",
+            letzte_datenAktualisierung=datetime.now(UTC),
+        ),
+        # ====== Berlin-Hamburg Route (via Aachen) ======
+        ChargingStation(
+            station_id="cologne-stop",
+            name="Tesla Supercharger - Köln",
+            coordinate=(50.94, 6.96),  # ~300 km west of Berlin
+            stalls={StallType.V3: 8},
+            max_ladeleistung_kw=2500.0,
+            connector_types=[ConnectorType.CCS2],
+            country="DE",
+            letzte_datenAktualisierung=datetime.now(UTC),
+        ),
+        ChargingStation(
+            station_id="aachen-stop",
+            name="Tesla Supercharger - Aachen",
+            coordinate=(51.23, 6.78),
+            stalls={StallType.V3: 8},
+            max_ladeleistung_kw=2500.0,
+            connector_types=[ConnectorType.CCS2],
+            country="DE",
+            letzte_datenAktualisierung=datetime.now(UTC),
+        ),
+        # Aachen → Hamburg: ~650 km
+        ChargingStation(
+            station_id="hannover-stop",
+            name="Tesla Supercharger - Hannover",
+            coordinate=(52.37, 9.74),  # ~400 km north of Aachen
+            stalls={StallType.V3: 8},
+            max_ladeleistung_kw=2500.0,
+            connector_types=[ConnectorType.CCS2],
+            country="DE",
+            letzte_datenAktualisierung=datetime.now(UTC),
+        ),
+        ChargingStation(
+            station_id="hamburg-end",
+            name="Tesla Supercharger - Hamburg",
+            coordinate=(53.551, 9.994),
+            stalls={StallType.V3: 8},
+            max_ladeleistung_kw=2500.0,
+            connector_types=[ConnectorType.CCS2],
+            country="DE",
+            letzte_datenAktualisierung=datetime.now(UTC),
+        ),
+    ]
+    return FakeChargingStationProvider(test_stations=stations)
 
 
+# =============================================================================
 @pytest.mark.asyncio
 async def test_create_trip_simulation_vollstaendiger_durchlauf(
     valid_trip_request: dict,
     fake_routing_provider: FakeRoutingProvider,
     fake_weather_provider: FakeWeatherProvider,
-    fake_charging_provider: FakeChargingStationProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
     fake_construction_provider: FakeConstructionProvider,
 ) -> None:
     """Test: Vollständiger Pipeline-Durchlauf mit Fake-Providern.
@@ -115,6 +230,7 @@ async def test_create_trip_simulation_vollstaendiger_durchlauf(
         routing_provider=fake_routing_provider,
         weather_provider=fake_weather_provider,
         construction_provider=fake_construction_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
         start_soc_pct=80.0,
         ziel_soc_pct=20.0,
     )
@@ -140,7 +256,7 @@ async def test_create_trip_simulation_e2e_regression_abfahrtszeit_und_soc(
     valid_trip_request: dict,
     fake_routing_provider: FakeRoutingProvider,
     fake_weather_provider: FakeWeatherProvider,
-    fake_charging_provider: FakeChargingStationProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
     fake_construction_provider: FakeConstructionProvider,
 ) -> None:
     """End-to-End-Regressionstest (formalisiert den manuellen CLI-Smoke-Test).
@@ -159,6 +275,7 @@ async def test_create_trip_simulation_e2e_regression_abfahrtszeit_und_soc(
         routing_provider=fake_routing_provider,
         weather_provider=fake_weather_provider,
         construction_provider=fake_construction_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
         start_soc_pct=80.0,
         ziel_soc_pct=20.0,
     )
@@ -187,6 +304,42 @@ async def test_create_trip_simulation_mit_zwischenstopp(
     fake_weather_provider: FakeWeatherProvider,
 ) -> None:
     """Test: Reise mit Zwischenstopp wird korrekt verarbeitet."""
+    # Erstelle Ladestationen für Berlin→Hamburg via Aachen Route
+    charging_provider = FakeChargingStationProvider(
+        test_stations=[
+            ChargingStation(
+                station_id="berlin-start-zwischenstopp",
+                name="Tesla Supercharger - Berlin",
+                coordinate=(52.52, 13.405),
+                stalls={StallType.V3: 8},
+                max_ladeleistung_kw=2500.0,
+                connector_types=[ConnectorType.CCS2],
+                country="DE",
+                letzte_datenAktualisierung=datetime.now(UTC),
+            ),
+            ChargingStation(
+                station_id="aachen-zwischenstopp",
+                name="Tesla Supercharger - Aachen",
+                coordinate=(51.23, 6.78),
+                stalls={StallType.V3: 8},
+                max_ladeleistung_kw=2500.0,
+                connector_types=[ConnectorType.CCS2],
+                country="DE",
+                letzte_datenAktualisierung=datetime.now(UTC),
+            ),
+            ChargingStation(
+                station_id="hamburg-end-zwischenstopp",
+                name="Tesla Supercharger - Hamburg",
+                coordinate=(53.551, 9.994),
+                stalls={StallType.V3: 8},
+                max_ladeleistung_kw=2500.0,
+                connector_types=[ConnectorType.CCS2],
+                country="DE",
+                letzte_datenAktualisierung=datetime.now(UTC),
+            ),
+        ]
+    )
+    """Test: Reise mit Zwischenstopp wird korrekt verarbeitet."""
     request = {
         "start": (52.52, 13.405),  # Berlin
         "ziel": (53.551, 9.994),  # Hamburg
@@ -214,6 +367,7 @@ async def test_create_trip_simulation_mit_zwischenstopp(
         request,
         routing_provider=fake_routing_provider,
         weather_provider=fake_weather_provider,
+        charging_provider=charging_provider,
         start_soc_pct=80.0,
         ziel_soc_pct=20.0,
     )
@@ -226,6 +380,7 @@ async def test_create_trip_simulation_mit_zwischenstopp(
 async def test_create_trip_simulation_different_vehicle_profiles(
     fake_routing_provider: FakeRoutingProvider,
     fake_weather_provider: FakeWeatherProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
 ) -> None:
     """Test: Unterschiedliche Fahrzeugprofile werden korrekt verarbeitet."""
     request = {
@@ -250,6 +405,7 @@ async def test_create_trip_simulation_different_vehicle_profiles(
         request,
         routing_provider=fake_routing_provider,
         weather_provider=fake_weather_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
         start_soc_pct=90.0,
         ziel_soc_pct=30.0,
     )
@@ -264,12 +420,14 @@ async def test_create_trip_simulation_ohne_construction_provider(
     valid_trip_request: dict,
     fake_routing_provider: FakeRoutingProvider,
     fake_weather_provider: FakeWeatherProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
 ) -> None:
     """Test: Ohne ConstructionProvider wird leere Baustellen-Liste angenommen."""
     result = await create_trip_simulation(
         valid_trip_request,
         routing_provider=fake_routing_provider,
         weather_provider=fake_weather_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
         construction_provider=None,  # Kein ConstructionProvider
         start_soc_pct=80.0,
         ziel_soc_pct=20.0,
@@ -279,15 +437,16 @@ async def test_create_trip_simulation_ohne_construction_provider(
     assert len(result.frames) > 0
 
 
-@pytest.mark.asyncio
 async def test_create_trip_simulation_ohne_wetter_provider(
     valid_trip_request: dict,
     fake_routing_provider: FakeRoutingProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
 ) -> None:
     """Test: Ohne WeatherProvider wird FakeWeatherProvider verwendet."""
     result = await create_trip_simulation(
         valid_trip_request,
         routing_provider=fake_routing_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
         weather_provider=None,  # Kein WeatherProvider, Fake wird verwendet
         start_soc_pct=80.0,
         ziel_soc_pct=20.0,
@@ -302,12 +461,14 @@ async def test_create_trip_simulation_start_soc_100(
     valid_trip_request: dict,
     fake_routing_provider: FakeRoutingProvider,
     fake_weather_provider: FakeWeatherProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
 ) -> None:
     """Test: Start-SoC 100% wird korrekt verarbeitet."""
     result = await create_trip_simulation(
         valid_trip_request,
         routing_provider=fake_routing_provider,
         weather_provider=fake_weather_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
         start_soc_pct=100.0,
         ziel_soc_pct=10.0,
     )
@@ -984,7 +1145,7 @@ async def test_create_trip_simulation_alle_schritte_sind_aufgerufen(
     valid_trip_request: dict,
     fake_routing_provider: FakeRoutingProvider,
     fake_weather_provider: FakeWeatherProvider,
-    fake_charging_provider: FakeChargingStationProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
     fake_construction_provider: FakeConstructionProvider,
 ) -> None:
     """Test: Alle 11 Datenfluss-Schritte werden in create_trip_simulation aufgerufen."""
@@ -994,6 +1155,7 @@ async def test_create_trip_simulation_alle_schritte_sind_aufgerufen(
         routing_provider=fake_routing_provider,
         weather_provider=fake_weather_provider,
         construction_provider=fake_construction_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
         start_soc_pct=80.0,
         ziel_soc_pct=20.0,
     )
