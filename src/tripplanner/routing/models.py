@@ -20,7 +20,7 @@ class RouteSegment(BaseModel):
     geometrie: list[Coordinate] = Field(
         ..., description="Liste von (lat, lon) Koordinaten, die das Segment beschreiben"
     )
-    laenge_m: float = Field(..., gt=0, description="Länge des Segments in Metern")
+    laenge_m: float = Field(..., ge=0, description="Länge des Segments in Metern")
     strassenklasse: str = Field(
         ..., description="Straßenklasse (MOTORWAY, TRUNK, PRIMARY, SECONDARY, TRACK, etc.)"
     )
@@ -55,7 +55,7 @@ class Route(BaseModel):
     segments: list[RouteSegment] = Field(
         ..., description="Liste aller Route-Segmente in Fahrtrichtung"
     )
-    gesamtlaenge_m: float = Field(..., gt=0, description="Gesamtlänge der Route in Metern")
+    gesamtlaenge_m: float = Field(..., ge=0, description="Gesamtlänge der Route in Metern")
     geometrie: list[Coordinate] = Field(
         ..., description="Vollständige Geometrie der Route als Liste von Koordinaten"
     )

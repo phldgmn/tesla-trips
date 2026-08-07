@@ -52,8 +52,8 @@ class TripSimulationResult(BaseModel):
     """Vollständige Zeitreihe einer Reise."""
 
     frames: list[SimulationFrame]
-    gesamt_distanz_km: float = Field(..., gt=0, description="Gesamtdistanz in km")
-    gesamt_fahrzeit_min: float = Field(..., gt=0, description="Gesamtfahrzeit in Minuten")
+    gesamt_distanz_km: float = Field(..., ge=0, description="Gesamtdistanz in km")
+    gesamt_fahrzeit_min: float = Field(..., ge=0, description="Gesamtfahrzeit in Minuten")
     gesamt_ladezeit_min: float = Field(..., ge=0, description="Gesamtladezeit in Minuten")
     start_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Start-SoC in %")
     ziel_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ziel-SoC in %")

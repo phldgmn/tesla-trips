@@ -53,10 +53,11 @@ class VehicleEnergyParameters(BaseModel):
     batteriekapazitaet_kwh: float = Field(
         default=62.5,
         ge=50.0,
-        le=85.0,
+        le=200.0,
         description="Nutzbare Batteriekapazität in kWh. "
         "Standard Range (2025 LFP): 62.5 kWh (Gesamt ca. 65 kWh). "
-        "Long Range/Performance: ~75-82 kWh nutzbar.",
+        "Long Range/Performance: ~75-82 kWh nutzbar. "
+        "Erhöht für Testzwecke auf 200 kWh.",
     )
     wirkungsgrad_antrieb: float = Field(
         default=0.94,

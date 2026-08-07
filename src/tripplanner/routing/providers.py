@@ -91,13 +91,22 @@ class FakeRoutingProvider:
                 )
                 total_distance += laenge_m
                 full_geometrie.append(seg_ende)
-
         if not segments:
-            raise ValueError(
-                "Start und Ziel (inkl. Zwischenstopps) sind identisch - keine Route "
-                "mit positiver Laenge berechenbar."
+            # Start und Ziel identisch: liefere minimale Route mit einem Segment
+            segments.append(
+                RouteSegment(
+                    segment_index=0,
+                    geometrie=[start, start],
+                    laenge_m=0.0,
+                    strassenklasse="OTHER",
+                    oberflaeche="asphalt",
+                    tempolimit_kmh=0,
+                    steigung_rohdaten=0.0,
+                    bearing_deg=0.0,
+                )
             )
-
+            total_distance = 0.0
+            full_geometrie = [start, start]
         return Route(
             segments=segments,
             gesamtlaenge_m=total_distance,

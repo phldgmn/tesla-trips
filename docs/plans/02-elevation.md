@@ -59,14 +59,14 @@ from geographiclib.geodesic import Geodesic
 
 class ElevationPoint(BaseModel):
     """Höhenwert an einer Koordinate."""
-    koordinate: Tuple[float, float] = Field(
-        description="Breitengrad, Längengrad (WGS84, Grad)"
-    )
+
+    koordinate: Tuple[float, float] = Field(description="Breitengrad, Längengrad (WGS84, Grad)")
     hoehe_m: float = Field(
-        ge=-100, le=9000,
-        description="Höhe über NN in Metern (ungültige Werte: -9999 → nicht belegt)"
+        ge=-100,
+        le=9000,
+        description="Höhe über NN in Metern (ungültige Werte: -9999 → nicht belegt)",
     )
-    
+
     @field_validator("koordinate")
     @classmethod
     def validate_koordinate(cls, v: Tuple[float, float]) -> Tuple[float, float]:
@@ -80,6 +80,7 @@ class ElevationPoint(BaseModel):
 
 class SegmentGradient(BaseModel):
     """Steigung/Gefälle je Segment aus Höhendifferenz und horizontaler Distanz."""
+
     segment_index: int = Field(ge=0, description="Index des RouteSegments (0-basiert)")
     steigung_prozent: float = Field(
         description="Steigung in Prozent (positive = Steigung, negativ = Gefälle)"
@@ -90,7 +91,7 @@ class SegmentGradient(BaseModel):
     horizontale_distanz_m: float = Field(
         description="Horizontale Distanz (nicht entlang der Route, sondern Luftlinienprojektion) in Metern"
     )
-    
+
     @field_validator("steigung_prozent", "hoehendifferenz_m", "horizontale_distanz_m")
     @classmethod
     def validate_values(cls, v: float) -> float:
@@ -106,6 +107,7 @@ class SegmentGradient(BaseModel):
 ```python
 class DEMTileKey(BaseModel):
     """Schlüssel für DEM-Kachel (Koordinaten-BBox + CRS-Referenz)."""
+
     min_lat: float = Field(ge=-90, le=90)
     max_lat: float = Field(ge=-90, le=90)
     min_lon: float = Field(ge=-180, le=180)
@@ -115,6 +117,7 @@ class DEMTileKey(BaseModel):
 
 class DEMTile(BaseModel):
     """In-Memory-Representation einer DEM-Kachel mit Metadaten."""
+
     key: DEMTileKey
     raster_data: bytes  # Rohe GeoTIFF-Daten (nur für Caching, nicht exportieren)
     transform: List[float] = Field(
@@ -148,10 +151,11 @@ from tripplanner.elevation.models import ElevationPoint, SegmentGradient
 
 class DEMDataSourceProtocol(Protocol):
     """Protocol für DEM-Datenquellen (für Testbarkeit)."""
+
     def get_elevation(self, lat: float, lon: float) -> float:
         """Höhenwert an einer Koordinate abfragen. -9999 = ungültig."""
         ...
-    
+
     def get_elevations_batch(self, coordinates: List[Tuple[float, float]]) -> List[float]:
         """Höhenwerte für mehrere Koordinaten (optimiert für Batch-Lookup)."""
         ...
@@ -159,39 +163,35 @@ class DEMDataSourceProtocol(Protocol):
 
 class ElevationProvider:
     """Hauptprovider-Klasse für Höhendaten."""
-    
+
     def __init__(self, data_source: DEMDataSourceProtocol):
         self.data_source = data_source
-    
+
     def get_elevation_profile(
-        self, 
-        route: Route,
-        sampling_distance_m: float = 100.0
+        self, route: Route, sampling_distance_m: float = 100.0
     ) -> List[ElevationPoint]:
         """
         Extrahiert Höhenprofile entlang der Route.
-        
+
         Args:
             route: Die Route mit segments (aus routing.models)
             sampling_distance_m: Sampling-Distanz in Metern (Standard: 100 m)
-        
+
         Returns:
             Liste von ElevationPoint für jeden Sample-Punkt (inkl. Start/Ende jedes Segments)
         """
         ...
-    
+
     def calculate_segment_gradients(
-        self,
-        elevation_points: List[ElevationPoint],
-        route: Route
+        self, elevation_points: List[ElevationPoint], route: Route
     ) -> List[SegmentGradient]:
         """
         Berechnet Steigung/Gefälle je Segment aus Höhendifferenz und horizontaler Distanz.
-        
+
         Args:
             elevation_points: ElevationPoints in Reihenfolge der Route (Start->Ziel)
             route: Originale Route (für Segment-Geometrie)
-        
+
         Returns:
             Liste von SegmentGradient (einer pro Segment)
         """
@@ -199,16 +199,15 @@ class ElevationProvider:
 
 
 def calculate_horizontal_distance(
-    coord1: Tuple[float, float], 
-    coord2: Tuple[float, float]
+    coord1: Tuple[float, float], coord2: Tuple[float, float]
 ) -> float:
     """
     Berechnet horizontale Distanz zwischen zwei Koordinaten (WGS84).
-    
+
     Args:
         coord1: (breitengrad, laengengrad) Punkt 1
         coord2: (breitengrad, laengengrad) Punkt 2
-    
+
     Returns:
         Horizontale Distanz in Metern (nicht entlang der Route!)
     """
@@ -222,9 +221,9 @@ from .elevation import ElevationProvider, calculate_horizontal_distance
 
 __all__ = [
     "ElevationPoint",
-    "SegmentGradient", 
+    "SegmentGradient",
     "ElevationProvider",
-    "calculate_horizontal_distance"
+    "calculate_horizontal_distance",
 ]
 ```
 
@@ -260,6 +259,7 @@ from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.crs import CRS
 import numpy as np
 
+
 def load_dem_tile(tile_path: str) -> rasterio.DatasetReader:
     """Lädt eine DEM-Kachel und validiert CRS."""
     src = rasterio.open(tile_path)
@@ -272,30 +272,32 @@ def load_dem_tile(tile_path: str) -> rasterio.DatasetReader:
         # Für Produktionscode: lazy via WarpedVRT
     return src
 
+
 def sample_elevation(src: rasterio.DatasetReader, lat: float, lon: float) -> float:
     """
     Extrahiert Höhenwert an Koordinate.
-    
+
     Args:
         src: Geöffneter rasterio.DatasetReader
         lat: Breitengrad (WGS84)
         lon: Längengrad (WGS84)
-    
+
     Returns:
         Höhenwert in Metern oder -9999 (nodata)
     """
     # Prüfen ob Koordinate im Bounds liegt
-    if not (src.bounds.left <= lon <= src.bounds.right and 
-            src.bounds.bottom <= lat <= src.bounds.top):
+    if not (
+        src.bounds.left <= lon <= src.bounds.right and src.bounds.bottom <= lat <= src.bounds.top
+    ):
         return -9999  # Ausserhalb des Tiles
-    
+
     # Umrechnung World -> Pixel (row, col)
     row, col = src.index(lon, lat)  # rasterio index() nimmt (x, y) = (lon, lat) für EPSG:4326
-    
+
     # Lesen des Wertes (band 1 = Höhe)
-    band_data = src.read(1, window=((row, row+1), (col, col+1)))
+    band_data = src.read(1, window=((row, row + 1), (col, col + 1)))
     value = band_data[0, 0]
-    
+
     # Nodata-Check
     if np.isnan(value) or value == src.nodata:
         return -9999
@@ -329,23 +331,23 @@ $$\text{Steigung (\%)} = \frac{\text{Höhendifferenz}\ [\text{m}]}{\text{Horizon
 ```python
 from geographiclib.geodesic import Geodesic
 
+
 def calculate_horizontal_distance(
-    coord1: Tuple[float, float], 
-    coord2: Tuple[float, float]
+    coord1: Tuple[float, float], coord2: Tuple[float, float]
 ) -> float:
     """
     Berechnet horizontale Distanz zwischen zwei WGS84-Koordinaten.
-    
+
     Args:
         coord1: (breitengrad, laengengrad)
         coord2: (breitengrad, laengengrad)
-    
+
     Returns:
         Horizontale Distanz in Metern (nicht entlang der Route!)
     """
     lat1, lon1 = coord1
     lat2, lon2 = coord2
-    
+
     geod = Geodesic.WGS84
     inv = geod.Inverse(lat1, lon1, lat2, lon2)
     return inv["s12"]  # Distanz in Metern
@@ -355,47 +357,46 @@ def calculate_horizontal_distance(
 
 ```python
 def calculate_segment_gradients(
-    self,
-    elevation_points: List[ElevationPoint],
-    route: Route
+    self, elevation_points: List[ElevationPoint], route: Route
 ) -> List[SegmentGradient]:
     """Berechnet Steigung je Segment."""
     gradients: List[SegmentGradient] = []
-    
+
     # Route-Segments müssen mit ElevationPoints korrelieren
     # Annahme: elevation_points enthält Start+Ende jedes Segments in Reihenfolge
-    
+
     point_idx = 0
     for seg_idx, segment in enumerate(route.segments):
         if point_idx + 1 >= len(elevation_points):
             break
-        
+
         start_point = elevation_points[point_idx]
         end_point = elevation_points[point_idx + 1]
-        
+
         # Höhendifferenz (Ende - Start; positiv = Steigung, negativ = Gefälle)
         dh = end_point.hoehe_m - start_point.hoehe_m
-        
+
         # Horizontale Distanz berechnen (nicht Route-Länge!)
         horizontal_dist = calculate_horizontal_distance(
-            start_point.koordinate, 
-            end_point.koordinate
+            start_point.koordinate, end_point.koordinate
         )
-        
+
         if horizontal_dist == 0:
             gradient_pct = 0.0  # Vermeide Division durch Null
         else:
             gradient_pct = (dh / horizontal_dist) * 100
-        
-        gradients.append(SegmentGradient(
-            segment_index=seg_idx,
-            steigung_prozent=gradient_pct,
-            hoehendifferenz_m=dh,
-            horizontale_distanz_m=horizontal_dist
-        ))
-        
+
+        gradients.append(
+            SegmentGradient(
+                segment_index=seg_idx,
+                steigung_prozent=gradient_pct,
+                hoehendifferenz_m=dh,
+                horizontale_distanz_m=horizontal_dist,
+            )
+        )
+
         point_idx += 1  # Nächstes Segment startet am Endpunkt dieses
-    
+
     return gradients
 ```
 
@@ -478,12 +479,15 @@ def test_fake_data_source_elevation(fake_data_source: DEMDataSourceProtocol):
 **Then:** `steigung_prozent ≈ 181.8` (innerhalb ±1% Toleranz aufgrund Raster-Auflösung)
 
 ```python
-def test_segment_gradient_with_real_dem(real_dem_provider: ElevationProvider, 
-                                         route_with_two_points: Route):
+def test_segment_gradient_with_real_dem(
+    real_dem_provider: ElevationProvider, route_with_two_points: Route
+):
     """Integrationstest mit echtem DEM-Tile."""
-    points = real_dem_provider.get_elevation_profile(route_with_two_points, sampling_distance_m=10.0)
+    points = real_dem_provider.get_elevation_profile(
+        route_with_two_points, sampling_distance_m=10.0
+    )
     gradients = real_dem_provider.calculate_segment_gradients(points, route_with_two_points)
-    
+
     assert len(gradients) == 1
     assert gradients[0].hoehendifferenz_m == pytest.approx(20.0, abs=1.0)  # 120-100=20
     assert gradients[0].steigung_prozent == pytest.approx(181.8, abs=2.0)  # 20/11*100

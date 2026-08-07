@@ -61,6 +61,7 @@ class ChargingStop(BaseModel):
     """
     Ein Ladehalt mit Station, Ankunfts- und Ziel-SoC sowie Zeitangaben.
     """
+
     station: ChargingStation
     segment_index: Annotated[int, Field(ge=0)]
     ankunfts_soc_pct: Annotated[float, Field(ge=0.0, le=100.0)]
@@ -69,14 +70,14 @@ class ChargingStop(BaseModel):
     ankunftszeit: datetime
     abfahrtszeit: datetime
 
-    @field_validator('ankunfts_soc_pct', 'ziel_soc_pct')
+    @field_validator("ankunfts_soc_pct", "ziel_soc_pct")
     @classmethod
     def validate_soc_range(cls, v: float) -> float:
         if v < 0.0 or v > 100.0:
             raise PydanticCustomError(
-                'soc_range_error',
-                'SoC muss zwischen 0.0 und 100.0 liegen, ist aber {value}',
-                {'value': v},
+                "soc_range_error",
+                "SoC muss zwischen 0.0 und 100.0 liegen, ist aber {value}",
+                {"value": v},
             )
         return v
 
@@ -85,6 +86,7 @@ class OptimizationConstraints(BaseModel):
     """
     Harte Constraints und Sicherheitsparameter für die Optimierung.
     """
+
     min_soc_pct: Annotated[float, Field(ge=0.0, le=100.0)] = Field(
         default=15.0,
         description="Minimal zulässiger SoC (Sicherheitsreserve)",
@@ -111,6 +113,7 @@ class ChargingPlan(BaseModel):
     """
     Ergebnis der Optimierung: geordnete Liste von Ladehalten + Gesamtreisezeit.
     """
+
     ladehalte: list[ChargingStop]
     gesamtreisezeit_s: Annotated[int, Field(ge=0)]
     min_zwischenstopp_ankunftszeit: dict[int, datetime] = Field(
@@ -124,6 +127,7 @@ class StateNode(BaseModel):
     Interner Knoten im Zustandsgraphen: (segment_index, soc_bucket, time_bucket).
     Wird nicht als Pydantic-Exportmodell verwendet, dient nur interner Darstellung.
     """
+
     segment_index: int
     soc_pct: float  # diskretisiert
     zeitpunkt: datetime
@@ -134,6 +138,7 @@ class OptimizerInterface:
     Protocol/Interface für Austauschbarkeit zwischen NetworkX (Prototyp)
     und OR-Tools (Produktion, spätere Ausbaustufe).
     """
+
     def optimize(
         self,
         route: "Route",
@@ -166,6 +171,7 @@ class LadekurvenLookup:
     """
     Hilfsstruktur für Ladekurven-Interpolation: SoC-Grad → Ladeleistung (kW).
     """
+
     soc_pct: float
     ladeleistung_kw: float
 ```
@@ -412,9 +418,7 @@ def _heuristik(self, u: tuple, v: tuple) -> float:
     v_seg, v_soc, v_zeit = v
 
     # Distanz von v_seg bis zum Ende
-    rest_distanz = sum(
-        seg.laenge_m for seg in self.segments[v_seg:]
-    )
+    rest_distanz = sum(seg.laenge_m for seg in self.segments[v_seg:])
 
     # Idealgeschwindigkeit (Autobahn, 110 km/h)
     v_ideal_mps = 110.0 * 1000 / 3600

@@ -60,6 +60,7 @@ from math import isfinite
 
 class StallType(Enum):
     """Bezeichnung für den Stall-Typ, basierend auf supercharge.info-Daten."""
+
     V2 = "V2"
     V3 = "V3"
     V3_ULTRA = "V3Ultra"  # 250 kW pro Stall, teilweise als V3+ bezeichnet
@@ -68,60 +69,55 @@ class StallType(Enum):
 
 class ConnectorType(Enum):
     """Steckertypen, wie auf supercharge.info üblich."""
-    NACS = "NACS"        # Tesla North America Charging Standard
-    CCS1 = "CCS1"        # Combined Charging System 1 (MagicDock in NEU)
-    CCS2 = "CCS2"        # Combined Charging System 2 (Europa)
-    TYPE2 = "Type2"      # Mennekes (Europa)
-    GB_T = "GB/T"        # Chinesischer Standard
+
+    NACS = "NACS"  # Tesla North America Charging Standard
+    CCS1 = "CCS1"  # Combined Charging System 1 (MagicDock in NEU)
+    CCS2 = "CCS2"  # Combined Charging System 2 (Europa)
+    TYPE2 = "Type2"  # Mennekes (Europa)
+    GB_T = "GB/T"  # Chinesischer Standard
 
 
 class ChargingStation(BaseModel):
     """
     Modell einer Tesla Supercharger-Station.
-    
+
     Basierend auf supercharge.info JSON-Struktur und OpenChargeMap-Referenzdaten.
     Koordinaten nach WGS84 (GPS).
     """
+
     station_id: str = Field(
-        ..., 
-        description="Eindeutige ID der Station (supercharge.info-GUID oder interner Code)"
+        ..., description="Eindeutige ID der Station (supercharge.info-GUID oder interner Code)"
     )
     name: str = Field(
-        ..., 
-        description="Name/Bezeichnung des Standorts (z. B. 'Tesla Supercharger - Interstate 80, Reno')"
+        ...,
+        description="Name/Bezeichnung des Standorts (z. B. 'Tesla Supercharger - Interstate 80, Reno')",
     )
     coordinate: tuple[float, float] = Field(
-        ..., 
-        description="Standortkoordinate als (lat, lon) Tuple (WGS84, Decimal Degrees)"
+        ..., description="Standortkoordinate als (lat, lon) Tuple (WGS84, Decimal Degrees)"
     )
     stalls: dict[StallType, int] = Field(
-        ..., 
-        description="Anzahl Stalls pro Typ. Beispiel: {'V3': 8, 'V3ULTRA': 4, 'V2': 0}"
+        ..., description="Anzahl Stalls pro Typ. Beispiel: {'V3': 8, 'V3ULTRA': 4, 'V2': 0}"
     )
     max_ladeleistung_kw: float = Field(
-        ..., 
-        ge=0, 
-        description="Maximale kombinierte DC-Leistung der Station (kW). Summiert über alle Stalls."
+        ...,
+        ge=0,
+        description="Maximale kombinierte DC-Leistung der Station (kW). Summiert über alle Stalls.",
     )
     connector_types: list[ConnectorType] = Field(
-        ..., 
-        description="Verfügbare Steckertypen an der Station"
+        ..., description="Verfügbare Steckertypen an der Station"
     )
     country: Literal["DE", "DK", "SE"] = Field(
-        ..., 
-        description="ISO-Ländercode, wo sich die Station befindet"
+        ..., description="ISO-Ländercode, wo sich die Station befindet"
     )
     ist_24_7: bool = Field(
-        default=True,
-        description="Tesla Supercharger sind typischerweise 24/7 zugänglich"
+        default=True, description="Tesla Supercharger sind typischerweise 24/7 zugänglich"
     )
     status: Literal["online", "offline", "wartung", "temporaer_geschlossen"] = Field(
-        default="online",
-        description="Status der Station (optional, Default online)"
+        default="online", description="Status der Station (optional, Default online)"
     )
     letzte_datenAktualisierung: datetime = Field(
         default_factory=datetime.utcnow,
-        description="Zeitpunkt der letzten Datenaktualisierung (Snapshot-Datum)"
+        description="Zeitpunkt der letzten Datenaktualisierung (Snapshot-Datum)",
     )
 
     @field_validator("coordinate")
@@ -159,7 +155,7 @@ class ChargingStation(BaseModel):
         v2 = self.stalls.get(StallType.V2, 0)
         v3 = self.stalls.get(StallType.V3, 0) + self.stalls.get(StallType.V3_ULTRA, 0)
         v4 = self.stalls.get(StallType.V4, 0)
-        
+
         # V2/V3: typischerweise 4 Posts pro Kabinett (1 MW), V4: 8 Posts pro Kabinett (1.2 MW)
         # Simplifikation: alle V2/V3 teilen sich die Cabinet-Gruppe, alle V4 ebenfalls.
         return (v2 + v3 + 3) // 4 + (v4 + 7) // 8
@@ -170,7 +166,7 @@ class ChargingStationProvider:
     Protocol für den Zugriff auf Supercharger-Daten.
     Ermöglicht Austausch der Datenquelle (lokale Datei, Crawler, API).
     """
-    
+
     async def get_stations_in_radius(
         self,
         coordinate: tuple[float, float],
@@ -179,12 +175,12 @@ class ChargingStationProvider:
     ) -> list[ChargingStation]:
         """
         Liefert alle Supercharger innerhalb des gegebenen Radius um die Koordinate.
-        
+
         Args:
             coordinate: (lat, lon) als Tuple (WGS84)
             radius_km: Suchradius in Kilometern (Flugdistanz)
             country_filter: Optionaler Länderfilter (DE/DK/SE)
-            
+
         Returns:
             Liste von ChargingStation, sortiert nach Distanz (aufsteigend)
         """
@@ -197,11 +193,11 @@ class ChargingStationProvider:
     ) -> dict[int, list[ChargingStation]]:
         """
         Liefert alle Supercharger entlang einer Route.
-        
+
         Args:
             route: Die geplante Route
             search_radius_km: Radius um jeden Segment-Mittelpunkt
-            
+
         Returns:
             Dict mapping segment_index -> liste von ChargingStation
             (nur Segmente mit mindestens einer Station)
@@ -253,6 +249,7 @@ class SoCState(BaseModel):
     """
     Batteriezustand zu einem Zeitpunkt.
     """
+
     soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ladestand in Prozent (0–100)")
     zeitpunkt: float = Field(..., description="Zeitpunkt in Sekunden seit Reisebeginn")
 
@@ -262,6 +259,7 @@ class ChargingCurvePoint(BaseModel):
     Ein Punkt auf der Ladekurve: (SoC, Ladeleistung).
     Die Kurve ist stückweise linear zwischen den Punkten.
     """
+
     soc_pct: float = Field(..., ge=0.0, le=100.0)
     ladeleistung_kw: float = Field(..., ge=0.0)
 
@@ -284,6 +282,7 @@ class InterpolationMethod(Enum):
     """
     Interpolationsmethoden für die Ladekurve.
     """
+
     LINEAR = "linear"  # Stückweise lineare Interpolation (Standard)
     HERMITE = "hermite"  # C1-stetig (zukünftig nutzbar, falls höhere Genauigkeit nötig)
 
@@ -291,21 +290,21 @@ class InterpolationMethod(Enum):
 class ChargingCurve(BaseModel):
     """
     Die Ladekurve des Fahrzeugs. Basierend auf typischen Tesla-Charakteristika.
-    
+
     Die Kurve ist in typischen Phasen definiert:
     - 0–20% SoC: konstant hohe Leistung (ca. 250–300 kW für V3, 325 kW für V4)
     - 20–80% SoC: lineares Abfallen auf ca. 50–80 kW
     - 80–100% SoC: starkes Abbremsen (exponentiell/näherungsweise linear mit kleiner Steigung)
-    
+
     Die Punkte sind in aufsteigender Reihenfolge nach soc_pct zu definieren.
     """
+
     points: list[ChargingCurvePoint] = Field(
-        ...,
-        description="Mindestens 4 Punkte für sinnvolle Approximation"
+        ..., description="Mindestens 4 Punkte für sinnvolle Approximation"
     )
     interpolation: InterpolationMethod = Field(
         default=InterpolationMethod.LINEAR,
-        description="Interpolationsmethode für Punktezwischenräume"
+        description="Interpolationsmethode für Punktezwischenräume",
     )
 
     @field_validator("points")
@@ -317,7 +316,7 @@ class ChargingCurve(BaseModel):
         for i, p in enumerate(sorted_points):
             if p.soc_pct < 0 or p.soc_pct > 100:
                 raise ValueError(f"Punkt {i}: soc_pct außerhalb [0,100]")
-            if i > 0 and p.ladeleistung_kw < sorted_points[i-1].ladeleistung_kw:
+            if i > 0 and p.ladeleistung_kw < sorted_points[i - 1].ladeleistung_kw:
                 raise ValueError("Ladeleistung darf nicht mit steigendem SoC steigen")
         return sorted_points
 
@@ -343,33 +342,34 @@ class ChargingCurve(BaseModel):
 class VehicleBatteryParameters(BaseModel):
     """
     Fahrzeug-spezifische Batterieeigenschaften.
-    
+
     Vorrangig für spätere Kalibrierung mit Fahrdaten vorgesehen.
     Default-Werte basierend auf typischem Model 3 LR Verhalten.
     """
+
     batteriekapazitaet_kwh: float = Field(
         default=75.0,
         ge=50.0,
         le=100.0,
-        description="Nutzkapazität der Batterie in kWh (Typ Model 3 LR: ~75 kWh)"
+        description="Nutzkapazität der Batterie in kWh (Typ Model 3 LR: ~75 kWh)",
     )
     max_ladeleistung_kw: float = Field(
         default=250.0,
         ge=50.0,
         le=350.0,
-        description="Maximale akzeptierte Ladeleistung des Fahrzeugs (kW)"
+        description="Maximale akzeptierte Ladeleistung des Fahrzeugs (kW)",
     )
     effizienz_ladeelektronik: float = Field(
         default=0.95,
         ge=0.85,
         le=1.0,
-        description="Wirkungsgrad der Ladeelektronik (Verluste in der Wechselrichtereinheit)"
+        description="Wirkungsgrad der Ladeelektronik (Verluste in der Wechselrichtereinheit)",
     )
     temperatur_korrekturfaktor: float = Field(
         default=1.0,
         ge=0.7,
         le=1.1,
-        description="Multiplikator für Ladedauer basierend auf Batterie-/Umgebungstemperatur"
+        description="Multiplikator für Ladedauer basierend auf Batterie-/Umgebungstemperatur",
     )
 
 
@@ -377,6 +377,7 @@ class ChargingStop(BaseModel):
     """
     Resultat einer Ladevorgangs-Berechnung für einen Station-Halt.
     """
+
     station: ChargingStation
     ankunfts_soc_pct: float
     ziel_soc_pct: float
@@ -389,10 +390,10 @@ class LadekurveReferenz:
     """
     Referenz-Ladekurven für gängige Tesla-Modelle / Konfigurationen.
     Basierend auf Community-Messdaten (Forums, supercharge.info).
-    
+
     Die Kurven sind als stückweise lineare Approximation definiert.
     """
-    
+
     @staticmethod
     def model_3_lr_v3() -> ChargingCurve:
         """
@@ -491,7 +492,7 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
     Implementierung, die Ladedaten aus einer lokalen JSON-Datei liest.
     Für Tests und Produktion (solange kein Crawler implementiert ist).
     """
-    
+
     def __init__(self, data_path: Path):
         """
         Args:
@@ -520,10 +521,10 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
             # Max Leistung berechnen: Summe aller Stalls * durchschnittliche Leistung pro Stall
             # Vereinfachung: V2=150kW, V3=250kW, V3Ultra=325kW, V4=325kW
             max_leistung = (
-                stalls[StallType.V2] * 150.0 +
-                stalls[StallType.V3] * 250.0 +
-                stalls[StallType.V3_ULTRA] * 325.0 +
-                stalls[StallType.V4] * 325.0
+                stalls[StallType.V2] * 150.0
+                + stalls[StallType.V3] * 250.0
+                + stalls[StallType.V3_ULTRA] * 325.0
+                + stalls[StallType.V4] * 325.0
             )
 
             stations.append(
@@ -569,7 +570,9 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
             slat, slon = station.coordinate
             dlat = math.radians(slat - lat)
             dlon = math.radians(slon - lon)
-            a = haversin(dlat) + math.cos(math.radians(lat)) * math.cos(math.radians(slat)) * haversin(dlon)
+            a = haversin(dlat) + math.cos(math.radians(lat)) * math.cos(
+                math.radians(slat)
+            ) * haversin(dlon)
             c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
             distance = R * c
 
@@ -580,12 +583,9 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
         result.sort(key=lambda s: self._distance_to(coordinate, s.coordinate))
         return result
 
-    def _distance_to(
-        self, 
-        a: tuple[float, float], 
-        b: tuple[float, float]
-    ) -> float:
+    def _distance_to(self, a: tuple[float, float], b: tuple[float, float]) -> float:
         import math
+
         R = 6371.0
         lat1, lon1 = math.radians(a[0]), math.radians(a[1])
         lat2, lon2 = math.radians(b[0]), math.radians(b[1])
@@ -711,6 +711,7 @@ Zentrale Lade- und Entlade-Logik für das battery-Modul.
 Die Berechnungen basieren auf physikalischen Gesetzen (Energie = Leistung × Zeit),
 angepasst an die stückweise lineare Ladekurve und Fahrzeugparameter.
 """
+
 from typing import Optional
 from .models import (
     SoCState,
@@ -732,15 +733,15 @@ def berechne_ladedauer(
     """
     Berechnet die Ladedauer in Sekunden von `start_soc_pct` bis `ziel_soc_pct`
     bei konstanter Ladeleistung `ladeleistung_kw`.
-    
+
     Die reale Ladedauer wird durch die Kurve begrenzt: Die effektive Ladeleistung
     ist das Minimum aus `ladeleistung_kw` und der Kurvenleistung bei jedem SoC-Punkt.
-    
+
     Algorithmus:
     1. Berechne die benötigte Energie: dQ = (ziel_soc - start_soc) / 100 * kapazitaet
     2. Integriere über den SoC-Bereich: ∫ dQ / min(ladeleistung_kw, kurven_leistung(soc))
     3. Multipliziere mit dem Wirkungsgrad der Ladeelektronik
-    
+
     Für stückweise lineare Kurven kann das Integral analytisch gelöst werden.
     """
     if start_soc_pct >= ziel_soc_pct:
@@ -828,12 +829,12 @@ def berechne_soc_nach_segment(
 ) -> float:
     """
     Berechnet den Batteriestand nach einem Fahrtsegment.
-    
+
     Args:
         start_soc_pct: Batteriestand am Segmentbeginn (0–100)
         segment_energy_kwh: Energieverbrauch des Segments (positive Zahl für Verbrauch)
         batterie_param: Fahrzeug-Batterieparameter
-        
+
     Returns:
         Batteriestand am Segmentende (0–100), begrenzt auf [0,100]
     """
@@ -858,21 +859,20 @@ def berechne_ladehalt(
 ) -> ChargingStop:
     """
     Berechnet einen kompletten Ladehalt an einer Station.
-    
+
     Args:
         station: Die Supercharger-Station
         start_soc_pct: Batteriestand bei Ankunft
         ziel_soc_pct: Gewünschter Batteriestand bei Abfahrt
         fahrzeug_param: Fahrzeugparameter
         ladeleistung_kw: Optionale manuelle Ladeleistung (sonst max. Station + Fahrzeug)
-        
+
     Returns:
         ChargingStop mit allen relevanten Daten
     """
     # Limitiere Ladeleistung durch das Fahrzeug
     effective_leistung = min(
-        ladeleistung_kw or station.max_ladeleistung_kw,
-        fahrzeug_param.max_ladeleistung_kw
+        ladeleistung_kw or station.max_ladeleistung_kw, fahrzeug_param.max_ladeleistung_kw
     )
 
     # Bestimme passende Kurve (V3 oder V4 basierend auf Station)
@@ -984,7 +984,9 @@ def test_get_stations_in_radius(coordinate, radius_km, expected_count, local_pro
     assert len(stations) == expected_count
     # Prüfe Sortierung nach Distanz
     for i in range(1, len(stations)):
-        assert stations[i-1].coordinate[0] == stations[i].coordinate[0]  # Dummy, echte Distanzprüfung nötig
+        assert (
+            stations[i - 1].coordinate[0] == stations[i].coordinate[0]
+        )  # Dummy, echte Distanzprüfung nötig
 ```
 
 **2. Integration-Test: Standortsuche entlang einer Route**
@@ -992,7 +994,9 @@ def test_get_stations_in_radius(coordinate, radius_km, expected_count, local_pro
 # tests/charging_infrastructure/test_providers.py
 @pytest.mark.integration
 def test_get_stations_along_route(local_provider, sample_route):
-    stations_by_segment = asyncio.run(local_provider.get_stations_along_route(sample_route, search_radius_km=3.0))
+    stations_by_segment = asyncio.run(
+        local_provider.get_stations_along_route(sample_route, search_radius_km=3.0)
+    )
     assert len(stations_by_segment) > 0  # Mindestens ein Segment hat Stationen
     # Prüfe, dass keine doppelten Stationen auftreten (innerhalb eines Segments)
     for segment_idx, stations in stations_by_segment.items():
@@ -1014,6 +1018,7 @@ def test_charging_station_validierung_koordinate():
             connector_types=[ConnectorType.NACS],
             country="DE",
         )
+
 
 def test_charging_station_anzahl_verfuegbare_stalls():
     station = ChargingStation(
@@ -1065,16 +1070,16 @@ def test_berechne_ladedauer_referenz():
 @pytest.mark.parametrize(
     "start_soc,ziel_soc,erwartet",
     [
-        (0.0, 0.0, 0.0),        # Keine Ladung
-        (50.0, 50.0, 0.0),      # Keine Ladung
-        (100.0, 100.0, 0.0),    # Keine Ladung
-        (20.0, 100.0, 500.0),   # 80% Ladung, erwartet > 5 Minuten
+        (0.0, 0.0, 0.0),  # Keine Ladung
+        (50.0, 50.0, 0.0),  # Keine Ladung
+        (100.0, 100.0, 0.0),  # Keine Ladung
+        (20.0, 100.0, 500.0),  # 80% Ladung, erwartet > 5 Minuten
     ],
 )
 def test_berechne_ladedauer_grenzfaelle(start_soc, ziel_soc, erwartet):
     curve = LadekurveReferenz.model_3_lr_v3()
     params = VehicleBatteryParameters(batteriekapazitaet_kwh=75.0)
-    
+
     time_s = berechne_ladedauer(start_soc, ziel_soc, 250.0, curve, params)
     assert time_s >= 0
     # Nur Plausibilitätsprüfung, keine exakten Werte bei extremen Szenarien

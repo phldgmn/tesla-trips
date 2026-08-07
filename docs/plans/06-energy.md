@@ -44,6 +44,7 @@ Pydantic-Modell mit fest verdrahteten Default-Werten für Tesla Model 3 (ohne Ka
 from pydantic import BaseModel, Field, field_validator
 from typing import Literal, Optional
 
+
 class VehicleEnergyParameters(BaseModel):
     """Physikalische Fahrzeugparameter für Energieberechnung.
 
@@ -56,13 +57,11 @@ class VehicleEnergyParameters(BaseModel):
         default=0.23,
         ge=0.0,
         description="Drag coefficient (cW) für Tesla Model 3 (Standardfassung). "
-                    "Neuere Generation (Highland facelift) erreicht 0.219, "
-                    "aber 0.23 bleibt als Standard für breite Kompatibilität."
+        "Neuere Generation (Highland facelift) erreicht 0.219, "
+        "aber 0.23 bleibt als Standard für breite Kompatibilität.",
     )
     stirnflaeche_m2: float = Field(
-        default=2.22,
-        ge=0.0,
-        description="Frontalfläche in m² (Tesla Model 3)."
+        default=2.22, ge=0.0, description="Frontalfläche in m² (Tesla Model 3)."
     )
 
     # Rollwiderstand
@@ -71,7 +70,7 @@ class VehicleEnergyParameters(BaseModel):
         ge=0.0,
         le=0.02,
         description="Rollwiderstandsbeiwert c_r für Model 3 mit Standardreifen "
-                    "bei 2.9 bar (42 psi). Bereich 0.010–0.011 typisch."
+        "bei 2.9 bar (42 psi). Bereich 0.010–0.011 typisch.",
     )
 
     # Masse
@@ -80,8 +79,8 @@ class VehicleEnergyParameters(BaseModel):
         ge=1500.0,
         le=1900.0,
         description="Fahrzeuggestützte Masse in kg. Basis: "
-                    "Rear-Wheel Drive 3,759 lbs ≈ 1,706 kg. "
-                    "Long Range AWD ≈ 1,828 kg, Performance ≈ 1,845 kg."
+        "Rear-Wheel Drive 3,759 lbs ≈ 1,706 kg. "
+        "Long Range AWD ≈ 1,828 kg, Performance ≈ 1,845 kg.",
     )
 
     # Batterie & Antrieb
@@ -90,22 +89,21 @@ class VehicleEnergyParameters(BaseModel):
         ge=50.0,
         le=85.0,
         description="Nutzbare Batteriekapazität in kWh. "
-                    "Standard Range (2025 LFP): 62.5 kWh (Gesamt ca. 65 kWh). "
-                    "Long Range/Performance: ~75–82 kWh nutzbar."
+        "Standard Range (2025 LFP): 62.5 kWh (Gesamt ca. 65 kWh). "
+        "Long Range/Performance: ~75–82 kWh nutzbar.",
     )
     wirkungsgrad_antrieb: float = Field(
         default=0.94,
         ge=0.85,
         le=0.99,
-        description="Wirkungsgrad des Elektromotors (±2% Toleranz). "
-                    "Typische Werte: 92–96 %."
+        description="Wirkungsgrad des Elektromotors (±2% Toleranz). Typische Werte: 92–96 %.",
     )
     wirkungsgrad_rekuperation: float = Field(
         default=0.75,
         ge=0.65,
         le=0.85,
         description="Gesamtwirkungsgrad für regenerative Bremsung "
-                    "(Kettenwirkungsgrad: Rad → Motor → Batterie ≈ 75 %)."
+        "(Kettenwirkungsgrad: Rad → Motor → Batterie ≈ 75 %).",
     )
 
     # Nebenverbraucher
@@ -114,46 +112,44 @@ class VehicleEnergyParameters(BaseModel):
         ge=0.0,
         le=1.0,
         description="Baseline-Verbrauch in kW bei Parke- und Standby-Bedingungen "
-                    "(ohne Klimaanlage/Heizung)."
+        "(ohne Klimaanlage/Heizung).",
     )
     klimaanlage_max_kw: float = Field(
         default=5.5,
         ge=3.0,
         le=8.0,
         description="Maximale Leistungsaufnahme der Klimaanlage (A/C). "
-                    "Full blast ≈ 5–7 kW, typischer Betrieb ≈ 1–4 kW."
+        "Full blast ≈ 5–7 kW, typischer Betrieb ≈ 1–4 kW.",
     )
     heizung_max_kw: float = Field(
         default=6.0,
         ge=3.0,
         le=10.0,
         description="Maximale Heizleistung (PTC-Heizer oder Wärmepumpe). "
-                    "PTC-Heizung (ältere Modelle): bis 7 kW. "
-                    "Wärmepumpe (Highland): effizienter, aber 6 kW als obere Grenze sicher."
+        "PTC-Heizung (ältere Modelle): bis 7 kW. "
+        "Wärmepumpe (Highland): effizienter, aber 6 kW als obere Grenze sicher.",
     )
     komforttemperatur_min_c: float = Field(
         default=18.0,
         ge=10.0,
         le=22.0,
         description="Untere Komforttemperaturgrenze (°C). "
-                    "Unterhalb dieses Wertes steigt Heizungsleistung linear an."
+        "Unterhalb dieses Wertes steigt Heizungsleistung linear an.",
     )
     komforttemperatur_max_c: float = Field(
         default=24.0,
         ge=20.0,
         le=28.0,
         description="Obere Komforttemperaturgrenze (°C). "
-                    "Darüber steigt Klimaanlagenleistung linear an."
+        "Darüber steigt Klimaanlagenleistung linear an.",
     )
 
     # Reifentyp & Dachbox
     reifentyp: Literal["standard", "winter", "low_rolling_resistance", "performance"] = Field(
-        default="standard",
-        description="Reifentyp, der den Rollwiderstand moduliert."
+        default="standard", description="Reifentyp, der den Rollwiderstand moduliert."
     )
     dachbox: bool = Field(
-        default=False,
-        description="Vorhandensein einer Dachbox (erhöht cw_wert um ~0.03–0.05)."
+        default=False, description="Vorhandensein einer Dachbox (erhöht cw_wert um ~0.03–0.05)."
     )
 
     @field_validator("cw_wert")
@@ -183,7 +179,7 @@ class SegmentEnergyResult(BaseModel):
 
     segment_index: int
     energiebedarf_kwh: float  # Positiv: Verbrauch, Negativ: Rekuperation (überschüssige Energie)
-    rekuperation_kwh: float   # Betrag der regenerativ gewonnenen Energie (immer ≥ 0)
+    rekuperation_kwh: float  # Betrag der regenerativ gewonnenen Energie (immer ≥ 0)
     energiebedarf_brutto_kwh: float  # Summe aller Verbraucher (ohne Rekuperation)
     geschwindigkeit_m_s: float  # Mittlere Geschwindigkeit im Segment (m/s)
     fahrzeit_s: float  # Fahrzeit des Segments (s)
@@ -297,7 +293,9 @@ OBERFLAECHEN_ROLLWIDERSTAND_FAKTOR: dict[str, float] = {
     "grass": 2.2,
     "sand": 2.5,
 }
-DEFAULT_OBERFLAECHEN_FAKTOR = 1.0  # Fallback, falls `oberflaeche` None oder unbekannt (z. B. Autobahn ohne surface-Tag)
+DEFAULT_OBERFLAECHEN_FAKTOR = (
+    1.0  # Fallback, falls `oberflaeche` None oder unbekannt (z. B. Autobahn ohne surface-Tag)
+)
 
 
 def f_oberflaeche(oberflaeche: str | None) -> float:
@@ -415,7 +413,7 @@ def berechne_segment_verbrauch(segment, gradient, wetter, wind, params, baustell
     # 1. Bestimme Geschwindigkeit und Fahrzeit
     tempolimit = segment.tempolimit_kmh
     if baustellen:
-        tempolimit = min(tempolimit, * [bz.tempolimit_kmh for bz in baustellen])
+        tempolimit = min(tempolimit, *[bz.tempolimit_kmh for bz in baustellen])
 
     v_mittel_kmh = min(tempolimit, 150.0)  # max. 150 km/h physikalisch sinnvoll
     v_mittel_ms = v_mittel_kmh / 3.6
@@ -427,7 +425,9 @@ def berechne_segment_verbrauch(segment, gradient, wetter, wind, params, baustell
 
     # 3. Kräfte
     F_roll = params.rollwiderstandsbeiwert * params.masse_kg * 9.81 * cos(alpha_rad)
-    v_relativ = max(v_mittel_ms - wind.gegenwind_ms, 0.5 * v_mittel_ms)  # Mindestvorgabe bei Rückenwind
+    v_relativ = max(
+        v_mittel_ms - wind.gegenwind_ms, 0.5 * v_mittel_ms
+    )  # Mindestvorgabe bei Rückenwind
     F_luft = 0.5 * 1.225 * params.cw_wert * params.stirnflaeche_m2 * v_relativ**2
     F_steigung = params.masse_kg * 9.81 * sin(alpha_rad)
 

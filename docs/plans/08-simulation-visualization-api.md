@@ -77,15 +77,20 @@ from enum import Enum
 from typing import Annotated
 from pydantic import BaseModel, Field, model_validator
 
+
 class TripState(str, Enum):
     FAHREN = "FAHREN"
     LADEN = "LADEN"
     PAUSE = "PAUSE"
 
+
 class SimulationFrame(BaseModel):
     """Ein einzelner Zeitpunkt in der Reisesimulation"""
+
     zeitpunkt: datetime
-    position: tuple[float, float]  # (lat, lon) – WGS84, konsistent mit dem Domänenmodell (siehe Konvention unten)
+    position: tuple[
+        float, float
+    ]  # (lat, lon) – WGS84, konsistent mit dem Domänenmodell (siehe Konvention unten)
     soc_pct: Annotated[float, Field(ge=0.0, le=100.0)]
     zustand: TripState
     geschwindigkeit_kmh: Annotated[float, Field(ge=0.0)]
@@ -98,8 +103,10 @@ class SimulationFrame(BaseModel):
             raise ValueError("Bei Pause sollte Geschwindigkeit sehr gering sein")
         return self
 
+
 class TripSimulationResult(BaseModel):
     """Vollständige Zeitreihe einer Reise"""
+
     frames: list[SimulationFrame]
     gesamt_distanz_km: float
     gesamt_fahrzeit_min: float
@@ -138,6 +145,7 @@ from tripplanner.battery.models import SoCState, ChargingCurve, ChargingCurvePoi
 from tripplanner.charging_infrastructure.models import ChargingStation
 from tripplanner.optimization.models import ChargingPlan, ChargingStop
 from tripplanner.simulation.models import SimulationFrame, TripState
+
 
 def simulate_trip(
     route: Route,
@@ -182,16 +190,25 @@ import json
 
 app = typer.Typer(help="Tesla Trip Planner – CLI für Reiseplanung und Simulation")
 
+
 @app.command()
 def trips(
     start: str = typer.Option(..., help="Start-Koordinate als 'lat,lon'"),
     ziel: str = typer.Option(..., help="Ziel-Koordinate als 'lat,lon'"),
-    zwischenstopps: Optional[list[str]] = typer.Option(None, help="Zwischenstopps als 'lat,lon:duration_min'"),
-    abfahrtszeit: str = typer.Option(..., help="Abfahrtszeit im ISO-Format (z. B. '2026-08-15T08:30:00')"),
+    zwischenstopps: Optional[list[str]] = typer.Option(
+        None, help="Zwischenstopps als 'lat,lon:duration_min'"
+    ),
+    abfahrtszeit: str = typer.Option(
+        ..., help="Abfahrtszeit im ISO-Format (z. B. '2026-08-15T08:30:00')"
+    ),
     start_soc_pct: float = typer.Option(80.0, ge=0.0, le=100.0, help="Start-SoC in Prozent"),
     ziel_soc_pct: float = typer.Option(20.0, ge=0.0, le=100.0, help="Ziel-SoC in Prozent"),
-    vehicle_profile: str = typer.Option("model3_standard", help="Name des Fahrzeugprofils aus config"),
-    output_json: Optional[Path] = typer.Option(None, help="Pfad zur JSON-Ausgabe (default: stdout)"),
+    vehicle_profile: str = typer.Option(
+        "model3_standard", help="Name des Fahrzeugprofils aus config"
+    ),
+    output_json: Optional[Path] = typer.Option(
+        None, help="Pfad zur JSON-Ausgabe (default: stdout)"
+    ),
 ) -> None:
     """
     Berechnet eine Reise und simuliert sie vollständig (inkl. Ladeplanung und ETA-Wetter-Iterative).
@@ -204,7 +221,10 @@ def trips(
         parts = s.split(",")
         if len(parts) != 2:
             raise ValueError(f"Ungültige Koordinate: {s}")
-        return (float(parts[0]), float(parts[1]))  # lat, lon — Eingabeformat "lat,lon" bleibt in der Reihenfolge erhalten
+        return (
+            float(parts[0]),
+            float(parts[1]),
+        )  # lat, lon — Eingabeformat "lat,lon" bleibt in der Reihenfolge erhalten
 
     def parse_waypoint(s: str) -> tuple[tuple[float, float], float | None]:
         if ":" in s:
@@ -256,6 +276,7 @@ def trips(
     else:
         print(json.dumps(output, indent=2))
 
+
 if __name__ == "__main__":
     app()
 ```
@@ -276,9 +297,11 @@ import asyncio
 
 app = FastAPI(title="Tesla Trip Planner API", version="0.1.0")
 
+
 # --- Request/Response-Modelle für API (identisch zu Modellen, aber explizit für API) ---
 class TripRequestAPI(BaseModel):
     """API-Request für /trips-Endpunkt"""
+
     start: tuple[float, float] = Field(..., description="Startkoordinate (lat, lon)")
     ziel: tuple[float, float] = Field(..., description="Zielkoordinate (lat, lon)")
     zwischenstopps: list[WaypointAPI] = Field(default=[], description="Liste von Zwischenstopps")
@@ -286,12 +309,17 @@ class TripRequestAPI(BaseModel):
     fahrzeugprofil: str = Field(..., description="Name des Fahrzeugprofils aus Konfiguration")
     praeferenzen: dict = Field(default_factory=dict, description="Nutzerpräferenzen")
 
+
 class WaypointAPI(BaseModel):
     koordinate: tuple[float, float] = Field(..., description="(lat, lon)")
-    aufenthaltsdauer_s: Optional[int] = Field(None, ge=0, description="Mindestaufenthaltsdauer in Sekunden")
+    aufenthaltsdauer_s: Optional[int] = Field(
+        None, ge=0, description="Mindestaufenthaltsdauer in Sekunden"
+    )
+
 
 class TripSimulationResultAPI(BaseModel):
     """API-Response für /trips-Endpunkt"""
+
     gesamt_distanz_km: float = Field(..., description="Gesamtdistanz in km")
     gesamt_fahrzeit_min: float = Field(..., description="Gesamtfahrzeit in Minuten")
     gesamt_ladezeit_min: float = Field(..., description="Gesamtladezeit in Minuten")
@@ -299,12 +327,17 @@ class TripSimulationResultAPI(BaseModel):
     ziel_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ziel-SoC in %")
     frames: list[FrameAPI]
 
+
 class FrameAPI(BaseModel):
     zeitpunkt: datetime = Field(..., description="ISO-8601 Zeitpunkt")
-    position: tuple[float, float] = Field(..., description="(lat, lon), konsistent mit dem internen Domänenmodell — Konvertierung nach GeoJSON (lon, lat) erfolgt erst im Frontend")
+    position: tuple[float, float] = Field(
+        ...,
+        description="(lat, lon), konsistent mit dem internen Domänenmodell — Konvertierung nach GeoJSON (lon, lat) erfolgt erst im Frontend",
+    )
     soc_pct: float = Field(..., ge=0.0, le=100.0)
     zustand: str = Field(..., description="'FAHREN', 'LADEN' oder 'PAUSE'")
     geschwindigkeit_kmh: float = Field(..., ge=0.0)
+
 
 # --- Kernfunktion (wird von API und CLI gemeinsam genutzt) ---
 async def create_trip_simulation(request_dict: dict) -> TripSimulationResult:
@@ -325,6 +358,7 @@ async def create_trip_simulation(request_dict: dict) -> TripSimulationResult:
     Implementierung siehe Abschnitt 5.
     """
     raise NotImplementedError("Orchestrierung muss implementiert werden")
+
 
 @app.post("/trips", response_model=TripSimulationResultAPI, status_code=201)
 async def create_trip_endpoint(request: TripRequestAPI):
@@ -400,7 +434,9 @@ def interpolate_charging_power(curve: list[ChargingCurvePoint], soc: float) -> f
     for i in range(len(curve) - 1):
         if curve[i].soc_pct <= soc <= curve[i + 1].soc_pct:
             alpha = (soc - curve[i].soc_pct) / (curve[i + 1].soc_pct - curve[i].soc_pct)
-            return curve[i].ladeleistung_kw + alpha * (curve[i + 1].ladeleistung_kw - curve[i].ladeleistung_kw)
+            return curve[i].ladeleistung_kw + alpha * (
+                curve[i + 1].ladeleistung_kw - curve[i].ladeleistung_kw
+            )
     raise RuntimeError("Unreachable")
 ```
 
@@ -613,6 +649,7 @@ from pathlib import Path
 from tripplanner.simulation.models import TripSimulationResult, SimulationFrame
 from tripplanner.optimization.models import ChargingStop
 
+
 def generate_schema(output_dir: Path = Path("frontend/src/types")) -> None:
     """Generiert JSON Schema und convertiert zu TypeScript."""
     output_dir.mkdir(exist_ok=True)
@@ -627,6 +664,7 @@ def generate_schema(output_dir: Path = Path("frontend/src/types")) -> None:
     (output_dir / "charging.schema.json").write_text(
         json.dumps(ChargingStop.model_json_schema(by_alias=False), indent=2)
     )
+
 
 if __name__ == "__main__":
     generate_schema()
@@ -724,10 +762,16 @@ def test_simulate_trip_with_charging():
     # ChargingCurve: [10% → 150kW], [30% → 120kW], [50% → 100kW], [80% → 60kW]
     plan = ChargingPlan(
         ladehalte=[
-            ChargingStop(station=..., ankunfts_soc_pct=20.0, ziel_soc_pct=40.0,
-                        geschaetzte_ladedauer_s=1800, ankunftszeit=..., abfahrtszeit=...)
+            ChargingStop(
+                station=...,
+                ankunfts_soc_pct=20.0,
+                ziel_soc_pct=40.0,
+                geschaetzte_ladedauer_s=1800,
+                ankunftszeit=...,
+                abfahrtszeit=...,
+            )
         ],
-        gesamtreisezeit_s=1200
+        gesamtreisezeit_s=1200,
     )
 
     result = simulate_trip(route, plan, energy, [], start_soc_pct=80.0)

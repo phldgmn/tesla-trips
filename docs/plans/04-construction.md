@@ -53,8 +53,10 @@ from typing import Annotated
 from pydantic import BaseModel, Field, model_validator
 from typing_extensions import Self
 
+
 class Sperrungstyp(StrEnum):
     """Sperrungstyp gemäß DATEX II RoadOrCarriagewayOrLaneManagementType."""
+
     FULLY_CLOSED = "fullyClosed"
     PARTIALLY_CLOSED = "partiallyClosed"
     LANE_CLOSED = "laneClosed"
@@ -62,16 +64,19 @@ class Sperrungstyp(StrEnum):
     REDUCED_LANES = "reducedLanes"
     DETOUR_REQUIRED = "detrourRequired"
 
+
 class Land(StrEnum):
     """Ländercodes für Baustellen (DE=Deutschland, DK=Dänemark, SE=Schweden)."""
+
     DE = "DE"
     DK = "DK"
     SE = "SE"
 
+
 class ConstructionZone(BaseModel):
     """
     Ein Baustellen-Abschnitt mit Tempolimit, Sperrungstyp und Umleitungshinweis.
-    
+
     Args:
         betroffene_segmente: Liste von RouteSegment-IDs (0-basiert), die von der Baustelle betroffen sind.
         tempolimit_kmh: Reduziertes Tempolimit in km/h (None wenn keine Beschränkung).
@@ -81,49 +86,50 @@ class ConstructionZone(BaseModel):
         gueltig_von: Startzeitpunkt der Baustelle (ISO 8601).
         gueltig_bis: Endzeitpunkt der Baustelle (ISO 8601), None wenn unbestimmt.
     """
+
     betroffene_segmente: list[int] = Field(
         description="Liste von RouteSegment-IDs (0-basiert), die von der Baustelle betroffen sind."
     )
     tempolimit_kmh: Annotated[int | None, Field(ge=0, le=200, default=None)] = Field(
         description="Reduziertes Tempolimit in km/h (None wenn keine Beschränkung)."
     )
-    sperrungstyp: Sperrungstyp = Field(
-        description="Art der Sperrung/Baustelle."
-    )
+    sperrungstyp: Sperrungstyp = Field(description="Art der Sperrung/Baustelle.")
     umleitungshinweis: Annotated[str | None, Field(max_length=500, default=None)] = Field(
         description="Freitext-Information zur Umleitung (optional)."
     )
-    land: Land = Field(
-        description="Land, in dem die Baustelle liegt."
-    )
-    gueltig_von: datetime = Field(
-        description="Startzeitpunkt der Baustelle (ISO 8601)."
-    )
+    land: Land = Field(description="Land, in dem die Baustelle liegt.")
+    gueltig_von: datetime = Field(description="Startzeitpunkt der Baustelle (ISO 8601).")
     gueltig_bis: Annotated[datetime | None, Field(default=None)] = Field(
         description="Endzeitpunkt der Baustelle (ISO 8601), None wenn unbestimmt."
     )
-    
+
     @model_validator(mode="after")
     def validate_tempolimit_for_sperrungstyp(self) -> Self:
         """Validiert, dass tempolimit_kmh bei certain Sperrungstypen gesetzt ist."""
-        if self.sperrungstyp in (
-            Sperrungstyp.TEMPORARY_SPEED_LIMIT,
-            Sperrungstyp.PARTIALLY_CLOSED,
-            Sperrungstyp.LANE_CLOSED,
-            Sperrungstyp.REDUCED_LANES,
-        ) and self.tempolimit_kmh is None:
+        if (
+            self.sperrungstyp
+            in (
+                Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+                Sperrungstyp.PARTIALLY_CLOSED,
+                Sperrungstyp.LANE_CLOSED,
+                Sperrungstyp.REDUCED_LANES,
+            )
+            and self.tempolimit_kmh is None
+        ):
             raise ValueError(
                 f"tempolimit_kmh muss gesetzt sein für Sperrungstyp {self.sperrungstyp}."
             )
         return self
 
+
 class ConstructionProvider:
     """
     Protocol für Datenprovider von Baustelleninformationen.
-    
+
     Alle implementierenden Provider müssen die Methode `fetch_construction_zones` implementieren,
     die eine Liste von ConstructionZone für eine gegebene Route zurückgibt.
     """
+
     async def fetch_construction_zones(
         self,
         route: "tripplanner.routing.models.Route",
@@ -186,8 +192,10 @@ DATEXII_ENDPOINTS = {
     Land.SE: "https://api.trafikinfo.trafikverket.se/v1/trafficincidents",
 }
 
+
 class ConstructionProviderConfig(BaseModel):
     """Konfiguration für den ConstructionProvider."""
+
     mdm_username: str | None = None  # Für Deutschland (MDM)
     mdm_password: str | None = None  # Für Deutschland (MDM)
     dk_service_account: str | None = None  # Für Dänemark (Dataudveksleren)
@@ -195,27 +203,28 @@ class ConstructionProviderConfig(BaseModel):
     tv_api_key: str  # Für Schweden (Trafikverket), benötigt
     timeout_seconds: float = 30.0  # HTTP-Timeout
 
+
 class ConstructionProviderImpl(ConstructionProvider):
     """
     Implementierung des ConstructionProvider mit DATEX II Feeds für DE, DK, SE.
-    
+
     Der Provider nutzt einen gemeinsamen XML-Parser (DATEX II Version 3.3) für alle Länder,
     da der Standard einheitlich ist.
     """
-    
+
     def __init__(self, config: ConstructionProviderConfig):
         self._config = config
         self._client: AsyncClient | None = None
-    
+
     async def __aenter__(self) -> "ConstructionProviderImpl":
         self._client = AsyncClient(timeout=self._config.timeout_seconds)
         return self
-    
+
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         if self._client:
             await self._client.aclose()
             self._client = None
-    
+
     async def fetch_construction_zones(
         self,
         route: routing_models.Route,
@@ -223,29 +232,29 @@ class ConstructionProviderImpl(ConstructionProvider):
     ) -> list[ConstructionZone]:
         """
         Abfrage von Baustellen entlang der Route für die angegebenen Länder.
-        
+
         Args:
             route: Die zu prüfende Route (aus routing.models).
             laender: Liste der Länder, für die Baustellen abgefragt werden sollen.
-        
+
         Returns:
             Liste von ConstructionZone-Objekten für die angegebenen Länder.
-        
+
         Raises:
             RuntimeError: Wenn der HTTP-Client nicht initialisiert ist.
             TimeoutException: Wenn ein HTTP-Request timeoutt.
         """
         if not self._client:
             raise RuntimeError("ConstructionProviderImpl must be used as async context manager.")
-        
+
         all_zones: list[ConstructionZone] = []
-        
+
         for land in laender:
             zones = await self._fetch_landscape_zones(route, land)
             all_zones.extend(zones)
-        
+
         return all_zones
-    
+
     async def _fetch_landscape_zones(
         self,
         route: routing_models.Route,
@@ -253,7 +262,7 @@ class ConstructionProviderImpl(ConstructionProvider):
     ) -> list[ConstructionZone]:
         """Abfrage und Parsing für ein Land."""
         endpoint = DATEXII_ENDPOINTS[land]
-        
+
         # Query-Parameter für DATEX II Feeds anpassen
         if land == Land.DE:
             params = self._build_de_params(route)
@@ -261,18 +270,18 @@ class ConstructionProviderImpl(ConstructionProvider):
             params = self._build_dk_params(route)
         else:  # SE
             params = self._build_se_params(route)
-        
+
         try:
             response = await self._client.get(endpoint, params=params)
             response.raise_for_status()
         except TimeoutException as e:
             # Timeout als leere Liste returnen (später retry in higher level)
             return []
-        
+
         # XML parsing (lxml oder xmlschema, siehe Abschnitt 5)
         xml_content = response.text
         construction_zones = parse_datexii_xml(xml_content, land)
-        
+
         # Mapping auf ConstructionZone
         return [
             ConstructionZone(
@@ -286,7 +295,7 @@ class ConstructionProviderImpl(ConstructionProvider):
             )
             for zone in construction_zones
         ]
-    
+
     def _build_de_params(self, route: routing_models.Route) -> dict[str, str]:
         """Parameter für MDM (Germany) DATEX II API."""
         # MDM nutzt REST API für Situationen, Filter nach Gültigkeit und Geokoordinaten
@@ -298,7 +307,7 @@ class ConstructionProviderImpl(ConstructionProvider):
             "validity": "active",
             "format": "xml",
         }
-    
+
     def _build_dk_params(self, route: routing_models.Route) -> dict[str, str]:
         """Parameter für Dataudveksleren (Denmark) DATEX II API."""
         # Dänemark nutzt SOAP oder REST mit DATEX II XML als Payload
@@ -308,7 +317,7 @@ class ConstructionProviderImpl(ConstructionProvider):
             "startDate": (datetime.utcnow().isoformat() + "Z"),
             "format": "datex2",
         }
-    
+
     def _build_se_params(self, route: routing_models.Route) -> dict[str, str]:
         """Parameter für Trafikverket (Sweden) API."""
         # Trafikverket Open API nutzt JSON POST mit DATEX II ontology
@@ -317,7 +326,7 @@ class ConstructionProviderImpl(ConstructionProvider):
             "query": f"location geometry '{coords}' AND status 'active' AND type 'roadworks'",
             "key": self._config.tv_api_key,
         }
-    
+
     def _route_to_bounding_box(self, route: routing_models.Route) -> str:
         """Konvertiert Route zuBounding Box für API-Abfrage."""
         # Einfache Implementierung: min/max Lat/Lon aus Geometrie
@@ -326,13 +335,13 @@ class ConstructionProviderImpl(ConstructionProvider):
             # segment.geometrie enthält Waypoints als List[Tuple[float, float]]
             for lat, lon in segment.geometrie:
                 coords.append((lat, lon))
-        
+
         if not coords:
             return ""
-        
+
         lats, lons = zip(*coords)
         return f"{min(lats)},{min(lons)},{max(lats)},{max(lons)}"  # WKT-Style BBOX
-    
+
     async def _map_to_segment_ids(
         self,
         zone: "DATEXIIConstructionZoneInternal",
@@ -340,27 +349,27 @@ class ConstructionProviderImpl(ConstructionProvider):
     ) -> list[int]:
         """
         Mapped DATEX II Geometrie auf Route-Segment-IDs.
-        
+
         Der Algorithmus prüft, ob die Baustellen-Geometrie mit den Segmenten überlappt.
         Da DATEX II Polygon- oder Linienreferenzen nutzt, wird ein Intersection-Check
         durchgeführt (rasterio oder shapely für Geometrie-Operationen).
         """
         from shapely.geometry import LineString, box
-        
+
         # Baustellen-Geometrie in Shapely konvertieren
         zone_geom = self._zone_to_geometry(zone)
-        
+
         betroffene_ids = []
         for idx, segment in enumerate(route.segments):
             # Segment-Geometrie als LineString
             seg_geom = LineString(segment.geometrie)
-            
+
             # Intersection check
             if zone_geom.intersects(seg_geom):
                 betroffene_ids.append(idx)
-        
+
         return betroffene_ids
-    
+
     def _zone_to_geometry(self, zone: "DATEXIIConstructionZoneInternal") -> LineString:
         """Konvertiert DATEX II Geometrie zu Shapely LineString."""
         # DATEX II nutzt gml:LineString oder gml:Curve
@@ -426,8 +435,10 @@ import xmlschema
 # DATEX II v3.3 Schema lokal laden (aus Bundle oder URL)
 SCHEMA_PATH = Path(__file__).parent / "datexii_3.3" / "DATEXII_3_Situation.xsd"
 
+
 class DATEXIIConstructionZoneInternal(BaseModel):
     """Internes Modell für DATEX II Parse-Ergebnis."""
+
     sperrungstyp: str  # DATEX II roadworksType
     gueltig_von: datetime
     gueltig_bis: datetime | None
@@ -435,54 +446,55 @@ class DATEXIIConstructionZoneInternal(BaseModel):
     umleitungshinweis: str | None
     tempolimit_kmh: int | None  # abgeleitet aus delayBand
 
+
 def parse_datexii_xml(xml_content: str, land: Land) -> list[DATEXIIConstructionZoneInternal]:
     """
     Parse DATEX II XML und extrahiert Baustelleninformationen.
-    
+
     Args:
         xml_content: Raw XML string von DATEX II Feed.
         land: Land (für spezifische Mapping-Logik).
-    
+
     Returns:
         Liste von DATEXIIConstructionZoneInternal (internal).
     """
     schema = xmlschema.XMLSchema(SCHEMA_PATH)
-    
+
     # Validierung und Decoding
     data = schema.to_dict(xml_content, validate=True)
-    
+
     # Extrahiere Situationen
     situations = data.get("situation", [])
     if not isinstance(situations, list):
         situations = [situations] if situations else []
-    
+
     zones: list[DATEXIIConstructionZoneInternal] = []
-    
+
     for sit in situations:
         sr = sit.get("situationRecord", {})
         if not sr:
             continue
-        
+
         # Extract type (nur roadworks relevante Types)
         xsi_type = sr.get("@xsi:type", "")
         if "Roadworks" not in xsi_type and "MaintenanceWorks" not in xsi_type:
             continue
-        
+
         # Extract validity times
         validity = sr.get("validity", {})
         time_spec = validity.get("validityTimeSpecification", {})
         start = time_spec.get("overallStartTime")
         end = time_spec.get("overallEndTime")
-        
+
         gueltig_von = _parse_datetime(start) if start else datetime.utcnow()
         gueltig_bis = _parse_datetime(end) if end else None
-        
+
         # Extract delay band (für tempolimit_kmh)
         impact = sr.get("impact", {})
         delays = impact.get("delays", {})
         delay_band = delays.get("delayBand")
         tempolimit_kmh = _delay_band_to_speed(delay_band)
-        
+
         # Extract location (LineString)
         locations = sr.get("groupOfLocations", [])
         koordinaten = []
@@ -501,21 +513,24 @@ def parse_datexii_xml(xml_content: str, land: Land) -> list[DATEXIIConstructionZ
                         else:
                             lat, lon = float(pt[0]), float(pt[1])
                         koordinaten.append((lat, lon))
-        
+
         # Extract umleitungshinweis
         source_name = sr.get("source", {}).get("sourceName", {}).get("value", "")
         umleitungshinweis = source_name if source_name else None
-        
-        zones.append(DATEXIIConstructionZoneInternal(
-            sperrungstyp=xsi_type,
-            gueltig_von=gueltig_von,
-            gueltig_bis=gueltig_bis,
-            koordinaten=koordinaten,
-            umleitungshinweis=umleitungshinweis,
-            tempolimit_kmh=tempolimit_kmh,
-        ))
-    
+
+        zones.append(
+            DATEXIIConstructionZoneInternal(
+                sperrungstyp=xsi_type,
+                gueltig_von=gueltig_von,
+                gueltig_bis=gueltig_bis,
+                koordinaten=koordinaten,
+                umleitungshinweis=umleitungshinweis,
+                tempolimit_kmh=tempolimit_kmh,
+            )
+        )
+
     return zones
+
 
 def _parse_datetime(dt_str: str) -> datetime:
     """Parse ISO 8601 datetime string (DATEX II standard)."""
@@ -524,11 +539,12 @@ def _parse_datetime(dt_str: str) -> datetime:
         dt_str = dt_str[:-1] + "+00:00"
     return datetime.fromisoformat(dt_str)
 
+
 def _delay_band_to_speed(delay_band: str | None) -> int | None:
     """Mappe delayBand auf tempolimit_kmh (Konfiguration für feine Anpassung)."""
     if not delay_band:
         return None
-    
+
     # Beispiel-Map (anpassbar über Konfiguration)
     band_map = {
         "upToTenMinutes": 100,

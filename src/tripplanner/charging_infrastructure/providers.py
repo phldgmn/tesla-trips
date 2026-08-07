@@ -11,12 +11,14 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import UTC, datetime
+from math import cos, pi, sqrt
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from tqdm.asyncio import tqdm
 
 from tripplanner.geo import Coordinate, haversine_distance_m
+from tripplanner.routing.models import Route
 
 from .client import SuperchargeInfoClient, TeslaLocationsClient
 from .database import _COUNTRY_MAP, SQLiteDatabase
@@ -282,24 +284,45 @@ class FakeChargingStationProvider(ChargingStationProvider):
 
     async def get_stations_along_route(
         self,
-        route: Any,
+        route: Route,
         search_radius_km: float = 2.0,
     ) -> dict[int, list[ChargingStation]]:
         """Liefert Fake-Testdaten entlang der Route.
 
-        Simuliert, dass nur bestimmte Segmente Stationen haben.
+        Verteilt alle konfigurierten Stationen entlang der Route basierend auf
+        der Entfernung zum Segment-Mittelpunkt.
         """
-        # Importiere route nur hier um Zyklus zu vermeiden
-
         result: dict[int, list[ChargingStation]] = {}
         stations = self._stations
+        if not stations or not route.segments:
+            return result
 
-        # Simuliere: Segment 0 und 2 haben Stationen im Radius
-        # Andere Segmente sind leer
-        MIN_STATIONS_FOR_ROUTE = 2
-        if len(stations) >= MIN_STATIONS_FOR_ROUTE:
-            result[0] = [stations[0]]
-            result[2] = [stations[1]]
+        # Für jede Station das nächste Segment anhand der Midpoint-Distanz finden
+        for station in stations:
+            best_seg_idx = 0
+            best_dist = float("inf")
+            for seg in route.segments:
+                # Need at least 2 points to interpolate midpoint
+                MIN_POINTS_FOR_MIDPOINT = 2
+                if len(seg.geometrie) < MIN_POINTS_FOR_MIDPOINT:
+                    continue
+                mid_idx = len(seg.geometrie) // 2
+                midpoint = seg.geometrie[mid_idx]
+                # Haversine-Näherung: Distanz in Metern
+                dlat = (station.coordinate[0] - midpoint[0]) * 111.32 * 1000
+                dlon = (
+                    (station.coordinate[1] - midpoint[1])
+                    * 111.32
+                    * 1000
+                    * cos(midpoint[0] * pi / 180)
+                )
+                dist_m = sqrt(dlat * dlat + dlon * dlon)
+                if dist_m < best_dist:
+                    best_dist = dist_m
+                    best_seg_idx = seg.segment_index
+            # Assign station to nearest segment (no distance filter for fake provider)
+            result.setdefault(best_seg_idx, []).append(station)
+
         return result
 
 

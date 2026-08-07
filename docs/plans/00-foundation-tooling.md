@@ -596,7 +596,9 @@ watch:
 **Regel für Entwickler:** Alle öffentlichen Funktionen/Methode müssen Docstrings im Google-Style haben, damit `mkdocs serve` vollständige Dokumentation generiert. Beispiel:
 
 ```python
-def calculate_energy(segment: RouteSegment, weather: WeatherSample, vehicle: VehicleEnergyParameters) -> SegmentEnergyResult:
+def calculate_energy(
+    segment: RouteSegment, weather: WeatherSample, vehicle: VehicleEnergyParameters
+) -> SegmentEnergyResult:
     """Berechnet den Energieverbrauch für ein Segment unter Berücksichtigung von Wetter und Fahrzeug.
 
     Args:

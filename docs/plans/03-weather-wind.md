@@ -43,24 +43,34 @@ Das Modul ist reine Berechnungslogik ohne externe Datenquellen und vollständig 
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
-from tripplanner.geo import Coordinate  # kanonisches Geo-Primitiv, siehe docs/plans/00-foundation-tooling.md und docs/plans/01-routing.md Abschnitt 3
+from tripplanner.geo import (
+    Coordinate,
+)  # kanonisches Geo-Primitiv, siehe docs/plans/00-foundation-tooling.md und docs/plans/01-routing.md Abschnitt 3
+
 
 class WeatherQuery(BaseModel):
     """Abfrage für ein einzelnes Wetterereignis."""
+
     koordinate: Coordinate  # WGS84 (lat, lon)
     zeitpunkt: datetime
 
+
 class WeatherSample(BaseModel):
     """Wetterdaten für einen Zeitpunkt an einer Koordinate."""
+
     koordinate: Coordinate
     zeitpunkt: datetime
     temperatur_c: float = Field(ge=-100.0, le=70.0, description="Temperatur in °C")
     windgeschwindigkeit_ms: float = Field(ge=0.0, description="Windgeschwindigkeit in m/s")
-    windrichtung_deg: float = Field(ge=0.0, le=360.0, description="Windrichtung in Grad (0° = N, 90° = O)")
+    windrichtung_deg: float = Field(
+        ge=0.0, le=360.0, description="Windrichtung in Grad (0° = N, 90° = O)"
+    )
     niederschlag_mm: float = Field(ge=0.0, description="Niederschlag in mm (Stundensumme)")
     schneefall_cm: float = Field(ge=0.0, description="Schneefall in cm (Wasserequivalent)")
     luftdruck_hpa: float = Field(ge=870.0, le=1084.0, description="Luftdruck in hPa (MSL)")
-    luftfeuchtigkeit_pct: float = Field(ge=0.0, le=100.0, description="Relative Luftfeuchtigkeit in %")
+    luftfeuchtigkeit_pct: float = Field(
+        ge=0.0, le=100.0, description="Relative Luftfeuchtigkeit in %"
+    )
     globalstrahlung_wm2: float = Field(ge=0.0, description="Globalstrahlung in W/m² (Stundensumme)")
     bewoelkung_pct: float = Field(ge=0.0, le=100.0, description="Bewölkung in %")
 ```
@@ -70,6 +80,7 @@ class WeatherSample(BaseModel):
 ```python
 class OpenMeteoResponse(BaseModel):
     """Raw-Response von Open-Meteo Forecast API (nur für interne Verarbeitung)."""
+
     latitude: float
     longitude: float
     timezone: str
@@ -86,8 +97,10 @@ class OpenMeteoResponse(BaseModel):
 from tripplanner.weather.models import WeatherSample
 from tripplanner.routing.models import RouteSegment
 
+
 class WindComponents(BaseModel):
     """Windkomponenten entlang einer Route."""
+
     segment_index: int
     gegenwind_ms: float  # positiv: Gegenwind, negativ: Rückenwind
     seitenwind_ms: float  # positiv: von rechts, negativ: von links
@@ -102,6 +115,7 @@ class WindComponents(BaseModel):
 ```python
 from typing import Protocol, Sequence
 from tripplanner.weather.models import WeatherQuery, WeatherSample
+
 
 class WeatherProvider(Protocol):
     """Interface für Wetter-Datenprovider (kann durch Fake ersetzt werden)."""
@@ -151,6 +165,7 @@ from typing import Sequence
 from tripplanner.weather.models import WeatherQuery, WeatherSample
 from tripplanner.weather.providers import WeatherProvider
 
+
 async def fetch_weather_for_route(
     provider: WeatherProvider,
     route_queries: Sequence[WeatherQuery],
@@ -167,6 +182,7 @@ async def fetch_weather_for_route(
         Liste von WeatherSample in gleicher Reihenfolge wie route_queries.
     """
     ...
+
 
 async def fetch_weather_iterative(
     provider: WeatherProvider,
@@ -202,6 +218,7 @@ from tripplanner.weather.models import WeatherSample
 from tripplanner.routing.models import RouteSegment
 from tripplanner.wind.models import WindComponents
 
+
 def compute_wind_components_for_route(
     weather_samples: Sequence[WeatherSample],
     segments: Sequence[RouteSegment],
@@ -232,15 +249,15 @@ def compute_wind_components_for_route(
 **Benötigte `hourly`-Parameter für das Projekt:**
 ```python
 hourly_params = [
-    "temperature_2m",          # Temperatur in °C
-    "wind_speed_10m",          # Windgeschwindigkeit in km/h → umrechnen in m/s (* 1000/3600)
-    "wind_direction_10m",      # Windrichtung in ° (0° = N, 90° = O)
-    "precipitation",           # Niederschlag in mm (Stundensumme)
-    "snowfall",                # Schneefall in cm (Wasserequivalent)
-    "surface_pressure",        # Luftdruck in hPa (MSL)
-    "relative_humidity_2m",    # Relative Luftfeuchtigkeit in %
-    "shortwave_radiation",     # Globalstrahlung in W/m² (Stundensumme)
-    "cloud_cover",             # Bewölkung in %
+    "temperature_2m",  # Temperatur in °C
+    "wind_speed_10m",  # Windgeschwindigkeit in km/h → umrechnen in m/s (* 1000/3600)
+    "wind_direction_10m",  # Windrichtung in ° (0° = N, 90° = O)
+    "precipitation",  # Niederschlag in mm (Stundensumme)
+    "snowfall",  # Schneefall in cm (Wasserequivalent)
+    "surface_pressure",  # Luftdruck in hPa (MSL)
+    "relative_humidity_2m",  # Relative Luftfeuchtigkeit in %
+    "shortwave_radiation",  # Globalstrahlung in W/m² (Stundensumme)
+    "cloud_cover",  # Bewölkung in %
 ]
 ```
 
@@ -302,6 +319,7 @@ GET https://api.open-meteo.com/v1/forecast
 import httpx
 from typing import Sequence
 from tripplanner.weather.models import WeatherQuery, OpenMeteoResponse
+
 
 class OpenMeteoClient:
     """HTTP-Client für Open-Meteo Forecast API."""
@@ -407,8 +425,10 @@ from tripplanner.weather.models import WeatherSample
 from tripplanner.routing.models import RouteSegment
 from tripplanner.wind.models import WindComponents
 
+
 def _degrees_to_radians(deg: float) -> float:
     return deg * math.pi / 180.0
+
 
 def compute_wind_components(
     weather: WeatherSample,
@@ -433,6 +453,7 @@ def compute_wind_components(
         seitenwind_ms=v_side,  # positiv = von rechts
     )
 
+
 def compute_wind_components_for_route(
     weather_samples: Sequence[WeatherSample],
     segments: Sequence[RouteSegment],
@@ -440,10 +461,7 @@ def compute_wind_components_for_route(
     if len(weather_samples) != len(segments):
         raise ValueError("weather_samples und segments müssen gleiche Länge haben.")
 
-    return [
-        compute_wind_components(w, s)
-        for w, s in zip(weather_samples, segments)
-    ]
+    return [compute_wind_components(w, s) for w, s in zip(weather_samples, segments)]
 ```
 
 **Validierungstestfälle (s. Abschnitt 6):**
@@ -504,6 +522,7 @@ def compute_wind_components_for_route(
 import pytest
 from tripplanner.weather.models import WeatherSample
 
+
 @pytest.fixture
 def weather_sample_north_wind() -> WeatherSample:
     return WeatherSample(
@@ -519,6 +538,7 @@ def weather_sample_north_wind() -> WeatherSample:
         globalstrahlung_wm2=400.0,
         bewoelkung_pct=20.0,
     )
+
 
 @pytest.fixture
 def weather_sample_east_wind() -> WeatherSample:

@@ -128,16 +128,36 @@ supercharge.info verwendet ausgeschriebene Ländernamen (`"Germany"`, `"Denmark"
 
 ```python
 _COUNTRY_MAP: dict[str, str] = {
-    "Germany": "DE", "Denmark": "DK", "Sweden": "SE",
-    "Austria": "AT", "Switzerland": "CH", "Netherlands": "NL",
-    "France": "FR", "Italy": "IT", "Spain": "ES",
-    "Poland": "PL", "Czech Republic": "CZ", "Slovakia": "SK",
-    "Hungary": "HU", "Slovenia": "SI", "Croatia": "HR",
-    "Belgium": "BE", "Luxembourg": "LU", "United Kingdom": "GB",
-    "Norway": "NO", "Finland": "FI", "Iceland": "IS",
-    "Lithuania": "LT", "Latvia": "LV", "Estonia": "EE",
-    "Romania": "RO", "Bulgaria": "BG", "Greece": "GR",
-    "Portugal": "PT", "Ireland": "IE", "Andorra": "AD",
+    "Germany": "DE",
+    "Denmark": "DK",
+    "Sweden": "SE",
+    "Austria": "AT",
+    "Switzerland": "CH",
+    "Netherlands": "NL",
+    "France": "FR",
+    "Italy": "IT",
+    "Spain": "ES",
+    "Poland": "PL",
+    "Czech Republic": "CZ",
+    "Slovakia": "SK",
+    "Hungary": "HU",
+    "Slovenia": "SI",
+    "Croatia": "HR",
+    "Belgium": "BE",
+    "Luxembourg": "LU",
+    "United Kingdom": "GB",
+    "Norway": "NO",
+    "Finland": "FI",
+    "Iceland": "IS",
+    "Lithuania": "LT",
+    "Latvia": "LV",
+    "Estonia": "EE",
+    "Romania": "RO",
+    "Bulgaria": "BG",
+    "Greece": "GR",
+    "Portugal": "PT",
+    "Ireland": "IE",
+    "Andorra": "AD",
 }
 ```
 
@@ -207,6 +227,7 @@ class ChargingPricingTier(BaseModel):
 
     Kann eine Flatrate (time_label=None) oder zeitabhängige Raten abbilden.
     """
+
     tier_label: str = Field(
         ...,
         description='Name des Preistiers, z.B. "Charging Fees for Tesla Owner"',
@@ -214,8 +235,7 @@ class ChargingPricingTier(BaseModel):
     time_label: str | None = Field(
         default=None,
         description=(
-            'Zeitfenster als Text, z.B. "4:00 PM - 8:00 PM". '
-            "None = Flatrate (immer gültig)"
+            'Zeitfenster als Text, z.B. "4:00 PM - 8:00 PM". None = Flatrate (immer gültig)'
         ),
     )
     currency: str = Field(
@@ -241,6 +261,7 @@ class ChargingPricingTier(BaseModel):
 
 class ChargingStationWithPricing(BaseModel):
     """ChargingStation mit zugehörigen Preisdaten."""
+
     station: ChargingStation
     pricing: list[ChargingPricingTier] = Field(
         default_factory=list,
@@ -267,8 +288,7 @@ class SuperchargeInfoClient:
 
     BASE_URL = "https://supercharge.info/service/supercharge"
 
-    def __init__(self, client: httpx.AsyncClient | None = None) -> None:
-        ...
+    def __init__(self, client: httpx.AsyncClient | None = None) -> None: ...
 
     async def fetch_all_sites(self) -> list[dict]:
         """Ruft den vollständigen Datensatz aller Supercharger-Standorte ab.
@@ -400,7 +420,8 @@ def replace_all_stations(self, stations: list[dict]) -> None:
         cursor.execute("DELETE FROM charging_pricing")
         cursor.execute("DELETE FROM charging_stations")
         for s in stations:
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO charging_stations (
                     supercharge_info_id, tesla_location_id, site_name,
                     latitude, longitude, country_code,
@@ -408,11 +429,16 @@ def replace_all_stations(self, stations: list[dict]) -> None:
                     total_stalls, power_kilowatt, status,
                     connector_types, ist_24_7, date_opened, last_updated_utc
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (...))
-        cursor.execute("""
+            """,
+                (...),
+            )
+        cursor.execute(
+            """
             INSERT OR REPLACE INTO db_meta (key, value)
             VALUES ('last_full_refresh_utc', ?)
-        """, (datetime.now(UTC).isoformat(),))
+        """,
+            (datetime.now(UTC).isoformat(),),
+        )
         self._conn.commit()
     except Exception:
         self._conn.rollback()
@@ -521,8 +547,7 @@ def _site_to_charging_station(site: dict) -> ChargingStation:
         "tpc": ConnectorType.TESLA,
     }
     connector_types = [
-        connector_map[k] for k, v in plugs.items()
-        if v and v > 0 and k in connector_map
+        connector_map[k] for k, v in plugs.items() if v and v > 0 and k in connector_map
     ]
     if not connector_types:
         connector_types = [ConnectorType.CCS2]  # Fallback für Europa
@@ -582,10 +607,7 @@ async def refresh(self) -> int:
     raw_sites = await self._client.fetch_all_sites()
 
     # 2. Filtere Europe
-    euro_sites = [
-        s for s in raw_sites
-        if s.get("address", {}).get("region") == "Europe"
-    ]
+    euro_sites = [s for s in raw_sites if s.get("address", {}).get("region") == "Europe"]
 
     # 3. Mappe in DB-Dicts
     db_records = [_site_to_db_record(s) for s in euro_sites]
@@ -605,12 +627,14 @@ def _site_to_db_record(site: dict) -> dict:
     address = site.get("address", {})
     plugs = site.get("plugs", {})
 
-    connector_types = json.dumps([
-        k for k, v in plugs.items()
-        if v and v > 0 and k in (
-            "nacs", "ccs1", "ccs2", "type2", "gbt", "chademo", "tpc"
-        )
-    ] or ["ccs2"])
+    connector_types = json.dumps(
+        [
+            k
+            for k, v in plugs.items()
+            if v and v > 0 and k in ("nacs", "ccs1", "ccs2", "type2", "gbt", "chademo", "tpc")
+        ]
+        or ["ccs2"]
+    )
 
     return {
         "supercharge_info_id": site["id"],
@@ -787,24 +811,21 @@ class TestTeslaChargingStationProvider:
 
     async def test_get_stations_in_radius(self, provider_with_seeded_db):
         """Radius-Suche aus der SQLite-DB."""
-        stations = await provider_with_seeded_db.get_stations_in_radius(
-            (52.5, 13.4), 10.0
-        )
+        stations = await provider_with_seeded_db.get_stations_in_radius((52.5, 13.4), 10.0)
         assert len(stations) >= 1
         assert stations[0].country == "DE"
 
     async def test_get_stations_in_radius_empty(self, provider_with_seeded_db):
         """Leeres Ergebnis bei zu kleinem Radius."""
         stations = await provider_with_seeded_db.get_stations_in_radius(
-            (48.0, 2.0), 1.0  # Paris, wahrscheinlich keine Stationen im Fixture
+            (48.0, 2.0),
+            1.0,  # Paris, wahrscheinlich keine Stationen im Fixture
         )
         assert len(stations) == 0
 
     async def test_station_mapping(self, provider_with_seeded_db):
         """Prüft korrektes Mapping von supercharge.info → ChargingStation."""
-        stations = await provider_with_seeded_db.get_stations_in_radius(
-            (52.5, 13.4), 200.0
-        )
+        stations = await provider_with_seeded_db.get_stations_in_radius((52.5, 13.4), 200.0)
         station = stations[0]
         assert isinstance(station.station_id, str)
         assert isinstance(station.max_ladeleistung_kw, float)

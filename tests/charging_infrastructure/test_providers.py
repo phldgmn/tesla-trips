@@ -120,19 +120,18 @@ class TestFakeChargingStationProvider:
     async def test_get_stations_along_route_empty_segments(
         self, provider: FakeChargingStationProvider
     ) -> None:
-        """Testet Route mit leeren Segmenten."""
-        # FakeChargingStationProvider gibt immer Berlin Stationen zurück, unabhängig von Route
-        # Daher testen wir hier, dass die Provider-Methode korrekt aufgerufen wird
+        """Testet Route mit leeren Segmenten - neue Implementierung gibt leere
+        Liste zurueck, da keine Segmente existieren."""
         segments: list[RouteSegment] = []
         route = Route(
             segments=segments,
-            gesamtlaenge_m=1.0,  # Minimaler Wert > 0
+            gesamtlaenge_m=1.0,
             geometrie=[(52.5234, 13.4114)],
         )
 
         result = await provider.get_stations_along_route(route, search_radius_km=5.0)
-        # FakeProvider gibt Stationen zurück, auch bei leeren Segmenten
-        assert len(result) > 0
+        # Neue Implementierung: ohne Segmente keine Stationszuordnung moeglich
+        assert len(result) == 0
 
     @pytest.mark.parametrize(
         "coordinate,radius_km,expected_min_count",
