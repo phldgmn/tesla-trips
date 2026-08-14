@@ -7,17 +7,20 @@
 Das `construction`-Modul liefert aktive Baustellen, Sperrungen und Tempolimits entlang einer gegebenen Route für die Länder Deutschland (DE), Dänemark (DK) und Schweden (SE).
 
 **Leistungen:**
+
 - Abfrage aktueller DATEX II-Feeds von deutschen, dänischen und schwedischen Nationalen Zugangspunkten (NAP)
 - Parsing von DATEX II XML-Nachrichten (einheitlicher Parser für alle drei Länder, da einheitlicher Standard)
 - Extraktion von Baustelleninformationen: betroffene Streckenabschnitte, Tempolimits, Sperrungstypen, Umleitungshinweise
 - Mapping der extrahierten Daten auf das einheitliche `ConstructionZone`-Model
 
 **Abgrenzung zu anderen Modulen:**
+
 - `routing`: Berechnet die Straßenroute; `construction` arbeitet auf der fixierten Route, nicht auf OSM-Daten.
 - `optimization`: Nutzt `ConstructionZone`-Informationen als Input für die Ladeplanung (z. B. reduzierte Geschwindigkeit = erhöhte Fahrzeit).
 - `energy`: Baustellen-Tempolimits fließen in den Energieverbrauch ein; das Modul liefert die `ConstructionZone`-Liste, nicht die Berechnung.
 
 **NICHT-Scope (spätere Ausbaustufen):**
+
 - Echtzeit-Verkehrsdaten (außer Baustellen, die laut DATEX II enthalten sind)
 - Prognose von Baustellen-Zeitplänen (nur aktuelle/gültige Baustellen)
 - Integration nicht-europäischer Länder (kein DATEX II-Standard)
@@ -30,11 +33,13 @@ Das `construction`-Modul liefert aktive Baustellen, Sperrungen und Tempolimits e
 **Phase:** Phase 1 (unabhängige Datenquellen-Module)
 
 **Fremde Modelle (nur Lesen, exakte Namen aus dem Register):**
+
 - `tripplanner.routing.models.Route`: Eingabe für die Abfrage entlang der Route
 - `tripplanner.routing.models.RouteSegment`: Für Mapping von Segment-IDs zu Baustellen
 - `tripplanner.elevation.models.ElevationPoint`: Optional für Geo-Check (Baustelle liegt im Radius eines Segments)
 
 **Abhängigkeit von anderen Modulen:**
+
 - Keine Laufzeit-Abhängigkeit zu anderen Modulen — das Modul ist eigenständig und kann isoliert getestet werden.
 - Nur die Schnittstelle via `models.py` wird benötigt.
 
@@ -140,6 +145,7 @@ class ConstructionProvider:
 ```
 
 **Zusätzliche interne Hilfstypen (nicht exportiert, nur zur Verarbeitung):**
+
 - `DATEXIIConstructionZone`: Internes Pydantic-Modell zum Parsen von DATEX II XML (siehe Abschnitt 5)
 
 ---
@@ -387,6 +393,7 @@ class ConstructionProviderImpl(ConstructionProvider):
 **Bibliotheksauswahl:** `xmlschema` (empfohlen gegenüber `lxml`)
 
 **Begründung:**
+
 - `xmlschema` bietet vollständige XSD 1.0/1.1 Validierung, die für DATEX II-Struktur unerlässlich ist.
 -DATEX II Schemas sind strikt definiert; `xmlschema` liefert Daten direkt als Python-Dicts/Objekte (`to_dict()`).
 - `lxml` ist zwar schneller (~42x bei Validierung), aber `xmlschema` ist speicherfreundlicher bei großen XML-Dateien (`lazy=True` Modus).
@@ -394,11 +401,12 @@ class ConstructionProviderImpl(ConstructionProvider):
 
 **DATEX II Version:** 3.3 (latest stable; Germany MDM, Denmark Dataudveksleren, Sweden Trafikverket unterstützen alle DATEX II v3.x).
 
-**Schema-Download:** https://docs.datex2.eu/downloads/modelv33/ (DATEXII_3_Situation.xsd, DATEXII_3_Common.xsd, DATEXII_3_LocationReferencing.xsd)
+**Schema-Download:** <https://docs.datex2.eu/downloads/modelv33/> (DATEXII_3_Situation.xsd, DATEXII_3_Common.xsd, DATEXII_3_LocationReferencing.xsd)
 
 **Mapping DATEX II → `ConstructionZone`:**
+
 | DATEX II Element (Situation) | XML-Path | `ConstructionZone` Field |
-|------------------------------|----------|--------------------------|
+| ------------------------------ | ---------- | -------------------------- |
 | `situationRecord` (xsi:type) | `/situationRecord/@xsi:type` | `Sperrungstyp` (s.u.) |
 | `creationTime` | `/situationRecord/situationRecordCreationTime` | `gueltig_von` (oder aktueller Zeitpunkt als Fallback) |
 | `validity` -> `validityTimeSpec` | `/situationRecord/validity/validityTimeSpecification` | `gueltig_von`, `gueltig_bis` |
@@ -407,8 +415,9 @@ class ConstructionProviderImpl(ConstructionProvider):
 | `source` | `/situationRecord/source/sourceName/value` | `umleitungshinweis` (falls vorhanden) |
 
 **Sperrungstyp-Mapping (nach DATEX II v3 Roadworks profile):**
+
 | DATEX II `roadworksType` | XML-Value | `Sperrungstyp` |
-|--------------------------|-----------|----------------|
+| -------------------------- | ----------- | ---------------- |
 | `fullyClosed` | `fullyClosed` | `FULLY_CLOSED` |
 | `partiallyClosed` | `partiallyClosed` | `PARTIALLY_CLOSED` |
 | `laneClosed` | `laneClosed` | `LANE_CLOSED` |
@@ -417,6 +426,7 @@ class ConstructionProviderImpl(ConstructionProvider):
 | `detrourRequired` | `detrourRequired` | `DETROUR_REQUIRED` |
 
 **Falls DATEX II-Fields fehlen (robuster Default):**
+
 - `gueltig_von`: Fallback auf `situationRecordCreationTime` (oder UTC now).
 - `gueltig_bis`: Falls `overallEndTime` fehlt, auf `None` setzen (unbestimmt).
 - `tempolimit_kmh`: Aus `delayBand` ableiten (z. B. `upToTenMinutes` → 100 km/h, `tenToTwentyMinutes` → 80 km/h, usw.) — Konkretisierung in Konfiguration.
@@ -558,22 +568,25 @@ def _delay_band_to_speed(delay_band: str | None) -> int | None:
 ### Konkrete API-Zugangspunkte & Authentifizierung
 
 **Deutschland (MDM – Mobilitäts Daten Marktplatz):**
+
 - **Endpoint:** `https://www.mobilithek.info/datexii/rest/v2/situations` (REST API)
-- **Authentifizierung:** Registrierung als User erforderlich (Kontakt über https://service.mdm-portal.de/mdm-portal-application/_accountRegister.do)
+- **Authentifizierung:** Registrierung als User erforderlich (Kontakt über <https://service.mdm-portal.de/mdm-portal-application/_accountRegister.do>)
 - **Datenformat:** XML (DATEX II v3.3)
 - **Hinweis:** HTTPS allein ist ausreichend; DATEX II Auth-Optionen (C.13, C.14, C.17) nicht nötig.
 - **Quelle:** Technische Schnittstellenbeschreibung Version 1.2.2 (2024-04-04), Abschnitt "Authentication".
 
 **Dänemark (Vejdirektoratet – Dataudveksleren):**
+
 - **Endpoint:** `https://businessservice.dataudveksler.app.vd.dk/api/DateX2` (SOAP oder REST)
-- **Authentifizierung:** Service-Account erforderlich (Dokumentation auf https://vejdirektoratet.atlassian.net/wiki/spaces/TRC/pages)
+- **Authentifizierung:** Service-Account erforderlich (Dokumentation auf <https://vejdirektoratet.atlassian.net/wiki/spaces/TRC/pages>)
 - **Datenformat:** XML (DATEX II v3.2)
 - **Dokumentation:** TRACÉ Protokollbeschreibung Datex II 3.2 (PDF auf vejdirektoratet.atlassian.net)
-- **Portal:** https://du-portal-ui.dataudveksler.app.vd.dk/data (UI zur Konfiguration)
+- **Portal:** <https://du-portal-ui.dataudveksler.app.vd.dk/data> (UI zur Konfiguration)
 
 **Schweden (Trafikverket – NVDB):**
+
 - **Endpoint:** `https://api.trafikinfo.trafikverket.se/v1/trafficincidents` (Open API)
-- **Authentifizierung:** API-Key erforderlich (Registrierung unter https://api.trafikinfo.trafikverket.se/)
+- **Authentifizierung:** API-Key erforderlich (Registrierung unter <https://api.trafikinfo.trafikverket.se/>)
 - **Datenformat:** JSON (DATEX II ontology als underlying model)
 - **Hinweis:** Alle Öffentlichen Daten sind ohne Login lesbar, aber data retrieval erfordert Account.
 - **Preis:** Kostenlos, aber Lizenzvereinbarung nötig.
@@ -585,11 +598,13 @@ def _delay_band_to_speed(delay_band: str | None) -> int | None:
 ### Fixtures
 
 **Test-XML-Dateien (im Repo als Fixtures):**
+
 - `tests/fixtures/construction/datexii_germany_roadworks_example.xml`: Auszug aus MDM (Deutschland)
 - `tests/fixtures/construction/datexii_denmark_lane_closure.xml`: Beispiel Dänemark
 - `tests/fixtures/construction/datexii_sweden_temp_limit.xml`: Beispiel Schweden
 
 **Fixture-Inhalte (Beispiel für Deutschland):**
+
 ```xml
 <!-- tests/fixtures/construction/datexii_germany_roadworks_example.xml -->
 <situation id="DE001" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -647,6 +662,7 @@ def _delay_band_to_speed(delay_band: str | None) -> int | None:
 ### Testfälle
 
 **Testfall 1: Parsing einer deutschen DATEX II Nachricht**
+
 - **Given:** XML-Datei aus `datexii_germany_roadworks_example.xml`.
 - **When:** `parse_datexii_xml(xml_content, Land.DE)` wird aufgerufen.
 - **Then:** Ergebnis enthält mindestens ein `DATEXIIConstructionZoneInternal` mit:
@@ -657,16 +673,19 @@ def _delay_band_to_speed(delay_band: str | None) -> int | None:
   - `tempolimit_kmh` = `80` (from `delayBand` = `tenToTwentyMinutes`)
 
 **Testfall 2: Mapping auf `ConstructionZone` mit Route-Intersection**
+
 - **Given:** Fake `ConstructionProviderImpl` mit Test-Route (Segment 0: Koordinaten (52.5200,13.4050) → (52.5210,13.4060)), XML-Fixture.
 - **When:** `fetch_construction_zones(route, [Land.DE])` wird ausgeführt.
 - **Then:** Ergebnis enthält ein `ConstructionZone` mit `betroffene_segmente = [0]`, `tempolimit_kmh = 80`, `sperrungstyp = Sperrungstyp.TEMPORARY_SPEED_LIMIT`.
 
 **Testfall 3: Grenzfall — keine Baustellen in Route**
+
 - **Given:** Fake `ConstructionProviderImpl` mit Route, die keine Baustellen-Geometrien schneidet.
 - **When:** `fetch_construction_zones(route, [Land.DE])`.
 - **Then:** Leere Liste `[]` zurückgegeben.
 
 **Testfall 4: Validierung `ConstructionZone.tempolimit_kmh` required**
+
 - **Given:** `ConstructionZone` mit `sperrungstyp = Sperrungstyp.PARTIALLY_CLOSED` und `tempolimit_kmh = None`.
 - **When:** Instanziierung.
 - **Then:** Pydantic `ValidationError` wird ausgelöst (Modell-Validierung).
@@ -674,7 +693,7 @@ def _delay_band_to_speed(delay_band: str | None) -> int | None:
 ### Unit- vs. Integrationstest
 
 | Test | Datei | Decorator |
-|------|-------|-----------|
+| ------ | ------- | ----------- |
 | `test_parse_datexii_germany()` | `tests/construction/test_parser.py` | — |
 | `test_parse_datexii_denmark()` | `tests/construction/test_parser.py` | — |
 | `test_parse_datexii_sweden()` | `tests/construction/test_parser.py` | — |
@@ -761,31 +780,37 @@ def _delay_band_to_speed(delay_band: str | None) -> int | None:
 ## 8. Risiken & offene technische Fragen
 
 **1. DATEX II API-Keys/Registrierung (High Risk, aber lösbar):**
+
 - **Problem:** Deutschland (MDM) und Dänemark (Dataudveksleren) erfordern Registrierung/Service-Account; Schweden (Trafikverket) benötigt API-Key.
 - **Lösung:** Konfiguration über Umgebungsvariablen (`MDM_USERNAME`, `MDM_PASSWORD`, `DK_SERVICE_ACCOUNT`, `TV_API_KEY`), Default-Values auf Dummy-String setzen (Test-Fallback). In Dokumentation klare Anleitung zur Registrierung.
 - **Status:** Dokumentiert in Task 7.
 
 **2. Geometrie-Mapping ungenau (Medium Risk):**
+
 - **Problem:** DATEX II nutzt komplexe GML-Geometrien (LineString, Curve, Polygon); Route-Segmente sind vereinfacht; Intersection-Check kann fehlschlagen.
 - **Lösung:** Erstes Release mit einfacher Bounding-Box-Check (`shapely.box` über alle Koordinaten). Spätere Verbesserung (Distanz-Toleranz, Segment-Polygon-Aufteilung).
 - **Status:** Task 4 implementiert `LineString`-Intersection; Task 2 erlaubt Erweiterung.
 
 **3. Tempolimit-Ableitung aus `delayBand` (Low Risk):**
+
 - **Problem:** DATEX II `delayBand` ist qualitativ (z. B. `upToTenMinutes`), kein exakter Geschwindigkeitswert.
 - **Lösung:** Konfigurierbare Map `_delay_band_to_speed()` in `parser.py`, Standardwerte basierend auf deutschen Autobahn-Regeln (100 km/h für kurze Staus, 40 km/h für lange). Spätere Kalibrierung mit realen Fahrdaten.
 - **Status:** Implementiert als Konfigurationspunkt (kein Hardcode), Task 2-3.
 
 **4. DATEX II Version 3.3 vs. 2.3 (Medium Risk):**
+
 - **Problem:** Dänemark nutzt DATEX II v3.2; Schweden und Deutschland unterstützen v3.3, aber auch v2.3. Inkompatibilitäten möglich.
 - **Lösung:** Parse-Logik robust halten — nur Gemeinsamkeiten nutzen (`SituationRecord`, `validity`, `impact`, `groupOfLocations`). Fallbacks bei fehlenden Fields (Task 3).
 - **Status:** In Task 3 dokumentiert;Schema-Download auf v3.3.
 
 **5. Rate Limits durch externe APIs (Medium Risk):**
+
 - **Problem:** MDM, Dataudveksleren, Trafikverket können Rate Limits erzwingen.
 - **Lösung:** `httpx.AsyncClient` mit `Retry` Policy (Task 4: `async_retry` wrapper). Integrationstest mit Mock (Task 5).
 - **Status:** In Task 4 implementiert, Task 6 als Mock-Test vorsehen.
 
 **6. Kein Echtzeit-Update-Mechanismus (Low Risk, nicht im Scope):**
+
 - **Problem:** Die Feeds werden nur bei `fetch_construction_zones()` aktualisiert (kein WebSocket/AMQP).
 - **Lösung:** Akzeptiert; das Modul ist stateless. Bei späterem Bedarf kann `ConstructionProviderImpl` um `subscribe()` erweitert werden.
 - **Status:** Explizit als Nicht-Scope in Task 7 beschrieben.

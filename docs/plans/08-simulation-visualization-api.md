@@ -15,6 +15,7 @@ Die drei Module werden eng gekoppelt implementiert, da sie stark voneinander abh
 ### 1.1 `simulation`-Modul
 
 **Was es leistet:**
+
 - Aus `Route`, `ChargingPlan`, `SegmentEnergyResult` und `WeatherSample` eine diskrete Zeitreihe (`TripSimulationResult`) erzeugen  
 - Jeder Zeitschritt enthält: Zeitpunkt, Position (Interpolation zwischen Segmentgrenzen), aktueller SoC, Geschwindigkeit (km/h), Zustand (FAHREN/LADEN/PAUSE)  
 - Zeitauflösung: Konfigurierbar (Default: alle 60 Sekunden), alternativ Segmentgrenzen + Ladestopps als explizite Eventpunkte  
@@ -22,6 +23,7 @@ Die drei Module werden eng gekoppelt implementiert, da sie stark voneinander abh
 - SoC-Verlauf: Entladung (nach `energy`-Modul) und Ladevorgänge (nach `battery`-Modul, Ladekurve)
 
 **Nicht-Scope:**
+
 - Keine Echtzeit-Simulation (nur reine Rekonstruktion nach fixierter Route + Ladeplan)  
 - Keine Neuberechnung der Route oder des Ladeplans  
 - Keine Wetter-ETA-Iterative-Auflösung (durch `optimization`-Modul vor Simulation abgeschlossen)
@@ -29,12 +31,14 @@ Die drei Module werden eng gekoppelt implementiert, da sie stark voneinander abh
 ### 1.2 `visualization`-Modul (Frontend)
 
 **Was es leistet:**
+
 - Karte mit Route als GeoJSON-LineString mit SoC-Farbverlauf entlang der Strecke  
 - Marker für Ladehalte (Tesla Supercharger) und Zwischenstopps  
 - Zeit/Soc-Verlauf als separates Diagramm (Line-Chart über Zeit vs. SoC)  
 - Interaktive Hover-Info-Fenster pro Marker/Segment  
 
 **Nicht-Scope:**
+
 - Keine direkte Kartendaten-Herunterladestrategie (nutzt OpenFreemap/standard-Style)  
 - Keine Animationen (nur statische Darstellung)  
 - Keine Navigation (keine Steuerung des Simulators, nur Lesemodus)  
@@ -42,12 +46,14 @@ Die drei Module werden eng gekoppelt implementiert, da sie stark voneinander abh
 ### 1.3 `trip_input`/API-Schicht
 
 **Was es leistet:**
+
 - `POST /trips`-Endpunkt (FastAPI) nimmt `TripRequest`, liefert `TripSimulationResult`  
 - CLI-Entry-Point (`python -m tripplanner.cli trips …`) dieselbe Pipeline aufrufend  
 - Orchestrierung aller 11 Schritte aus Datenfluss-Abschnitt (inkl. iterative ETA/Wetter-Schleife aus `optimization`)  
 - Keine Geschäftslogik, nur Verkettung der bereits implementierten Module  
 
 **Nicht-Scope:**
+
 - Keine Authentifizierung (lokaler, nichtöffentlicher API-Endpunkt)  
 - Keine Persistenz (nur Transient)  
 - Keine Caching-Schicht (wird erst später eingebaut, wenn nötig)  
@@ -57,7 +63,7 @@ Die drei Module werden eng gekoppelt implementiert, da sie stark voneinander abh
 ## 2. Abhängigkeiten & Phasenzuordnung
 
 | Modul | Phase | Importierte Modelle (exakt nach Register) |
-|-------|-------|-------------------------------------------|
+| ------- | ------- | ------------------------------------------- |
 | **simulation** | Phase 6→7 | `tripplanner.routing.models.Route`, `tripplanner.elevation.models.SegmentGradient`, `tripplanner.weather.models.WeatherSample`, `tripplanner.energy.models.SegmentEnergyResult`, `tripplanner.battery.models.SoCState`, `tripplanner.battery.models.ChargingCurve`, `tripplanner.charging_infrastructure.models.ChargingStation`, `tripplanner.optimization.models.ChargingPlan`, `tripplanner.optimization.models.ChargingStop` |
 | **visualization** | Phase 7 | `tripplanner.simulation.models.TripSimulationResult`, `tripplanner.simulation.models.SimulationFrame`, `tripplanner.optimization.models.ChargingStop`, `tripplanner.trip_input.models.Waypoint` (nur zur Anzeige) |
 | **trip_input/API** | Phase 7 | `tripplanner.trip_input.models.TripRequest`, `tripplanner.trip_input.models.VehicleProfile`, `tripplanner.trip_input.models.Waypoint`, `tripplanner.routing.models.Route`, `tripplanner.elevation.models.SegmentGradient`, `tripplanner.weather.models.WeatherSample`, `tripplanner.energy.models.SegmentEnergyResult`, `tripplanner.charging_infrastructure.models.ChargingStation`, `tripplanner.optimization.models.ChargingPlan`, `tripplanner.simulation.models.TripSimulationResult` |
@@ -116,6 +122,7 @@ class TripSimulationResult(BaseModel):
 ```
 
 **Ergänzende Typen (nicht im Register aufgeführt, aber nötig):**
+
 - `tripplanner.trip_input.models`: `TripRequest` (s. Register), `Waypoint`, `VehicleProfile` (s. Register)  
 
 **Wichtig — Koordinaten-Konvention:** `SimulationFrame.position` nutzt wie alle Domänenmodelle `(lat, lon)` (siehe `docs/plans/01-routing.md`, Abschnitt 3). Die GeoJSON-Reihenfolge `(lon, lat)` wird ausschließlich im Frontend an der Rendering-Grenze erzeugt (siehe Abschnitt 5.2), nie in Backend-Modellen.
@@ -411,6 +418,7 @@ async def create_trip_endpoint(request: TripRequestAPI):
      - Sonst → „FAHREN“, SoC↓ nach Segmentenergie  
 
 **Hilfsfunktion `interpolate_position(route: Route, distance: float) -> tuple[float, float]`:**
+
 - `distances_cumsum = [0] + list(accumulate(r.gesamtlaenge_m for r in route.segments))`  
 - Finde Segment `i` mit `distances_cumsum[i] ≤ distance < distances_cumsum[i+1]`  
 - Interpoliere Anteil `α = (distance - distances_cumsum[i]) / route.segments[i].laenge_m`  
@@ -539,7 +547,7 @@ function socToColor(soc: number): string {
 const colors = simulationResult.frames.map(f => socToColor(f.soc_pct));
 ```
 
-3. Erstelle ein **GeoJSON LineString mit `line-stops` pseudo-Feature**  
+1. Erstelle ein **GeoJSON LineString mit `line-stops` pseudo-Feature**  
    **Oder einfacher**: Erstelle **mehrere GeoJSON-Linien**, je eine mit einfarbigem Segment (vgl. „Workaround“ Suche).  
    **Praktikabel**: Erstelle **eine einzige LineString-GeoJSON**, berechne für jeden Frame die `line-progress` (0–1) und erstelle ein Array von Farben.  
    MapLibre unterstützt **keine data-driven line-gradient** → wir simulieren es mit **Segmentierung**:
@@ -724,6 +732,7 @@ export interface TripSimulationResult {
 ### 6.1 `simulation`-Tests (Unit)
 
 **Fixtures (in `tests/fixtures/simulation/`):**
+
 - `route_segment_example.json`: 3 Segmente, Geometrie, Längen, Steigungen  
 - `weather_samples_example.json`: 2 Wetterabfragepunkte, Temperatur/Wind  
 - `energy_results_example.json`: Energiebedarf je Segment (kWh)  
@@ -797,6 +806,7 @@ def test_simulate_trip_soc_cap():
 ```
 
 **Test-Abgrenzung:**
+
 - Unit-Tests: Alle oben (feste Eingaben, keine Mocks außer externer APIs)  
 - Integrationstest (`@pytest.mark.integration`): Simuliere echte Route aus `routing`-Fixture, Wetter-Fixture, `optimization`-Output → komplette Pipeline
 
@@ -857,6 +867,7 @@ test('soc chart displays time vs. SoC line', async ({ page }) => {
 ```
 
 **Test-Abgrenzung:**
+
 - Unit-Tests (Jest/Vitest): Nur `socToColor`, `interpolatePosition` → geringer Aufwand  
 - E2E (Playwright): Ganze Applikation, Test-Server, demo-Mode, Snapshots vergleichen  
 
@@ -912,6 +923,7 @@ def test_cli_trips_output(capsys):
 ```
 
 **Test-Abgrenzung:**
+
 - Unit: API-Schema-Validierung (`TripRequestAPI.model_validate()`)  
 - Integration: E2E mit simulierten Backend-Modulen (Mocked, keine echten API-Calls)  
 
@@ -1009,7 +1021,7 @@ def test_cli_trips_output(capsys):
 
 | Risiko | Auswirkung | Abwehrmaßnahme |
 |--------|------------|----------------|
-| **Position-Interpolation entlang kurviger Segmente** | Positionen zu ungenau bei stark gekrümmten Straßen | Nutze `shapely` für Geometrie-Interpolation (besser als Lineare) – **empfohlene Ergänzung**, falls Zeit | 
+| **Position-Interpolation entlang kurviger Segmente** | Positionen zu ungenau bei stark gekrümmten Straßen | Nutze `shapely` für Geometrie-Interpolation (besser als Lineare) – **empfohlene Ergänzung**, falls Zeit |
 | **Ladekurve außerhalb der Tabellengrenzen (extrapolieren)** | Falsche Ladedauer, SoC-Über- oder -Unterschreitung | `ValueError` bei Extrapolation, Default-SoC=100% nach Ladehalt |
 
 ### 8.2 Visualization

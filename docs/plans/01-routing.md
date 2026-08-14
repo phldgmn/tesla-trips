@@ -5,12 +5,14 @@
 Das `routing`-Modul berechnet eine oder mehrere Straßenrouten zwischen Start, Ziel und gegebenenfalls Zwischenstopps (Pflicht-Wegpunkten) mithilfe von GraphHopper. Es kennt **nicht** die Energieverbrauchsdaten, Ladeplanung oder Wetterbedingungen — diese werden erst in nachgelagerten Modulen (`energy`, `optimization`) bearbeitet.
 
 **Scope:**
+
 - HTTP-Client für GraphHopper-Server mit Docker-Setup (lokale Instanz)
 - Berechnung einer einzigen Route für gegebene Waypoints (Start → Zwischenstopps → Ziel)
 - Extrahieren aller für nachgelagerte Module relevanten Segmentinformationen: Geometrie, Länge, Straßenklasse, Tempolimit, Steigung (sofern verfügbar)
 - Behandlung von Zwischenstopps als Pflicht-Wegpunkte, die in der Reihenfolge durchlaufen werden müssen
 
 **Nicht-Scope:**
+
 - Keine eigene OSM-Datenverarbeitung — ausschließlich GraphHopper als Datenquelle nutzen
 - Keine Energierouting-Optimierung (keine Berücksichtigung von Steigungen für Kostenfunktion im aktuellen Scope)
 - Keine mehreren Routenalternativen mit energetischem Vergleich (Später / nicht jetzt umsetzen, siehe "Offene Punkte" in `06-offene-punkte-widersprueche.md`)
@@ -21,6 +23,7 @@ Das `routing`-Modul berechnet eine oder mehrere Straßenrouten zwischen Start, Z
 **Phase:** Phase 1 (unabhängige Datenquell-Module, parallelisierbar)
 
 **Fremde Typen (nur Lesen, exakt wie im Register definiert):**
+
 - `tripplanner.trip_input.models.TripRequest` (Startkoordinate, Zielkoordinate, zwischenstopps: list[Waypoint], abfahrtszeit, fahrzeugprofil: VehicleProfile, praeferenzen)
 - `tripplanner.trip_input.models.Waypoint` (koordinate, aufenthaltsdauer: timedelta | None)
 - `tripplanner.routing.models.Route` (Segmentsammlung)
@@ -114,6 +117,7 @@ class GraphHopperInfo(BaseModel):
 ```
 
 **Zusätzliche Hilfstypen (nicht im Register enthalten, aber notwendig):**
+
 - `Coordinate`: Tuple[float, float] — (Breitengrad, Längengrad). **Konsolidierungshinweis:** Dieser Alias ist identisch mit dem in `docs/plans/00-foundation-tooling.md` vorgesehenen `tripplanner.geo.Coordinate`-Primitiv. `routing` definiert ihn hier lokal, da `routing` das erste Modul in der Pipeline ist; sobald `tripplanner.geo` in Phase 0 existiert, importiert `routing.models` von dort statt lokal neu zu definieren (kein funktionaler Unterschied, nur eine Quelle der Wahrheit).
 - `GraphHopperResponse`/`GraphHopperPath` — Nur zur internen Verarbeitung, keine Cross-Modul-Schnittstelle
 - **Koordinaten-Konvention (verbindlich für das gesamte Projekt):** Alle `Coordinate`-Tupel sind `(lat, lon)`, niemals `(lon, lat)`. Eine Umwandlung nach GeoJSON-Reihenfolge `(lon, lat)` erfolgt ausschließlich an der Serialisierungsgrenze zum Frontend (siehe `docs/plans/08-simulation-visualization-api.md`, Abschnitt 5.2), nicht in Domänenmodellen.
@@ -282,6 +286,7 @@ services:
 ```
 
 **OSM-Datenquelle:** Geofabrik-Extrakte
+
 - Deutschland: `germany-latest.osm.pbf` (~4.5 GB)
 - Dänemark: `denmark-latest.osm.pbf` (aus `europe/denmark.html`)
 - Schweden: `sweden-latest.osm.pbf` (~772 MB)
@@ -337,6 +342,7 @@ custom_models.directory: /data/models
 ```
 
 *Begründung:*
+
 - Tempolimits anpassen: Auf Autobahnen in DE/DK/SE typische 130 km/h statt Default (meist 120 km/h für car), in Städten auf 100 km/h beschränken.
 - Keine Motorway-Avoidance — Tesla Model 3 darf Autobahnen nutzen.
 - `distance_influence: 0` → bevorzugt schnellste Route (kein Zwang zu kürzeren Wegen bei gleicher Fahrzeit).
@@ -349,7 +355,7 @@ custom_models.directory: /data/models
 **Relevante Parameter (für dieses Modul):**
 
 | Parameter | Typ | Obligatorisch | Beschreibung |
-|-----------|-----|---------------|--------------|
+| ----------- | ----- | --------------- | -------------- |
 | `point` | array[lon, lat] | Ja | Mindestens 2 Koordinaten (Start, [Zwischenstopps], Ziel) |
 | `profile` | string | Ja | GraphHopper Profilname (z. B. "car", "tesla_model3") |
 | `elevation` | boolean | Nein | Falls `true`, Elevation in Polyline inkludieren (für Steigungsberechnung) |
@@ -359,7 +365,7 @@ custom_models.directory: /data/models
 **Relevante Path Details (für nachgelagerte Module):**
 
 | Detail | Typ | Beschreibung |
-|--------|-----|--------------|
+| -------- | ----- | -------------- |
 | `road_class` | string | MOTORWAY, TRUNK, PRIMARY, SECONDARY, TRACK, STEPS, CYCLEWAY, FOOTWAY, OTHER |
 | `max_speed` | number | Tempolimit in km/h (0 = kein Limit, -1 = nicht verfügbar) |
 | `average_slope` | number | durchschnittliche Steigung in Prozent (100 * Δh / d) |
@@ -407,6 +413,7 @@ response = await client.post("/route", json=payload)
 ### Unit Tests (Mock/Fake, ohne GraphHopper Server)
 
 **Fixtures:**
+
 - `tests/fixtures/routing/graphhopper_response_basic.json`: Minimale Antwort ohne Details
 - `tests/fixtures/routing/graphhopper_response_with_details.json`: Antwort mit `road_class`, `max_speed`, `average_slope`, `surface` details
 - `tests/fixtures/routing/expected_route_model.json`: Erwartetes Pydantic-`Route`-Objekt
@@ -485,7 +492,7 @@ tests/routing/
 
 ## 8. Risiken & offene technische Fragen
 
-1. **Polyline-Dekodierung:** GraphHopper nutzt die gleiche Polyline-Encodierung wie Google Maps (Encoded Polyline Algorithm). Verwendung einer etablierten Bibliothek (` polyline` PyPI-Paket) ist empfohlen. Falls nicht verfügbar, Implementierung der Dekodierung gemäß offiziellem Algorithmus.
+1. **Polyline-Dekodierung:** GraphHopper nutzt die gleiche Polyline-Encodierung wie Google Maps (Encoded Polyline Algorithm). Verwendung einer etablierten Bibliothek (`polyline` PyPI-Paket) ist empfohlen. Falls nicht verfügbar, Implementierung der Dekodierung gemäß offiziellem Algorithmus.
 
 2. **Grenzfälle mit `max_speed`:** GraphHopper liefert `max_speed: 0` für Straßen ohne Schild (z. B. Spielstraßen in DE) oder `-1` falls nicht bekannt. Das `routing`-Modul muss diese Werte entweder als `None` (kein Limit) oder als typische Default-Geschwindigkeit interpretieren (entscheidet `energy`-Modul später für die Berechnung). Im `routing`-Modul wird `0` oder `-1` als `tempolimit_kmh=None` gespeichert.
 

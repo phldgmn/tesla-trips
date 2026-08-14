@@ -103,6 +103,10 @@ local linters = new Mapping<String, Step> {
         check = "npm --prefix frontend run lint"
         fix = "npm --prefix frontend run lint:fix"
     }
+    ["shellcheck"] = Builtins.shellcheck
+    ["shfmt"] = (Builtins.shfmt) { /* -i 2, siehe hk.pkl: Repo-Konvention 2-Space-Einrückung */ }
+    ["yamllint"] = Builtins.yamllint
+    ["markdown-lint"] = Builtins.markdown_lint
 }
 
 hooks {
@@ -122,6 +126,8 @@ hooks {
 ```
 
 **Wichtig für KI-Agenten:** `hk check --all` bzw. `hk run pre-commit --all` muss vor jedem Commit fehlerfrei durchlaufen. Ein Commit, der nur zustande kommt, weil ein Hook umgangen wurde (`--no-verify`), gilt als nicht abgeschlossen (siehe `05-agent-guidelines.md`).
+
+`shellcheck`, `shfmt`, `yamllint` und `markdownlint` sind externe Binaries (nicht über `uv`/`npm` verwaltet) und müssen lokal installiert sein, z. B. via `brew install shellcheck shfmt yamllint markdownlint-cli`. Regel-Ausnahmen für `markdownlint`/`yamllint` stehen in `.markdownlint.jsonc`/`.yamllint.yml` im Repo-Root, jeweils mit Begründungskommentar.
 
 ## Linting/Formatting-Konfiguration (Python)
 

@@ -88,6 +88,7 @@ Jeder Typ hat genau ein besitzendes Modul; andere Module importieren ihn ausschl
 | `SimulationFrame`, `TripSimulationResult` | `simulation` |
 
 **Koordinatenkonvention (verbindlich, projektweit):** Jedes `Coordinate`-Tupel ist `(lat, lon)`. Ausnahmen nur an drei dokumentierten externen Grenzen, nirgends sonst:
+
 - GraphHopper-Request-Payload (`points: [[lon, lat], …]`) — Konvertierung in `routing/client.py`.
 - `rasterio`-Pixel-Lookup (`src.index(lon, lat)`) — intern in `elevation/providers.py`.
 - MapLibre/GeoJSON-Rendering (`[lng, lat]`) — Konvertierung ausschließlich in `frontend/src/utils/geo-utils.ts::toLngLat()`.
@@ -131,15 +132,19 @@ Regel: Kein Modul greift auf interne Implementierungsdetails eines anderen Modul
 Die neun Pläne wurden unabhängig voneinander erarbeitet; die Konsistenzprüfung (Schritt 3 im Vorgehen) fand drei echte Cross-Plan-Widersprüche, die direkt in den Quelldateien behoben wurden:
 
 ### 6.1 Fehlendes `bearing_deg`-Feld
+
 `03-weather-wind.md` setzte für die Windprojektion `RouteSegment.bearing_deg` voraus, das Feld fehlte aber in `01-routing.md`s `RouteSegment`-Modell. **Behoben:** `RouteSegment` hat jetzt ein Pflichtfeld `bearing_deg` (Vorwärtsazimut, vom `routing`-Modul berechnet); `01-routing.md` hat einen entsprechenden Task 15, `03-weather-wind.md` referenziert konsistent `bearing_deg` statt `bearing`.
 
 ### 6.2 Falsche `Coordinate`-Importquelle
+
 `03-weather-wind.md` importierte `Coordinate` fälschlich aus `trip_input.models` bzw. `weather.models`. **Behoben:** Einführung von `tripplanner.geo` als minimales, abhängigkeitsfreies Geo-Primitiv-Modul (`Coordinate`, `bearing_deg()`, `haversine_distance_m()`) in Phase 0 — die einzige bewusste Ausnahme von der „nur `models.py`"-Regel, da es sich nicht um Geschäftslogik, sondern um eine Utility-Bibliothek analog zu `datetime` handelt. Alle Pläne referenzieren jetzt `tripplanner.geo.Coordinate` als Quelle der Wahrheit; `routing.models` behält lokal einen strukturgleichen Alias mit explizitem Verweis auf `tripplanner.geo` als spätere Konsolidierungsquelle.
 
 ### 6.3 Invertierte Koordinatenreihenfolge (lat/lon vs. lon/lat)
+
 `08-simulation-visualization-api.md` hatte `SimulationFrame.position`, die API-Modelle und die Frontend-Typen durchgängig als `(lon, lat)` (GeoJSON-Konvention) spezifiziert — im Widerspruch zu `routing`, `elevation`, `weather` und `charging_infrastructure`, die alle `(lat, lon)` verwenden (mit Validatoren, die Breitengrad zuerst prüfen). Ohne Korrektur hätte das zu vertauschten Koordinaten geführt (klassischer Lat/Lon-Swap-Bug). **Behoben:** Internes Domänenmodell ist durchgängig `(lat, lon)`; die GeoJSON-/MapLibre-Konvertierung `(lon, lat)` erfolgt jetzt ausschließlich über eine neu spezifizierte `toLngLat()`-Utility in `frontend/src/utils/geo-utils.ts`, angewendet exakt an der Rendering-Grenze (Marker, Route-GeoJSON). CLI-Parsing, API-Feldbeschreibungen und die Positions-Interpolationsformel wurden entsprechend korrigiert.
 
 ### 6.4 Fehlender Straßenbelag (`Straßenbelag`/`Oberflächen`) als Einflussgröße
+
 `01-projektspezifikation.md` nennt „Oberflächen" explizit als benötigte OSM-Daten und „Straßenbelag" als Einflussgröße auf den Energieverbrauch (Abschnitte „OSM-Daten" und „Energieverbrauch"). Der Abgleich aller neun Pläne gegen `01`–`03` zeigte, dass `RouteSegment` kein Oberflächen-Feld hatte und `energy` es folglich nicht verwenden konnte — eine echte Abdeckungslücke, kein reiner Cross-Plan-Widerspruch. **Behoben:** `RouteSegment.oberflaeche` (aus GraphHopper Path-Detail `surface`) in `01-routing.md` ergänzt (inkl. Task 15 zur Umsetzung), `06-energy.md` erhielt einen multiplikativen Straßenbelag-Faktor `f_oberflaeche()` in der Rollwiderstandsformel (Abschnitt 5.1.1, Task 15) mit zwei zugehörigen Tests.
 
 Diese vier Korrekturen sind bereits in den jeweiligen `docs/plans/*.md`-Dateien angewendet — dieser Abschnitt dokumentiert sie nur zur Nachvollziehbarkeit.

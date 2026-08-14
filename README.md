@@ -62,23 +62,24 @@ Für Routing-Anfragen wird ein lokaler GraphHopper-Server auf Port `8989` erwart
 **Schnellstart mit Docker Compose:**
 
 ```bash
+./run.sh start graphhopper   # oder: ./run.sh start backend / start (=all)
+```
+
+`./run.sh start graphhopper` (und damit auch `start backend`/`start` ohne Argument)
+startet bei Bedarf zuerst OrbStack, führt dann bei fehlendem Extrakt
+automatisch `scripts/prepare_osm_extract.sh` aus und wartet anschließend, bis
+der GraphHopper-Container healthy ist. Manuell äquivalent:
+
+```bash
+./scripts/prepare_osm_extract.sh   # lädt DE+DK+SE-Extrakte, merged sie
 docker compose up -d
 ```
 
-Die `docker-compose.yml`-Datei im Repo-Root konfiguriert den GraphHopper-Container mit dem offiziellen Image `israelhikingmap/graphhopper:11.0` (dieselbe Version wie in der CI-Pipeline, `.github/workflows/ci.yml`, Zeile 33). Das Image selbst enthält **keinen** vorgebauten Graphen – `docker-compose.yml` übergibt daher `--url https://download.geofabrik.de/europe/germany/berlin-latest.osm.pbf`, sodass der Container beim ersten Start automatisch einen kleinen, echten OSM-Extrakt (Berlin-Umgebung, ~95 MB) herunterlädt und importiert (dauert ca. 1–2 Minuten). Der importierte Graph wird in `./data` zwischengespeichert (bereits via `.gitignore` ausgeschlossen), sodass spätere `docker compose up -d`-Aufrufe ihn wiederverwenden statt neu zu importieren.
+Die `docker-compose.yml`-Datei im Repo-Root konfiguriert den GraphHopper-Container mit dem offiziellen Image `israelhikingmap/graphhopper:11.0` (dieselbe Version wie in der CI-Pipeline, `.github/workflows/ci.yml`, Zeile 33). Das Image selbst enthält **keinen** vorgebauten Graphen – `docker-compose.yml` liest daher `-i /data/de-dk-se.osm.pbf`, eine lokale Datei, die `scripts/prepare_osm_extract.sh` erzeugt: Sie lädt die vollständigen Geofabrik-Länderextrakte für **Deutschland**, **Dänemark** und **Schweden** herunter (zusammen mehrere GB) und führt sie mit `osmium merge` (`brew install osmium-tool`) zu einer einzigen Datei zusammen, da GraphHopper nur eine einzelne lokale Eingabedatei akzeptiert. Download, Merge und der anschließende GraphHopper-Import können je nach Verbindung/Hardware deutlich länger dauern als bei einem kleinen Demo-Extrakt (typischerweise mehrere zehn Minuten bis über eine Stunde beim ersten Lauf). Der importierte Graph wird in `./data` zwischengespeichert (bereits via `.gitignore` ausgeschlossen), sodass spätere Starts ihn wiederverwenden statt neu zu importieren.
 
-Der Berlin-Extrakt deckt nur das Berliner Umland ab, nicht ganz Deutschland.
+Damit deckt die lokale Routing-Instanz standardmäßig ganz Deutschland, Dänemark und Schweden ab (grenzüberschreitendes Routing funktioniert, da alle drei Länder in einem zusammenhängenden Graphen liegen statt in getrennten Extrakten).
 
-Für die volle Abdeckung von Deutschland, Dänemark und Schweden (DE/DK/SE):
-
-1. `./data` leeren (sonst wird der zwischengespeicherte Berlin-Graph weiterverwendet): `rm -rf data/*`
-2. In `docker-compose.yml` den `command`-Abschnitt anpassen, z. B. auf einen bereits heruntergeladenen lokalen Extrakt verweisen (Datei zuvor nach `./data` legen) oder eine andere `--url` angeben. Geofabrik-Quellen:
-   - Deutschland: `https://download.geofabrik.de/europe/germany-latest.osm.pbf` (~4.5 GB)
-   - Dänemark: `https://download.geofabrik.de/europe/denmark-latest.osm.pbf`
-   - Schweden: `https://download.geofabrik.de/europe/sweden-latest.osm.pbf` (~772 MB)
-3. `docker compose up -d` (Download + Import der großen Extrakte kann deutlich länger dauern als beim Berlin-Demo-Extrakt).
-
-Cross-Border-Routing über mehrere Länder hinweg erfordert einen zusammenhängenden Extrakt (z. B. den Europe-Gesamtextrakt mit `osmconvert` auf eine DE/DK/SE-Bounding-Box zugeschnitten) statt dreier getrennter Länder-Extrakte.
+Um die Quelldaten neu herunterzuladen/zusammenzuführen (z. B. nach einem Geofabrik-Update): `./scripts/prepare_osm_extract.sh --force`, danach `rm -rf data/default-gh` (Graph-Cache) und `./run.sh restart graphhopper`, damit GraphHopper den neuen Extrakt tatsächlich neu importiert.
 
 **Alternativer GraphHopper-Endpunkt (GRAPHHOPPER_URL):**
 

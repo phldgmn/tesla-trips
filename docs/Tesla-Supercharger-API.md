@@ -1,6 +1,7 @@
 # Tesla Supercharger via Locations-API
 
 ## Introduction
+
 Tesla provides a public API to list all their locations. This can be used to filter out superchargers and get their details.
 
 ## API Endpoint
@@ -8,6 +9,7 @@ Tesla provides a public API to list all their locations. This can be used to fil
 ### get-locations
 
 cURL-equivalent:
+
 ```bash
 curl 'https://www.tesla.com/api/findus/get-locations?country=DE&view=map' \
   -H 'accept: application/json, text/plain, */*' \
@@ -23,9 +25,11 @@ curl 'https://www.tesla.com/api/findus/get-locations?country=DE&view=map' \
   -H 'user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36' \
   -b ''
 ```
+
 *IMPORTANT:* During testing, we found out that no cookies are apparently required but that all these headers are necessary to get a valid response.
 
 Response (example):
+
 ```json
 {
   "data": {
@@ -281,7 +285,6 @@ Response (example):
   }
 }
 ```
-
 
 ## Connecting the two endpoints
 

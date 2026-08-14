@@ -473,7 +473,7 @@ def optimize(...):
 ### 5.5 Externe APIs / Bibliotheken
 
 | Komponente | Bibliothek | Version | Verwendung |
-|-----------|-----------|---------|------------|
+| ----------- | ----------- | --------- | ------------ |
 | NetworkX | `networkx` | ≥3.0 | A*/Dijkstra auf DiGraph |
 | OR-Tools | `ortools` | ≥9.10 | CP-SAT Solver (oder Routing Solver) |
 | Wetter/Ladekurven | `tripplanner.weather`, `tripplanner.battery` | eigene Module | Datenimport via models |
@@ -566,7 +566,7 @@ def test_konvergenz_kleiner_eta_abweichung():
 ### Unit vs. Integrationstest
 
 | Test | Art | Marker | Beschreibung |
-|------|-----|--------|--------------|
+| ------ | ----- | -------- | -------------- |
 | `test_kein_ladehalt_noetig` | Unit | — | Einzelfall, alle Input-Daten synthetisch |
 | `test_zwischenstopp_mit_ladehalt` | Unit | — | Kombination von Zwischenstopp + Ladehalt |
 | `test_grenzfall_minimaler_soc` | Unit | — | Start-SoC = Min-SoC + kleines Delta → muss laden |

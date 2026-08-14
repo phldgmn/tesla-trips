@@ -7,17 +7,20 @@
 **Zweck:** Das `elevation`-Modul extrahiert das Höhenprofil entlang einer gegebenen Route und berechnet daraus das Steigungs-/Gefälliprofil je Segment.
 
 **Konkrete Leistungen:**
+
 - Höhenwert (in Metern) pro Routenpunkt (aus DEM-Kacheln)
 - Steigung in Prozent pro Segment berechnet aus Höhendifferenz und horizontaler Distanz
 - Handling von Kachelgrenzen (automatische Kombination mehrerer DEM-Tiles)
 - Umgang mit ungültigen Höhenwerten (z. B. Meeresgebiete → 0 m)
 
 **Abgrenzung zu anderen Modulen:**
+
 - Keine Wetter- oder Baustellen-Integration: Nur reine Geometrie/Höhe
 - Keine Energieberechnung: Das Modul liefert Rohdaten (Höhe, Steigung), die von `energy` verwendet werden
 - Kein Rerouting: Routenpunkte stammen aus `routing`, das Modul verändert die Route nicht
 
 **Explizit NICHT-Scope:**
+
 - DEM-Daten herunterladen/cachen (vorgelagerte Datenpipeline, siehe Abschnitt 5)
 - Live-Aktualisierung des DEM-Stacks (nur statischer Datenbestand)
 - Interpolation zwischen Routenpunkten (nur Punktwerte, keine Zwischenwerte)
@@ -30,15 +33,18 @@
 **Phase:** Phase 1 (Datenquell-Module)
 
 **Abhängigkeiten zu anderen Modulen (konsumierte models.py-Typen):**
+
 - `tripplanner.routing.models.Route`: Konsumiert `Route.segments`, um Koordinaten zu extrahieren
 - `tripplanner.routing.models.RouteSegment`: Verwendet `RouteSegment.geometrie` für Koordinaten
 - Keine importierten Implementierungsdetails — nur `tripplanner.routing.models` importieren
 
 **Konsumierte externen Datenquellen:**
+
 - Copernicus DEM GLO-30 (Cloud Optimized GeoTIFFs, EPSG:4326 WGS84 oder UTM-Zonen)
 - Lokale DEM-Kacheln (entweder im Repo oder im `data/elevation/`-Verzeichnis)
 
 **Erzeugte Datenmodelle für andere Module:**
+
 - `tripplanner.elevation.models.ElevationPoint` (im Register definiert)
 - `tripplanner.elevation.models.SegmentGradient` (im Register definiert)
 
@@ -133,6 +139,7 @@ class DEMTile(BaseModel):
 ## 4. Öffentliche Schnittstelle
 
 **Dateistruktur:**
+
 ```
 src/tripplanner/elevation/
 ├── __init__.py        # exports: ElevationProvider, get_elevation_profile, calculate_segment_gradients
@@ -215,6 +222,7 @@ def calculate_horizontal_distance(
 ```
 
 **Export in `src/tripplanner/elevation/__init__.py`:**
+
 ```python
 from .models import ElevationPoint, SegmentGradient
 from .elevation import ElevationProvider, calculate_horizontal_distance
@@ -236,6 +244,7 @@ __all__ = [
 **Quelle:** AWS Open Data Registry `copernicus-dem-30m` (Bucket: `copernicus-dem-30m.s3.eu-central-1.amazonaws.com`)
 
 **Begründung für AWS S3 (nicht OpenTopography API):**
+
 - Kostenlose, uneingeschränkte Nutzung (Copernicus Open License)
 - Keine API-Key-Registrierung nötig
 - Cloud Optimized GeoTIFFs (COG) direkt nutzbar
@@ -243,6 +252,7 @@ __all__ = [
 - Lesezugriff ohne AWS-Account (öffentliche Bucket-ACL)
 
 **Dateiformat & Kachelschema:**
+
 - Format: Cloud Optimized GeoTIFF (COG), LZW-Kompression
 - Auflösung: 30 m × 30 m (GLO-30 Public)
 - CRS: WGS84 / EPSG:4326 (Geodätisch) oder UTM-Zonen (abgeleitet)
@@ -305,12 +315,14 @@ def sample_elevation(src: rasterio.DatasetReader, lat: float, lon: float) -> flo
 ```
 
 **Kachelgrenzen-Handling:**
+
 - Koordinaten innerhalb eines Segments können mehrere Tiles betreffen
 - Algorithmus: Ermittle alle relevanten Tile-Keys für das Segment-BBox
 - Falls Koordinate außerhalb des aktuellen Tiles liegt, versuche Nachbartile
 - Priorität: exaktes Tile > Nachbar-Tile > -9999 (undefined)
 
 **Datenpipelinemodell (lokale Vorbereitung):**
+
 1. DEM-Kacheln für Europa-West manuell herunterladen (oder Script `scripts/fetch_dem_tiles.py`)
 2. Speicherort: `data/elevation/copernicus/` (im .gitignore)
 3. Index-Datei `data/elevation/tile_index.json` mit BBox-Metadaten (optional, für schnelles Tile-Lookup)
@@ -325,6 +337,7 @@ def sample_elevation(src: rasterio.DatasetReader, lat: float, lon: float) -> flo
 $$\text{Steigung (\%)} = \frac{\text{Höhendifferenz}\ [\text{m}]}{\text{Horizontale\ Distanz}\ [\text{m}]} \times 100$$
 
 **Horizontale Distanz** ist die Luftlinienprojektion (nicht entlang der Route!):
+
 - Gegeben: Zwei Koordinaten $(lat_1, lon_1)$ und $(lat_2, lon_2)$
 - Berechne geodätische Distanz mit `geographiclib` (exakt auf Spheroid WGS84)
 
@@ -400,7 +413,7 @@ def calculate_segment_gradients(
     return gradients
 ```
 
-**Bemerkung:** Die Formel ist identisch mit der USGS-Definition (https://www.usgs.gov/educational-resources/determine-percent-slope-and-angle-slope). Für Winkel: $\text{Slope}^\circ = \arctan(\text{Steigung\%} / 100)$ — wird im `energy`-Modul für Neigungswinkel benötigt.
+**Bemerkung:** Die Formel ist identisch mit der USGS-Definition (<https://www.usgs.gov/educational-resources/determine-percent-slope-and-angle-slope>). Für Winkel: $\text{Slope}^\circ = \arctan(\text{Steigung\%} / 100)$ — wird im `energy`-Modul für Neigungswinkel benötigt.
 
 ---
 
@@ -435,6 +448,7 @@ class FakeDataSource(DEMDataSourceProtocol):
 ### 6.1 Fixtures (in `tests/fixtures/elevation/`)
 
 **Dateien:**
+
 1. `copernicus_dem_test_tile.tif` — kleines synthetisches GeoTIFF (5×5 Pixel, 10m Auflösung, 30m-Bezug)
    - Koordinaten: 47.0°N, 8.0°E bis 47.00015°N, 8.00015°E (ca. 11m × 11m)
    - Werte: lineare Steigung von 100m (linkes oben) bis 120m (rechts unten)
@@ -442,6 +456,7 @@ class FakeDataSource(DEMDataSourceProtocol):
 3. `route_segment_example.json` — kleines RouteSegment Beispiel mit 4 Koordinatenpunkten
 
 **Beispiel `route_segment_example.json`:**
+
 ```json
 {
   "segment_index": 0,
@@ -515,7 +530,7 @@ def test_tile_boundary_crossing(real_dem_provider: ElevationProvider):
 ### 6.3 Unit- vs. Integrationstest-Abgrenzung
 
 | Test | Typ | Decorator | Beschreibung |
-|------|-----|-----------|--------------|
+| ------ | ----- | ----------- | -------------- |
 | `test_fake_data_source_elevation` | Unit | - | FakeDataSource mit deterministischen Werten |
 | `test_fake_data_source_batch` | Unit | - | Batch-Lookup mit mehreren Koordinaten |
 | `test_horizontal_distance_calculation` | Unit | - | `calculate_horizontal_distance()` mit bekannten Koordinaten |
@@ -608,6 +623,7 @@ def test_tile_boundary_crossing(real_dem_provider: ElevationProvider):
 ## 8. Risiken & offene technische Fragen
 
 **Bereits durch „Verbindlich entschiedene offene Punkte" abgedeckt (aus docs/06):**
+
 - Keine Abhängigkeit von Live-Netzwerk in Unit-Tests (FakeDataSource deckt ab)
 - Lokale DEM-Datenquelle ist akzeptiert (kein Crawler nötig)
 
@@ -632,4 +648,5 @@ def test_tile_boundary_crossing(real_dem_provider: ElevationProvider):
    - **Entscheidung:** Ja — `rasterio` ist der Standard für GeoTIFF in Python und in `docs/02-architektur.md` explizit genannt. Alternative (`rioxarray`) wäre Overkill.
 
 **Zusätzliches Risiko:**
+
 - **Dateigröße:** Copernicus DEM GLO-30 für ganz Europa ist ca. 500 GB. **Lösung:** Nur DE/DK/SE-Tiles herunterladen (ca. 20–30 GB), `.gitignore` für `data/elevation/` erzwingen.

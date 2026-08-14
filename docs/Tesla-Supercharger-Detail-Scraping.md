@@ -40,7 +40,7 @@ A `.xlsx` exported from [ABRP](https://abetterrouteplanner.com/). The tool reads
 | `Ladekarte` / `Charge card` | Cleared for Tesla stops (Supercharger isn't billed through a card) |
 
 A waypoint is identified as a Tesla Supercharger stop if its name ends with `[Tesla]` (ABRP's
-convention). The `Tesla Supercharger ` prefix is stripped before matching (see `locations.py`).
+convention). The `Tesla Supercharger` prefix is stripped before matching (see `locations.py`).
 
 ### How it's parsed (`trip.py`)
 
@@ -56,10 +56,12 @@ variants supported via `_HEADER_SYNONYMS`). It returns a `Trip` dataclass contai
 ## 2. Location Directory: `tesla.com/all-locations`
 
 ### Source
+
 `https://www.tesla.com/all-locations?type=super_chargers` — Tesla's own global site map, served as
 raw JSON (~17,500 entries).
 
 ### What it contains
+
 Every Supercharger site with its metadata:
 
 ```json
@@ -78,6 +80,7 @@ Every Supercharger site with its metadata:
 Each is modelled as `Supercharger` in `locations.py` (`@dataclass(frozen=True)`).
 
 ### Fetching (`locations refresh`)
+
 Uses a `FetchSession` (headless Chromium via Playwright, or Safari automation on macOS) with one
 request — the entire all-locations blob comes as a single JSON payload.
 
@@ -86,12 +89,13 @@ Cached to `~/Library/Caches/tesla-pricing/superchargers.json` (via `platformdirs
 ### Searching the directory (`SuperchargerDirectory`)
 
 The CLI command `trip estimate` and `trip update` both call `_load_directory()` which:
+
 1. Reads the cached JSON file
 2. Builds an in-memory `SuperchargerDirectory` — a list of `Supercharger` objects
 3. When matching an ABRP stop name (e.g. `"Falkenberg, Sweden [Tesla]"`):
    - Strips `[Tesla]` suffix → `"Falkenberg, Sweden"`
-   - Strips `Tesla Supercharger ` prefix → `"Falkenberg, Sweden"`
-   - Splits on `, ` → city `"Falkenberg"`, country `"Sweden"`
+   - Strips `Tesla Supercharger` prefix → `"Falkenberg, Sweden"`
+   - Splits on `,` → city `"Falkenberg"`, country `"Sweden"`
    - Fuzzy-matches against the directory using `rapidfuzz` token ratio
    - Country-match bonus / cross-country penalty applied
    - Returns the best match with a confidence score, or `None` if below threshold
@@ -101,6 +105,7 @@ The CLI command `trip estimate` and `trip update` both call `_load_directory()` 
 ## 3. Per-Station Pricing: `tesla.com/findus/location/supercharger/<id>`
 
 ### Source
+
 `https://www.tesla.com/findus/location/supercharger/{location_id}` — Tesla's Next.js-powered
 station detail page. Pricing tiers are embedded in a `<script id="__NEXT_DATA__">` JSON blob.
 
@@ -165,6 +170,7 @@ __NEXT_DATA__ → props → pageProps → formattedData → chargerPricing
 ```
 
 Tesla's `chargerPricing` is an array of pricing tiers. Each tier has:
+
 - A label (e.g. `"Charging Fees for Tesla Owner"`, `"Charging Fees for Other EV"`)
 - A list of rate windows — each with a time label, and a rendered price string
 
@@ -198,6 +204,7 @@ StationPricing
 ```
 
 The `owner_rate_for_time` method:
+
 1. Picks the first tier whose label suggests Tesla-owner pricing (contains `"Tesla Owner"`)
 2. If a time is provided, finds the rate window whose label's time range covers that time
    (handles midnight-wrapping windows)
@@ -238,6 +245,7 @@ under a permanent numeric URL. Resolution tiers, tried in order:
 ## 4. Exchange Rates (`currency.py`)
 
 ### Source
+
 `https://api.frankfurter.dev/v1/latest` — free, open exchange-rate API (frozen v1 endpoint).
 
 - A `curl`-style User-Agent is required (Frankfurter sits behind Cloudflare which blocks
@@ -246,13 +254,16 @@ under a permanent numeric URL. Resolution tiers, tried in order:
   needed (discovered by scanning every station's pricing tiers)
 
 ### Caching
+
 ```
 ~/Library/Caches/tesla-pricing/exchange-rates-EUR.json
 ```
+
 - Cached per UTC day (`_today()` checks the cache file's date)
 - One request per base currency covers the whole trip (rates gathered before conversion)
 
 ### Conversion (`convert_station_pricing`, `convert_estimates`)
+
 - Every `RateWindow.amount` is divided by the rate: `amount / rate`
 - Currency token is replaced with the target currency code
 - `--currency` flag on every pricing/trip command (default `EUR`)
@@ -270,6 +281,7 @@ amount = stop.energy_kwh * pricing.owner_rate_for_time(arrival_time).amount
 Where `stop.energy_kwh = (soc_departure - soc_arrival) / 100 × battery_kwh`
 
 Returns a `CostEstimate` per stop:
+
 - `stop: Stop`, `station: Supercharger`, `pricing: StationPricing`
 - `rate: float` (the per-kWh price), `amount: float` (computed cost)
 - `currency: str`, `note: str` (e.g. `"45.00 kWh × 3.90 SEK/kWh"`)
@@ -321,6 +333,7 @@ All runtime data lives in the OS user cache directory, never in the repo or the 
 ```
 
 Managed by `paths.py`:
+
 - `data_dir()` — creates cache dir via `platformdirs.user_cache_dir("tesla-pricing")`
 - `locations_file()`, `pricing_cache_file(id)`, `pricing_failure_file(id)`,
   `exchange_rate_cache_file(base)`, `resolved_ids_file()`

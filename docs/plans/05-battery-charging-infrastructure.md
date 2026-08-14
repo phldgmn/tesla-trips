@@ -931,10 +931,12 @@ def berechne_ladehalt(
 
 - Gegeben: Start-SoC (S1), Ziel-SoC (S2), Ladeleistung P (kW), Batteriekapazität C (kWh)
 - Gesucht: Zeit T in Sekunden
-- Formel: 
+- Formel:
+
   ```
   T = 3600 * ∫_{S1}^{S2} (1 / min(P, K(S))) * (C / 100) dS
   ```
+
   wobei K(S) die Kurvenleistung bei SoC S ist.
 - **Numerische Integration:** Rechteckregel mit 0.1%-Schritten (ausreichend für <1% Fehler im Vergleich zu analytischer Lösung)
 - **Wirkungsgrad-Korrektur:** Multiplikation mit `1 / effizienz_ladeelektronik` (z. B. 1/0.95 ≈ 1.053) für Verluste in der Ladeelektronik
@@ -942,6 +944,7 @@ def berechne_ladehalt(
 
 **Beispiel:**
 Gegeben:
+
 - Start-SoC: 20%
 - Ziel-SoC: 80%
 - Ladeleistung: 250 kW
@@ -949,6 +952,7 @@ Gegeben:
 - Kurve: `model_3_lr_v3()`
 
 Berechnung:
+
 - Differenz: 60% * 75 kWh = 45 kWh
 - Effektive Leistung ist begrenzt durch Kurve:
   - 20–50%: Kurvenleistung fällt von 280 auf 150 kW → effektiv 250 kW
@@ -969,6 +973,7 @@ Berechnung:
 **Testfälle:**
 
 **1. Unit-Test: Standortsuche im Radius (gegebenes Fixtur)**
+
 ```python
 # tests/charging_infrastructure/test_providers.py
 @pytest.mark.parametrize(
@@ -990,6 +995,7 @@ def test_get_stations_in_radius(coordinate, radius_km, expected_count, local_pro
 ```
 
 **2. Integration-Test: Standortsuche entlang einer Route**
+
 ```python
 # tests/charging_infrastructure/test_providers.py
 @pytest.mark.integration
@@ -1005,6 +1011,7 @@ def test_get_stations_along_route(local_provider, sample_route):
 ```
 
 **3. Unit-Test: Validierung von ChargingStation**
+
 ```python
 # tests/charging_infrastructure/test_models.py
 def test_charging_station_validierung_koordinate():
@@ -1052,6 +1059,7 @@ def test_charging_station_anzahl_verfuegbare_stalls():
 **Testfälle:**
 
 **1. Unit-Test: Ladedauer-Berechnung (Referenz-Beispiel)**
+
 ```python
 # tests/battery/test_battery.py
 def test_berechne_ladedauer_referenz():
@@ -1065,6 +1073,7 @@ def test_berechne_ladedauer_referenz():
 ```
 
 **2. Unit-Test: Grenzfälle**
+
 ```python
 # tests/battery/test_battery.py
 @pytest.mark.parametrize(
@@ -1088,6 +1097,7 @@ def test_berechne_ladedauer_grenzfaelle(start_soc, ziel_soc, erwartet):
 ```
 
 **3. Unit-Test: Integration über die Kurve**
+
 ```python
 # tests/battery/test_battery.py
 def test_berechne_ladedauer_integration():
@@ -1112,6 +1122,7 @@ def test_berechne_ladedauer_integration():
 ```
 
 **4. Unit-Test: SoC nach Segment**
+
 ```python
 # tests/battery/test_battery.py
 def test_berechne_soc_nach_segment():

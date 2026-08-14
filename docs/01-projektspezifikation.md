@@ -24,6 +24,7 @@ Das Projekt wird in weitgehend unabhängige Module zerlegt (siehe `02-architektu
 Berechnung einer oder mehrerer sinnvoller Straßenrouten zwischen Start und Ziel. Diese Komponente kennt zunächst keine Informationen über Batteriestand, Ladeplanung oder Energieverbrauch.
 
 **Favorisiert: GraphHopper**
+
 - lokale Nutzung mit OSM-Daten
 - ausgereifte Routingqualität, gut dokumentiert, erweiterbar
 - Unterstützung von Turn Costs, Höhenprofilen, Fahrzeugprofilen, individuellen Weightings
@@ -130,6 +131,7 @@ Erfolgt nach der Routenberechnung, auf dem durch GraphHopper bestimmten Straßen
 **Kostenfunktion:** Fahrzeit + Ladezeit + Umweg + Sicherheitsreserve (+ optionale Strafkosten für Constraint-Verletzungen).
 
 **Nebenbedingungen:**
+
 - SoC darf Mindestwert nicht unterschreiten
 - gewünschter SoC am Ziel
 - maximale Etappenlänge

@@ -13,6 +13,7 @@ Das `energy`-Modul berechnet den Energieverbrauch je Segment der Route physikali
 Das Modul **übersetzt** die physikalischen Kräfte entlang jedes Route-Segments in energiemäßig messbare Größen (kWh). Die Eingabe ist ein `RouteSegment` (aus `routing.models`), `WeatherSample` (aus `weather.models`), `WindComponents` (aus `wind.models`) sowie ein `VehicleEnergyParameters`-Objekt mit Fahrzeugparametern.
 
 **Nicht im Scope:**
+
 - Konfiguration oder Simulation der Batterie (dieser Bereich gehört zum `battery`-Modul).
 - Ladeplanung oder -optimierung (dieser Bereich gehört zum `optimization`-Modul).
 - Wettervorhersage oder Windmodellierung (dieser Bereich gehört zum `weather`- und `wind`-Modul).
@@ -24,6 +25,7 @@ Das Modul **übersetzt** die physikalischen Kräfte entlang jedes Route-Segments
 **Phase:** 3 (physikalisches Verbrauchsmodell)
 
 **Direkte Abhängigkeiten von anderen Modulen:**
+
 - `tripplanner.routing.models.RouteSegment` (liest: geometrie, laenge_m, tempolimit_kmh, steigung_rohdaten, oberflaeche)
 - `tripplanner.elevation.models.SegmentGradient` (liest: steigung_prozent, hoehendifferenz_m)
 - `tripplanner.weather.models.WeatherSample` (liest: temperatur_c, windgeschwindigkeit_ms, windrichtung_deg)
@@ -31,6 +33,7 @@ Das Modul **übersetzt** die physikalischen Kräfte entlang jedes Route-Segments
 - `tripplanner.construction.models.ConstructionZone` (liest: tempolimit_kmh für Baustellenüberschreibung)
 
 **Fremde Typen aus dem Register (nur Lesen):**
+
 - `tripplanner.trip_input.models.VehicleProfile` (wird als Quelle für `VehicleEnergyParameters` genutzt)
 - `tripplanner.elevation.models.ElevationPoint` (indirekt über `SegmentGradient`)
 
@@ -349,6 +352,7 @@ E_rekuperation = min(
 - `P_rekup_max`: maximale Rekuperationsleistung (Tesla Model 3 AWD: 85 kW, Default: 80 kW für Sicherheitspuffer)
 
 **Physikalische Beschränkungen:**
+
 - Rekuperation funktioniert **nur bei Verzögerung** (`v_ende < v_anfang`).
 - Rekuperation **darf nicht negative Geschwindigkeit erzeugen** (Segmentende-Geschwindigkeit ≥ 0).
 - Rekuperation **darf nicht über die maximale Ladeleistung der Batterie hinausgehen** (`P_rekup_max`).
@@ -360,6 +364,7 @@ P_neben = P_baseline + P_HVAC(T_ausser)
 ```
 
 **Baseline:**
+
 - `P_baseline = fahrzeug_params.nebenverbraucher_baseline_kw` (0.34 kW)
 
 **HVAC-Korrektur (linear, temparaturabhängig):**
@@ -381,29 +386,36 @@ else:
 ```
 
 **Beispielrechnung:**
+
 - `T_ausser = -5°C`, `komforttemperatur_min = 18°C` → `delta_T = 23°C` → Heizung auf 100 % (max. 6 kW).
 - `T_ausser = 32°C`, `komforttemperatur_max = 24°C` → `delta_T = 8°C` → Klima bei ~80 % (ca. 4.4 kW).
 
 #### 5.1.6 Kraft → Leistung → Energie
 
 1. **Resultierende Kraft (F_res)** entgegen der Fahrtrichtung:
+
    ```
    F_res = F_roll + F_luft + max(0, F_steigung)
    ```
+
    (Steigung positiv nur bei Steigungen, bei Gefällen `F_steigung < 0` wird ignoriert, da Motor dann nicht mehr arbeitet)
 
 2. **Leistung (P)** über die Segmentdauer:
+
    ```
    E_brutto = (F_res * s + P_neben * t) / η_antrieb
    ```
+
    - `s`: Strecke (m)
    - `t`: Fahrzeit (s)
    - `η_antrieb`: Wirkungsgrad Antrieb ≈ 0.94 (Default)
 
 3. **Rekuperation abziehen:**
+
    ```
    E_gesamt = E_brutto - E_rekuperation
    ```
+
    - Wenn `E_gesamt < 0`, wird `E_gesamt = 0` gesetzt (Energie aus dem Netz ist nicht negativ).
 
 ### 5.2 Algorithmus-Schritte in Pseudocode
@@ -481,7 +493,7 @@ def berechne_segment_verbrauch(segment, gradient, wetter, wind, params, baustell
 ### 5.4 Weitere Recherche-Entscheidungen
 
 | Parameter | Wert | Quelle | Begründung |
-|-----------|------|--------|------------|
+| ----------- | ------ | -------- | ------------ |
 | Luftdichte `ρ` | 1.225 kg/m³ | ISA-Standard (15°C, 1013 hPa) | Industry standard; bei extremen Temperaturen < ±20°C können Korrekturen (~±3 %) erfolgen, aber dies ist im ersten Prototype nicht nötig. |
 | `cW` Tesla Model 3 | 0.23 | [Chegg, 2022] | Konservativ für alle Model-3-Versionen. Neuere Generation 0.219, aber 0.23 erhältliche Datenbasis. |
 | Stirnfläche | 2.22 m² | [Chegg, 2022] | Standardangabe für Model 3. |
@@ -500,6 +512,7 @@ def berechne_segment_verbrauch(segment, gradient, wetter, wind, params, baustell
 ### 6.1 Fixtures
 
 **`tests/fixtures/energy/`**
+
 - `default_model3_params.json`: `VehicleEnergyParameters` als JSON (für Testdaten-Serialisierung)
 - `model3_segments.json`: 3 typische Segmente (eben, Steigung +3 %, Gefälle -4 %)
 - `wetter_sample_20c_windstill.json`: 20°C, Windgeschwindigkeit 0 m/s, Windrichtung 0°
@@ -509,6 +522,7 @@ def berechne_segment_verbrauch(segment, gradient, wetter, wind, params, baustell
 - `wind_components.json`: wind_gegenwind_ms, wind_seitenwind_ms
 
 **`tests/conftest.py`**
+
 - `default_model3_params()`: `VehicleEnergyParameters()` mit Defaults.
 - `segment_eben()`: `RouteSegment(segment_index=0, laenge_m=1000, tempolimit_kmh=120, geocode=[...], steigung_rohdaten=[...])`
 - `segment_steigung_3pct()`: `RouteSegment(segment_index=1, laenge_m=800, tempolimit_kmh=100, ...)` mit `steigung_rohdaten=[0, 1.5, 3.0, 2.5, 0]`
@@ -522,15 +536,18 @@ def berechne_segment_verbrauch(segment, gradient, wetter, wind, params, baustell
 #### Testfall 1: Ebene Strecke, windstill, 100 km/h (Referenzfall)
 
 **Given:**
+
 - `segment_eben()`: 1000 m, Tempolimit 120 km/h, Steigung 0 %
 - `wetter_sample_ref()`: 20°C, Wind 0 m/s
 - `wind_components_windstill()`: 0 m/s Gegenwind
 - `default_model3_params()`: Tesla Model 3 Defaults
 
 **When:**
+
 - `berechne_segment_verbrauch()` aufgerufen mit oben genannten Daten.
 
 **Then:**
+
 - `ergebnis.energiebedarf_kwh ≈ 1.5 kWh` (±0.1 kWh Toleranz)
 - `ergebnis.rekuperation_kwh ≈ 0.0 kWh`
 - `ergebnis.fahrzeit_s ≈ 30.0 s`
@@ -541,15 +558,18 @@ def berechne_segment_verbrauch(segment, gradient, wetter, wind, params, baustell
 #### Testfall 2: Steigung +3 %, 80 km/h, Heizung (Maximalverbrauch)
 
 **Given:**
+
 - `segment_steigung_3pct()`: 800 m, Tempolimit 100 km/h, Steigung +3 %
 - `wetter_sample_neg10c_heizung()`: -10°C
 - `wind_components_windstill()`: 0 m/s
 - `default_model3_params()`
 
 **When:**
+
 - `berechne_segment_verbrauch()` aufgerufen.
 
 **Then:**
+
 - `ergebnis.energiebedarf_kwh ≥ 2.5 kWh` (maximaler Verbrauch bei Steigung + Klima)
 - `ergebnis.rekuperation_kwh = 0.0 kWh` (Steigung → keine Verzögerung)
 - `ergebnis.fahrzeit_s ≈ 36.0 s (80 km/h für 800 m)`
@@ -559,15 +579,18 @@ def berechne_segment_verbrauch(segment, gradient, wetter, wind, params, baustell
 #### Testfall 3: Gefälle -4 %, 110 km/h, Rekuperation aktiv (Minimalverbrauch / Energiegewinn)
 
 **Given:**
+
 - `segment_gefaelle_4pct()`: 1200 m, Tempolimit 110 km/h, Steigung -4 %
 - `wetter_sample_ref()`: 20°C, Wind 0 m/s
 - `wind_components_windstill()`: 0 m/s
 - `default_model3_params()`
 
 **When:**
+
 - `berechne_segment_verbrauch()` aufgerufen.
 
 **Then:**
+
 - `ergebnis.energiebedarf_kwh ≤ 0.5 kWh` (sehr gering, möglicherweise接近 0)
 - `ergebnis.rekuperation_kwh ≥ 0.1 kWh` (Rekuperation bei Verzögerung)
 - `ergebnis.fahrzeit_s ≈ 39.3 s (110 km/h für 1200 m)`

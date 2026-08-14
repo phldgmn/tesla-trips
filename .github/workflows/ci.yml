@@ -44,8 +44,10 @@ jobs:
       # `israelhikingmap/graphhopper`-Image bringt aber KEINEN vorgebauten
       # Graphen mit - ohne `--url`/OSM-Quelldatei startet der Server nicht
       # (siehe README.md, docker-compose.yml). Daher hier als expliziter
-      # `docker run`-Schritt mit demselben kleinen Berlin-Extrakt wie im
-      # lokalen docker-compose.yml-Setup.
+      # `docker run`-Schritt mit einem bewusst kleinen Berlin-Demo-Extrakt
+      # (schneller CI-Import) statt des lokalen DE+DK+SE-Standard-Extrakts
+      # aus `docker-compose.yml`/`scripts/prepare_osm_extract.sh` (mehrere
+      # GB, fuer CI ungeeignet).
       - name: Start GraphHopper (Berlin-Extrakt)
         run: |
           docker run -d --name graphhopper -p 8989:8989 \

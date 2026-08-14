@@ -1,0 +1,17 @@
+{
+  // Prosa-Dokus in docs/ verwenden keinen Hard-Wrap (ein Satz/Absatz pro
+  // logischem Block, teils sehr lange Zeilen) — MD013 wäre hier reines Rauschen.
+  "MD013": false,
+  // Fett gesetzte Pseudo-Überschriften (z. B. "**Wichtig:**") sind in den
+  // Spezifikations-/Plan-Dokumenten bewusst als Hervorhebung, nicht als
+  // strukturelle Überschrift gemeint.
+  "MD036": false,
+  // Viele Code-Blöcke sind Log-/Konsolen-Ausschnitte ohne eindeutige Sprache.
+  "MD040": false,
+  // Tabellen-Spaltenausrichtung ist keine Projektkonvention; würde bei jeder
+  // Zelländerung großflächige Whitespace-Diffs erzeugen.
+  "MD060": false,
+  // Wiederholte Abschnittsüberschriften wie "Modul `battery`" tauchen in den
+  // Implementierungsplänen bewusst unter verschiedenen Elternabschnitten auf.
+  "MD024": { "siblings_only": true }
+}

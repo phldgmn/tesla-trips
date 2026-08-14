@@ -2,19 +2,24 @@
 # run.sh — Centralized service runner for Tesla-Tripplaner
 #
 # Usage:
-#   ./run.sh start   [backend|frontend|all]  (default: all)
-#   ./run.sh stop    [backend|frontend|all]
-#   ./run.sh restart [backend|frontend|all]
+#   ./run.sh start   [backend|frontend|graphhopper|all]  (default: all)
+#   ./run.sh stop    [backend|frontend|graphhopper|all]
+#   ./run.sh restart [backend|frontend|graphhopper|all]
 #   ./run.sh status
 #
-# Manages backend (uvicorn on :8000) and frontend (Vite on :3000).
-# Stops already-running services before starting, so it's safe to call
-# repeatedly. All output is prefixed with [BACKEND] / [FRONTENT] for
-# clear identification in a shared terminal session.
+# Manages backend (uvicorn on :8000), frontend (Vite on :3000) and the
+# local GraphHopper routing container (docker-compose.yml, :8989).
+# `start backend`/`start all` first ensure OrbStack's Docker daemon is
+# running (auto-starting it if needed) and then bring up/health-check the
+# GraphHopper container before the backend starts, since the backend
+# depends on GraphHopper for real routing. Stops already-running services
+# before starting, so it's safe to call repeatedly. All output is
+# prefixed with [BACKEND] / [FRONTEND] for clear identification in a
+# shared terminal session.
 
 set -euo pipefail
 
-cd "$(git rev-parse --show-toplevel 2>/dev/null || echo "$(dirname "$0")")"
+cd "$(git rev-parse --show-toplevel 2>/dev/null || dirname "$0")"
 
 RUN_DIR=".run"
 PID_BACKEND="$RUN_DIR/backend.pid"
@@ -24,6 +29,9 @@ LOG_FRONTEND="$RUN_DIR/frontend.log"
 
 PORT_BACKEND=8000
 PORT_FRONTEND=3000
+PORT_GRAPHHOPPER=8989
+OSM_EXTRACT="data/de-dk-se.osm.pbf"
+GRAPHHOPPER_CONTAINER="tesla-trips-graphhopper"
 
 # ── Colors ────────────────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
@@ -32,14 +40,17 @@ if [[ -t 1 ]]; then
   YELLOW='\033[0;33m'
   NC='\033[0m' # No Colour
 else
-  RED=''; GREEN=''; YELLOW=''; NC=''
+  RED=''
+  GREEN=''
+  YELLOW=''
+  NC=''
 fi
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
-info()  { printf "${GREEN}%s${NC}\n" "$*"; }
-warn()  { printf "${YELLOW}%s${NC}\n" "$*"; }
-err()   { printf "${RED}%s${NC}\n" "$*" >&2; }
+info() { printf "${GREEN}%s${NC}\n" "$*"; }
+warn() { printf "${YELLOW}%s${NC}\n" "$*"; }
+err() { printf "${RED}%s${NC}\n" "$*" >&2; }
 
 run_dir_init() { mkdir -p "$RUN_DIR"; }
 
@@ -88,6 +99,77 @@ kill_by_port() {
   fi
 }
 
+# ── Docker / OrbStack / GraphHopper ──────────────────────────────────────
+
+ensure_orbstack() {
+  if docker info >/dev/null 2>&1; then
+    return 0
+  fi
+  info "ORBSTACK: Docker-Daemon nicht erreichbar — starte OrbStack …"
+  if ! open -a OrbStack 2>/dev/null; then
+    err "ORBSTACK: konnte OrbStack nicht starten (ist es installiert?)"
+    return 1
+  fi
+  local waited=0
+  local max_wait=60
+  while ! docker info >/dev/null 2>&1; do
+    if ((waited >= max_wait)); then
+      err "ORBSTACK: Docker-Daemon nach ${max_wait}s nicht erreichbar"
+      return 1
+    fi
+    sleep 2
+    waited=$((waited + 2))
+  done
+  info "ORBSTACK: Docker-Daemon bereit"
+}
+
+graphhopper_health() {
+  docker inspect -f '{{.State.Health.Status}}' "$GRAPHHOPPER_CONTAINER" 2>/dev/null || echo "missing"
+}
+
+start_graphhopper() {
+  ensure_orbstack || return 1
+  if [[ ! -f "$OSM_EXTRACT" ]]; then
+    info "GRAPHHOPPER: OSM-Extrakt fehlt ($OSM_EXTRACT) — bereite DE+DK+SE-Datensatz vor …"
+    info "GRAPHHOPPER: Download (~mehrere GB) + Merge kann je nach Verbindung länger dauern."
+    if ! ./scripts/prepare_osm_extract.sh; then
+      err "GRAPHHOPPER: Vorbereitung des OSM-Extrakts fehlgeschlagen."
+      return 1
+    fi
+  fi
+  info "GRAPHHOPPER: starting via docker compose …"
+  docker compose up -d graphhopper
+  info "GRAPHHOPPER: waiting for healthy container (Import des DE+DK+SE-Graphen kann beim ersten Start deutlich länger als bei kleinen Extrakten dauern) …"
+  local waited=0
+  local max_wait="${GRAPHHOPPER_HEALTH_TIMEOUT:-3600}"
+  local health
+  while true; do
+    health="$(graphhopper_health)"
+    if [[ "$health" == "healthy" ]]; then
+      info "GRAPHHOPPER: running and healthy (http://localhost:$PORT_GRAPHHOPPER)"
+      return 0
+    fi
+    if [[ "$health" == "unhealthy" ]]; then
+      err "GRAPHHOPPER: Container meldet unhealthy — siehe 'docker compose logs graphhopper'"
+      return 1
+    fi
+    if ((waited >= max_wait)); then
+      err "GRAPHHOPPER: nach ${max_wait}s nicht healthy — siehe 'docker compose logs graphhopper'"
+      return 1
+    fi
+    sleep 5
+    waited=$((waited + 5))
+  done
+}
+
+stop_graphhopper() {
+  if docker compose ps -q graphhopper 2>/dev/null | grep -q .; then
+    warn "GRAPHHOPPER: stopping container …"
+    docker compose stop graphhopper
+    info "GRAPHHOPPER: stopped"
+  fi
+}
+
 # ── Actions ───────────────────────────────────────────────────────────────
 
 stop_backend() {
@@ -114,13 +196,17 @@ stop_frontend() {
 start_backend() {
   stop_backend
   run_dir_init
+  start_graphhopper || {
+    err "BACKEND: GraphHopper nicht bereit — Backend-Start abgebrochen."
+    return 1
+  }
   info "BACKEND: starting uvicorn on :$PORT_BACKEND …"
   # Use exec -a so the process has a recognisable name
   uv run uvicorn tripplanner.trip_input.api:app \
     --host 0.0.0.0 --port "$PORT_BACKEND" \
     --reload \
-    > "$LOG_BACKEND" 2>&1 &
-  echo $! > "$PID_BACKEND"
+    >"$LOG_BACKEND" 2>&1 &
+  echo $! >"$PID_BACKEND"
   # Wait briefly for the port or a crash
   sleep 1
   if pid_alive "$PID_BACKEND"; then
@@ -136,8 +222,8 @@ start_frontend() {
   run_dir_init
   info "FRONTEND: starting Vite dev server on :$PORT_FRONTEND …"
   npm --prefix frontend run dev \
-    > "$LOG_FRONTEND" 2>&1 &
-  echo $! > "$PID_FRONTEND"
+    >"$LOG_FRONTEND" 2>&1 &
+  echo $! >"$PID_FRONTEND"
   sleep 1
   if pid_alive "$PID_FRONTEND"; then
     info "FRONTEND: running (PID $(cat "$PID_FRONTEND"), log: $LOG_FRONTEND)"
@@ -150,6 +236,17 @@ start_frontend() {
 status() {
   local rc=0
   echo "─── Service Status ───"
+  local gh_health
+  gh_health="$(graphhopper_health)"
+  if [[ "$gh_health" == "healthy" ]]; then
+    printf '%s● GRAPHHOPPER%s  healthy  http://localhost:%s\n' "$GREEN" "$NC" "$PORT_GRAPHHOPPER"
+  elif [[ "$gh_health" == "missing" ]]; then
+    printf '%s○ GRAPHHOPPER%s  not running\n' "$RED" "$NC"
+    rc=1
+  else
+    printf '%s◐ GRAPHHOPPER%s  %s\n' "$YELLOW" "$NC" "$gh_health"
+    rc=1
+  fi
   if pid_alive "$PID_BACKEND"; then
     printf '%s● BACKEND%s  PID %s  http://localhost:%s\n' "$GREEN" "$NC" "$(cat "$PID_BACKEND")" "$PORT_BACKEND"
   else
@@ -171,40 +268,61 @@ cmd="${1:-start}"
 target="${2:-all}"
 
 case "$cmd" in
-  start)
-    case "$target" in
-      backend)  start_backend ;;
-      frontend) start_frontend ;;
-      all)      start_backend; start_frontend ;;
-      *)        echo "Usage: $0 start [backend|frontend|all]"; exit 1 ;;
-    esac
+start)
+  case "$target" in
+  backend) start_backend ;;
+  frontend) start_frontend ;;
+  graphhopper) start_graphhopper ;;
+  all)
+    start_backend
+    start_frontend
     ;;
-  stop)
-    case "$target" in
-      backend)  stop_backend  ;;
-      frontend) stop_frontend ;;
-      all)      stop_frontend; stop_backend ;;
-      *)        echo "Usage: $0 stop [backend|frontend|all]"; exit 1 ;;
-    esac
-    info "All services stopped."
-    ;;
-  restart)
-    case "$target" in
-      backend)  start_backend  ;;
-      frontend) start_frontend ;;
-      all)
-        stop_frontend
-        stop_backend
-        info "─── Restarting ───"
-        start_backend
-        start_frontend
-        ;;
-      *)        echo "Usage: $0 restart [backend|frontend|all]"; exit 1 ;;
-    esac
-    ;;
-  status) status ;;
   *)
-    echo "Usage: $0 {start|stop|restart|status} [backend|frontend|all]"
+    echo "Usage: $0 start [backend|frontend|graphhopper|all]"
     exit 1
     ;;
+  esac
+  ;;
+stop)
+  case "$target" in
+  backend) stop_backend ;;
+  frontend) stop_frontend ;;
+  graphhopper) stop_graphhopper ;;
+  all)
+    stop_frontend
+    stop_backend
+    ;;
+  *)
+    echo "Usage: $0 stop [backend|frontend|graphhopper|all]"
+    exit 1
+    ;;
+  esac
+  info "All services stopped."
+  ;;
+restart)
+  case "$target" in
+  backend) start_backend ;;
+  frontend) start_frontend ;;
+  graphhopper)
+    stop_graphhopper
+    start_graphhopper
+    ;;
+  all)
+    stop_frontend
+    stop_backend
+    info "─── Restarting ───"
+    start_backend
+    start_frontend
+    ;;
+  *)
+    echo "Usage: $0 restart [backend|frontend|graphhopper|all]"
+    exit 1
+    ;;
+  esac
+  ;;
+status) status ;;
+*)
+  echo "Usage: $0 {start|stop|restart|status} [backend|frontend|graphhopper|all]"
+  exit 1
+  ;;
 esac

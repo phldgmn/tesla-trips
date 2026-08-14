@@ -5,6 +5,7 @@
 Phase 0 legt das technische Fundament für das gesamte Projekt. Es geht nicht um Funktionalität, sondern um die Einrichtung einer strukturierten, testbaren, lint- und type-safe Codebasis, die KI-Agenten und Entwickler:innen anleitet und zwingt, qualitativ hochwertigen Code zu liefern.
 
 **Was dieses Modul leistet:**
+
 - Exakter Verzeichnisbaum für alle 12 Module (`routing`, `elevation`, `weather`, `wind`, `construction`, `energy`, `battery`, `charging_infrastructure`, `optimization`, `simulation`, `visualization`, `trip_input`)
 - Python-Projektdefinition mittels `pyproject.toml` mit allen Dependencies und Dev-Gruppen
 - Git-Hook-Konfiguration mittels `hk.pkl` für pre-commit (Linting/Auto-Fix) und pre-push (Unit-Tests)
@@ -13,11 +14,13 @@ Phase 0 legt das technische Fundament für das gesamte Projekt. Es geht nicht um
 - Vorbereitung für mkdocs/mkdocstrings-Dokumentation
 
 **Abgrenzung:**
+
 - Keine Implementierung von Logik (Routing, Energie, Optimierung etc.)
 - Keine Einrichtung von Datenquellen (GraphHopper-Container starten ist Aufgabe der CI, nicht dieses Plans)
 - Keine Erstellung von Test- oder Quellcode-Dateien außer der Struktur-Vorgabe
 
 **NICHT-Scope (spätere Erweiterung):**
+
 - Aktiver GraphHopper-Container im dev-mode (nur CI-intern)
 - Echt-Zeit-Wetter-Crawler
 - Live-Baustellen-Feed
@@ -32,6 +35,7 @@ Phase 0 legt das technische Fundament für das gesamte Projekt. Es geht nicht um
 **Konsumierte Typen aus anderen Modulen:** Keine — Phase 0 precediert alle anderen Module.
 
 **Zukünftige Abhängigkeiten (für Integration in Phase 1+):**
+
 - Alle Module (`tripplanner.routing`, `tripplanner.elevation`, …) werden `uv` als Paketmanager nutzen
 - Externe Dependencies (GraphHopper, Open-Meteo, DATEX II) werden via `httpx` angesprochen (in `pyproject.toml` definiert)
 - Test-Framework: `pytest`, `pytest-cov` (Coverage-Gate 85%)
@@ -198,6 +202,7 @@ tesla-tripplanner/
 ```
 
 **Modul-Skeleton-Konvention (pro Modul verbindlich):**
+
 ```
 src/tripplanner/<modul>/
 ├── __init__.py        # re-exportiert öffentliche API (z. B. from .models import Route)
@@ -206,6 +211,7 @@ src/tripplanner/<modul>/
 ├── providers.py          # NUR falls externe Datenquelle: Protocol-Interface + konkrete Implementierung + Fake
 └── client.py               # HTTP/IO-Client, vom Provider genutzt (falls vorhanden)
 ```
+
 **Regel:** Kein Modul importiert interne Implementierungsdetails eines anderen Moduls — ausschließlich `tripplanner.<anderes_modul>.models`. **Ausnahme:** `tripplanner.geo` ist kein Business-Modul, sondern ein minimales, abhängigkeitsfreies Geo-Primitiv (`Coordinate`-Typalias, `bearing_deg()`, `haversine_distance_m()`). Es darf von jedem Modul importiert werden, da es keine Geschäftslogik und keinen veränderlichen Zustand enthält — analog zu einer externen Bibliothek. Alle `Coordinate`-Tupel im Projekt sind `(lat, lon)`; siehe `docs/plans/01-routing.md`, Abschnitt 3, „Koordinaten-Konvention".
 
 ---
@@ -514,7 +520,7 @@ Wenn eine Anforderung mehrdeutig ist (z. B. konkreter Schwellwert für die ETA-N
 ## 6. Aufgaben-Checkliste
 
 | Nr | Task | Betroffene Dateien | Beschreibung | Akzeptanzkriterium |
-|----|------|-------------------|--------------|--------------------|
+| ---- | ------ | ------------------- | -------------- | -------------------- |
 | 1 | Repo-Verzeichnisbaum erstellen | `src/tripplanner/*/`, `tests/*/` | Alle 12 Modul-Verzeichnisse plus `tripplanner/geo/` mit `__init__.py`, `models.py`, `<modul>.py`, `providers.py`, `client.py` (wo relevant) anlegen; `docs/plans/` und `frontend/` mit Basisstruktur | `find src/tripplanner -type f -name "*.py" \| wc -l` ergibt mindestens 48, `find tests -type d \| wc -l` ergibt mindestens 13 |
 | 2 | `pyproject.toml` anlegen | `pyproject.toml` | Vollständige TOML-Datei gemäß Abschnitt 4.1 erstellen | `uv sync` läuft fehlerfrei, `uv pip list \| grep pydantic` zeigt Version ≥2 |
 | 3 | `hk.pkl` anlegen | `hk.pkl` | Vollständige Konfiguration gemäß Abschnitt 4.2 | `hk check --all` läuft ohne Fehler auf leerem Repo |
@@ -616,6 +622,7 @@ def calculate_energy(
 ```
 
 **Build- und Deploy-Befehle:**
+
 - `mkdocs build` — erstellt statische HTML-Seiten in `site/`
 - `mkdocs serve` — lokal live-Preview
 - Deploy: `mkdocs gh-deploy` — direkt auf GitHub Pages (falls gewünscht)
@@ -623,6 +630,7 @@ def calculate_energy(
 ---
 
 **Handover from previous session (2026-08-02):**
+
 - **Was war geplant:** Phase 0 — Repo-Fundament & Tooling (kein Code, nur Konfiguration und Struktur).
 - **Was ist als nächstes zu tun:** Implementierung der 12 Tasks aus der Checkliste, beginnend mit Verzeichnisbaum (Task 1) und `pyproject.toml` (Task 2).
 - **Wichtigste Dateien:** `docs/plans/00-foundation-tooling.md` (dieser Plan), `docs/04-repo-tooling-setup.md`, `docs/05-agent-guidelines.md`, `docs/01-projektspezifikation.md`, `docs/02-architektur.md`, `docs/03-modulspezifikationen.md`.

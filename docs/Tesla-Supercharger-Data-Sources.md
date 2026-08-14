@@ -10,27 +10,27 @@ Gathering accurate Supercharger data requires leveraging both official Tesla web
 
 Supercharge.info serves as a primary source for tracking the global Supercharger network1. Its backend exposes structured REST endpoints returning JSON payloads without requiring API key authorization or subscription fees1.
 
-> * **Primary Endpoint:** https://supercharge.info/service/supercharge/allSites  
+> * **Primary Endpoint:** <https://supercharge.info/service/supercharge/allSites>  
 >   \[cite: 1, 3\]  
 > * **Retrieved Attributes:**  
-  * **Geospatial Coordinates:** Explicit latitude and longitude fields nested within the gps object4.  
-  * **Hardware Capabilities:** Total physical stall count (stalls) and peak power rating in kW (power)6.  
-  * **Operational Status:** Site lifecycle stages including PERMIT, CONSTRUCTION, OPEN, EXPANDING, and TEMP\_CLOSED8.  
+>   * **Geospatial Coordinates:** Explicit latitude and longitude fields nested within the gps object4.  
+>   * **Hardware Capabilities:** Total physical stall count (stalls) and peak power rating in kW (power)6.  
+>   * **Operational Status:** Site lifecycle stages including PERMIT, CONSTRUCTION, OPEN, EXPANDING, and TEMP\_CLOSED8.  
 > * **Delta Tracking Endpoints:**  
-  * supercharge/databaseInfo: Yields a single timestamp signature indicating when the database was last updated9.  
-  * supercharge/allChanges: Provides log entries for status transitions (e.g., sites moving from construction to open)1.
+>   * supercharge/databaseInfo: Yields a single timestamp signature indicating when the database was last updated9.  
+>   * supercharge/allChanges: Provides log entries for status transitions (e.g., sites moving from construction to open)1.
 
 ### **2\. Tesla Guest Charging GraphQL API**
 
 Tesla operates an unauthenticated GraphQL service used to populate public interactive maps on its website. This gateway allows direct retrieval of site status and Supercharger pricing.
 
-> * **Endpoint:** https://www.tesla.com/charging/guest/api/graphql executing the getGuestChargingSiteDetails operation8.  
+> * **Endpoint:** <https://www.tesla.com/charging/guest/api/graphql> executing the getGuestChargingSiteDetails operation8.  
 > * **Request Structure:** HTTP POST request carrying JSON web headers.  
 > * **Retrieved Attributes:**  
-  * **Geospatial Coordinates:** Centroid latitude and longitude coordinates.  
-  * **Operational Status:** Real-time closure indicator (site\_closed: true/false).  
-  * **Capacity:** Total physical stalls and active operational stalls.  
-  * **Pricing Data:** Applicable Supercharger energy tariffs (€/kWh) and time-of-use pricing bands.
+>   * **Geospatial Coordinates:** Centroid latitude and longitude coordinates.  
+>   * **Operational Status:** Real-time closure indicator (site\_closed: true/false).  
+>   * **Capacity:** Total physical stalls and active operational stalls.  
+>   * **Pricing Data:** Applicable Supercharger energy tariffs (€/kWh) and time-of-use pricing bands.
 
 ### **3\. Tesla Mobile App GraphQL Endpoint**
 
@@ -83,7 +83,7 @@ Building the local database follows a single sequential pipeline:
 
 ### **Step 1: Ingest Baseline Metadata**
 
-Download the full global dataset from Supercharge.info by issuing an HTTP GET request to https://supercharge.info/service/supercharge/allSites1. Filter the incoming JSON array to retain only records where the address.region is "Europe" or the address.country matches European ISO codes9. Extract site IDs, site names, GPS coordinates, total stalls, maximum power ratings (kW), and operational statuses4.
+Download the full global dataset from Supercharge.info by issuing an HTTP GET request to <https://supercharge.info/service/supercharge/allSites1>. Filter the incoming JSON array to retain only records where the address.region is "Europe" or the address.country matches European ISO codes9. Extract site IDs, site names, GPS coordinates, total stalls, maximum power ratings (kW), and operational statuses4.
 
 ### **Step 2: Conflate and Deduplicate Locations**
 
@@ -95,7 +95,7 @@ If supplementing with data from Open Charge Map (operatorId=23) or OpenStreetMap
 
 ### **Step 3: Fetch Pricing and Live Status Data**
 
-Execute an HTTP POST query against Tesla's Guest GraphQL endpoint (https://www.tesla.com/charging/guest/api/graphql executing getGuestChargingSiteDetails) for the target European coordinate bounding box8. Extract active site pricing (€/kWh) and verify whether site\_closed is false.
+Execute an HTTP POST query against Tesla's Guest GraphQL endpoint (<https://www.tesla.com/charging/guest/api/graphql> executing getGuestChargingSiteDetails) for the target European coordinate bounding box8. Extract active site pricing (€/kWh) and verify whether site\_closed is false.
 
 ### **Step 4: Load into Local Database**
 
@@ -107,8 +107,8 @@ To keep your local database accurate for personal trip planning without generati
 
 ### **Daily Update Routine (Status Delta Check)**
 
-> * **Action:** Query the Supercharge.info timestamp endpoint at https://supercharge.info/service/supercharge/databaseInfo9.  
-> * **Logic:** Compare the returned timestamp signature against your local last\_updated\_utc marker9. If the remote timestamp is newer, fetch https://supercharge.info/service/supercharge/allChanges to identify changed site IDs1.  
+> * **Action:** Query the Supercharge.info timestamp endpoint at <https://supercharge.info/service/supercharge/databaseInfo9>.  
+> * **Logic:** Compare the returned timestamp signature against your local last\_updated\_utc marker9. If the remote timestamp is newer, fetch <https://supercharge.info/service/supercharge/allChanges> to identify changed site IDs1.  
 > * **Impact:** Ingests recent status updates (such as newly opened locations or temporary site closures) without re-downloading the entire global dataset1.
 
 ### **Bi-Weekly Update Routine (Pricing Refresh)**
@@ -119,7 +119,7 @@ To keep your local database accurate for personal trip planning without generati
 
 ### **Monthly Update Routine (Full Database Re-sync)**
 
-> * **Action:** Re-run the full ingestion script from https://supercharge.info/service/supercharge/allSites1.  
+> * **Action:** Re-run the full ingestion script from <https://supercharge.info/service/supercharge/allSites1>.  
 > * **Logic:** Perform a complete database purge and rebuild, re-applying spatial deduplication against Open Charge Map11.  
 > * **Impact:** Captures newly planned Supercharger sites (PERMIT status), hardware expansions (such as additional V3/V4 stalls added to existing locations), and updated maximum kW ratings6.
 

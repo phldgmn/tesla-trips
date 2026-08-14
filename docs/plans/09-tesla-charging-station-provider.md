@@ -92,7 +92,7 @@ CREATE INDEX IF NOT EXISTS idx_stations_status
 **Mapping supercharge.info → SQLite:**
 
 | supercharge.info-Feld | SQLite-Spalte | Transformation |
-|---|---|---|
+| --- | --- | --- |
 | `id` | `supercharge_info_id` | Direkt, als INTEGER |
 | `locationId` | `tesla_location_id` | String, kann NULL sein |
 | `name` | `site_name` | Direkt |
@@ -114,7 +114,7 @@ CREATE INDEX IF NOT EXISTS idx_stations_status
 Da supercharge.info in `stalls.v3` alle V3-Stalls zusammenfasst (auch welche, die wir als `V3_ULTRA` bezeichnen), klassifizieren wir basierend auf der Nennleistung:
 
 | `powerKilowatt` | Stall-Typ |
-|---|---|
+| --- | --- |
 | ≤150 kW | `V2` |
 | 151-250 kW | `V3` |
 | 251-350 kW | `V3_ULTRA` |
@@ -184,6 +184,7 @@ CREATE INDEX IF NOT EXISTS idx_pricing_station
 ```
 
 **Datenherkunft (Phase 2):**
+
 - Tesla Guest GraphQL API (`getGuestChargingSiteDetails`)
 - Liegt hinter Akamai WAF — erfordert Browser-Fallback (Safari via AppleScript oder Playwright)
 - Preis-Tiers: `"Charging Fees for Tesla Owner"`, `"Charging Fees for Other EV"`
@@ -192,7 +193,7 @@ CREATE INDEX IF NOT EXISTS idx_pricing_station
 Ein Pricing-Eintrag repräsentiert genau einen Rate-Window eines Tiers:
 
 | Feld | Beispiel |
-|---|---|
+| --- | --- |
 | `tier_label` | `"Charging Fees for Tesla Owner"` |
 | `time_label` | `"4:00 PM - 8:00 PM"` (oder NULL für Flatrate) |
 | `currency` | `"EUR"`, `"SEK"`, `"DKK"` |
@@ -210,6 +211,7 @@ CREATE TABLE IF NOT EXISTS db_meta (
 ```
 
 Speichert:
+
 - `schema_version` — für Migrationen
 - `last_full_refresh_utc` — Zeitstempel des letzten vollständigen API-Abrufs
 - `station_count` — Anzahl Stationen (Redundanz für schnelle Prüfung)
@@ -701,7 +703,7 @@ __all__ = [
 ### Abhängigkeiten zu anderen Modulen
 
 | Modul | Nutzung |
-|---|---|
+| --- | --- |
 | `tripplanner.geo` | `Coordinate`, `haversine_distance_m()` für Radius-Suche |
 | `tripplanner.routing.models` | `Route` (für `get_stations_along_route`) |
 | `httpx` | HTTP-Client für supercharge.info API (bereits in `pyproject.toml`) |
@@ -714,7 +716,7 @@ __all__ = [
 ### 8.1 Neue Tests
 
 | Test-Datei | Was wird getestet |
-|---|---|
+| --- | --- |
 | `tests/charging_infrastructure/test_client.py` | `SuperchargeInfoClient` mit aufgezeichneter API-Response |
 | `tests/charging_infrastructure/test_database.py` | `SQLiteDatabase`: Tabellen-Erzeugung, CRUD, Transaktion, Ländermapping |
 | `tests/charging_infrastructure/test_providers.py` (erweitert) | `TeslaChargingStationProvider`: Refresh, Mapping, Radius-Suche, Länderfilter |
@@ -722,7 +724,7 @@ __all__ = [
 ### 8.2 Test-Fixtures (neu)
 
 | Fixture-Datei | Inhalt |
-|---|---|
+| --- | --- |
 | `tests/fixtures/charging_infrastructure/supercharge_info_response_3sites.json` | 3 supercharge.info-Sites (DE, DK, SE, verschiedene Stall-Typen) für Mock-Tests |
 | `tests/fixtures/charging_infrastructure/supercharge_info_dbinfo.json` | Beispiel-Response von `/databaseInfo` |
 
@@ -975,7 +977,7 @@ Die Test-Fixture enthält 3 minimale, realistische Site-Einträge — einen pro 
 ## 11. Abgrenzung zum bestehenden `LocalFileChargingStationProvider`
 
 | Aspekt | `LocalFileChargingStationProvider` | `TeslaChargingStationProvider` |
-|---|---|---|
+| --- | --- | --- |
 | Speicher | JSON-Datei | SQLite-Datenbank |
 | Refresh | Manuell (Datei ersetzen) | `refresh()` via supercharge.info-API |
 | Pricing | Nicht unterstützt | `charging_pricing`-Tabelle (Phase 2) |
