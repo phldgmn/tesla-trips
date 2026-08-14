@@ -5,6 +5,7 @@ Hochgradig personalisierter Reiseplaner für ein Tesla Model 3: physikalisch fun
 ## Setup
 
 ```bash
+mise install   # installiert Python/uv/node/hk/Linter in gepinnten Versionen (siehe mise.toml)
 uv sync
 uv run hk check --all
 uv run pytest -m "not integration"

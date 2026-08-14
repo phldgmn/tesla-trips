@@ -6,6 +6,7 @@ Ziel dieses Dokuments: KI-Coding-Agenten sollen von Anfang an sauberen, konsiste
 
 ```
 tesla-tripplanner/
+├── mise.toml                  # Tooling-Provider: pinnt Python/uv/node/hk/Linter-Versionen
 ├── hk.pkl                     # Git-Hook- und Lint-Konfiguration
 ├── pyproject.toml             # uv/Python-Projektdefinition
 ├── uv.lock
@@ -41,6 +42,29 @@ tesla-tripplanner/
 ```
 
 Jedes Modul aus `03-modulspezifikationen.md` entspricht genau einem Unterpaket unter `src/tripplanner/` mit gespiegeltem Testordner. Modul-übergreifende Importe erfolgen ausschließlich über die `models.py`-Schnittstellen der jeweiligen Module — kein Zugriff auf interne Implementierungsdetails eines fremden Moduls.
+
+## Tooling-Provider (mise)
+
+`mise.toml` im Repo-Root ist die einzige Quelle für Tool-Versionen: Python-Interpreter, `uv`, `node`, `hk` sowie die von `hk.pkl` aufgerufenen externen Linter/Formatter (`shellcheck`, `shfmt`, `yamllint`, `markdownlint`). Damit installiert und pinnt ein einziger Befehl (`mise install`) alles, was lokal und in CI (`jdx/mise-action`, siehe unten) für konsistente Toolversionen nötig ist — statt verstreuter `brew install …`-Anweisungen oder mehrerer GitHub-Actions-Setup-Schritte.
+
+```toml
+# mise.toml (Auszug)
+[tools]
+uv = "0.11"
+python = "3.12"
+node = "20"
+hk = "1.53.0"
+shellcheck = "latest"
+shfmt = "latest"
+yamllint = "latest"
+"npm:markdownlint-cli" = "latest"
+```
+
+- `mise install` installiert/pinnt alle in `mise.toml` gelisteten Tools in den angegebenen Versionen.
+- `uv` selbst bleibt der Python-Paket-/Venv-Manager (`uv sync`, `uv run …`, `uv.lock`) — mise liefert nur die Binaries. `UV_PYTHON_DOWNLOADS = "never"` (siehe `[env]` in `mise.toml`) zwingt `uv`, den von mise gepinnten Python-Interpreter zu verwenden, statt sich selbst einen herunterzuladen.
+- `mise run lint` / `mise run test` / `mise run install` sind Kurzformen der Standard-Aufrufe (`uv run hk check --all`, `uv run pytest -m 'not integration'`, `uv sync && npm --prefix frontend ci`) — optional, ersetzen aber nicht die in `AGENTS.md` verpflichtenden Befehle.
+- `hk.pkl` prüft `mise.toml` selbst mit dem `mise`-Builtin (`mise fmt --check`) als Teil von `hk check --all`.
+- **Ausnahme (bewusst):** Backend/Frontend-Serverprozesse werden weiterhin ausschließlich über `./run.sh` gestartet/gestoppt (siehe `AGENTS.md`) — `mise.toml` definiert dafür keine Tasks, um diese Regel nicht zu unterlaufen.
 
 ## Python-Setup (uv)
 
@@ -107,6 +131,7 @@ local linters = new Mapping<String, Step> {
     ["shfmt"] = (Builtins.shfmt) { /* -i 2, siehe hk.pkl: Repo-Konvention 2-Space-Einrückung */ }
     ["yamllint"] = Builtins.yamllint
     ["markdown-lint"] = Builtins.markdown_lint
+    ["mise"] = Builtins.mise
 }
 
 hooks {
@@ -127,7 +152,7 @@ hooks {
 
 **Wichtig für KI-Agenten:** `hk check --all` bzw. `hk run pre-commit --all` muss vor jedem Commit fehlerfrei durchlaufen. Ein Commit, der nur zustande kommt, weil ein Hook umgangen wurde (`--no-verify`), gilt als nicht abgeschlossen (siehe `05-agent-guidelines.md`).
 
-`shellcheck`, `shfmt`, `yamllint` und `markdownlint` sind externe Binaries (nicht über `uv`/`npm` verwaltet) und müssen lokal installiert sein, z. B. via `brew install shellcheck shfmt yamllint markdownlint-cli`. Regel-Ausnahmen für `markdownlint`/`yamllint` stehen in `.markdownlint.jsonc`/`.yamllint.yml` im Repo-Root, jeweils mit Begründungskommentar.
+`shellcheck`, `shfmt`, `yamllint`, `markdownlint` und `hk` selbst werden **nicht** manuell installiert (kein `brew install …`), sondern über `mise.toml` gepinnt und via `mise install` bereitgestellt (siehe Abschnitt „Tooling-Provider (mise)" oben). Regel-Ausnahmen für `markdownlint`/`yamllint` stehen in `.markdownlint.jsonc`/`.yamllint.yml` im Repo-Root, jeweils mit Begründungskommentar.
 
 ## Linting/Formatting-Konfiguration (Python)
 
@@ -166,7 +191,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: jdx/mise-action@v2   # installiert Python/uv/hk/… aus mise.toml
       - run: uv sync
       - run: uv run hk check --all
       - run: uv run pytest -m "not integration" --cov=src/tripplanner --cov-fail-under=85
@@ -177,13 +202,14 @@ jobs:
         image: israelhikingmap/graphhopper   # Platzhalter, konkretes Image im Projekt festlegen
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: jdx/mise-action@v2
       - run: uv sync
       - run: uv run pytest -m integration
   frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2   # installiert Node aus mise.toml
       - run: npm --prefix frontend ci
       - run: npm --prefix frontend run lint
       - run: npm --prefix frontend run typecheck

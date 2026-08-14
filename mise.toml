@@ -1,0 +1,56 @@
+[tools]
+# Python-Paket-/Venv-Manager (uv.lock, uv sync/run — siehe AGENTS.md). Muss
+# vor `python` stehen, damit dieses uv Vorrang vor einem eventuell im
+# geteilten mise-Python-Install vorhandenen uv-Binary hat.
+uv = "0.12"
+# Python-Interpreter (Version aus pyproject.toml `requires-python`, aktuell
+# aktuellste kompatible Patch-Version); uv nutzt ihn, statt sich einen
+# eigenen herunterzuladen (siehe [env] unten).
+python = "3.14"
+# Frontend-Runtime (aktuelle Node.js-LTS-Linie).
+node = "24"
+# Git-Hook-/Lint-Runner (Version muss zu `amends "…hk@X.Y.Z…"` in hk.pkl passen).
+hk = "1.55.0"
+# Von hk.pkl referenzierte externe Linter/Formatter (siehe hk.pkl, Abschnitt `linters`).
+shellcheck = "latest"
+shfmt = "latest"
+yamllint = "latest"
+"npm:markdownlint-cli" = "0.49.1"
+
+[env]
+# uv soll ausschließlich den von mise gepinnten Python-Interpreter verwenden
+# statt selbst einen herunterzuladen oder einen bereits lokal vorhandenen
+# uv-eigenen (per `uv python install`) zu bevorzugen — ein Werkzeug-Provider
+# (mise) statt zwei.
+UV_PYTHON_DOWNLOADS = "never"
+UV_PYTHON_PREFERENCE = "only-system"
+
+[tasks.install]
+description = "Alle Abhängigkeiten installieren (Backend + Frontend)"
+run = ["uv sync", "npm --prefix frontend ci"]
+
+[tasks.lint]
+description = "Alle Linter/Formatter prüfen (entspricht CI)"
+run = "uv run hk check --all"
+
+[tasks."lint:fix"]
+description = "Alle Linter/Formatter mit Auto-Fix ausführen"
+run = "uv run hk fix --all"
+
+[tasks.test]
+description = "Unit-Tests (ohne Integrationstests, inkl. Coverage-Gate)"
+run = "uv run pytest -m 'not integration'"
+
+[tasks."test:integration"]
+description = "Integrationstests gegen echte lokale Dienste (siehe run.sh)"
+run = "uv run pytest -m integration"
+
+[tasks."frontend:test"]
+description = "Frontend-Tests (vitest)"
+run = "npm --prefix frontend test"
+
+[tasks.docs]
+description = "mkdocs-Dokumentation lokal servieren"
+run = "uv run mkdocs serve"
+
+

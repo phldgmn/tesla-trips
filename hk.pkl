@@ -1,5 +1,5 @@
-amends "package://github.com/jdx/hk/releases/download/v1.53.0/hk@1.53.0#/Config.pkl"
-import "package://github.com/jdx/hk/releases/download/v1.53.0/hk@1.53.0#/Builtins.pkl"
+amends "package://github.com/jdx/hk/releases/download/v1.55.0/hk@1.55.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v1.55.0/hk@1.55.0#/Builtins.pkl"
 
 local python_files = List("*.py")
 local frontend_ts_files = List("frontend/**/*.ts", "frontend/**/*.tsx")
@@ -45,6 +45,7 @@ local linters = new Mapping<String, Step> {
     }
     ["yamllint"] = Builtins.yamllint
     ["markdown-lint"] = Builtins.markdown_lint
+    ["mise"] = Builtins.mise
 }
 
 hooks {
