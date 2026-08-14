@@ -5,7 +5,9 @@ Handles Authentifizierung, Request/Response Mapping für GraphHopper /route Endp
 
 from __future__ import annotations
 
-from httpx import AsyncClient
+from contextlib import suppress
+
+from httpx import AsyncClient, HTTPStatusError
 
 from tripplanner.routing.models import GraphHopperResponse
 
@@ -69,7 +71,22 @@ class GraphHopperClient:
             payload["custom_model"] = custom_model
 
         response = await self._client.post("/route", json=payload)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except HTTPStatusError as exc:
+            # GraphHopper liefert bei 4xx (z. B. "Point out of bounds", wenn
+            # die Koordinaten außerhalb des geladenen OSM-Extrakts liegen)
+            # eine aussagekräftige `message` im JSON-Body. httpx' generische
+            # Fehlermeldung enthält diesen Text nicht - ohne ihn ist der
+            # Fehler für Nutzer (siehe API-Fehlermeldung in api.py) nicht
+            # diagnostizierbar. Body-Detail anhängen, falls vorhanden.
+            detail = None
+            with suppress(ValueError):
+                detail = response.json().get("message")
+            message = str(exc)
+            if detail:
+                message = f"{message} (GraphHopper: {detail})"
+            raise HTTPStatusError(message, request=exc.request, response=exc.response) from exc
 
         return GraphHopperResponse.model_validate(response.json())
 

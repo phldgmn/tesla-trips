@@ -8,22 +8,27 @@ import type { TripSimulationResult } from "./types";
 import type { Stop, TripRequestPayload } from "./types/trip-request";
 
 /**
- * Zwei Start-Stopps: Berlin → Hamburg.
- * Beide haben eine aufgelöste Koordinate und Adresse, damit die Karte
- * sofort etwas anzeigt. Die Rolle (Start/Zwischenstopp/Ziel) ergibt sich
- * rein aus der Position im Array – `stops[0]` = Abfahrt, `stops[-1]` = Ziel.
- * Stopps dazwischen = Zwischenstopps.
+ * Zwei Start-Stopps: Berlin Hauptbahnhof → Berlin-Köpenick.
+ * Der standardmäßig geladene GraphHopper-Datensatz deckt inzwischen ganz
+ * Deutschland, Dänemark und Schweden ab (siehe README.md,
+ * `scripts/prepare_osm_extract.sh`, `docker-compose.yml`) - ein
+ * Default-Ziel außerhalb dieser drei Länder würde GraphHopper weiterhin
+ * mit HTTP 400 ("Point out of bounds") ablehnen.
+ * Beide Stopps haben eine aufgelöste Koordinate und Adresse, damit die
+ * Karte sofort etwas anzeigt. Die Rolle (Start/Zwischenstopp/Ziel) ergibt
+ * sich rein aus der Position im Array – `stops[0]` = Abfahrt,
+ * `stops[-1]` = Ziel. Stopps dazwischen = Zwischenstopps.
  */
 const INITIAL_STOPS: Stop[] = [
   {
     id: crypto.randomUUID(),
-    address: "Berlin",
-    position: [52.52, 13.405],
+    address: "Berlin Hauptbahnhof",
+    position: [52.525, 13.369],
   },
   {
     id: crypto.randomUUID(),
-    address: "Hamburg",
-    position: [53.5511, 9.9937],
+    address: "Berlin-Köpenick",
+    position: [52.4433, 13.5762],
   },
 ] as const;
 
