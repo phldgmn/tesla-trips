@@ -51,6 +51,7 @@ Agenten dürfen **nicht**:
 - Lint- oder Type-Fehler durch `# noqa`, `# type: ignore` oder das Absenken von `mypy`/`ruff`-Regeln in `pyproject.toml` "beheben", ohne dass eine inhaltliche Begründung im Commit/PR dokumentiert ist. Regel-Ausnahmen sind auf Zeilenebene mit Begründungskommentar zulässig, nicht als globale Config-Änderung ohne Rücksprache.
 - Tests löschen oder deaktivieren (`skip`), um eine rote CI grün zu bekommen.
 - Externe Datenquellen (GraphHopper, Open-Meteo, DATEX II, Tesla-Ladepunktdaten) in Unit-Tests live ansprechen — dafür existieren Fixtures (siehe `docs/03-modulspezifikationen.md`).
+- Systemweite Suchen wie `find / …`, `find ~ …` oder vergleichbare Scans über das gesamte Dateisystem/Home-Verzeichnis. Suchen sind auf das Repo-Verzeichnis (oder explizit benannte, enge Pfade) zu beschränken — z. B. `glob`/`grep`-Tools mit repo-relativem Pfad statt eines ungezielten `find /`.
 
 ## Vorgehen pro Aufgabe
 
