@@ -580,49 +580,43 @@ export function MapVisualization({
     };
   }, [pickingStopId, isMapLoaded, onPickPosition]);
 
-  // Supercharger-Overlay: Daten laden und Marker rendern
-  useEffect(() => {
-    if (!isMapLoaded || !mapRef.current) return;
-    const map = mapRef.current;
-    const markers = superchargerMarkersRef.current;
+  /** Helfer: Supercharger von Tesla aktualisieren und Popover neu bauen. */
+  async function handleSuperchargerRefresh(
+    station: SuperchargerStation,
+    popup: Popup,
+  ) {
+    const slug = station.slug;
+    setRefreshingSlug(slug);
 
-    if (!superchargerVisible) {
-      // Alle Supercharger-Marker entfernen
-      for (const id of Object.keys(markers)) {
-        markers[id].remove();
-        delete markers[id];
-      }
-      setSuperchargerStations([]);
-      setSuperchargerError(null);
-      return;
+    try {
+      const updated = await refreshSupercharger(slug);
+
+      // Station in der Liste aktualisieren
+      setSuperchargerStations((prev) =>
+        prev.map((s) => (s.slug === slug ? updated : s)),
+      );
+
+      // Popover-Inhalt mit aktualisierten Daten neu bauen
+      const popupEl = buildSuperchargerPopoverElement(updated, false, () =>
+        handleSuperchargerRefresh(updated, popup),
+      );
+      popup.setDOMContent(popupEl);
+    } catch (err: unknown) {
+      // Fehler im Popover anzeigen, letzten bekannten Stand beibehalten
+      const msg = err instanceof Error ? err.message : "Fehler";
+      const popupEl = buildSuperchargerPopoverElement(station, false, () =>
+        handleSuperchargerRefresh(station, popup),
+      );
+      const errorBanner = document.createElement("div");
+      errorBanner.style.cssText =
+        "color:#ef4444;font-size:12px;margin-top:4px;";
+      errorBanner.textContent = `Fehler: ${msg}`;
+      popupEl.appendChild(errorBanner);
+      popup.setDOMContent(popupEl);
+    } finally {
+      setRefreshingSlug(null);
     }
-
-    if (superchargerStations.length > 0) {
-      // Marker rendern (bereits geladen)
-      renderSuperchargerMarkers(map, markers, superchargerStations);
-      return;
-    }
-
-    if (superchargerLoading) return;
-
-    // Daten laden
-    setSuperchargerLoading(true);
-    setSuperchargerError(null);
-    fetchSuperchargers()
-      .then((stations) => {
-        setSuperchargerStations(stations);
-        setSuperchargerLoading(false);
-        renderSuperchargerMarkers(map, markers, stations);
-      })
-      .catch((err: unknown) => {
-        setSuperchargerLoading(false);
-        const msg = err instanceof Error ? err.message : "Unbekannter Fehler";
-        setSuperchargerError(msg);
-      });
-    // Wir muessen superchargerStations.length nicht in dependencies,
-    // da wir den state explizit setzen
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [superchargerVisible, isMapLoaded]);
+  }
 
   /** Helfer: Rendert Supercharger-Marker auf der Karte. */
   function renderSuperchargerMarkers(
@@ -678,43 +672,53 @@ export function MapVisualization({
     }
   }
 
-  /** Helfer: Supercharger von Tesla aktualisieren und Popover neu bauen. */
-  async function handleSuperchargerRefresh(
-    station: SuperchargerStation,
-    popup: Popup,
-  ) {
-    const slug = station.slug;
-    setRefreshingSlug(slug);
+  // Supercharger-Overlay: Daten laden und Marker rendern
+  useEffect(() => {
+    if (!isMapLoaded || !mapRef.current) return;
+    const map = mapRef.current;
+    const markers = superchargerMarkersRef.current;
 
-    try {
-      const updated = await refreshSupercharger(slug);
-
-      // Station in der Liste aktualisieren
-      setSuperchargerStations((prev) =>
-        prev.map((s) => (s.slug === slug ? updated : s)),
-      );
-
-      // Popover-Inhalt mit aktualisierten Daten neu bauen
-      const popupEl = buildSuperchargerPopoverElement(updated, false, () =>
-        handleSuperchargerRefresh(updated, popup),
-      );
-      popup.setDOMContent(popupEl);
-    } catch (err: unknown) {
-      // Fehler im Popover anzeigen, letzten bekannten Stand beibehalten
-      const msg = err instanceof Error ? err.message : "Fehler";
-      const popupEl = buildSuperchargerPopoverElement(station, false, () =>
-        handleSuperchargerRefresh(station, popup),
-      );
-      const errorBanner = document.createElement("div");
-      errorBanner.style.cssText =
-        "color:#ef4444;font-size:12px;margin-top:4px;";
-      errorBanner.textContent = `Fehler: ${msg}`;
-      popupEl.appendChild(errorBanner);
-      popup.setDOMContent(popupEl);
-    } finally {
-      setRefreshingSlug(null);
+    if (!superchargerVisible) {
+      // Alle Supercharger-Marker entfernen
+      for (const id of Object.keys(markers)) {
+        markers[id].remove();
+        delete markers[id];
+      }
+      // Overlay wird ausgeblendet: Marker-Aufräumen (externes System) und
+      // lokaler State müssen atomar im selben Effect-Lauf passieren, sonst
+      // zeigen Popover/Ladeindikator kurz veraltete Stationsdaten.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSuperchargerStations([]);
+      setSuperchargerError(null);
+      return;
     }
-  }
+
+    if (superchargerStations.length > 0) {
+      // Marker rendern (bereits geladen)
+      renderSuperchargerMarkers(map, markers, superchargerStations);
+      return;
+    }
+
+    if (superchargerLoading) return;
+
+    // Daten laden
+    setSuperchargerLoading(true);
+    setSuperchargerError(null);
+    fetchSuperchargers()
+      .then((stations) => {
+        setSuperchargerStations(stations);
+        setSuperchargerLoading(false);
+        renderSuperchargerMarkers(map, markers, stations);
+      })
+      .catch((err: unknown) => {
+        setSuperchargerLoading(false);
+        const msg = err instanceof Error ? err.message : "Unbekannter Fehler";
+        setSuperchargerError(msg);
+      });
+    // Wir muessen superchargerStations.length nicht in dependencies,
+    // da wir den state explizit setzen
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [superchargerVisible, isMapLoaded]);
 
   return (
     <div
