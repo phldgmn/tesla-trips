@@ -5,6 +5,7 @@ import {
   isUnresolvedAddress,
   swapStops,
   validateForm,
+  toggleFaehrAusschluss,
 } from "@/components/TripPlannerForm";
 import type { Stop } from "@/types/trip-request";
 
@@ -311,6 +312,42 @@ describe("TripPlannerForm pure helpers", () => {
       });
       expect(errors).toContain("Start-SoC muss zwischen 0 und 100 % liegen.");
       expect(errors).toContain("Ziel-SoC muss zwischen 0 und 100 % liegen.");
+    });
+  });
+
+  // =========================================================================
+  // sameFaehrAusschluss / toggleFaehrAusschluss
+  // =========================================================================
+
+  describe("toggleFaehrAusschluss", () => {
+    const faehre = {
+      name: "Rødby (DK) - Puttgarden (D)",
+      laenge_m: 22000,
+      bbox_sw: [54.5, 11.22] as [number, number],
+      bbox_no: [54.66, 11.36] as [number, number],
+    };
+
+    it("adds the ferry when toggled on and not already present", () => {
+      const result = toggleFaehrAusschluss([], faehre, true);
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe(faehre.name);
+    });
+
+    it("does not duplicate the ferry when toggled on twice", () => {
+      const once = toggleFaehrAusschluss([], faehre, true);
+      const twice = toggleFaehrAusschluss(once, faehre, true);
+      expect(twice).toHaveLength(1);
+    });
+
+    it("removes the ferry when toggled off", () => {
+      const withFaehre = toggleFaehrAusschluss([], faehre, true);
+      const result = toggleFaehrAusschluss(withFaehre, faehre, false);
+      expect(result).toHaveLength(0);
+    });
+
+    it("toggling off an absent ferry is a no-op", () => {
+      const result = toggleFaehrAusschluss([], faehre, false);
+      expect(result).toHaveLength(0);
     });
   });
 });

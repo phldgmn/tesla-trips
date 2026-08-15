@@ -4,6 +4,7 @@ import type {
   Stop,
   VehicleProfileInput,
   TripRequestPayload,
+  FaehrAusschluss,
 } from "../types/trip-request";
 import {
   buildTripRequestPayload,
@@ -21,6 +22,7 @@ import {
   combineDateTimeToIso,
   splitIsoToDateTime,
 } from "../utils/datetime-utils";
+import type { FaehrSegment } from "../types";
 
 // ============================================================================
 // Types
@@ -34,6 +36,11 @@ export interface TripPlannerFormProps {
   onSubmit: (payload: TripRequestPayload) => void;
   isSubmitting: boolean;
   submitError?: string | null;
+  /** Fährverbindungen, die in der zuletzt berechneten Route erkannt wurden
+   *  (aus `TripSimulationResult.erkannte_faehren`), zur Anzeige als
+   *  "vermeiden"-Checkboxen. `undefined`/leer, solange noch keine Route
+   *  berechnet wurde. */
+  erkannteFaehren?: FaehrSegment[];
 }
 
 export interface GeocodingState {
@@ -126,6 +133,38 @@ export function validateForm(args: {
   return errors;
 }
 
+/** Vergleicht zwei FaehrAusschluss-Einträge auf inhaltliche Gleichheit. */
+export function sameFaehrAusschluss(
+  a: FaehrAusschluss,
+  b: FaehrAusschluss,
+): boolean {
+  return (
+    a.name === b.name &&
+    a.bbox_sw[0] === b.bbox_sw[0] &&
+    a.bbox_sw[1] === b.bbox_sw[1] &&
+    a.bbox_no[0] === b.bbox_no[0] &&
+    a.bbox_no[1] === b.bbox_no[1]
+  );
+}
+
+/** Ergänzt oder entfernt eine erkannte Fährverbindung aus der Ausschlussliste. */
+export function toggleFaehrAusschluss(
+  liste: FaehrAusschluss[],
+  faehre: FaehrSegment,
+  vermeiden: boolean,
+): FaehrAusschluss[] {
+  const eintrag: FaehrAusschluss = {
+    name: faehre.name,
+    bbox_sw: faehre.bbox_sw,
+    bbox_no: faehre.bbox_no,
+  };
+  const bereitsVorhanden = liste.some((f) => sameFaehrAusschluss(f, eintrag));
+  if (vermeiden) {
+    return bereitsVorhanden ? liste : [...liste, eintrag];
+  }
+  return liste.filter((f) => !sameFaehrAusschluss(f, eintrag));
+}
+
 // ============================================================================
 // Component
 // ============================================================================
@@ -141,6 +180,7 @@ export function TripPlannerForm({
   onSubmit,
   isSubmitting,
   submitError,
+  erkannteFaehren,
 }: TripPlannerFormProps) {
   // --- Local State (Fahrzeug, SoC, Picker) ---
   const [vehicleProfile, setVehicleProfile] = useState<VehicleProfileInput>(
@@ -155,6 +195,10 @@ export function TripPlannerForm({
   const [showAdvancedVehicle, setShowAdvancedVehicle] = useState(false);
   const [startSoc, setStartSoc] = useState(80);
   const [zielSoc, setZielSoc] = useState(20);
+  const [alleFaehrenVermeiden, setAlleFaehrenVermeiden] = useState(false);
+  const [vermiedeneFaehren, setVermiedeneFaehren] = useState<FaehrAusschluss[]>(
+    [],
+  );
 
   // --- Geocoding State (per stop) ---
   const [geocodingStates, setGeocodingStates] = useState<
@@ -409,7 +453,10 @@ export function TripPlannerForm({
     setPickerTargetId(null);
   };
 
-  const handleSubmit = () => {
+  const buildAndSubmit = (
+    alleFaehren: boolean,
+    vermiedene: FaehrAusschluss[],
+  ) => {
     const errors = validateForm({ stops, startSoc, zielSoc });
 
     if (errors.length > 0) {
@@ -423,6 +470,8 @@ export function TripPlannerForm({
         startSocPct: startSoc,
         zielSocPct: zielSoc,
         praeferenzen: {},
+        alleFaehrenVermeiden: alleFaehren,
+        vermiedeneFaehren: vermiedene,
       });
       onSubmit(payload);
     } catch (error) {
@@ -433,6 +482,9 @@ export function TripPlannerForm({
       }
     }
   };
+
+  const handleSubmit = () =>
+    buildAndSubmit(alleFaehrenVermeiden, vermiedeneFaehren);
 
   // --- Validation ---
 
@@ -1083,6 +1135,77 @@ export function TripPlannerForm({
             />
           </div>
         </div>
+      </fieldset>
+
+      {/* 3.5 Fähren */}
+      <fieldset
+        style={{
+          marginBottom: "1.5rem",
+          border: "1px solid #e5e7eb",
+          borderRadius: "6px",
+          padding: "1rem",
+        }}
+      >
+        <legend style={{ fontWeight: 600, padding: "0 0.5rem" }}>Fähren</legend>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <input
+            type="checkbox"
+            checked={alleFaehrenVermeiden}
+            onChange={(e) => setAlleFaehrenVermeiden(e.target.checked)}
+            id="alle-faehren-vermeiden-checkbox"
+            disabled={isSubmitting}
+          />
+          <label htmlFor="alle-faehren-vermeiden-checkbox">
+            Alle Fähren vermeiden
+          </label>
+        </div>
+        {erkannteFaehren && erkannteFaehren.length > 0 && (
+          <div style={{ marginTop: "0.75rem", display: "grid", gap: "0.4rem" }}>
+            <p style={{ margin: 0, fontSize: "0.8rem", fontWeight: 500 }}>
+              In der letzten Route genutzte Fähren:
+            </p>
+            {erkannteFaehren.map((faehre, idx) => {
+              const checkboxId = `faehre-vermeiden-${idx}`;
+              const vermieden = vermiedeneFaehren.some((f) =>
+                sameFaehrAusschluss(f, {
+                  name: faehre.name,
+                  bbox_sw: faehre.bbox_sw,
+                  bbox_no: faehre.bbox_no,
+                }),
+              );
+              return (
+                <div
+                  key={checkboxId}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.5rem",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={vermieden}
+                    onChange={(e) => {
+                      const next = toggleFaehrAusschluss(
+                        vermiedeneFaehren,
+                        faehre,
+                        e.target.checked,
+                      );
+                      setVermiedeneFaehren(next);
+                      buildAndSubmit(alleFaehrenVermeiden, next);
+                    }}
+                    id={checkboxId}
+                    disabled={isSubmitting}
+                  />
+                  <label htmlFor={checkboxId}>
+                    {faehre.name} vermeiden (
+                    {(faehre.laenge_m / 1000).toFixed(1)} km)
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </fieldset>
 
       {/* 4. Submit */}
