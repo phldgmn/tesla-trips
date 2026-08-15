@@ -9,6 +9,7 @@ import pytest
 
 from tripplanner.routing.models import GraphHopperResponse
 from tripplanner.routing.providers import GraphHopperRoutingProvider
+from tripplanner.trip_input.models import FaehrAusschluss, TripRequest
 
 
 @pytest.fixture
@@ -134,3 +135,59 @@ class TestNormalizeMaxSpeed:
     def test_string_value_coerced_to_int(self, gh_provider: GraphHopperRoutingProvider) -> None:
         """String-Werte aus dem GraphHopper-JSON werden korrekt zu int konvertiert."""
         assert gh_provider._normalize_max_speed("100") == 100
+
+
+class TestBuildCustomModel:
+    """Tests für GraphHopperRoutingProvider._build_custom_model()."""
+
+    def test_no_avoidance_and_no_speed_profile_returns_none(
+        self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
+    ) -> None:
+        """Ohne Fährvermeidung und ohne use_custom_model wird kein custom_model gebaut."""
+        assert gh_provider._build_custom_model(trip_request) is None
+
+    def test_alle_faehren_vermeiden_adds_ferry_priority_rule(
+        self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
+    ) -> None:
+        """alle_faehren_vermeiden=True fügt eine road_environment==FERRY Priority-Regel hinzu."""
+        anfrage = trip_request.model_copy(update={"alle_faehren_vermeiden": True})
+
+        custom_model = gh_provider._build_custom_model(anfrage)
+
+        assert custom_model is not None
+        assert {"if": "road_environment == FERRY", "multiply_by": 0.0} in custom_model["priority"]
+        assert "areas" not in custom_model
+
+    def test_vermiedene_faehren_adds_area_and_priority_rule(
+        self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
+    ) -> None:
+        """Jede vermiedene Fähre erzeugt eine GeoJSON-Area und eine in_<id> Priority-Regel."""
+        ausschluss = FaehrAusschluss(
+            name="Rødby (DK) - Puttgarden (D)",
+            bbox_sw=(54.50, 11.22),
+            bbox_no=(54.66, 11.36),
+        )
+        anfrage = trip_request.model_copy(update={"vermiedene_faehren": [ausschluss]})
+
+        custom_model = gh_provider._build_custom_model(anfrage)
+
+        assert custom_model is not None
+        assert {"if": "in_faehre_0", "multiply_by": 0.0} in custom_model["priority"]
+        area = custom_model["areas"]["faehre_0"]
+        assert area["type"] == "Feature"
+        assert area["geometry"]["type"] == "Polygon"
+        ring = area["geometry"]["coordinates"][0]
+        assert ring[0] == [11.22, 54.50]  # [lon, lat] Reihenfolge (GeoJSON)
+        assert ring[0] == ring[-1]  # geschlossener Ring
+
+    def test_use_custom_model_and_ferry_avoidance_combined(self, trip_request: TripRequest) -> None:
+        """use_custom_model=True und Fährvermeidung wirken gemeinsam auf dieselbe priority-Liste."""
+        provider = GraphHopperRoutingProvider(client=None, use_custom_model=True)  # type: ignore[arg-type]
+        anfrage = trip_request.model_copy(update={"alle_faehren_vermeiden": True})
+
+        custom_model = provider._build_custom_model(anfrage)
+
+        assert custom_model is not None
+        assert custom_model["distance_influence"] == 0.0
+        assert {"if": "road_class == MOTORWAY", "multiply_by": 1.0} in custom_model["priority"]
+        assert {"if": "road_environment == FERRY", "multiply_by": 0.0} in custom_model["priority"]
