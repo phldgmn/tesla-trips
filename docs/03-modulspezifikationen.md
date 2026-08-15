@@ -10,7 +10,7 @@ Jedes Modul ist ein eigenständiges Python-Package unter `src/tripplanner/<modul
 
 **Eingaben:** Start-Koordinate, Ziel-Koordinate, geordnete Liste von Zwischenstopp-Koordinaten, Fahrzeugprofil.
 
-**Ausgaben:** `Route` (Liste von `RouteSegment`: Geometrie, Länge, Straßenklasse, Tempolimit, Steigung-Rohdaten sofern von GraphHopper geliefert).
+**Ausgaben:** `Route` (Liste von `RouteSegment`: Geometrie, Länge, Straßenklasse, Tempolimit, Steigung-Rohdaten sofern von GraphHopper geliefert). Ferientransporte (Fähren) werden mittels `routing.faehren.erkenne_faehren()` erkannt und können global (`TripRequest.alle_faehren_vermeiden`) oder pro Route über `vermiedene_faehren` (GraphHopper `custom_model`) vermieden werden.
 
 **Abhängigkeiten:** GraphHopper-HTTP-Client (`graphhopper_client.py`). Kein direkter Zugriff auf OSM-Rohdaten außerhalb dieses Moduls.
 
@@ -148,6 +148,6 @@ Jedes Modul ist ein eigenständiges Python-Package unter `src/tripplanner/<modul
 
 ## 12. `trip_input` / CLI bzw. API-Schicht
 
-**Zweck:** Eingabe von Start, Ziel, Zwischenstopps, Abfahrtszeit, Fahrzeugparametern, Präferenzen entgegennehmen und an die Pipeline übergeben.
+**Zweck:** Eingabe von Start, Ziel, Zwischenstopps, Abfahrtszeit, Fahrzeugparametern, Präferenzen entgegennehmen und an die Pipeline übergeben. Als konkretes Beispiel implementiert: Ferienvermeidung (`alle_faehren_vermeiden`/`vermiedene_faehren`).
 
 **Form (aktueller Umfang):** CLI und/oder einfache lokale API (z. B. FastAPI) als dünne Schicht über der Pipeline aus `02-architektur.md`, ohne eigene Optimierungslogik.
