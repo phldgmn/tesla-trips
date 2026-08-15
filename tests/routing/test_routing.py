@@ -5,8 +5,9 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
+from pydantic import ValidationError
 
-from tripplanner.routing.models import Route, RouteSegment
+from tripplanner.routing.models import FaehrSegment, Route, RouteSegment
 from tripplanner.routing.providers import FakeRoutingProvider
 from tripplanner.trip_input.models import TripRequest
 
@@ -45,6 +46,50 @@ class TestRouteSegmentModel:
             bearing_deg=45.0,
         )
         assert segment.oberflaeche is None
+
+    def test_route_segment_road_environment_optional(self) -> None:
+        """road_environment ist optional (None wenn GraphHopper es nicht liefert)."""
+        segment = RouteSegment(
+            segment_index=0,
+            geometrie=[(52.5, 13.4), (52.6, 13.5)],
+            laenge_m=1000.0,
+            strassenklasse="MOTORWAY",
+            bearing_deg=45.0,
+        )
+        assert segment.road_environment is None
+
+    def test_route_segment_strassenname_optional(self) -> None:
+        """strassenname ist optional (None wenn GraphHopper es nicht liefert)."""
+        segment = RouteSegment(
+            segment_index=0,
+            geometrie=[(52.5, 13.4), (52.6, 13.5)],
+            laenge_m=1000.0,
+            strassenklasse="MOTORWAY",
+            bearing_deg=45.0,
+        )
+        assert segment.strassenname is None
+
+
+class TestFaehrSegmentModel:
+    """Tests für das FaehrSegment-Pydantic-Modell."""
+
+    def test_faehr_segment_requires_all_fields(self) -> None:
+        """FaehrSegment benötigt name, laenge_m, bbox_sw, bbox_no."""
+        segment = FaehrSegment(
+            name="Rødby (DK) - Puttgarden (D)",
+            laenge_m=22000.0,
+            bbox_sw=(54.50, 11.22),
+            bbox_no=(54.66, 11.36),
+        )
+        assert segment.name == "Rødby (DK) - Puttgarden (D)"
+        assert segment.laenge_m == 22000.0
+        assert segment.bbox_sw == (54.50, 11.22)
+        assert segment.bbox_no == (54.66, 11.36)
+
+    def test_faehr_segment_rejects_negative_laenge(self) -> None:
+        """laenge_m muss >= 0 sein."""
+        with pytest.raises(ValidationError):
+            FaehrSegment(name="X", laenge_m=-1.0, bbox_sw=(0.0, 0.0), bbox_no=(1.0, 1.0))
 
 
 class TestFakeRoutingProvider:

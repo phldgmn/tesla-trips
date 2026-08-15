@@ -47,6 +47,23 @@ class RouteSegment(BaseModel):
         "(Vorwärtsazimut, WGS84-Großkreis). Wird von `wind` zur Windkomponenten-"
         "Projektion konsumiert.",
     )
+    road_environment: str | None = Field(
+        default=None,
+        description=(
+            "Umgebungstyp aus GraphHopper Path-Detail `road_environment` (ROAD, "
+            "FERRY, BRIDGE, TUNNEL, FORD, OTHER), normalisiert auf Großbuchstaben; "
+            "None wenn nicht verfügbar. Wird von `routing.faehren.erkenne_faehren()` "
+            "genutzt, um Fährabschnitte der Route zu erkennen."
+        ),
+    )
+    strassenname: str | None = Field(
+        default=None,
+        description=(
+            "Straßen-/Fährlinienname aus GraphHopper Path-Detail `street_name` "
+            "(z. B. 'Rødby (DK) - Puttgarden (D)' für eine Fähre); None wenn "
+            "nicht verfügbar oder leer."
+        ),
+    )
 
 
 class Route(BaseModel):
@@ -97,3 +114,27 @@ class GraphHopperInfo(BaseModel):
     copyrights: list[str] = Field(default_factory=list)
     hints: list[dict[str, object]] = Field(default_factory=list)
     took: int  # Millisekunden
+
+
+class FaehrSegment(BaseModel):
+    """Eine in einer berechneten `Route` erkannte, zusammenhängende Fährverbindung.
+
+    Erzeugt von `tripplanner.routing.faehren.erkenne_faehren()`. `bbox_sw`/`bbox_no`
+    beschreiben eine um `FAEHR_PUFFER_GRAD` gepufferte Bounding Box um die exakte
+    Segmentgeometrie - zur Wiederverwendung als `FaehrAusschluss`
+    (`tripplanner.trip_input.models`) in einer nachfolgenden Routenberechnung, die
+    genau diese Fährverbindung vermeiden soll.
+    """
+
+    name: str = Field(
+        ...,
+        description=(
+            "Fährname aus `strassenname` des ersten Segments des Laufs, "
+            "'Unbenannte Fähre' falls GraphHopper keinen Namen liefert."
+        ),
+    )
+    laenge_m: float = Field(
+        ..., ge=0, description="Gesamtlänge aller zusammenhängenden Fährsegmente in Metern"
+    )
+    bbox_sw: Coordinate = Field(..., description="Südwest-Ecke der gepufferten Bounding Box")
+    bbox_no: Coordinate = Field(..., description="Nordost-Ecke der gepufferten Bounding Box")

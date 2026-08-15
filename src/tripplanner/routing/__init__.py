@@ -16,6 +16,7 @@ Exportiert:
 from tripplanner.routing.client import GraphHopperClient
 from tripplanner.routing.models import (
     Coordinate,
+    FaehrSegment,
     GraphHopperPath,
     GraphHopperResponse,
     Route,
@@ -29,6 +30,7 @@ from tripplanner.routing.providers import (
 
 __all__ = [
     "Coordinate",
+    "FaehrSegment",
     "FakeRoutingProvider",
     "GraphHopperClient",
     "GraphHopperPath",
