@@ -45,6 +45,7 @@ from tripplanner.routing import (
     GraphHopperClient,
     GraphHopperRoutingProvider,
     RoutingProvider,
+    erkenne_faehren,
 )
 from tripplanner.routing.models import Coordinate, Route, RouteSegment
 from tripplanner.simulation import simulate_trip
@@ -777,6 +778,14 @@ class WaypointAPI(BaseModel):
     )
 
 
+class FaehrAusschlussAPI(BaseModel):
+    """API-Request für eine zu vermeidende, zuvor erkannte Fährverbindung."""
+
+    name: str = Field(..., description="Anzeigename der Fährverbindung")
+    bbox_sw: tuple[float, float] = Field(..., description="Südwest-Ecke der Bounding Box")
+    bbox_no: tuple[float, float] = Field(..., description="Nordost-Ecke der Bounding Box")
+
+
 class TripRequestAPI(BaseModel):
     """API-Request für /trips-Endpunkt."""
 
@@ -792,6 +801,15 @@ class TripRequestAPI(BaseModel):
     start_soc_pct: float = Field(80.0, ge=0.0, le=100.0, description="Start-SoC in Prozent")
     ziel_soc_pct: float = Field(20.0, ge=0.0, le=100.0, description="Ziel-SoC in Prozent")
     praeferenzen: dict[str, object] = Field(default_factory=dict, description="Nutzerpräferenzen")
+    alle_faehren_vermeiden: bool = Field(
+        default=False, description="Falls True, werden alle Fährverbindungen vermieden"
+    )
+    vermiedene_faehren: list[FaehrAusschlussAPI] = Field(
+        default_factory=list,
+        description=(
+            "Liste spezifischer, zuvor erkannter Fährverbindungen, die vermieden werden sollen"
+        ),
+    )
 
 
 class FrameAPI(BaseModel):
@@ -817,6 +835,19 @@ class ChargingStopAPI(BaseModel):
     energie_geladen_kwh: float = Field(..., ge=0.0, description="Geladene Energiemenge in kWh")
 
 
+class FaehrSegmentAPI(BaseModel):
+    """API-Response für eine in der berechneten Route erkannte Fährverbindung."""
+
+    name: str = Field(..., description="Fährname (aus GraphHopper street_name oder Fallback)")
+    laenge_m: float = Field(..., ge=0, description="Länge der Fährverbindung in Metern")
+    bbox_sw: tuple[float, float] = Field(
+        ..., description="Südwest-Ecke der gepufferten Bounding Box"
+    )
+    bbox_no: tuple[float, float] = Field(
+        ..., description="Nordost-Ecke der gepufferten Bounding Box"
+    )
+
+
 class TripSimulationResultAPI(BaseModel):
     """API-Response für /trips-Endpunkt."""
 
@@ -828,6 +859,10 @@ class TripSimulationResultAPI(BaseModel):
     frames: list[FrameAPI] = Field(..., description="Liste von Simulationsframes")
     charging_stops: list[ChargingStopAPI] = Field(
         default_factory=list, description="Ein Eintrag pro Ladehalt, fuer die Kartendarstellung"
+    )
+    erkannte_faehren: list[FaehrSegmentAPI] = Field(
+        default_factory=list,
+        description="In der berechneten Route erkannte Fährverbindungen (leer, falls keine)",
     )
 
 
@@ -864,7 +899,18 @@ async def create_trip_endpoint(
         "abfahrtszeit": request.abfahrtszeit,
         "fahrzeugprofil": request.fahrzeugprofil.model_dump(),
         "praeferenzen": request.praeferenzen,
+        "alle_faehren_vermeiden": request.alle_faehren_vermeiden,
+        "vermiedene_faehren": [
+            {"name": f.name, "bbox_sw": f.bbox_sw, "bbox_no": f.bbox_no}
+            for f in request.vermiedene_faehren
+        ],
     }
+
+    erkannte_route: Route | None = None
+
+    def _route_erfassen(route: Route) -> None:
+        nonlocal erkannte_route
+        erkannte_route = route
 
     try:
         ergebnis = await create_trip_simulation(
@@ -873,7 +919,10 @@ async def create_trip_endpoint(
             charging_provider=charging_provider,
             start_soc_pct=request.start_soc_pct,
             ziel_soc_pct=request.ziel_soc_pct,
+            route_observer=_route_erfassen,
         )
+
+        erkannte_faehren = erkenne_faehren(erkannte_route) if erkannte_route is not None else []
 
         return TripSimulationResultAPI(
             gesamt_distanz_km=ergebnis.gesamt_distanz_km,
@@ -901,6 +950,12 @@ async def create_trip_endpoint(
                     energie_geladen_kwh=stop.energie_geladen_kwh,
                 )
                 for stop in ergebnis.charging_stops
+            ],
+            erkannte_faehren=[
+                FaehrSegmentAPI(
+                    name=f.name, laenge_m=f.laenge_m, bbox_sw=f.bbox_sw, bbox_no=f.bbox_no
+                )
+                for f in erkannte_faehren
             ],
         )
     except ValueError as e:

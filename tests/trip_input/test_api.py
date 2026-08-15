@@ -736,6 +736,49 @@ def test_fastapi_endpoint_creates_trip(client: TestClient, valid_trip_request: d
     assert len(data["frames"]) > 0
 
 
+def test_fastapi_endpoint_response_includes_erkannte_faehren_key(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """Response enthält den Schlüssel erkannte_faehren (leer, da FakeRoutingProvider
+    keine road_environment-Daten liefert)."""
+    api_request = {
+        "start": valid_trip_request["start"],
+        "ziel": valid_trip_request["ziel"],
+        "zwischenstopps": [],
+        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "praeferenzen": {},
+    }
+
+    response = client.post("/trips", json=api_request)
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["erkannte_faehren"] == []
+
+
+def test_fastapi_endpoint_accepts_ferry_avoidance_fields(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """Endpunkt akzeptiert alle_faehren_vermeiden und vermiedene_faehren fehlerfrei."""
+    api_request = {
+        "start": valid_trip_request["start"],
+        "ziel": valid_trip_request["ziel"],
+        "zwischenstopps": [],
+        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "praeferenzen": {},
+        "alle_faehren_vermeiden": True,
+        "vermiedene_faehren": [
+            {"name": "Testfähre", "bbox_sw": [54.0, 11.0], "bbox_no": [55.0, 12.0]}
+        ],
+    }
+
+    response = client.post("/trips", json=api_request)
+
+    assert response.status_code == 201
+
+
 def test_fastapi_endpoint_custom_soc(client: TestClient, valid_trip_request: dict) -> None:
     """Test: FastAPI-Endpunkt akzeptiert benutzerdefinierte Start-/Ziel-SoC."""
     api_request = {
