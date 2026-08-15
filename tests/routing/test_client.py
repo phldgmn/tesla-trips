@@ -170,6 +170,53 @@ class TestRouteErrors:
             await client.close()
 
 
+class TestChDisable:
+    """Tests für automatisches `ch.disable` bei custom_model-Requests.
+
+    GraphHopper lehnt `custom_model` ab, solange das Profil im CH ("speed
+    mode") läuft - live gegen den Projekt-GraphHopper-Server verifiziert
+    (Fehler: "The 'custom_model' parameter is currently not supported for
+    speed mode, you need to disable speed mode with `ch.disable=true`.").
+    """
+
+    @pytest.mark.asyncio
+    async def test_ch_disable_set_when_custom_model_present(self) -> None:
+        """`ch.disable=True` wird gesetzt, sobald `custom_model` übergeben wird."""
+        captured: list[dict[str, object]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(json.loads(request.content))
+            return httpx.Response(200, text=VALID_RESPONSE_JSON)
+
+        client = _make_client(handler)
+        try:
+            await client.route(
+                [(52.5200, 13.4050), (53.5511, 9.9937)],
+                custom_model={
+                    "priority": [{"if": "road_environment == FERRY", "multiply_by": 0.0}]
+                },
+            )
+            assert captured[0]["ch.disable"] is True
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_ch_disable_absent_when_custom_model_none(self) -> None:
+        """Ohne custom_model wird `ch.disable` nicht gesendet (unverändertes Verhalten)."""
+        captured: list[dict[str, object]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(json.loads(request.content))
+            return httpx.Response(200, text=VALID_RESPONSE_JSON)
+
+        client = _make_client(handler)
+        try:
+            await client.route([(52.5200, 13.4050), (53.5511, 9.9937)])
+            assert "ch.disable" not in captured[0]
+        finally:
+            await client.close()
+
+
 class TestLifecycle:
     """Tests für close() und den async Context-Manager."""
 

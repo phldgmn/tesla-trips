@@ -69,6 +69,13 @@ class GraphHopperClient:
 
         if custom_model:
             payload["custom_model"] = custom_model
+            # GraphHopper lehnt `custom_model` ab, solange das Profil im CH
+            # ("speed mode") läuft - live gegen den Projekt-GraphHopper-Server
+            # verifiziert (Fehler: "The 'custom_model' parameter is currently
+            # not supported for speed mode, you need to disable speed mode
+            # with `ch.disable=true`."). Muss bei JEDEM custom_model-Request
+            # gesetzt werden, unabhängig vom Anwendungsfall.
+            payload["ch.disable"] = True
 
         response = await self._client.post("/route", json=payload)
         try:
