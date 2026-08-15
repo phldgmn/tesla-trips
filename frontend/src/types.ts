@@ -48,6 +48,8 @@ export interface TripSimulationResult {
 export interface ChargingStop {
   /** Name der Ladestation */
   name: string;
+  /** Eindeutige ID der Ladestation (fuer Ladedauer-Vorgaben) */
+  station_id: string;
   /** Position der Ladestation als [lat, lon] */
   position: [number, number];
   /** Ankunfts-SoC in % */
@@ -58,6 +60,10 @@ export interface ChargingStop {
   ladedauer_s: number;
   /** Waehrend des Ladehalts geladene Energiemenge in kWh */
   energie_geladen_kwh: number;
+  /** ISO-8601 Ankunftszeitpunkt an der Station */
+  ankunftszeit: string;
+  /** ISO-8601 Abfahrtszeitpunkt von der Station */
+  abfahrtszeit: string;
 }
 
 /** Ein Zwischenstopp (Waypoint) mit optionaler Aufenthaltsdauer. */
@@ -74,4 +80,8 @@ export interface FaehrSegment {
   laenge_m: number;
   bbox_sw: [number, number];
   bbox_no: [number, number];
+  /** Vom Nutzer vorgegebene Abfahrtszeit (ISO-8601), oder null falls ungeplant. */
+  abfahrt: string | null;
+  /** Vom Nutzer vorgegebene Ankunftszeit (ISO-8601), oder null falls ungeplant. */
+  ankunft: string | null;
 }

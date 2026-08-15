@@ -6,6 +6,8 @@ import {
   swapStops,
   validateForm,
   toggleFaehrAusschluss,
+  setFaehrZeitfensterFuer,
+  setLadedauerVorgabeFuer,
 } from "@/components/TripPlannerForm";
 import type { Stop } from "@/types/trip-request";
 
@@ -374,6 +376,99 @@ describe("TripPlannerForm pure helpers", () => {
       );
       expect(afterRemoveFaehre1).toHaveLength(1);
       expect(afterRemoveFaehre1[0].bbox_sw[0]).toBe(51.0);
+    });
+  });
+
+  // =========================================================================
+  // setFaehrZeitfensterFuer
+  // =========================================================================
+
+  describe("setFaehrZeitfensterFuer", () => {
+    const faehre = {
+      name: "Rødby (DK) - Puttgarden (D)",
+      bbox_sw: [54.5, 11.22] as [number, number],
+      bbox_no: [54.66, 11.36] as [number, number],
+    };
+
+    it("adds a time window when both abfahrt and ankunft are given", () => {
+      const result = setFaehrZeitfensterFuer(
+        [],
+        faehre,
+        "2026-08-15T10:00:00",
+        "2026-08-15T11:09:00",
+      );
+      expect(result).toHaveLength(1);
+      expect(result[0].abfahrt).toBe("2026-08-15T10:00:00");
+      expect(result[0].ankunft).toBe("2026-08-15T11:09:00");
+    });
+
+    it("replaces an existing time window for the same ferry instead of duplicating", () => {
+      const once = setFaehrZeitfensterFuer(
+        [],
+        faehre,
+        "2026-08-15T10:00:00",
+        "2026-08-15T11:09:00",
+      );
+      const updated = setFaehrZeitfensterFuer(
+        once,
+        faehre,
+        "2026-08-15T12:00:00",
+        "2026-08-15T13:09:00",
+      );
+      expect(updated).toHaveLength(1);
+      expect(updated[0].abfahrt).toBe("2026-08-15T12:00:00");
+    });
+
+    it("removes the time window when either abfahrt or ankunft is empty", () => {
+      const once = setFaehrZeitfensterFuer(
+        [],
+        faehre,
+        "2026-08-15T10:00:00",
+        "2026-08-15T11:09:00",
+      );
+      const cleared = setFaehrZeitfensterFuer(once, faehre, "", "");
+      expect(cleared).toHaveLength(0);
+    });
+
+    it("does not add a time window when abfahrt/ankunft are both empty", () => {
+      const result = setFaehrZeitfensterFuer([], faehre, "", "");
+      expect(result).toHaveLength(0);
+    });
+  });
+
+  // =========================================================================
+  // setLadedauerVorgabeFuer
+  // =========================================================================
+
+  describe("setLadedauerVorgabeFuer", () => {
+    it("adds a duration override converted from minutes to seconds", () => {
+      const result = setLadedauerVorgabeFuer([], "station-1", 30);
+      expect(result).toEqual([{ station_id: "station-1", ladedauer_s: 1800 }]);
+    });
+
+    it("replaces an existing override for the same station instead of duplicating", () => {
+      const once = setLadedauerVorgabeFuer([], "station-1", 30);
+      const updated = setLadedauerVorgabeFuer(once, "station-1", 45);
+      expect(updated).toEqual([{ station_id: "station-1", ladedauer_s: 2700 }]);
+    });
+
+    it("removes the override when the given minutes are zero or negative", () => {
+      const once = setLadedauerVorgabeFuer([], "station-1", 30);
+      const cleared = setLadedauerVorgabeFuer(once, "station-1", 0);
+      expect(cleared).toHaveLength(0);
+    });
+
+    it("keeps overrides for other stations untouched", () => {
+      const withTwo = setLadedauerVorgabeFuer(
+        setLadedauerVorgabeFuer([], "station-1", 30),
+        "station-2",
+        15,
+      );
+      const updated = setLadedauerVorgabeFuer(withTwo, "station-1", 20);
+      expect(updated).toHaveLength(2);
+      expect(
+        updated.find((v) => v.station_id === "station-2")?.ladedauer_s,
+      ).toBe(900);
     });
   });
 });

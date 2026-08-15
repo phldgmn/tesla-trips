@@ -33,3 +33,18 @@ export function getDefaultDepartureIso(): string {
   const time = `${String(nextHour % 24).padStart(2, "0")}:00`;
   return combineDateTimeToIso(date, time);
 }
+
+/** Formatiert einen ISO-Zeitstempel für die deutsche Locale, oder "unbekannt"/
+ *  "ungültig" bei fehlendem/ungültigem Wert. Gemeinsam genutzt von
+ *  `TripSummary` (Zeitplan) und `TripPlannerForm` (Route/Fähren/Ladehalte). */
+export function formatZeitpunkt(iso: string | null): string {
+  if (iso === null) return "unbekannt";
+  try {
+    return new Date(iso).toLocaleString("de-DE", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return "ungültig";
+  }
+}

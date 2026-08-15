@@ -6,6 +6,8 @@ Alle Koordinaten sind (lat, lon) in Dezimalgrad (WGS84).
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 # Repräsentiert eine Koordinate (Breitengrad, Längengrad)
@@ -138,3 +140,29 @@ class FaehrSegment(BaseModel):
     )
     bbox_sw: Coordinate = Field(..., description="Südwest-Ecke der gepufferten Bounding Box")
     bbox_no: Coordinate = Field(..., description="Nordost-Ecke der gepufferten Bounding Box")
+    segment_index_start: int = Field(
+        ..., ge=0, description="Index des ersten Fähr-Segments in `Route.segments`"
+    )
+    segment_index_end: int = Field(
+        ...,
+        ge=0,
+        description=(
+            "Index NACH dem letzten Fähr-Segment in `Route.segments` (exklusiv, "
+            "wie bei Python-Slices) - `segment_index_end - 1` ist der Index des "
+            "letzten Fähr-Segments."
+        ),
+    )
+    abfahrt: datetime | None = Field(
+        default=None,
+        description=(
+            "Vom Nutzer vorgegebene Abfahrtszeit dieser Fährverbindung, sofern ein "
+            "passendes `trip_input.models.FaehrZeitfenster` in der Anfrage enthalten "
+            "war (siehe `trip_input.api._matche_faehr_zeitfenster`); sonst `None`."
+        ),
+    )
+    ankunft: datetime | None = Field(
+        default=None,
+        description=(
+            "Vom Nutzer vorgegebene Ankunftszeit dieser Fährverbindung, analog zu `abfahrt`."
+        ),
+    )

@@ -47,10 +47,15 @@ from tripplanner.routing import (
     RoutingProvider,
     erkenne_faehren,
 )
-from tripplanner.routing.models import Coordinate, Route, RouteSegment
+from tripplanner.routing.models import Coordinate, FaehrSegment, Route, RouteSegment
 from tripplanner.simulation import simulate_trip
 from tripplanner.simulation.models import TripSimulationResult
-from tripplanner.trip_input.models import TripRequest, VehicleProfile, Waypoint
+from tripplanner.trip_input.models import (
+    FaehrZeitfenster,
+    TripRequest,
+    VehicleProfile,
+    Waypoint,
+)
 from tripplanner.weather import FakeWeatherProvider
 from tripplanner.weather.models import WeatherQuery, WeatherSample
 from tripplanner.wind import compute_wind_components_for_route
@@ -290,6 +295,8 @@ async def _step_8_ladeplan_optimieren(  # noqa: PLR0913, PLR0917
     abfahrtszeit: datetime,
     zwischenstopps: list[Waypoint] | None = None,
     charging_provider: ChargingStationProvider | None = None,
+    ladedauer_vorgaben: dict[str, int] | None = None,
+    faehr_zeitfenster: dict[int, tuple[int, datetime, datetime]] | None = None,
 ) -> ChargingPlan:
     """Schritt 8: Optimalen Ladeplan bestimmen.
 
@@ -356,6 +363,8 @@ async def _step_8_ladeplan_optimieren(  # noqa: PLR0913, PLR0917
         constraints=constraints,
         start_soc_pct=start_soc_pct,
         abfahrtszeit=abfahrtszeit,
+        ladedauer_vorgaben=ladedauer_vorgaben,
+        faehr_zeitfenster=faehr_zeitfenster,
     )
 
 
@@ -429,6 +438,41 @@ def _mit_abgeleiteter_wartezeit(
     return ergebnis
 
 
+def _bbox_mitte(sw: Coordinate, no: Coordinate) -> Coordinate:
+    """Mittelpunkt einer (lat, lon)-Bounding-Box."""
+    return ((sw[0] + no[0]) / 2.0, (sw[1] + no[1]) / 2.0)
+
+
+def _matche_faehr_zeitfenster(
+    erkannte_faehren: list[FaehrSegment],
+    faehr_zeitfenster: list[FaehrZeitfenster],
+) -> list[FaehrSegment]:
+    """Reichert erkannte Fährverbindungen um Nutzer-Zeitfenster an.
+
+    Identifikation über `name` (bei mehrdeutigem Namen über die nächste
+    Bounding-Box-Mitte) - analog zur Identifikationskonvention von
+    `FaehrAusschluss`. Nicht (mehr) passende Zeitfenster (Name in der aktuellen
+    Route nicht mehr vorhanden) werden stillschweigend ignoriert - konsistent
+    mit dem selbstkorrigierenden Ansatz der Fährvermeidung (siehe
+    docs/superpowers/specs/2026-08-15-ferry-avoidance-design.md).
+    """
+    ergebnis: list[FaehrSegment] = []
+    for faehre in erkannte_faehren:
+        kandidaten = [fz for fz in faehr_zeitfenster if fz.name == faehre.name]
+        if not kandidaten:
+            ergebnis.append(faehre)
+            continue
+        faehre_mitte = _bbox_mitte(faehre.bbox_sw, faehre.bbox_no)
+        beste = min(
+            kandidaten,
+            key=lambda fz: haversine_distance_m(faehre_mitte, _bbox_mitte(fz.bbox_sw, fz.bbox_no)),
+        )
+        ergebnis.append(
+            faehre.model_copy(update={"abfahrt": beste.abfahrt, "ankunft": beste.ankunft})
+        )
+    return ergebnis
+
+
 # =============================================================================
 # Kernfunktion: Orchestrierung aller 11 Schritte
 # =============================================================================
@@ -444,6 +488,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
     start_soc_pct: float = 80.0,
     ziel_soc_pct: float = 20.0,
     route_observer: Callable[[Route], None] | None = None,
+    faehren_observer: Callable[[list[FaehrSegment]], None] | None = None,
 ) -> TripSimulationResult:
     """Orchestriert die 11 Datenfluss-Schritte für die Reiseplanung.
 
@@ -458,9 +503,11 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
         start_soc_pct: Start-SoC in Prozent (Default: 80%).
         ziel_soc_pct: Ziel-SoC in Prozent (Default: 20%).
         route_observer: Optionaler Callback, der unmittelbar nach Schritt 1 (Routing)
-            mit der berechneten Route aufgerufen wird - z. B. um erkannte
-            Fährverbindungen zu extrahieren, ohne GraphHopper ein zweites Mal
-            aufzurufen (siehe `create_trip_endpoint`).
+            mit der berechneten Route aufgerufen wird (siehe `create_trip_endpoint`).
+        faehren_observer: Optionaler Callback, der unmittelbar nach Schritt 1 mit den
+            erkannten, um `anfrage.faehr_zeitfenster` angereicherten Fährverbindungen
+            aufgerufen wird - dieselbe Liste, die auch zum Bau der Fährfahrplan-Vorgabe
+            für `optimizer.optimize()` genutzt wird (siehe `create_trip_endpoint`).
 
     Returns:
         TripSimulationResult: Vollständige Simulations-Ergebnis.
@@ -477,6 +524,14 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
     route = await _step_1_route_berechnen(anfrage, routing_provider)
     if route_observer is not None:
         route_observer(route)
+
+    # Vom Nutzer vorgegebene Fährfahrpläne gegen die frisch erkannten
+    # Fährverbindungen matchen (siehe `_matche_faehr_zeitfenster`) - wird
+    # sowohl fuer den Optimizer-Input unten als auch (ueber `faehren_observer`)
+    # fuer die API-Antwort (`erkannte_faehren`) benoetigt.
+    erkannte_faehren = _matche_faehr_zeitfenster(erkenne_faehren(route), anfrage.faehr_zeitfenster)
+    if faehren_observer is not None:
+        faehren_observer(erkannte_faehren)
 
     # 3. Step 2: Höhenprofil extrahieren
     _ = _step_2_hoehenprofil_extractieren(route)
@@ -514,6 +569,15 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
         anfrage.abfahrtszeit,
     )
 
+    # Vom Nutzer vorgegebene, gematchte Fährfahrpläne als Optimizer-Input
+    # aufbereiten (nur Fähren mit tatsaechlich zugeordneter Zeit).
+    faehr_pins = {
+        f.segment_index_start: (f.segment_index_end, f.abfahrt, f.ankunft)
+        for f in erkannte_faehren
+        if f.abfahrt is not None and f.ankunft is not None
+    }
+    ladedauer_map = {v.station_id: v.ladedauer_s for v in anfrage.ladedauer_vorgaben}
+
     # 9. Step 8: Ladeplan optimieren
     ladeplan = await _step_8_ladeplan_optimieren(
         route,
@@ -525,6 +589,8 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
         anfrage.abfahrtszeit,
         zwischenstopps=zwischenstopps_mit_wartezeit,
         charging_provider=charging_provider,
+        ladedauer_vorgaben=ladedauer_map,
+        faehr_zeitfenster=faehr_pins,
     )
 
     # 10. Step 9: ETA aktualisieren
@@ -786,6 +852,23 @@ class FaehrAusschlussAPI(BaseModel):
     bbox_no: tuple[float, float] = Field(..., description="Nordost-Ecke der Bounding Box")
 
 
+class FaehrZeitfensterAPI(BaseModel):
+    """API-Request für einen vorgegebenen Fährfahrplan (Abfahrt/Ankunft)."""
+
+    name: str = Field(..., description="Anzeigename der Fährverbindung")
+    bbox_sw: tuple[float, float] = Field(..., description="Südwest-Ecke der Bounding Box")
+    bbox_no: tuple[float, float] = Field(..., description="Nordost-Ecke der Bounding Box")
+    abfahrt: str = Field(..., description="Vorgegebene Abfahrtszeit (ISO-8601)")
+    ankunft: str = Field(..., description="Vorgegebene Ankunftszeit (ISO-8601)")
+
+
+class LadedauerVorgabeAPI(BaseModel):
+    """API-Request für eine vom Nutzer vorgegebene feste Ladedauer an einer Station."""
+
+    station_id: str = Field(..., min_length=1, description="Eindeutige ID der Ladestation")
+    ladedauer_s: int = Field(..., ge=0, description="Vorgegebene feste Ladedauer in Sekunden")
+
+
 class TripRequestAPI(BaseModel):
     """API-Request für /trips-Endpunkt."""
 
@@ -810,6 +893,16 @@ class TripRequestAPI(BaseModel):
             "Liste spezifischer, zuvor erkannter Fährverbindungen, die vermieden werden sollen"
         ),
     )
+    faehr_zeitfenster: list[FaehrZeitfensterAPI] = Field(
+        default_factory=list,
+        description=(
+            "Vom Nutzer vorgegebene Abfahrts-/Ankunftszeiten für zuvor erkannte Fährverbindungen"
+        ),
+    )
+    ladedauer_vorgaben: list[LadedauerVorgabeAPI] = Field(
+        default_factory=list,
+        description="Vom Nutzer vorgegebene feste Ladedauern für einzelne Ladehalte",
+    )
 
 
 class FrameAPI(BaseModel):
@@ -828,11 +921,14 @@ class ChargingStopAPI(BaseModel):
     """Ladehalt in der API-Response, ein Eintrag pro tatsaechlichem Halt."""
 
     name: str = Field(..., description="Name der Ladestation")
+    station_id: str = Field(..., description="Eindeutige ID der Ladestation")
     position: tuple[float, float] = Field(..., description="(lat, lon) der Ladestation")
     ankunfts_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
     ziel_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ziel-SoC nach dem Laden in %")
     ladedauer_s: int = Field(..., ge=0, description="Ladedauer in Sekunden")
     energie_geladen_kwh: float = Field(..., ge=0.0, description="Geladene Energiemenge in kWh")
+    ankunftszeit: str = Field(..., description="ISO-8601 Ankunftszeitpunkt an der Station")
+    abfahrtszeit: str = Field(..., description="ISO-8601 Abfahrtszeitpunkt von der Station")
 
 
 class FaehrSegmentAPI(BaseModel):
@@ -845,6 +941,14 @@ class FaehrSegmentAPI(BaseModel):
     )
     bbox_no: tuple[float, float] = Field(
         ..., description="Nordost-Ecke der gepufferten Bounding Box"
+    )
+    abfahrt: str | None = Field(
+        default=None,
+        description="Vom Nutzer vorgegebene Abfahrtszeit (ISO-8601), sofern vorhanden",
+    )
+    ankunft: str | None = Field(
+        default=None,
+        description="Vom Nutzer vorgegebene Ankunftszeit (ISO-8601), sofern vorhanden",
     )
 
 
@@ -904,13 +1008,27 @@ async def create_trip_endpoint(
             {"name": f.name, "bbox_sw": f.bbox_sw, "bbox_no": f.bbox_no}
             for f in request.vermiedene_faehren
         ],
+        "faehr_zeitfenster": [
+            {
+                "name": f.name,
+                "bbox_sw": f.bbox_sw,
+                "bbox_no": f.bbox_no,
+                "abfahrt": datetime.fromisoformat(f.abfahrt),
+                "ankunft": datetime.fromisoformat(f.ankunft),
+            }
+            for f in request.faehr_zeitfenster
+        ],
+        "ladedauer_vorgaben": [
+            {"station_id": v.station_id, "ladedauer_s": v.ladedauer_s}
+            for v in request.ladedauer_vorgaben
+        ],
     }
 
-    erkannte_route: Route | None = None
+    erkannte_faehren: list[FaehrSegment] = []
 
-    def _route_erfassen(route: Route) -> None:
-        nonlocal erkannte_route
-        erkannte_route = route
+    def _faehren_erfassen(faehren: list[FaehrSegment]) -> None:
+        nonlocal erkannte_faehren
+        erkannte_faehren = faehren
 
     try:
         ergebnis = await create_trip_simulation(
@@ -919,10 +1037,8 @@ async def create_trip_endpoint(
             charging_provider=charging_provider,
             start_soc_pct=request.start_soc_pct,
             ziel_soc_pct=request.ziel_soc_pct,
-            route_observer=_route_erfassen,
+            faehren_observer=_faehren_erfassen,
         )
-
-        erkannte_faehren = erkenne_faehren(erkannte_route) if erkannte_route is not None else []
 
         return TripSimulationResultAPI(
             gesamt_distanz_km=ergebnis.gesamt_distanz_km,
@@ -943,17 +1059,25 @@ async def create_trip_endpoint(
             charging_stops=[
                 ChargingStopAPI(
                     name=stop.name,
+                    station_id=stop.station_id,
                     position=stop.position,
                     ankunfts_soc_pct=stop.ankunfts_soc_pct,
                     ziel_soc_pct=stop.ziel_soc_pct,
                     ladedauer_s=stop.ladedauer_s,
                     energie_geladen_kwh=stop.energie_geladen_kwh,
+                    ankunftszeit=stop.ankunftszeit.isoformat(),
+                    abfahrtszeit=stop.abfahrtszeit.isoformat(),
                 )
                 for stop in ergebnis.charging_stops
             ],
             erkannte_faehren=[
                 FaehrSegmentAPI(
-                    name=f.name, laenge_m=f.laenge_m, bbox_sw=f.bbox_sw, bbox_no=f.bbox_no
+                    name=f.name,
+                    laenge_m=f.laenge_m,
+                    bbox_sw=f.bbox_sw,
+                    bbox_no=f.bbox_no,
+                    abfahrt=f.abfahrt.isoformat() if f.abfahrt else None,
+                    ankunft=f.ankunft.isoformat() if f.ankunft else None,
                 )
                 for f in erkannte_faehren
             ],

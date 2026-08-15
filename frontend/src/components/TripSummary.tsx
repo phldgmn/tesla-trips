@@ -1,32 +1,20 @@
 /** Komponente zur Anzeige der Reisezusammenfassung nach der Simulation.
  *
- * Zeigt Gesamtdistanz, Fahrzeit, Ladezeit und Start-/Ziel-SoC sowie eine
- * detaillierte Liste aller Stopps mit ermittelten Ankunfts- und
- * Abfahrtszeiten. Für jeden Stopp (außer dem letzten) wird zudem eine
- * optionale "Geplante Abfahrt" angezeigt, falls der Nutzer eine hinterlegt
- * hat.
+ * Zeigt Gesamtdistanz, Fahrzeit, Ladezeit und Start-/Ziel-SoC sowie ein
+ * chronologisches "Zeitplan" mit allen Stopps, Ladehalten (mit tatsächlicher
+ * Ankunfts-/Abfahrtszeit) und vom Nutzer terminierten Fähren (Abfahrt/Ankunft).
+ * Für jeden Stopp (außer dem letzten) wird zudem eine optionale "Geplante
+ * Abfahrt" angezeigt, falls der Nutzer eine hinterlegt hat.
  */
 
 import { estimateWaypointTimings } from "../utils/timing-utils";
+import { formatZeitpunkt } from "../utils/datetime-utils";
 import type { TripSimulationResult } from "../types";
 import type { Stop } from "../types/trip-request";
 
 export interface TripSummaryProps {
   result: TripSimulationResult;
   stops: Stop[];
-}
-
-/** Formatiert einen ISO-Zeitstempel für die deutsche Locale. */
-function formatZeitpunkt(iso: string | null): string {
-  if (iso === null) return "unbekannt";
-  try {
-    return new Date(iso).toLocaleString("de-DE", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-  } catch {
-    return "ungültig";
-  }
 }
 
 /** Kurzadresse: nur der erste Teil vor dem ersten Komma (Stadt oder Straße). */
@@ -45,8 +33,67 @@ function stopLabel(stop: Stop): string {
   return "(unbekannt)";
 }
 
-function TripSummary({ result, stops }: TripSummaryProps) {
+/** Ein Eintrag im vereinheitlichten, chronologischen Zeitplan - entweder ein
+ *  Nutzer-Stopp, ein Ladehalt oder eine terminierte Fähre. */
+export interface ZeitplanEintrag {
+  key: string;
+  art: "Stopp" | "Ladehalt" | "Fähre";
+  label: string;
+  arrival: string | null;
+  departure: string | null;
+}
+
+/** Baut den vereinheitlichten Zeitplan aus Stopps, Ladehalten und terminierten
+ *  Fähren, chronologisch sortiert nach Ankunft (Stopps ohne Ankunft, z. B. der
+ *  Start, werden nach ihrer Abfahrt einsortiert). Fähren ohne vom Nutzer
+ *  vorgegebene Zeit fehlen bewusst (siehe `TripPlannerForm`, Abschnitt "Fähren"
+ *  für deren Terminierung) - ein chronologischer Zeitplan kann nur Einträge
+ *  mit bekannter Zeit sinnvoll einordnen. */
+export function buildZeitplan(
+  result: TripSimulationResult,
+  stops: Stop[],
+): ZeitplanEintrag[] {
   const timings = estimateWaypointTimings(result, stops);
+
+  const stopEintraege: ZeitplanEintrag[] = stops.map((stop, i) => ({
+    key: `stopp-${stop.id}`,
+    art: "Stopp",
+    label: stopLabel(stop),
+    arrival: timings[i]?.arrival ?? null,
+    departure: timings[i]?.departure ?? null,
+  }));
+
+  const ladehaltEintraege: ZeitplanEintrag[] = result.charging_stops.map(
+    (stop) => ({
+      key: `ladehalt-${stop.station_id}-${stop.ankunftszeit}`,
+      art: "Ladehalt",
+      label: stop.name,
+      arrival: stop.ankunftszeit,
+      departure: stop.abfahrtszeit,
+    }),
+  );
+
+  const faehrEintraege: ZeitplanEintrag[] = result.erkannte_faehren
+    .filter((f) => f.abfahrt !== null && f.ankunft !== null)
+    .map((f) => ({
+      key: `faehre-${f.name}-${f.abfahrt}`,
+      art: "Fähre",
+      label: f.name,
+      arrival: f.abfahrt,
+      departure: f.ankunft,
+    }));
+
+  return [...stopEintraege, ...ladehaltEintraege, ...faehrEintraege].sort(
+    (a, b) => {
+      const zeitA = a.arrival ?? a.departure ?? "";
+      const zeitB = b.arrival ?? b.departure ?? "";
+      return zeitA.localeCompare(zeitB);
+    },
+  );
+}
+
+function TripSummary({ result, stops }: TripSummaryProps) {
+  const zeitplan = buildZeitplan(result, stops);
 
   return (
     <div
@@ -112,23 +159,21 @@ function TripSummary({ result, stops }: TripSummaryProps) {
       >
         <thead>
           <tr>
+            <th style={headerCellStyle}>Art</th>
             <th style={headerCellStyle}>Stopp</th>
             <th style={headerCellStyle}>Ankunft</th>
             <th style={headerCellStyle}>Abfahrt</th>
           </tr>
         </thead>
         <tbody>
-          {stops.map((stop, i) => {
-            const timing = timings[i];
-            if (!timing) return null;
-            return (
-              <tr key={stop.id}>
-                <td style={cellStyle}>{stopLabel(stop)}</td>
-                <td style={cellStyle}>{formatZeitpunkt(timing.arrival)}</td>
-                <td style={cellStyle}>{formatZeitpunkt(timing.departure)}</td>
-              </tr>
-            );
-          })}
+          {zeitplan.map((eintrag) => (
+            <tr key={eintrag.key}>
+              <td style={cellStyle}>{eintrag.art}</td>
+              <td style={cellStyle}>{eintrag.label}</td>
+              <td style={cellStyle}>{formatZeitpunkt(eintrag.arrival)}</td>
+              <td style={cellStyle}>{formatZeitpunkt(eintrag.departure)}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>

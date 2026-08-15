@@ -1,0 +1,129 @@
+import { describe, it, expect } from "vitest";
+import { buildZeitplan } from "@/components/TripSummary";
+import { createEmptyStop } from "@/types/trip-request";
+import type { Stop } from "@/types/trip-request";
+import type { TripSimulationResult, ChargingStop, FaehrSegment } from "@/types";
+
+/** Minimales TripSimulationResult mit den fuer buildZeitplan relevanten Feldern. */
+function makeResult(
+  overrides: Partial<TripSimulationResult> = {},
+): TripSimulationResult {
+  return {
+    frames: [
+      {
+        zeitpunkt: "2026-08-15T08:00:00",
+        position: [52.52, 13.405],
+        soc_pct: 80,
+        zustand: "FAHREN",
+        geschwindigkeit_kmh: 110,
+      },
+      {
+        zeitpunkt: "2026-08-15T14:00:00",
+        position: [53.551, 9.993],
+        soc_pct: 40,
+        zustand: "FAHREN",
+        geschwindigkeit_kmh: 110,
+      },
+    ],
+    gesamt_distanz_km: 300,
+    gesamt_fahrzeit_min: 360,
+    gesamt_ladezeit_min: 0,
+    start_soc_pct: 80,
+    ziel_soc_pct: 40,
+    charging_stops: [],
+    erkannte_faehren: [],
+    ...overrides,
+  };
+}
+
+function makeChargingStop(overrides: Partial<ChargingStop> = {}): ChargingStop {
+  return {
+    name: "Tesla Supercharger - Dresden",
+    station_id: "dresden-stop",
+    position: [51.05, 13.74],
+    ankunfts_soc_pct: 40,
+    ziel_soc_pct: 80,
+    ladedauer_s: 1500,
+    energie_geladen_kwh: 25,
+    ankunftszeit: "2026-08-15T10:00:00",
+    abfahrtszeit: "2026-08-15T10:25:00",
+    ...overrides,
+  };
+}
+
+function makeFaehre(overrides: Partial<FaehrSegment> = {}): FaehrSegment {
+  return {
+    name: "Rødby (DK) - Puttgarden (D)",
+    laenge_m: 22000,
+    bbox_sw: [54.5, 11.22],
+    bbox_no: [54.66, 11.36],
+    abfahrt: null,
+    ankunft: null,
+    ...overrides,
+  };
+}
+
+function makeStops(): Stop[] {
+  return [
+    { ...createEmptyStop(), address: "Berlin", position: [52.52, 13.405] },
+    { ...createEmptyStop(), address: "Hamburg", position: [53.551, 9.993] },
+  ];
+}
+
+describe("buildZeitplan", () => {
+  it("includes an entry per user stop with role 'Stopp'", () => {
+    const zeitplan = buildZeitplan(makeResult(), makeStops());
+    const stopEintraege = zeitplan.filter((e) => e.art === "Stopp");
+    expect(stopEintraege).toHaveLength(2);
+    expect(stopEintraege[0].label).toBe("Berlin");
+    expect(stopEintraege[1].label).toBe("Hamburg");
+  });
+
+  it("includes a charging stop with its real arrival/departure timestamps", () => {
+    const result = makeResult({ charging_stops: [makeChargingStop()] });
+    const zeitplan = buildZeitplan(result, makeStops());
+    const ladehalt = zeitplan.find((e) => e.art === "Ladehalt");
+    expect(ladehalt).toBeDefined();
+    expect(ladehalt?.label).toBe("Tesla Supercharger - Dresden");
+    expect(ladehalt?.arrival).toBe("2026-08-15T10:00:00");
+    expect(ladehalt?.departure).toBe("2026-08-15T10:25:00");
+  });
+
+  it("includes a pinned ferry with its scheduled departure/arrival", () => {
+    const result = makeResult({
+      erkannte_faehren: [
+        makeFaehre({
+          abfahrt: "2026-08-15T09:00:00",
+          ankunft: "2026-08-15T09:45:00",
+        }),
+      ],
+    });
+    const zeitplan = buildZeitplan(result, makeStops());
+    const faehre = zeitplan.find((e) => e.art === "Fähre");
+    expect(faehre).toBeDefined();
+    expect(faehre?.arrival).toBe("2026-08-15T09:00:00");
+    expect(faehre?.departure).toBe("2026-08-15T09:45:00");
+  });
+
+  it("excludes a detected ferry that has not been pinned with a schedule", () => {
+    const result = makeResult({ erkannte_faehren: [makeFaehre()] });
+    const zeitplan = buildZeitplan(result, makeStops());
+    expect(zeitplan.some((e) => e.art === "Fähre")).toBe(false);
+  });
+
+  it("sorts all entries chronologically by arrival (falling back to departure)", () => {
+    const result = makeResult({
+      charging_stops: [makeChargingStop()], // arrival 10:00
+      erkannte_faehren: [
+        makeFaehre({
+          abfahrt: "2026-08-15T09:00:00",
+          ankunft: "2026-08-15T09:45:00",
+        }),
+      ],
+    });
+    const zeitplan = buildZeitplan(result, makeStops());
+    const arten = zeitplan.map((e) => e.art);
+    // Start-Stopp (Abfahrt 08:00, keine Ankunft) -> Fähre (09:00) -> Ladehalt (10:00) -> Ziel-Stopp (14:00)
+    expect(arten).toEqual(["Stopp", "Fähre", "Ladehalt", "Stopp"]);
+  });
+});

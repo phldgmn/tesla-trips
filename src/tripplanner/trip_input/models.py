@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from tripplanner.geo import Coordinate
 
@@ -55,6 +55,55 @@ class FaehrAusschluss(BaseModel):
     bbox_no: Coordinate = Field(
         ..., description="Nordost-Ecke der (gepufferten) Bounding Box um die Fährverbindung"
     )
+
+
+class FaehrZeitfenster(BaseModel):
+    """Vom Nutzer vorgegebene Abfahrts-/Ankunftszeit für eine Fährverbindung.
+
+    Zur Abstimmung der Planung mit dem tatsächlichen Fährfahrplan.
+    Identifikation über `name`/`bbox_sw`/`bbox_no` wie `FaehrAusschluss` (aus einer
+    vorherigen Routenberechnung via `tripplanner.routing.erkenne_faehren()`). Der
+    API-Layer (`trip_input.api`) matcht dies gegen die frisch berechnete Route und
+    reicht bei Treffer die feste Abfahrts-/Ankunftszeit als Zeitplan-Vorgabe an
+    `optimization.optimizer` weiter (siehe `_matche_faehr_zeitfenster`).
+    """
+
+    name: str = Field(
+        ...,
+        description="Anzeigename der Fährverbindung (aus einer vorherigen Routenberechnung)",
+    )
+    bbox_sw: Coordinate = Field(
+        ..., description="Südwest-Ecke der (gepufferten) Bounding Box um die Fährverbindung"
+    )
+    bbox_no: Coordinate = Field(
+        ..., description="Nordost-Ecke der (gepufferten) Bounding Box um die Fährverbindung"
+    )
+    abfahrt: datetime = Field(..., description="Vorgegebene Abfahrtszeit der Fähre")
+    ankunft: datetime = Field(..., description="Vorgegebene Ankunftszeit der Fähre")
+
+    @field_validator("ankunft")
+    @classmethod
+    def _ankunft_nach_abfahrt(cls, v: datetime, info: ValidationInfo) -> datetime:
+        """Stellt sicher, dass die Ankunft zeitlich nach der Abfahrt liegt."""
+        abfahrt = info.data.get("abfahrt")
+        if abfahrt is not None and v <= abfahrt:
+            raise ValueError("ankunft muss zeitlich nach abfahrt liegen")
+        return v
+
+
+class LadedauerVorgabe(BaseModel):
+    """Vom Nutzer vorgegebene feste Ladedauer für einen Ladehalt an einer Station.
+
+    Zur Nachjustierung des automatisch berechneten Ladeplans (z. B. anhand
+    tatsächlicher Wartezeiten an der Säule oder gewünschter Pausenlänge).
+    Identifikation über die stabile `station_id` (siehe
+    `tripplanner.charging_infrastructure.models.ChargingStation.station_id`) statt
+    Koordinate/Bounding-Box, da eine Ladestation - anders als eine Fährlinie - über
+    mehrere Routenberechnungen hinweg immer dieselbe eindeutige ID behält.
+    """
+
+    station_id: str = Field(..., min_length=1, description="Eindeutige ID der Ladestation")
+    ladedauer_s: int = Field(..., ge=0, description="Vorgegebene feste Ladedauer in Sekunden")
 
 
 class VehicleProfile(BaseModel):
@@ -105,6 +154,21 @@ class TripRequest(BaseModel):
         description=(
             "Liste spezifischer, zuvor erkannter Fährverbindungen, die bei der "
             "Routenberechnung vermieden werden sollen (siehe FaehrAusschluss)."
+        ),
+    )
+    faehr_zeitfenster: list[FaehrZeitfenster] = Field(
+        default_factory=list,
+        description=(
+            "Vom Nutzer vorgegebene Abfahrts-/Ankunftszeiten für zuvor erkannte "
+            "Fährverbindungen, zur Abstimmung mit dem tatsächlichen Fährfahrplan "
+            "(siehe FaehrZeitfenster)."
+        ),
+    )
+    ladedauer_vorgaben: list[LadedauerVorgabe] = Field(
+        default_factory=list,
+        description=(
+            "Vom Nutzer vorgegebene feste Ladedauern für einzelne Ladehalte, "
+            "identifiziert über die Stations-ID (siehe LadedauerVorgabe)."
         ),
     )
     praeferenzen: dict[str, object] = Field(

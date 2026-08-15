@@ -89,6 +89,26 @@ export interface FaehrAusschluss {
   bbox_no: [number, number];
 }
 
+/** Eine vom Nutzer vorgegebene Abfahrts-/Ankunftszeit für eine zuvor erkannte
+ *  Fährverbindung (`FaehrZeitfensterAPI`), zur Abstimmung mit dem tatsächlichen
+ *  Fährfahrplan. */
+export interface FaehrZeitfenster {
+  name: string;
+  bbox_sw: [number, number];
+  bbox_no: [number, number];
+  /** ISO-8601, lokal (ohne Zeitzone). */
+  abfahrt: string;
+  /** ISO-8601, lokal (ohne Zeitzone). */
+  ankunft: string;
+}
+
+/** Eine vom Nutzer vorgegebene feste Ladedauer für eine bestimmte Ladestation
+ *  (`LadedauerVorgabeAPI`), identifiziert über die stabile `station_id`. */
+export interface LadedauerVorgabe {
+  station_id: string;
+  ladedauer_s: number;
+}
+
 /** Vollständiger Request-Body für `POST /trips` (`TripRequestAPI`). */
 export interface TripRequestPayload {
   start: [number, number];
@@ -102,6 +122,8 @@ export interface TripRequestPayload {
   ziel_soc_pct: number;
   alle_faehren_vermeiden: boolean;
   vermiedene_faehren: FaehrAusschluss[];
+  faehr_zeitfenster: FaehrZeitfenster[];
+  ladedauer_vorgaben: LadedauerVorgabe[];
 }
 
 /** Fehler beim Aufbau des Requests aus dem aktuellen Formularzustand
@@ -121,6 +143,8 @@ export function buildTripRequestPayload(args: {
   praeferenzen?: Record<string, unknown>;
   alleFaehrenVermeiden?: boolean;
   vermiedeneFaehren?: FaehrAusschluss[];
+  faehrZeitfenster?: FaehrZeitfenster[];
+  ladedauerVorgaben?: LadedauerVorgabe[];
 }): TripRequestPayload {
   const { stops } = args;
   if (stops.length < 2) {
@@ -164,6 +188,8 @@ export function buildTripRequestPayload(args: {
     ziel_soc_pct: args.zielSocPct,
     alle_faehren_vermeiden: args.alleFaehrenVermeiden ?? false,
     vermiedene_faehren: args.vermiedeneFaehren ?? [],
+    faehr_zeitfenster: args.faehrZeitfenster ?? [],
+    ladedauer_vorgaben: args.ladedauerVorgaben ?? [],
   };
 }
 

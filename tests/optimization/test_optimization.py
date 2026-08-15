@@ -695,3 +695,269 @@ class TestORToolsOptimizer:
             )
 
         assert "OR-Tools-Backend ist eine spätere Ausbaustufe" in str(exc_info.value)
+
+
+class TestLadedauerVorgabe:
+    """Tests für vom Nutzer vorgegebene feste Ladedauern (`ladedauer_vorgaben`)."""
+
+    def _basis_szenario(
+        self,
+    ) -> tuple[
+        Route, list[SegmentGradient], list[SegmentEnergyResult], VehicleProfile, ChargingStation
+    ]:
+        route = Route(
+            segments=[
+                RouteSegment(
+                    segment_index=0,
+                    geometrie=[BERLIN_COORD, (53.0, 12.0)],
+                    laenge_m=60_000,
+                    strassenklasse="MOTORWAY",
+                    tempolimit_kmh=130,
+                    steigung_rohdaten=0.0,
+                    bearing_deg=315.0,
+                ),
+            ],
+            gesamtlaenge_m=60_000,
+            geometrie=[BERLIN_COORD, (53.0, 12.0)],
+        )
+        gradients = [
+            SegmentGradient(
+                segment_index=0,
+                steigung_prozent=0.0,
+                hoehendifferenz_m=0.0,
+                horizontale_distanz_m=60_000,
+            )
+        ]
+        energy_results = [
+            SegmentEnergyResult(
+                segment_index=0,
+                energiebedarf_kwh=25.0,
+                rekuperation_kwh=0.0,
+                energiebedarf_brutto_kwh=25.0,
+                geschwindigkeit_m_s=30.0,
+                fahrzeit_s=2000,
+                streckenlaenge_m=60_000,
+            ),
+        ]
+        vehicle_profile = VehicleProfile(
+            masse_kg=1706.0,
+            cw_wert=0.23,
+            stirnflaeche_m2=2.22,
+            rollwiderstandsbeiwert=0.011,
+            batteriekapazitaet_kwh=62.5,
+        )
+        station = ChargingStation(
+            station_id="station_001",
+            name="Tesla Supercharger Ziel",
+            coordinate=(53.0, 12.0),
+            stalls={StallType.V3: 4},
+            max_ladeleistung_kw=250.0,
+            connector_types=[ConnectorType.CCS2],
+            country="DE",
+        )
+        return route, gradients, energy_results, vehicle_profile, station
+
+    def test_feste_ladedauer_wird_exakt_uebernommen(self) -> None:
+        """Eine vorgegebene Ladedauer für die gewählte Station wird exakt (nicht nur
+        näherungsweise über die SoC-Ziel-Iteration) als `geschaetzte_ladedauer_s`
+        übernommen - unabhängig von `constraints.max_ladezeit_s`."""
+        route, gradients, energy_results, vehicle_profile, station = self._basis_szenario()
+        constraints = OptimizationConstraints(min_soc_pct=15.0, ziel_soc_pct=45.0)
+        optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=15)
+
+        plan = optimizer.optimize(
+            route=route,
+            segments=route.segments,
+            gradients=gradients,
+            energy_results=energy_results,
+            charging_stations=[station],
+            waypoints=[],
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+            start_soc_pct=20.0,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            ladedauer_vorgaben={"station_001": 1800},
+        )
+
+        assert len(plan.ladehalte) == 1
+        ladehalt = plan.ladehalte[0]
+        assert ladehalt.station.station_id == "station_001"
+        assert ladehalt.geschaetzte_ladedauer_s == 1800
+        assert (ladehalt.abfahrtszeit - ladehalt.ankunftszeit).total_seconds() == 1800
+        # Ziel-SoC muss höher als der Ankunfts-SoC sein (es wurde tatsächlich geladen).
+        assert ladehalt.ziel_soc_pct > ladehalt.ankunfts_soc_pct
+
+    def test_ohne_vorgabe_weicht_ladedauer_von_der_vorgabe_ab(self) -> None:
+        """Ohne `ladedauer_vorgaben` berechnet der Optimierer die Ladedauer wie bisher
+        automatisch - als Kontrast zum exakten Vorgabewert im anderen Test."""
+        route, gradients, energy_results, vehicle_profile, station = self._basis_szenario()
+        constraints = OptimizationConstraints(min_soc_pct=15.0, ziel_soc_pct=45.0)
+        optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=15)
+
+        plan = optimizer.optimize(
+            route=route,
+            segments=route.segments,
+            gradients=gradients,
+            energy_results=energy_results,
+            charging_stations=[station],
+            waypoints=[],
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+            start_soc_pct=20.0,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+        )
+
+        assert len(plan.ladehalte) == 1
+        assert plan.ladehalte[0].geschaetzte_ladedauer_s != 1800
+
+
+class TestFaehrZeitfenster:
+    """Tests für vom Nutzer vorgegebene Fährfahrpläne (`faehr_zeitfenster`)."""
+
+    def _basis_szenario(
+        self,
+    ) -> tuple[Route, list[SegmentGradient], list[SegmentEnergyResult], VehicleProfile]:
+        route = Route(
+            segments=[
+                RouteSegment(
+                    segment_index=0,
+                    geometrie=[BERLIN_COORD, (53.0, 12.0)],
+                    laenge_m=50_000,
+                    strassenklasse="MOTORWAY",
+                    tempolimit_kmh=130,
+                    steigung_rohdaten=0.0,
+                    bearing_deg=315.0,
+                ),
+                RouteSegment(
+                    segment_index=1,
+                    geometrie=[(53.0, 12.0), (53.3, 11.0)],
+                    laenge_m=20_000,
+                    strassenklasse="FERRY",
+                    road_environment="FERRY",
+                    bearing_deg=280.0,
+                ),
+                RouteSegment(
+                    segment_index=2,
+                    geometrie=[(53.3, 11.0), HAMBURG_COORD],
+                    laenge_m=30_000,
+                    strassenklasse="MOTORWAY",
+                    tempolimit_kmh=110,
+                    steigung_rohdaten=0.0,
+                    bearing_deg=260.0,
+                ),
+            ],
+            gesamtlaenge_m=100_000,
+            geometrie=[BERLIN_COORD, (53.0, 12.0), (53.3, 11.0), HAMBURG_COORD],
+        )
+        gradients = [
+            SegmentGradient(
+                segment_index=i,
+                steigung_prozent=0.0,
+                hoehendifferenz_m=0.0,
+                horizontale_distanz_m=seg.laenge_m,
+            )
+            for i, seg in enumerate(route.segments)
+        ]
+        # Segment 1 (die Fähre) bekommt einen absichtlich UNFAHRBAR hohen
+        # Energiebedarf (500 kWh bei einer 62.5-kWh-Batterie ohne
+        # Ladestationen) - würde der Optimierer sie trotz Fährfahrplan-Pin
+        # als normale Fahrtkante behandeln, wäre die Route physikalisch nicht
+        # fahrbar. Ein erfolgreicher Plan beweist also, dass `_add_ferry_edge`
+        # tatsächlich anstelle von `_add_drive_edge` verwendet wurde.
+        energy_results = [
+            SegmentEnergyResult(
+                segment_index=0,
+                energiebedarf_kwh=5.0,
+                rekuperation_kwh=0.0,
+                energiebedarf_brutto_kwh=5.0,
+                geschwindigkeit_m_s=30.0,
+                fahrzeit_s=1667,
+                streckenlaenge_m=50_000,
+            ),
+            SegmentEnergyResult(
+                segment_index=1,
+                energiebedarf_kwh=500.0,
+                rekuperation_kwh=0.0,
+                energiebedarf_brutto_kwh=500.0,
+                geschwindigkeit_m_s=10.0,
+                fahrzeit_s=2000,
+                streckenlaenge_m=20_000,
+            ),
+            SegmentEnergyResult(
+                segment_index=2,
+                energiebedarf_kwh=3.0,
+                rekuperation_kwh=0.0,
+                energiebedarf_brutto_kwh=3.0,
+                geschwindigkeit_m_s=20.0,
+                fahrzeit_s=1000,
+                streckenlaenge_m=30_000,
+            ),
+        ]
+        vehicle_profile = VehicleProfile(
+            masse_kg=1706.0,
+            cw_wert=0.23,
+            stirnflaeche_m2=2.22,
+            rollwiderstandsbeiwert=0.011,
+            batteriekapazitaet_kwh=62.5,
+        )
+        return route, gradients, energy_results, vehicle_profile
+
+    def test_faehre_wird_in_einem_sprung_ohne_soc_verbrauch_ueberquert(self) -> None:
+        """Eine gepinnte Fähre wird als ein Sprung ohne SoC-Verbrauch modelliert; die
+        Gesamtreisezeit ergibt sich aus Wartezeit bis zur Abfahrt plus Überfahrts-
+        und Restfahrzeit."""
+        route, gradients, energy_results, vehicle_profile = self._basis_szenario()
+        constraints = OptimizationConstraints(min_soc_pct=15.0, ziel_soc_pct=50.0)
+        optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=15)
+        abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
+        faehr_abfahrt = abfahrtszeit + timedelta(minutes=45)
+        faehr_ankunft = faehr_abfahrt + timedelta(minutes=30)
+
+        plan = optimizer.optimize(
+            route=route,
+            segments=route.segments,
+            gradients=gradients,
+            energy_results=energy_results,
+            charging_stations=[],
+            waypoints=[],
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+            start_soc_pct=80.0,
+            abfahrtszeit=abfahrtszeit,
+            faehr_zeitfenster={1: (2, faehr_abfahrt, faehr_ankunft)},
+        )
+
+        assert plan.ladehalte == []  # kein Ladehalt noetig (Segment 1 kostet kein SoC)
+
+        drive_seg2_s = 30_000 / (110.0 * 1000 / 3600)
+        erwartete_gesamtzeit_s = (faehr_ankunft - abfahrtszeit).total_seconds() + drive_seg2_s
+        assert plan.gesamtreisezeit_s == pytest.approx(erwartete_gesamtzeit_s, abs=1.0)
+
+    def test_verpasste_faehre_macht_route_unfahrbar(self) -> None:
+        """Liegt die vorgegebene Abfahrt VOR der tatsächlichen Ankunft am Fähr-
+        Terminal, ist die Fähre für diesen Pfad nicht mehr nutzbar - die Route
+        gilt als nicht fahrbar (keine andere Kante ersetzt die übersprungene
+        Fahrtkante)."""
+        route, gradients, energy_results, vehicle_profile = self._basis_szenario()
+        constraints = OptimizationConstraints(min_soc_pct=15.0, ziel_soc_pct=50.0)
+        optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=15)
+        abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
+        # Ankunft am Terminal nach Segment 0 ist ca. 08:27 Uhr - eine Abfahrt
+        # um 08:05 Uhr wurde also bereits verpasst.
+        faehr_abfahrt = abfahrtszeit + timedelta(minutes=5)
+        faehr_ankunft = faehr_abfahrt + timedelta(minutes=30)
+
+        with pytest.raises(ValueError, match="Kein erreichbarer Zielknoten"):
+            optimizer.optimize(
+                route=route,
+                segments=route.segments,
+                gradients=gradients,
+                energy_results=energy_results,
+                charging_stations=[],
+                waypoints=[],
+                vehicle_profile=vehicle_profile,
+                constraints=constraints,
+                start_soc_pct=80.0,
+                abfahrtszeit=abfahrtszeit,
+                faehr_zeitfenster={1: (2, faehr_abfahrt, faehr_ankunft)},
+            )

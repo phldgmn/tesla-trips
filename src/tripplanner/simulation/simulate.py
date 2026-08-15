@@ -296,6 +296,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     charging_stops = [
         ChargingStopSummary(
             name=ladehalt.station.name,
+            station_id=ladehalt.station.station_id,
             position=ladehalt.station.coordinate,
             ankunfts_soc_pct=ladehalt.ankunfts_soc_pct,
             ziel_soc_pct=ladehalt.ziel_soc_pct,
@@ -304,6 +305,8 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
                 0.0,
                 (ladehalt.ziel_soc_pct - ladehalt.ankunfts_soc_pct) / 100.0 * battery_capacity_kwh,
             ),
+            ankunftszeit=ladehalt.ankunftszeit,
+            abfahrtszeit=ladehalt.abfahrtszeit,
         )
         for ladehalt in ladehalte_sortiert
     ]

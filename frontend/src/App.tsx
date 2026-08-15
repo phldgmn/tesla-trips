@@ -106,6 +106,7 @@ export function App() {
         isSubmitting={isSubmitting}
         submitError={submitError}
         erkannteFaehren={simulationResult?.erkannte_faehren}
+        chargingStops={simulationResult?.charging_stops}
       />
       <div style={{ position: "relative", flex: 1 }}>
         <MapVisualization

@@ -56,3 +56,42 @@ describe("buildTripRequestPayload ferry fields", () => {
     );
   });
 });
+
+describe("buildTripRequestPayload faehr_zeitfenster/ladedauer_vorgaben fields", () => {
+  it("defaults faehr_zeitfenster and ladedauer_vorgaben to empty arrays", () => {
+    const payload = buildTripRequestPayload({
+      stops: makeStops(),
+      fahrzeugprofil: vehicleProfile,
+      startSocPct: 80,
+      zielSocPct: 20,
+    });
+
+    expect(payload.faehr_zeitfenster).toEqual([]);
+    expect(payload.ladedauer_vorgaben).toEqual([]);
+  });
+
+  it("passes through explicit ferry time windows and duration overrides", () => {
+    const payload = buildTripRequestPayload({
+      stops: makeStops(),
+      fahrzeugprofil: vehicleProfile,
+      startSocPct: 80,
+      zielSocPct: 20,
+      faehrZeitfenster: [
+        {
+          name: "Rødby (DK) - Puttgarden (D)",
+          bbox_sw: [54.5, 11.22],
+          bbox_no: [54.66, 11.36],
+          abfahrt: "2026-08-15T10:00:00",
+          ankunft: "2026-08-15T11:09:00",
+        },
+      ],
+      ladedauerVorgaben: [{ station_id: "station-1", ladedauer_s: 1800 }],
+    });
+
+    expect(payload.faehr_zeitfenster).toHaveLength(1);
+    expect(payload.faehr_zeitfenster[0].abfahrt).toBe("2026-08-15T10:00:00");
+    expect(payload.ladedauer_vorgaben).toEqual([
+      { station_id: "station-1", ladedauer_s: 1800 },
+    ]);
+  });
+});

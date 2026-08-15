@@ -126,6 +126,17 @@ class OptimizerInterface(Protocol):
         start_soc_pct: float,
         abfahrtszeit: datetime,
         iteration: int = 1,
+        ladedauer_vorgaben: dict[str, int] | None = None,
+        faehr_zeitfenster: dict[int, tuple[int, datetime, datetime]] | None = None,
     ) -> ChargingPlan:
-        """Optimierungsmethode, die von beiden Backend-Implementierungen bereitgestellt wird."""
+        """Optimierungsmethode, die von beiden Backend-Implementierungen bereitgestellt wird.
+
+        `ladedauer_vorgaben` (optionale, vom Nutzer vorgegebene feste Ladedauern in
+        Sekunden je Stations-ID) überschreibt die automatische SoC-basierte
+        Ladedauer-Berechnung für die betroffene Station. `faehr_zeitfenster`
+        (optionale, vom Nutzer vorgegebene Fährfahrpläne, als
+        `segment_index_start -> (segment_index_end, abfahrt, ankunft)`, siehe
+        `tripplanner.routing.models.FaehrSegment`) lässt Segmente in diesem
+        Bereich als fixe Fährüberfahrt statt als normale Fahrtkanten modellieren.
+        """
         ...

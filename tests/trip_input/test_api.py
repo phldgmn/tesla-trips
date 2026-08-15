@@ -24,7 +24,7 @@ from tripplanner.charging_infrastructure.models import ChargingStation, Connecto
 from tripplanner.charging_infrastructure.providers import TeslaChargingStationProvider
 from tripplanner.construction.providers import FakeConstructionProvider
 from tripplanner.routing import FakeRoutingProvider, GraphHopperClient, GraphHopperRoutingProvider
-from tripplanner.routing.models import Route, RouteSegment
+from tripplanner.routing.models import FaehrSegment, Route, RouteSegment
 from tripplanner.trip_input.api import (
     app,
     create_trip_simulation,
@@ -32,7 +32,13 @@ from tripplanner.trip_input.api import (
     get_routing_provider,
 )
 from tripplanner.trip_input.cli import parse_coord, parse_waypoint
-from tripplanner.trip_input.models import TripRequest, VehicleProfile, Waypoint
+from tripplanner.trip_input.models import (
+    FaehrZeitfenster,
+    LadedauerVorgabe,
+    TripRequest,
+    VehicleProfile,
+    Waypoint,
+)
 from tripplanner.weather.providers import FakeWeatherProvider
 
 # =============================================================================
@@ -676,6 +682,277 @@ def test_mit_abgeleiteter_wartezeit_unveraendert_ohne_geplante_abfahrt() -> None
     ergebnis = trip_api._mit_abgeleiteter_wartezeit([wp], segment_eta_liste, abfahrtszeit)
 
     assert ergebnis[0] is wp
+
+
+# =============================================================================
+# Testfälle für _matche_faehr_zeitfenster, faehren_observer, ladedauer_vorgaben
+# =============================================================================
+
+
+def test_matche_faehr_zeitfenster_reichert_bei_namensgleichheit_an() -> None:
+    """Ein Zeitfenster mit passendem Namen reichert die erkannte Fähre um
+    abfahrt/ankunft an."""
+    faehre = FaehrSegment(
+        name="Rødby (DK) - Puttgarden (D)",
+        laenge_m=22000.0,
+        bbox_sw=(54.50, 11.22),
+        bbox_no=(54.66, 11.36),
+        segment_index_start=3,
+        segment_index_end=7,
+    )
+    abfahrt = datetime(2026, 8, 15, 10, 0, 0)
+    ankunft = datetime(2026, 8, 15, 11, 9, 0)
+    zeitfenster = FaehrZeitfenster(
+        name="Rødby (DK) - Puttgarden (D)",
+        bbox_sw=(54.50, 11.22),
+        bbox_no=(54.66, 11.36),
+        abfahrt=abfahrt,
+        ankunft=ankunft,
+    )
+
+    ergebnis = trip_api._matche_faehr_zeitfenster([faehre], [zeitfenster])
+
+    assert len(ergebnis) == 1
+    assert ergebnis[0].abfahrt == abfahrt
+    assert ergebnis[0].ankunft == ankunft
+    # Identitaets-/sonstige Felder bleiben unveraendert.
+    assert ergebnis[0].segment_index_start == 3
+    assert ergebnis[0].segment_index_end == 7
+
+
+def test_matche_faehr_zeitfenster_ignoriert_nicht_passenden_namen() -> None:
+    """Ein Zeitfenster fuer eine nicht (mehr) vorhandene Fähre wird stillschweigend
+    ignoriert - die erkannte Fähre bleibt ohne abfahrt/ankunft."""
+    faehre = FaehrSegment(
+        name="Andere Fähre",
+        laenge_m=5000.0,
+        bbox_sw=(1.0, 1.0),
+        bbox_no=(2.0, 2.0),
+        segment_index_start=0,
+        segment_index_end=2,
+    )
+    zeitfenster = FaehrZeitfenster(
+        name="Rødby (DK) - Puttgarden (D)",
+        bbox_sw=(54.50, 11.22),
+        bbox_no=(54.66, 11.36),
+        abfahrt=datetime(2026, 8, 15, 10, 0, 0),
+        ankunft=datetime(2026, 8, 15, 11, 0, 0),
+    )
+
+    ergebnis = trip_api._matche_faehr_zeitfenster([faehre], [zeitfenster])
+
+    assert len(ergebnis) == 1
+    assert ergebnis[0].abfahrt is None
+    assert ergebnis[0].ankunft is None
+
+
+def test_matche_faehr_zeitfenster_waehlt_naechste_bbox_bei_mehrdeutigem_namen() -> None:
+    """Bei mehreren gleichnamigen Zeitfenstern gewinnt die naehere Bounding-Box-Mitte."""
+    faehre = FaehrSegment(
+        name="Fähre X",
+        laenge_m=1000.0,
+        bbox_sw=(10.0, 10.0),
+        bbox_no=(10.1, 10.1),
+        segment_index_start=0,
+        segment_index_end=1,
+    )
+    nah = FaehrZeitfenster(
+        name="Fähre X",
+        bbox_sw=(10.0, 10.0),
+        bbox_no=(10.1, 10.1),
+        abfahrt=datetime(2026, 8, 15, 10, 0, 0),
+        ankunft=datetime(2026, 8, 15, 11, 0, 0),
+    )
+    fern = FaehrZeitfenster(
+        name="Fähre X",
+        bbox_sw=(50.0, 50.0),
+        bbox_no=(50.1, 50.1),
+        abfahrt=datetime(2026, 8, 15, 20, 0, 0),
+        ankunft=datetime(2026, 8, 15, 21, 0, 0),
+    )
+
+    ergebnis = trip_api._matche_faehr_zeitfenster([faehre], [fern, nah])
+
+    assert ergebnis[0].abfahrt == nah.abfahrt
+
+
+class _FerryRoutingProvider(FakeRoutingProvider):
+    """Test-Provider, der eine Route mit genau einer Fähre (Segment 1) liefert -
+    Segment 1 traegt absichtlich einen unfahrbar hohen Energiebedarf-Ersatzwert
+    ueber `strassenklasse`/Laenge, damit ein erfolgreicher Ladeplan beweist, dass
+    die Fähre uebersprungen (nicht durchfahren) wurde."""
+
+    async def berechne_route(self, anfrage: TripRequest) -> Route:
+        segments = [
+            RouteSegment(
+                segment_index=0,
+                geometrie=[anfrage.start, (54.50, 11.22)],
+                laenge_m=50_000.0,
+                strassenklasse="MOTORWAY",
+                bearing_deg=0.0,
+            ),
+            RouteSegment(
+                segment_index=1,
+                geometrie=[(54.50, 11.22), (54.66, 11.36)],
+                laenge_m=22_000.0,
+                strassenklasse="FERRY",
+                road_environment="FERRY",
+                strassenname="Rødby (DK) - Puttgarden (D)",
+                bearing_deg=0.0,
+            ),
+            RouteSegment(
+                segment_index=2,
+                geometrie=[(54.66, 11.36), anfrage.ziel],
+                laenge_m=30_000.0,
+                strassenklasse="MOTORWAY",
+                bearing_deg=0.0,
+            ),
+        ]
+        return Route(
+            segments=segments,
+            gesamtlaenge_m=sum(s.laenge_m for s in segments),
+            geometrie=[s.geometrie[0] for s in segments] + [segments[-1].geometrie[-1]],
+        )
+
+
+async def test_create_trip_simulation_faehren_observer_erhaelt_gepinnte_zeiten(
+    valid_trip_request: dict,
+    fake_weather_provider: FakeWeatherProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
+) -> None:
+    """Ein zur erkannten Fähre passendes `faehr_zeitfenster` wird über
+    `faehren_observer` mit abfahrt/ankunft angereichert zurückgegeben und fließt
+    in die Gesamtreisezeit ein (statt physikalisch unfahrbar durch die Fähre
+    zu 'fahren')."""
+    abfahrt = datetime(2026, 8, 15, 9, 0, 0)
+    ankunft = datetime(2026, 8, 15, 9, 45, 0)
+    request = dict(valid_trip_request)
+    request["faehr_zeitfenster"] = [
+        FaehrZeitfenster(
+            name="Rødby (DK) - Puttgarden (D)",
+            bbox_sw=(54.50, 11.22),
+            bbox_no=(54.66, 11.36),
+            abfahrt=abfahrt,
+            ankunft=ankunft,
+        )
+    ]
+
+    erfasste_faehren: list[FaehrSegment] = []
+
+    result = await create_trip_simulation(
+        request,
+        routing_provider=_FerryRoutingProvider(),
+        weather_provider=fake_weather_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
+        faehren_observer=erfasste_faehren.extend,
+    )
+
+    assert len(erfasste_faehren) == 1
+    assert erfasste_faehren[0].name == "Rødby (DK) - Puttgarden (D)"
+    assert erfasste_faehren[0].abfahrt == abfahrt
+    assert erfasste_faehren[0].ankunft == ankunft
+    # Erfolgreiche Simulation beweist, dass die Fähre uebersprungen wurde -
+    # Segment 1 haette sonst (siehe `_FerryRoutingProvider`) einen SoC-Bedarf
+    # weit jenseits jeder realistischen Batteriekapazitaet.
+    assert result.gesamt_distanz_km == pytest.approx(102.0, abs=0.1)
+
+
+async def test_create_trip_simulation_ladedauer_vorgabe_wirkt_auf_ladeplan(
+    valid_trip_request: dict,
+    fake_routing_provider: FakeRoutingProvider,
+    fake_weather_provider: FakeWeatherProvider,
+) -> None:
+    """Eine vorgegebene Ladedauer fuer eine tatsaechlich genutzte Station
+    ueberschreibt die automatisch berechnete Dauer im Endergebnis.
+
+    Nutzt bewusst einen Charging-Provider mit GENAU EINER Station (statt der
+    Mehrzweck-Fixture `fake_charging_provider_berlin_munich`), damit der
+    Optimierer keine alternative Station ausweichen kann, sobald die
+    vorgegebene Ladedauer die Kosten dieser Station erhoeht - andernfalls
+    waere ein Stationswechsel (guenstigerer Pfad) ein gueltiges, aber fuer
+    diesen Test nicht aussagekraeftiges Optimierer-Ergebnis.
+    """
+    single_station_provider = FakeChargingStationProvider(
+        test_stations=[
+            ChargingStation(
+                station_id="einzige-station",
+                name="Tesla Supercharger - Nuernberg",
+                coordinate=(49.45, 11.08),  # ~mittig auf der Berlin-Muenchen-Route
+                stalls={StallType.V3: 8},
+                max_ladeleistung_kw=2500.0,
+                connector_types=[ConnectorType.CCS2],
+                country="DE",
+                letzte_datenAktualisierung=datetime.now(UTC),
+            ),
+        ]
+    )
+
+    baseline = await create_trip_simulation(
+        valid_trip_request,
+        routing_provider=fake_routing_provider,
+        weather_provider=fake_weather_provider,
+        charging_provider=single_station_provider,
+        start_soc_pct=80.0,
+        ziel_soc_pct=20.0,
+    )
+    assert len(baseline.charging_stops) == 1
+    assert baseline.charging_stops[0].station_id == "einzige-station"
+    vorgabe_s = baseline.charging_stops[0].ladedauer_s + 900  # deutlich abweichender Wert
+
+    request = dict(valid_trip_request)
+    request["ladedauer_vorgaben"] = [
+        LadedauerVorgabe(station_id="einzige-station", ladedauer_s=vorgabe_s)
+    ]
+
+    result = await create_trip_simulation(
+        request,
+        routing_provider=fake_routing_provider,
+        weather_provider=fake_weather_provider,
+        charging_provider=single_station_provider,
+        start_soc_pct=80.0,
+        ziel_soc_pct=20.0,
+    )
+
+    assert len(result.charging_stops) == 1
+    assert result.charging_stops[0].station_id == "einzige-station"
+    assert result.charging_stops[0].ladedauer_s == vorgabe_s
+
+
+def test_fastapi_endpoint_akzeptiert_faehr_zeitfenster_und_ladedauer_vorgaben(
+    client: TestClient,
+) -> None:
+    """Der `/trips`-Endpunkt akzeptiert `faehr_zeitfenster`/`ladedauer_vorgaben` im
+    Request und liefert die neuen Antwortfelder (`ChargingStopAPI.station_id` /
+    `.ankunftszeit`/`.abfahrtszeit`, `FaehrSegmentAPI.abfahrt`/`.ankunft`)."""
+    api_request = {
+        "start": (52.52, 13.405),
+        "ziel": (48.135, 11.582),
+        "zwischenstopps": [],
+        "abfahrtszeit": "2026-08-15T08:30:00",
+        "fahrzeugprofil": _make_fahrzeugprofil_dict(),
+        "start_soc_pct": 80.0,
+        "ziel_soc_pct": 20.0,
+        "faehr_zeitfenster": [
+            {
+                "name": "Nicht in dieser Route vorhanden",
+                "bbox_sw": (0.0, 0.0),
+                "bbox_no": (1.0, 1.0),
+                "abfahrt": "2026-08-15T10:00:00",
+                "ankunft": "2026-08-15T11:00:00",
+            }
+        ],
+        "ladedauer_vorgaben": [{"station_id": "nurnberg-stop", "ladedauer_s": 1500}],
+    }
+    response = client.post("/trips", json=api_request)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["erkannte_faehren"] == []
+    for stop in data["charging_stops"]:
+        assert "station_id" in stop
+        assert "ankunftszeit" in stop
+        assert "abfahrtszeit" in stop
+        if stop["station_id"] == "nurnberg-stop":
+            assert stop["ladedauer_s"] == 1500
 
 
 def test_fastapi_endpoint_mit_geplanter_abfahrt_gibt_201(client: TestClient) -> None:

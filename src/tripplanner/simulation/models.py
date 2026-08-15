@@ -57,6 +57,13 @@ class ChargingStopSummary(BaseModel):
     """
 
     name: str = Field(..., min_length=1, description="Name der Ladestation")
+    station_id: str = Field(
+        ...,
+        min_length=1,
+        description="Eindeutige ID der Ladestation, zur Identifikation "
+        "bei einer vom Nutzer vorgegebenen Ladedauer (siehe "
+        "`tripplanner.trip_input.models.LadedauerVorgabe`)",
+    )
     position: tuple[float, float] = Field(
         ..., description="Position der Ladestation als (lat, lon)"
     )
@@ -68,6 +75,8 @@ class ChargingStopSummary(BaseModel):
     energie_geladen_kwh: float = Field(
         ..., ge=0.0, description="Waehrend des Ladehalts geladene Energiemenge in kWh"
     )
+    ankunftszeit: datetime = Field(..., description="Zeitpunkt der Ankunft an der Station")
+    abfahrtszeit: datetime = Field(..., description="Zeitpunkt der Abfahrt von der Station")
 
 
 class TripSimulationResult(BaseModel):

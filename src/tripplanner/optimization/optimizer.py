@@ -80,6 +80,8 @@ class NetworkXOptimizer(OptimizerInterface):
         start_soc_pct: float,
         abfahrtszeit: datetime,
         iteration: int = 1,
+        ladedauer_vorgaben: dict[str, int] | None = None,
+        faehr_zeitfenster: dict[int, tuple[int, datetime, datetime]] | None = None,
     ) -> ChargingPlan:
         """Optimiert Ladeplan unter Verwendung eines diskretisierten Zustandsgraphen.
 
@@ -97,6 +99,9 @@ class NetworkXOptimizer(OptimizerInterface):
             start_soc_pct: Start-SoC des Fahrzeugs in Prozent.
             abfahrtszeit: Geplante Abfahrtszeit.
             iteration: Iterationsnummer für spätere Wetter-Iter.
+            ladedauer_vorgaben: Optionale feste Ladedauern (Sekunden) je Stations-ID.
+            faehr_zeitfenster: Optionale feste Fährfahrpläne je
+                `segment_index_start -> (segment_index_end, abfahrt, ankunft)`.
 
         Returns:
             ChargingPlan mit Ladehalten und Gesamtreisezeit.
@@ -168,6 +173,8 @@ class NetworkXOptimizer(OptimizerInterface):
                 vehicle_profile=vehicle_profile,
                 constraints=constraints,
             ),
+            ladedauer_vorgaben=ladedauer_vorgaben or {},
+            ferry_pins=faehr_zeitfenster or {},
         )
 
         # A*-Suche zum Zielknoten
@@ -208,8 +215,6 @@ class NetworkXOptimizer(OptimizerInterface):
             path=path,
             segments=segments,
             charging_stations=charging_stations,
-            vehicle_profile=vehicle_profile,
-            ladekurve=ladekurve,
             constraints=constraints,
         )
 
@@ -349,6 +354,8 @@ class NetworkXOptimizer(OptimizerInterface):
         ziel_soc_bucket: int,
         ziel_soc_target: float,
         max_time_buckets: int,
+        ladedauer_vorgaben: dict[str, int],
+        ferry_pins: dict[int, tuple[int, datetime, datetime]],
     ) -> None:
         """Generiere Knoten und Kanten für den Zustandsgraphen."""
         # Nutze BFS/DFS-artige Erweiterung: nur erreichbare Knoten erzeugen
@@ -373,25 +380,39 @@ class NetworkXOptimizer(OptimizerInterface):
             if seg_idx == len(segments) and soc_bucket >= ziel_soc_bucket:
                 continue  # Ziel erreicht, nicht weiter erweitern
 
-            # 1. Fahrtkante: naechstes noch zu befahrendes Segment fahren.
-            # seg_idx zaehlt bereits abgefahrene Segmente (0 = Start,
-            # len(segments) = Ziel erreicht); segments[seg_idx] ist also das
-            # naechste Segment, das noch gefahren werden muss.
+            # 1. Fahrtkante: naechstes noch zu befahrendes Segment fahren -
+            # ausser der Nutzer hat fuer diese Position einen festen
+            # Fährfahrplan vorgegeben (`ferry_pins`), dann wird die gesamte
+            # Fähr-Ueberfahrt in einem Sprung modelliert (siehe
+            # `_add_ferry_edge`) statt sie Segment fuer Segment als normale
+            # Fahrt zu behandeln. seg_idx zaehlt bereits abgefahrene
+            # Segmente (0 = Start, len(segments) = Ziel erreicht);
+            # segments[seg_idx] ist also das naechste Segment, das noch
+            # gefahren werden muss.
             if seg_idx < len(segments):
-                self._add_drive_edge(
-                    G=G,
-                    current=current,
-                    drive_seg_idx=seg_idx,
-                    segments=segments,
-                    energy_results=energy_results,
-                    soc_bucket=soc_bucket,
-                    time_bucket=time_bucket,
-                    max_time_buckets=max_time_buckets,
-                    constraints=constraints,
-                    vehicle_profile=vehicle_profile,
-                    ladekurve=ladekurve,
-                    queue=queue,
-                )
+                if seg_idx in ferry_pins:
+                    self._add_ferry_edge(
+                        G=G,
+                        current=current,
+                        pin=ferry_pins[seg_idx],
+                        max_time_buckets=max_time_buckets,
+                        queue=queue,
+                    )
+                else:
+                    self._add_drive_edge(
+                        G=G,
+                        current=current,
+                        drive_seg_idx=seg_idx,
+                        segments=segments,
+                        energy_results=energy_results,
+                        soc_bucket=soc_bucket,
+                        time_bucket=time_bucket,
+                        max_time_buckets=max_time_buckets,
+                        constraints=constraints,
+                        vehicle_profile=vehicle_profile,
+                        ladekurve=ladekurve,
+                        queue=queue,
+                    )
 
             # 2. Ladekante: An dieser Station laden (wenn verfügbar)
             if seg_idx in station_segments:
@@ -408,6 +429,7 @@ class NetworkXOptimizer(OptimizerInterface):
                     max_time_buckets=max_time_buckets,
                     constraints=constraints,
                     queue=queue,
+                    ladedauer_vorgaben=ladedauer_vorgaben,
                 )
 
             # 3. Zwischenstopp-Zwang: Aufenthaltsdauer einhalten
@@ -511,6 +533,67 @@ class NetworkXOptimizer(OptimizerInterface):
             G.nodes[next_node]["parent"] = current
             G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
 
+    def _add_ferry_edge(
+        self,
+        G: DiGraph,
+        current: tuple[int, int, int],
+        pin: tuple[int, datetime, datetime],
+        max_time_buckets: int,
+        queue: deque[tuple[int, int, int]],
+    ) -> None:
+        """Fügt eine Kante für eine terminierte Fährüberfahrt hinzu.
+
+        Modelliert eine vom Nutzer terminierte Fährüberfahrt (fixe Abfahrts-/
+        Ankunftszeit, `optimize()`-Parameter `faehr_zeitfenster`) in EINEM Sprung
+        von `current` zum Segment nach der Fähre - anstelle der sonst pro Segment
+        erzeugten `_add_drive_edge`-Kanten für die dazwischenliegenden
+        Fähr-Segmente (siehe `_generate_graph`). Kein SoC-Verbrauch (Motor aus
+        während der Überfahrt) - nur Wartezeit bis zur Abfahrt plus die
+        Überfahrtsdauer als Kosten, analog zu `_add_waypoint_wait_edge`s
+        "kein SoC-Verlust"-Ansatz. `pin` ist
+        `(segment_index_end, abfahrt, ankunft)`, wobei `segment_index_end` das
+        erste Segment NACH der Fähre ist (siehe
+        `tripplanner.routing.models.FaehrSegment.segment_index_end`).
+        """
+        segment_index_end, abfahrt, ankunft = pin
+        current_zeitpunkt = G.nodes[current]["zeitpunkt"]
+
+        if current_zeitpunkt > abfahrt:
+            return  # Fähre zu diesem Zeitpunkt bereits abgefahren - Pfad unzulässig
+
+        neuer_zeitpunkt = ankunft
+        new_time_bucket = zeit_to_bucket(neuer_zeitpunkt, self._base_time, self.time_step_min)
+        if new_time_bucket > max_time_buckets:
+            return  # Zeitlimit überschritten
+
+        wartezeit_s = (abfahrt - current_zeitpunkt).total_seconds()
+        ueberfahrt_s = (ankunft - abfahrt).total_seconds()
+        kosten = wartezeit_s + ueberfahrt_s
+
+        # SoC-Bucket unveraendert (kein Verbrauch waehrend der Ueberfahrt)
+        next_node = (segment_index_end, current[1], new_time_bucket)
+
+        if next_node not in G.nodes:
+            G.add_node(
+                next_node,
+                type="ferry",
+                soc_pct=G.nodes[current]["soc_pct"],
+                zeitpunkt=neuer_zeitpunkt,
+                segment_index=segment_index_end,
+                total_cost=COST_INF,
+                parent=None,
+            )
+            queue.append(next_node)
+
+        current_cost = G.nodes[current].get("total_cost", 0.0)
+        new_total_cost = current_cost + kosten
+
+        if new_total_cost < G.nodes[next_node].get("total_cost", COST_INF):
+            G.add_edge(current, next_node, cost=kosten)
+            G.nodes[next_node]["total_cost"] = new_total_cost
+            G.nodes[next_node]["parent"] = current
+            G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
+
     def _add_charging_edges(  # noqa: PLR0913, PLR0917 -- Ladekanten-Konstruktion braucht den vollen Kantenkontext
         self,
         G: DiGraph,
@@ -525,11 +608,42 @@ class NetworkXOptimizer(OptimizerInterface):
         max_time_buckets: int,
         constraints: OptimizationConstraints,
         queue: deque[tuple[int, int, int]],
+        ladedauer_vorgaben: dict[str, int],
     ) -> None:
-        """Füge Ladekanten zu allen Stationen in diesem Segment hinzu."""
+        """Füge Ladekanten zu allen Stationen in diesem Segment hinzu.
+
+        Für Stationen mit einer vom Nutzer vorgegebenen festen Ladedauer
+        (`ladedauer_vorgaben`, Schlüssel = `station_id`) wird GENAU EINE Kante
+        mit dieser Dauer erzeugt (resultierender SoC per Bisektion über die
+        Ladekurve ermittelt, siehe `_soc_nach_fester_ladezeit`) statt der
+        sonstigen SoC-Ziel-Iteration - die Vorgabe ist eine explizite
+        Nutzer-Entscheidung und daher auch nicht durch
+        `constraints.max_ladezeit_s` begrenzt (analog zur ungedeckelten
+        Wartezeit in `_add_waypoint_wait_edge`).
+        """
         current_soc_pct = G.nodes[current]["soc_pct"]
 
         for station in stations:
+            vorgabe_s = ladedauer_vorgaben.get(station.station_id)
+            if vorgabe_s is not None:
+                ziel_soc = self._soc_nach_fester_ladezeit(
+                    start_soc_pct=current_soc_pct,
+                    ladezeit_s=float(vorgabe_s),
+                    ladekurve=ladekurve,
+                    batteriekapazitaet_kwh=vehicle_profile.batteriekapazitaet_kwh,
+                )
+                self._fuege_ladekante_hinzu(
+                    G=G,
+                    current=current,
+                    seg_idx=seg_idx,
+                    station=station,
+                    ziel_soc_pct=ziel_soc,
+                    ladezeit_s=float(vorgabe_s),
+                    max_time_buckets=max_time_buckets,
+                    queue=queue,
+                )
+                continue
+
             # Ladeziel wählen: Ziel-SoC oder 100% (je nach Distanz zum Ziel)
             remaining_segments = len(segments) - seg_idx - 1
             if remaining_segments == 0:
@@ -562,41 +676,108 @@ class NetworkXOptimizer(OptimizerInterface):
                 if ladezeit_s > constraints.max_ladezeit_s:
                     continue  # Zu lange Ladezeit
 
-                new_soc_bucket = soc_to_bucket(Ziel_soc, self.soc_step_pct)
-                neuer_zeitpunkt = G.nodes[current]["zeitpunkt"] + timedelta(seconds=ladezeit_s)
-                new_time_bucket = zeit_to_bucket(
-                    neuer_zeitpunkt, self._base_time, self.time_step_min
+                self._fuege_ladekante_hinzu(
+                    G=G,
+                    current=current,
+                    seg_idx=seg_idx,
+                    station=station,
+                    ziel_soc_pct=Ziel_soc,
+                    ladezeit_s=ladezeit_s,
+                    max_time_buckets=max_time_buckets,
+                    queue=queue,
                 )
 
-                if new_time_bucket > max_time_buckets:
-                    continue  # Zeitlimit überschritten
+    def _fuege_ladekante_hinzu(  # noqa: PLR0913, PLR0917 -- Ladekanten-Buchhaltung braucht den vollen Kantenkontext
+        self,
+        G: DiGraph,
+        current: tuple[int, int, int],
+        seg_idx: int,
+        station: ChargingStation,
+        ziel_soc_pct: float,
+        ladezeit_s: float,
+        max_time_buckets: int,
+        queue: deque[tuple[int, int, int]],
+    ) -> None:
+        """Fügt eine Ladekante hinzu (Knoten-/Kanten-/Kosten-Buchhaltung).
 
-                # Kosten: Fahrzeit + Ladezeit
-                kosten = ladezeit_s  # Nur Ladezeit zählt als Kosten (Fahrzeit war schon bezahlt)
+        Erzeugt (falls günstiger als ein bestehender Pfad) eine Ladekante von
+        `current` zu einem Knoten mit `ziel_soc_pct` nach `ladezeit_s` Sekunden
+        Ladezeit an `station` - gemeinsame Buchhaltung für sowohl die
+        automatische SoC-Ziel-Iteration als auch eine vom Nutzer vorgegebene
+        feste Ladedauer (siehe `_add_charging_edges`).
+        """
+        new_soc_bucket = soc_to_bucket(ziel_soc_pct, self.soc_step_pct)
+        neuer_zeitpunkt = G.nodes[current]["zeitpunkt"] + timedelta(seconds=ladezeit_s)
+        new_time_bucket = zeit_to_bucket(neuer_zeitpunkt, self._base_time, self.time_step_min)
 
-                next_node = (seg_idx, new_soc_bucket, new_time_bucket)
+        if new_time_bucket > max_time_buckets:
+            return  # Zeitlimit überschritten
 
-                if next_node not in G.nodes:
-                    G.add_node(
-                        next_node,
-                        type="charge",
-                        station_id=station.station_id,
-                        soc_pct=Ziel_soc,
-                        zeitpunkt=neuer_zeitpunkt,
-                        segment_index=seg_idx,
-                        total_cost=COST_INF,
-                        parent=None,
-                    )
-                    queue.append(next_node)
+        # Kosten: Nur Ladezeit zählt (Fahrzeit war schon bezahlt)
+        kosten = ladezeit_s
+        next_node = (seg_idx, new_soc_bucket, new_time_bucket)
 
-                current_cost = G.nodes[current].get("total_cost", 0.0)
-                new_total_cost = current_cost + kosten
+        if next_node not in G.nodes:
+            G.add_node(
+                next_node,
+                type="charge",
+                station_id=station.station_id,
+                soc_pct=ziel_soc_pct,
+                zeitpunkt=neuer_zeitpunkt,
+                segment_index=seg_idx,
+                total_cost=COST_INF,
+                parent=None,
+            )
+            queue.append(next_node)
 
-                if new_total_cost < G.nodes[next_node].get("total_cost", COST_INF):
-                    G.add_edge(current, next_node, cost=kosten)
-                    G.nodes[next_node]["total_cost"] = new_total_cost
-                    G.nodes[next_node]["parent"] = current
-                    G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
+        current_cost = G.nodes[current].get("total_cost", 0.0)
+        new_total_cost = current_cost + kosten
+
+        if new_total_cost < G.nodes[next_node].get("total_cost", COST_INF):
+            G.add_edge(current, next_node, cost=kosten)
+            G.nodes[next_node]["total_cost"] = new_total_cost
+            G.nodes[next_node]["parent"] = current
+            G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
+
+    def _soc_nach_fester_ladezeit(
+        self,
+        start_soc_pct: float,
+        ladezeit_s: float,
+        ladekurve: ChargingCurve,
+        batteriekapazitaet_kwh: float,
+    ) -> float:
+        """Ermittelt den SoC nach einer FESTEN Ladedauer.
+
+        Inverse zu `_calc_ladezeit_s` per Bisektion: `_calc_ladezeit_s` ist
+        monoton steigend in `delta_soc_pct`, aber nicht analytisch invertierbar
+        (basiert auf `ladekurve.ladeleistung_bei_soc`-Stichproben) - daher
+        numerische Nullstellensuche statt einer geschlossenen Formel.
+        """
+        max_delta = MAX_SOC_PCT - start_soc_pct
+        if ladezeit_s <= 0.0 or max_delta <= 0.0:
+            return start_soc_pct
+
+        ladezeit_bei_max = self._calc_ladezeit_s(
+            delta_soc_pct=max_delta,
+            ladekurve=ladekurve,
+            batteriekapazitaet_kwh=batteriekapazitaet_kwh,
+        )
+        if ladezeit_bei_max <= ladezeit_s:
+            return MAX_SOC_PCT  # Batterie ist vor Ablauf der Ladedauer voll
+
+        lo, hi = 0.0, max_delta
+        for _ in range(40):  # 40 Iterationen: Präzision weit unter 1e-9 %-Punkte
+            mid = (lo + hi) / 2.0
+            dauer = self._calc_ladezeit_s(
+                delta_soc_pct=mid,
+                ladekurve=ladekurve,
+                batteriekapazitaet_kwh=batteriekapazitaet_kwh,
+            )
+            if dauer < ladezeit_s:
+                lo = mid
+            else:
+                hi = mid
+        return start_soc_pct + (lo + hi) / 2.0
 
     def _add_waypoint_wait_edge(  # noqa: PLR0913, PLR0917 -- Wartekanten-Konstruktion braucht den vollen Kantenkontext
         self,
@@ -744,18 +925,17 @@ class NetworkXOptimizer(OptimizerInterface):
 
         return rest_zeit_s
 
-    def _extract_charging_stops(  # noqa: PLR0913, PLR0917 -- Pfad-Extraktion braucht den vollen Ladeplan-Kontext
+    def _extract_charging_stops(
         self,
         G: DiGraph,
         path: list[tuple[int, int, int]],
         segments: list[RouteSegment],
         charging_stations: list[ChargingStation],
-        vehicle_profile: VehicleProfile,
-        ladekurve: ChargingCurve,
         constraints: OptimizationConstraints,
     ) -> list[ChargingStop]:
         """Extrahiere ChargingStop-Objekte aus dem Pfad."""
         ladehalte: list[ChargingStop] = []
+        stations_by_id = {s.station_id: s for s in charging_stations}
 
         for i in range(1, len(path)):
             prev_node = path[i - 1]
@@ -767,25 +947,39 @@ class NetworkXOptimizer(OptimizerInterface):
                 curr_soc_pct = G.nodes[curr_node]["soc_pct"]
 
                 if curr_soc_pct > prev_soc_pct:
-                    # Ladevorgang erkannt
-                    segment = segments[curr_node[0]]
-
-                    # Finde die Ladestation in diesem Segment
-                    station = self._find_station_for_segment(segment, charging_stations)
+                    # Ladevorgang erkannt. Station ueber die beim Erzeugen der
+                    # Kante (`_fuege_ladekante_hinzu`) am Knoten hinterlegte
+                    # `station_id` auflösen - NICHT ueber eine erneute
+                    # geografische Naechste-Station-Suche
+                    # (`segment.geometrie`-Mittelpunkt): mehrere Ladekanten
+                    # koennen am selben Segment fuer VERSCHIEDENE Stationen
+                    # existieren (z. B. wenn zwei Stationen auf denselben
+                    # naechstgelegenen Segment-Index abgebildet werden, siehe
+                    # `_map_stations_to_segments`) - eine geografische
+                    # Neu-Suche wuerde dann unabhaengig von der TATSAECHLICH
+                    # gewaehlten Kante immer dieselbe (naechstgelegene)
+                    # Station zurueckgeben und so z. B. eine gezielt an einer
+                    # ANDEREN Station vorgegebene feste Ladedauer
+                    # (`ladedauer_vorgaben`) der falschen Station zuschreiben.
+                    station_id = G.nodes[curr_node].get("station_id")
+                    station = stations_by_id.get(station_id) if station_id else None
 
                     if station is None:
                         continue  # Keine Station im Segment
 
-                    delta_soc = curr_soc_pct - prev_soc_pct
-                    ladezeit_s = self._calc_ladezeit_s(
-                        delta_soc_pct=delta_soc,
-                        ladekurve=ladekurve,
-                        batteriekapazitaet_kwh=vehicle_profile.batteriekapazitaet_kwh,
-                    )
-
-                    # Zeitpunkte
+                    # Zeitpunkte direkt aus den Knoten lesen statt die Ladezeit
+                    # erneut ueber die Ladekurve zu berechnen: `zeitpunkt` ist
+                    # exakt der Wert, der beim Erzeugen dieser Kante in
+                    # `_fuege_ladekante_hinzu` gesetzt wurde - fuer eine vom
+                    # Nutzer per `ladedauer_vorgaben` fest vorgegebene Ladedauer
+                    # (siehe `_add_charging_edges`) waere eine Neuberechnung ueber
+                    # `_calc_ladezeit_s(delta_soc, ...)` NICHT die vorgegebene
+                    # Dauer, sondern die (durch Bisektion nur angenaeherte)
+                    # automatische Herleitung - und selbst im Normalfall vermeidet
+                    # dies eine unnoetige zweite, rundungsbehaftete Berechnung.
                     start_zeit = G.nodes[prev_node]["zeitpunkt"]
-                    end_zeit = start_zeit + timedelta(seconds=ladezeit_s)
+                    end_zeit = G.nodes[curr_node]["zeitpunkt"]
+                    ladezeit_s = (end_zeit - start_zeit).total_seconds()
 
                     ladehalte.append(
                         ChargingStop(
@@ -800,24 +994,6 @@ class NetworkXOptimizer(OptimizerInterface):
                     )
 
         return ladehalte
-
-    def _find_station_for_segment(
-        self, segment: RouteSegment, stations: list[ChargingStation]
-    ) -> ChargingStation | None:
-        """Finde eine Ladestation im Segment (nächste zum Segment-Mittelpunkt)."""
-        if not stations:
-            return None
-
-        # Segment-Mittelpunkt
-        mid_point = segment.geometrie[len(segment.geometrie) // 2]
-
-        closest = min(
-            stations,
-            key=lambda s: self._haversine_distance(mid_point, s.coordinate),
-            default=None,
-        )
-
-        return closest
 
     def _compute_waypoint_times(
         self,
@@ -894,6 +1070,8 @@ class ORToolsOptimizer(OptimizerInterface):
         start_soc_pct: float,
         abfahrtszeit: datetime,
         iteration: int = 1,
+        ladedauer_vorgaben: dict[str, int] | None = None,
+        faehr_zeitfenster: dict[int, tuple[int, datetime, datetime]] | None = None,
     ) -> ChargingPlan:
         """Optimiert Ladeplan mittels Constraint-Programmierung (CP-SAT) oder Routing-Solver.
 

@@ -67,4 +67,10 @@ def _lauf_zu_faehrsegment(lauf: list[RouteSegment]) -> FaehrSegment:
         laenge_m=laenge_m,
         bbox_sw=(min(lats) - FAEHR_PUFFER_GRAD, min(lons) - FAEHR_PUFFER_GRAD),
         bbox_no=(max(lats) + FAEHR_PUFFER_GRAD, max(lons) + FAEHR_PUFFER_GRAD),
+        segment_index_start=lauf[0].segment_index,
+        # Exklusiv (wie bei Python-Slices), damit `route.segments[start:end]`
+        # genau den Fähr-Lauf ergibt - vom `optimization`-Modul genutzt, um
+        # eine vom Nutzer vorgegebene Fährüberfahrt in der Zustandsgraph-
+        # Suche in einem Sprung zu ueberspringen (siehe optimizer.py).
+        segment_index_end=lauf[-1].segment_index + 1,
     )

@@ -74,22 +74,35 @@ class TestFaehrSegmentModel:
     """Tests für das FaehrSegment-Pydantic-Modell."""
 
     def test_faehr_segment_requires_all_fields(self) -> None:
-        """FaehrSegment benötigt name, laenge_m, bbox_sw, bbox_no."""
+        """FaehrSegment benötigt name, laenge_m, bbox_sw, bbox_no, segment_index_start/end."""
         segment = FaehrSegment(
             name="Rødby (DK) - Puttgarden (D)",
             laenge_m=22000.0,
             bbox_sw=(54.50, 11.22),
             bbox_no=(54.66, 11.36),
+            segment_index_start=3,
+            segment_index_end=7,
         )
         assert segment.name == "Rødby (DK) - Puttgarden (D)"
         assert segment.laenge_m == 22000.0
         assert segment.bbox_sw == (54.50, 11.22)
         assert segment.bbox_no == (54.66, 11.36)
+        assert segment.segment_index_start == 3
+        assert segment.segment_index_end == 7
+        assert segment.abfahrt is None
+        assert segment.ankunft is None
 
     def test_faehr_segment_rejects_negative_laenge(self) -> None:
         """laenge_m muss >= 0 sein."""
         with pytest.raises(ValidationError):
-            FaehrSegment(name="X", laenge_m=-1.0, bbox_sw=(0.0, 0.0), bbox_no=(1.0, 1.0))
+            FaehrSegment(
+                name="X",
+                laenge_m=-1.0,
+                bbox_sw=(0.0, 0.0),
+                bbox_no=(1.0, 1.0),
+                segment_index_start=0,
+                segment_index_end=1,
+            )
 
 
 class TestFakeRoutingProvider:

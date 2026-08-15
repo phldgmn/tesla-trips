@@ -5,6 +5,8 @@ import type {
   VehicleProfileInput,
   TripRequestPayload,
   FaehrAusschluss,
+  FaehrZeitfenster,
+  LadedauerVorgabe,
 } from "../types/trip-request";
 import {
   buildTripRequestPayload,
@@ -21,8 +23,9 @@ import { searchAddress, reverseGeocode } from "../api/geocoding";
 import {
   combineDateTimeToIso,
   splitIsoToDateTime,
+  formatZeitpunkt,
 } from "../utils/datetime-utils";
-import type { FaehrSegment } from "../types";
+import type { ChargingStop, FaehrSegment } from "../types";
 
 // ============================================================================
 // Types
@@ -41,6 +44,11 @@ export interface TripPlannerFormProps {
    *  "vermeiden"-Checkboxen. `undefined`/leer, solange noch keine Route
    *  berechnet wurde. */
   erkannteFaehren?: FaehrSegment[];
+  /** Ladehalte des zuletzt berechneten Ladeplans (aus
+   *  `TripSimulationResult.charging_stops`), zur Anzeige mit editierbarer
+   *  Ladedauer-Vorgabe. `undefined`/leer, solange noch keine Route berechnet
+   *  wurde. */
+  chargingStops?: ChargingStop[];
 }
 
 export interface GeocodingState {
@@ -160,6 +168,40 @@ export function toggleFaehrAusschluss(
   return liste.filter((f) => !sameFaehrAusschluss(f, faehre));
 }
 
+/** Setzt oder entfernt das Zeitfenster für eine Fährverbindung. `zeitfenster`
+ *  wird entfernt, wenn `abfahrt`/`ankunft` beide leer sind. */
+export function setFaehrZeitfensterFuer(
+  liste: FaehrZeitfenster[],
+  eintrag: FaehrAusschluss,
+  abfahrt: string,
+  ankunft: string,
+): FaehrZeitfenster[] {
+  const rest = liste.filter((f) => !sameFaehrAusschluss(f, eintrag));
+  if (!abfahrt || !ankunft) return rest;
+  return [...rest, { ...eintrag, abfahrt, ankunft }];
+}
+
+/** Setzt oder entfernt die Ladedauer-Vorgabe für eine Station. Die Vorgabe
+ *  wird entfernt, wenn `ladedauerMin` nicht positiv ist. */
+export function setLadedauerVorgabeFuer(
+  liste: LadedauerVorgabe[],
+  stationId: string,
+  ladedauerMin: number,
+): LadedauerVorgabe[] {
+  const rest = liste.filter((v) => v.station_id !== stationId);
+  if (!(ladedauerMin > 0)) return rest;
+  return [
+    ...rest,
+    { station_id: stationId, ladedauer_s: Math.round(ladedauerMin * 60) },
+  ];
+}
+
+/** Stabiler Identitäts-Schlüssel für eine Fährverbindung (Name + Bounding Box),
+ *  zur Indizierung von React-State und -Listen abseits von Array-Index. */
+export function faehrKey(eintrag: FaehrAusschluss): string {
+  return `${eintrag.name}|${eintrag.bbox_sw.join(",")}|${eintrag.bbox_no.join(",")}`;
+}
+
 // ============================================================================
 // Component
 // ============================================================================
@@ -176,6 +218,7 @@ export function TripPlannerForm({
   isSubmitting,
   submitError,
   erkannteFaehren,
+  chargingStops,
 }: TripPlannerFormProps) {
   // --- Local State (Fahrzeug, SoC, Picker) ---
   const [vehicleProfile, setVehicleProfile] = useState<VehicleProfileInput>(
@@ -194,6 +237,22 @@ export function TripPlannerForm({
   const [vermiedeneFaehren, setVermiedeneFaehren] = useState<FaehrAusschluss[]>(
     [],
   );
+  const [faehrZeitfenster, setFaehrZeitfenster] = useState<FaehrZeitfenster[]>(
+    [],
+  );
+  const [ladedauerVorgaben, setLadedauerVorgaben] = useState<
+    LadedauerVorgabe[]
+  >([]);
+  // Haelt den Zwischenstand der Fährfahrplan-Eingabe (Datum + Zeit je Feld
+  // separat eingegeben), solange noch nicht beide Felder (Abfahrt UND
+  // Ankunft) vollständig ausgefüllt sind - `faehrZeitfenster` speichert
+  // absichtlich NUR vollständige Zeitfenster (siehe `setFaehrZeitfensterFuer`),
+  // ohne diesen separaten Entwurfs-State würde ein kontrolliertes Eingabefeld
+  // nach jedem Tastendruck auf "" zurückspringen, solange das jeweils andere
+  // Feld noch leer ist.
+  const [faehrZeitfensterDraft, setFaehrZeitfensterDraft] = useState<
+    Record<string, { abfahrt: string; ankunft: string }>
+  >({});
 
   // --- Geocoding State (per stop) ---
   const [geocodingStates, setGeocodingStates] = useState<
@@ -451,6 +510,8 @@ export function TripPlannerForm({
   const buildAndSubmit = (
     alleFaehren: boolean,
     vermiedene: FaehrAusschluss[],
+    zeitfenster: FaehrZeitfenster[],
+    ladedauern: LadedauerVorgabe[],
   ) => {
     const errors = validateForm({ stops, startSoc, zielSoc });
 
@@ -467,6 +528,8 @@ export function TripPlannerForm({
         praeferenzen: {},
         alleFaehrenVermeiden: alleFaehren,
         vermiedeneFaehren: vermiedene,
+        faehrZeitfenster: zeitfenster,
+        ladedauerVorgaben: ladedauern,
       });
       onSubmit(payload);
     } catch (error) {
@@ -479,7 +542,12 @@ export function TripPlannerForm({
   };
 
   const handleSubmit = () =>
-    buildAndSubmit(alleFaehrenVermeiden, vermiedeneFaehren);
+    buildAndSubmit(
+      alleFaehrenVermeiden,
+      vermiedeneFaehren,
+      faehrZeitfenster,
+      ladedauerVorgaben,
+    );
 
   // --- Validation ---
 
@@ -1072,6 +1140,286 @@ export function TripPlannerForm({
           );
         })}
 
+        {/* Ladehalte des zuletzt berechneten Ladeplans, mit editierbarer
+            Ladedauer-Vorgabe - Teil der Route-Liste, siehe TripPlannerFormProps */}
+        {chargingStops && chargingStops.length > 0 && (
+          <div
+            style={{ marginBottom: "0.75rem", display: "grid", gap: "0.5rem" }}
+          >
+            <p style={{ margin: 0, fontSize: "0.8rem", fontWeight: 500 }}>
+              Ladehalte dieser Route:
+            </p>
+            {chargingStops.map((stop) => {
+              const vorgabe = ladedauerVorgaben.find(
+                (v) => v.station_id === stop.station_id,
+              );
+              const ladedauerMin = Math.round(
+                (vorgabe?.ladedauer_s ?? stop.ladedauer_s) / 60,
+              );
+              return (
+                <div
+                  key={stop.station_id}
+                  style={{
+                    border: "1px solid #e5e7eb",
+                    borderRadius: "6px",
+                    padding: "0.5rem 0.75rem",
+                    background: "white",
+                    fontSize: "0.8rem",
+                    display: "grid",
+                    gap: "0.3rem",
+                  }}
+                >
+                  <strong>{stop.name}</strong>
+                  <span>
+                    {formatZeitpunkt(stop.ankunftszeit)} –{" "}
+                    {formatZeitpunkt(stop.abfahrtszeit)}
+                  </span>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.4rem",
+                    }}
+                  >
+                    Ladedauer (min)
+                    <input
+                      type="number"
+                      min="0"
+                      step="5"
+                      value={ladedauerMin}
+                      disabled={isSubmitting}
+                      onChange={(e) => {
+                        const next = setLadedauerVorgabeFuer(
+                          ladedauerVorgaben,
+                          stop.station_id,
+                          parseFloat(e.target.value) || 0,
+                        );
+                        setLadedauerVorgaben(next);
+                      }}
+                      onBlur={() =>
+                        buildAndSubmit(
+                          alleFaehrenVermeiden,
+                          vermiedeneFaehren,
+                          faehrZeitfenster,
+                          ladedauerVorgaben,
+                        )
+                      }
+                      style={{ width: "5rem", padding: "0.3rem" }}
+                    />
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Fähren: Vermeidung (bestehend) und Abfahrts-/Ankunftszeit-Vorgabe
+            (neu) - Teil der Route-Liste, siehe TripPlannerFormProps */}
+        <div style={{ marginBottom: "0.75rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <input
+              type="checkbox"
+              checked={alleFaehrenVermeiden}
+              onChange={(e) => setAlleFaehrenVermeiden(e.target.checked)}
+              id="alle-faehren-vermeiden-checkbox"
+              disabled={isSubmitting}
+            />
+            <label htmlFor="alle-faehren-vermeiden-checkbox">
+              Alle Fähren vermeiden
+            </label>
+          </div>
+          {faehrenZumAnzeigen.length > 0 && (
+            <div
+              style={{ marginTop: "0.75rem", display: "grid", gap: "0.5rem" }}
+            >
+              <p style={{ margin: 0, fontSize: "0.8rem", fontWeight: 500 }}>
+                Fähren dieser Route und ausgeschlossene Fähren:
+              </p>
+              {faehrenZumAnzeigen.map((faehre, idx) => {
+                const checkboxId = `faehre-vermeiden-${idx}`;
+                const eintrag: FaehrAusschluss = {
+                  name: faehre.name,
+                  bbox_sw: faehre.bboxSw,
+                  bbox_no: faehre.bboxNo,
+                };
+                const vermieden = vermiedeneFaehren.some((f) =>
+                  sameFaehrAusschluss(f, eintrag),
+                );
+                const zeitfensterEintrag = faehrZeitfenster.find((f) =>
+                  sameFaehrAusschluss(f, eintrag),
+                );
+                // Entwurfs-Zwischenstand fuer diese Fähre: solange der
+                // Nutzer noch nicht beide Felder ausgefuellt hat, lebt der
+                // Wert NUR hier (siehe `faehrZeitfensterDraft`-Deklaration) -
+                // ein bereits vollstaendig committetes Zeitfenster dient nur
+                // als Startwert.
+                const key = faehrKey(eintrag);
+                const draft = faehrZeitfensterDraft[key] ?? {
+                  abfahrt: zeitfensterEintrag?.abfahrt ?? "",
+                  ankunft: zeitfensterEintrag?.ankunft ?? "",
+                };
+                const abfahrtParts = draft.abfahrt
+                  ? splitIsoToDateTime(draft.abfahrt)
+                  : null;
+                const ankunftParts = draft.ankunft
+                  ? splitIsoToDateTime(draft.ankunft)
+                  : null;
+
+                const handleZeitfensterChange = (
+                  feld: "abfahrt" | "ankunft",
+                  date: string,
+                  time: string,
+                ) => {
+                  const iso =
+                    date && time ? combineDateTimeToIso(date, time) : "";
+                  const nextDraft = {
+                    abfahrt: feld === "abfahrt" ? iso : draft.abfahrt,
+                    ankunft: feld === "ankunft" ? iso : draft.ankunft,
+                  };
+                  setFaehrZeitfensterDraft((prev) => ({
+                    ...prev,
+                    [key]: nextDraft,
+                  }));
+                  const next = setFaehrZeitfensterFuer(
+                    faehrZeitfenster,
+                    eintrag,
+                    nextDraft.abfahrt,
+                    nextDraft.ankunft,
+                  );
+                  setFaehrZeitfenster(next);
+                  if (nextDraft.abfahrt && nextDraft.ankunft) {
+                    buildAndSubmit(
+                      alleFaehrenVermeiden,
+                      vermiedeneFaehren,
+                      next,
+                      ladedauerVorgaben,
+                    );
+                  }
+                };
+
+                return (
+                  <div
+                    key={checkboxId}
+                    style={{
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "6px",
+                      padding: "0.5rem 0.75rem",
+                      background: "white",
+                      display: "grid",
+                      gap: "0.4rem",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.5rem",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={vermieden}
+                        onChange={(e) => {
+                          const next = toggleFaehrAusschluss(
+                            vermiedeneFaehren,
+                            eintrag,
+                            e.target.checked,
+                          );
+                          setVermiedeneFaehren(next);
+                          buildAndSubmit(
+                            alleFaehrenVermeiden,
+                            next,
+                            faehrZeitfenster,
+                            ladedauerVorgaben,
+                          );
+                        }}
+                        id={checkboxId}
+                        disabled={isSubmitting}
+                      />
+                      <label
+                        htmlFor={checkboxId}
+                        style={{ fontSize: "0.85rem" }}
+                      >
+                        {faehre.name} vermeiden
+                        {faehre.laengeM !== null &&
+                          ` (${(faehre.laengeM / 1000).toFixed(1)} km)`}
+                      </label>
+                    </div>
+                    {faehre.laengeM !== null && (
+                      <div
+                        style={{
+                          display: "grid",
+                          gap: "0.25rem",
+                          fontSize: "0.8rem",
+                        }}
+                      >
+                        <span>Fährfahrplan (optional, für die Planung):</span>
+                        <div style={{ display: "flex", gap: "0.4rem" }}>
+                          <input
+                            type="date"
+                            value={abfahrtParts?.date ?? ""}
+                            disabled={isSubmitting}
+                            onChange={(e) =>
+                              handleZeitfensterChange(
+                                "abfahrt",
+                                e.target.value,
+                                abfahrtParts?.time ?? "12:00",
+                              )
+                            }
+                            style={{ flex: 1, padding: "0.3rem" }}
+                          />
+                          <input
+                            type="time"
+                            value={abfahrtParts?.time ?? ""}
+                            disabled={isSubmitting}
+                            onChange={(e) =>
+                              handleZeitfensterChange(
+                                "abfahrt",
+                                abfahrtParts?.date ?? "",
+                                e.target.value,
+                              )
+                            }
+                            style={{ flex: 1, padding: "0.3rem" }}
+                          />
+                        </div>
+                        <span>Ankunft:</span>
+                        <div style={{ display: "flex", gap: "0.4rem" }}>
+                          <input
+                            type="date"
+                            value={ankunftParts?.date ?? ""}
+                            disabled={isSubmitting}
+                            onChange={(e) =>
+                              handleZeitfensterChange(
+                                "ankunft",
+                                e.target.value,
+                                ankunftParts?.time ?? "12:00",
+                              )
+                            }
+                            style={{ flex: 1, padding: "0.3rem" }}
+                          />
+                          <input
+                            type="time"
+                            value={ankunftParts?.time ?? ""}
+                            disabled={isSubmitting}
+                            onChange={(e) =>
+                              handleZeitfensterChange(
+                                "ankunft",
+                                ankunftParts?.date ?? "",
+                                e.target.value,
+                              )
+                            }
+                            style={{ flex: 1, padding: "0.3rem" }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {/* Add Stop Button */}
         <button
           type="button"
@@ -1162,79 +1510,6 @@ export function TripPlannerForm({
             />
           </div>
         </div>
-      </fieldset>
-
-      {/* 3.5 Fähren */}
-      <fieldset
-        style={{
-          marginBottom: "1.5rem",
-          border: "1px solid #e5e7eb",
-          borderRadius: "6px",
-          padding: "1rem",
-        }}
-      >
-        <legend style={{ fontWeight: 600, padding: "0 0.5rem" }}>Fähren</legend>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <input
-            type="checkbox"
-            checked={alleFaehrenVermeiden}
-            onChange={(e) => setAlleFaehrenVermeiden(e.target.checked)}
-            id="alle-faehren-vermeiden-checkbox"
-            disabled={isSubmitting}
-          />
-          <label htmlFor="alle-faehren-vermeiden-checkbox">
-            Alle Fähren vermeiden
-          </label>
-        </div>
-        {faehrenZumAnzeigen.length > 0 && (
-          <div style={{ marginTop: "0.75rem", display: "grid", gap: "0.4rem" }}>
-            <p style={{ margin: 0, fontSize: "0.8rem", fontWeight: 500 }}>
-              Fähren dieser Route und ausgeschlossene Fähren:
-            </p>
-            {faehrenZumAnzeigen.map((faehre, idx) => {
-              const checkboxId = `faehre-vermeiden-${idx}`;
-              const eintrag: FaehrAusschluss = {
-                name: faehre.name,
-                bbox_sw: faehre.bboxSw,
-                bbox_no: faehre.bboxNo,
-              };
-              const vermieden = vermiedeneFaehren.some((f) =>
-                sameFaehrAusschluss(f, eintrag),
-              );
-              return (
-                <div
-                  key={checkboxId}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.5rem",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={vermieden}
-                    onChange={(e) => {
-                      const next = toggleFaehrAusschluss(
-                        vermiedeneFaehren,
-                        eintrag,
-                        e.target.checked,
-                      );
-                      setVermiedeneFaehren(next);
-                      buildAndSubmit(alleFaehrenVermeiden, next);
-                    }}
-                    id={checkboxId}
-                    disabled={isSubmitting}
-                  />
-                  <label htmlFor={checkboxId}>
-                    {faehre.name} vermeiden
-                    {faehre.laengeM !== null &&
-                      ` (${(faehre.laengeM / 1000).toFixed(1)} km)`}
-                  </label>
-                </div>
-              );
-            })}
-          </div>
-        )}
       </fieldset>
 
       {/* 4. Submit */}
