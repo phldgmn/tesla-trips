@@ -65,6 +65,7 @@ describe("estimateWaypointTimings", () => {
       gesamt_ladezeit_min: 0,
       start_soc_pct: 95,
       ziel_soc_pct: 15,
+      erkannte_faehren: [],
     };
 
     const timings = estimateWaypointTimings(result, [start, stopover, end]);
@@ -115,6 +116,7 @@ describe("estimateWaypointTimings", () => {
       gesamt_ladezeit_min: 0,
       start_soc_pct: 100,
       ziel_soc_pct: 40,
+      erkannte_faehren: [],
     };
 
     const timings = estimateWaypointTimings(result, [start, farStop, end]);
@@ -148,6 +150,7 @@ describe("estimateWaypointTimings", () => {
         gesamt_ladezeit_min: 0,
         start_soc_pct: 100,
         ziel_soc_pct: 100,
+        erkannte_faehren: [],
       };
 
       const timings = estimateWaypointTimings(result, stops);
@@ -180,6 +183,7 @@ describe("estimateWaypointTimings", () => {
         gesamt_ladezeit_min: 0,
         start_soc_pct: 100,
         ziel_soc_pct: 40,
+        erkannte_faehren: [],
       };
 
       const timings = estimateWaypointTimings(result, [start, unresolved, end]);
@@ -219,6 +223,7 @@ describe("estimateWaypointTimings", () => {
         gesamt_ladezeit_min: 10,
         start_soc_pct: 90,
         ziel_soc_pct: 60,
+        erkannte_faehren: [],
       };
 
       const timings = estimateWaypointTimings(result, [start, point, end]);

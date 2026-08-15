@@ -40,6 +40,8 @@ export interface TripSimulationResult {
   ziel_soc_pct: number;
   /** Ladehalte (ein Eintrag pro tatsächlichem Halt, nicht pro Frame) */
   charging_stops: ChargingStop[];
+  /** In der berechneten Route erkannte Fährverbindungen */
+  erkannte_faehren: FaehrSegment[];
 }
 
 /** Ein Ladehalt (ChargingStop) aus dem Simulationsergebnis (`/trips`-Response). */
@@ -64,4 +66,12 @@ export interface Waypoint {
   position: [number, number];
   /** Aufenthaltsdauer in Sekunden (null = kein Zwischenstopp) */
   aufenthaltsdauer_s: number | null;
+}
+
+/** Eine in der berechneten Route erkannte Fährverbindung (`FaehrSegmentAPI`). */
+export interface FaehrSegment {
+  name: string;
+  laenge_m: number;
+  bbox_sw: [number, number];
+  bbox_no: [number, number];
 }

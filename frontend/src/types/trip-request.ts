@@ -81,6 +81,14 @@ export interface WaypointInput {
   geplante_abfahrt: string | null;
 }
 
+/** Eine (gepufferte) Bounding Box um eine erkannte Fährverbindung, zur Vermeidung
+ *  in einer nachfolgenden Routenberechnung (`FaehrAusschlussAPI`). */
+export interface FaehrAusschluss {
+  name: string;
+  bbox_sw: [number, number];
+  bbox_no: [number, number];
+}
+
 /** Vollständiger Request-Body für `POST /trips` (`TripRequestAPI`). */
 export interface TripRequestPayload {
   start: [number, number];
@@ -92,6 +100,8 @@ export interface TripRequestPayload {
   praeferenzen: Record<string, unknown>;
   start_soc_pct: number;
   ziel_soc_pct: number;
+  alle_faehren_vermeiden: boolean;
+  vermiedene_faehren: FaehrAusschluss[];
 }
 
 /** Fehler beim Aufbau des Requests aus dem aktuellen Formularzustand
@@ -109,6 +119,8 @@ export function buildTripRequestPayload(args: {
   startSocPct: number;
   zielSocPct: number;
   praeferenzen?: Record<string, unknown>;
+  alleFaehrenVermeiden?: boolean;
+  vermiedeneFaehren?: FaehrAusschluss[];
 }): TripRequestPayload {
   const { stops } = args;
   if (stops.length < 2) {
@@ -150,6 +162,8 @@ export function buildTripRequestPayload(args: {
     praeferenzen: args.praeferenzen ?? {},
     start_soc_pct: args.startSocPct,
     ziel_soc_pct: args.zielSocPct,
+    alle_faehren_vermeiden: args.alleFaehrenVermeiden ?? false,
+    vermiedene_faehren: args.vermiedeneFaehren ?? [],
   };
 }
 
