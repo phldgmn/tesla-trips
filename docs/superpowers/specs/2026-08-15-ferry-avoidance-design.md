@@ -47,10 +47,13 @@ OSM extract is loaded (not just a curated DE/DK/SE list).
   (forced land detour via bridges) when this rule is applied — ferry successfully excluded.
 - **Specific-ferry avoidance:** GraphHopper custom areas. `custom_model.areas.<id>` is a
   GeoJSON `Feature`/`Polygon` (coordinates in `[lon, lat]` order, closed ring); reference it
-  in a priority rule via `{"if": "in_<id>", "multiply_by": 0.0}`. Verified request shape is
-  accepted by the live server (only failed in a degenerate test where the query endpoints
-  were themselves inside the excluded box — expected "Connection between locations not
-  found" semantics, unrelated to the mechanism).
+  in a priority rule via `{"if": "in_<id> && road_environment == FERRY", "multiply_by": 0.0}`.
+  The area rule now conjoins the area check with `road_environment == FERRY`, so only ferry
+  edges inside the buffered box are excluded, not every road in the box. Verified request
+  shape is accepted by the live server (only genuinely-unroutable cases, like excluding a
+  ferry with no ferry-free path at all, still return "Connection between locations not
+  found" — cases where the endpoints fall inside an excluded ferry's bbox but use no ferry
+  now reroute successfully instead of HTTP 400/502).
 - **`ch.disable: true` is required** whenever `custom_model` is sent — the server runs
   profile `car` in CH ("speed mode"), which rejects `custom_model` outright with
   `"The 'custom_model' parameter is currently not supported for speed mode..."` otherwise.

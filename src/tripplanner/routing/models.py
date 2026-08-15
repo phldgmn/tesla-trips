@@ -129,7 +129,7 @@ class FaehrSegment(BaseModel):
     name: str = Field(
         ...,
         description=(
-            "Fährname aus `strassenname` des ersten Segments des Laufs, "
+            "Fährname aus dem ersten nicht-leeren `strassenname` innerhalb des Laufs, "
             "'Unbenannte Fähre' falls GraphHopper keinen Namen liefert."
         ),
     )

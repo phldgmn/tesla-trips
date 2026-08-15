@@ -29,15 +29,6 @@ class RoutingProvider(Protocol):
         """Berechnet eine Route für die gegebene TripRequest."""
         ...
 
-    async def berechne_route_mit_waypoints(
-        self,
-        start: Coordinate,
-        ziel: Coordinate,
-        zwischenstopps: list[tuple[Coordinate, timedelta | None]],
-    ) -> Route:
-        """Berechnet eine Route mit expliziten Zwischenstopps."""
-        ...
-
 
 class FakeRoutingProvider:
     """Fake-Implementierung ohne laufenden GraphHopper-Server (Tests & lokaler Dev-Betrieb).
@@ -294,7 +285,9 @@ class GraphHopperRoutingProvider:
         for index, ausschluss in enumerate(anfrage.vermiedene_faehren):
             area_id = f"faehre_{index}"
             areas[area_id] = _faehr_ausschluss_zu_geojson_feature(ausschluss)
-            priority.append({"if": f"in_{area_id}", "multiply_by": 0.0})
+            priority.append(
+                {"if": f"in_{area_id} && road_environment == FERRY", "multiply_by": 0.0}
+            )
 
         if not priority and speed is None:
             return None
@@ -310,30 +303,6 @@ class GraphHopperRoutingProvider:
             custom_model["distance_influence"] = distance_influence
 
         return custom_model
-
-    async def berechne_route_mit_waypoints(
-        self,
-        start: Coordinate,
-        ziel: Coordinate,
-        zwischenstopps: list[tuple[Coordinate, timedelta | None]],
-    ) -> Route:
-        """Berechnet eine Route mit Zwischenstopps über GraphHopper."""
-        # Umwandlung waypoints → points list
-        points = [start] + [wp[0] for wp in zwischenstopps] + [ziel]
-
-        details_list = [
-            *await self._ermittele_verfuegbare_path_details(),
-            *self._IMMER_VERFUEGBARE_DETAILS,
-        ]
-
-        response = await self.client.route(
-            points=points,
-            profile="car",
-            elevation=False,
-            details=details_list,
-        )
-
-        return self._map_path_to_route(response.paths[0])
 
     def _map_path_to_route(self, path: GraphHopperPath) -> Route:
         """Mapped GraphHopperPath zu Route mit RouteSegments."""

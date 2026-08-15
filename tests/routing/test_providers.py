@@ -172,7 +172,10 @@ class TestBuildCustomModel:
         custom_model = gh_provider._build_custom_model(anfrage)
 
         assert custom_model is not None
-        assert {"if": "in_faehre_0", "multiply_by": 0.0} in custom_model["priority"]
+        assert {
+            "if": "in_faehre_0 && road_environment == FERRY",
+            "multiply_by": 0.0,
+        } in custom_model["priority"]
         area = custom_model["areas"]["faehre_0"]
         assert area["type"] == "Feature"
         assert area["geometry"]["type"] == "Polygon"
@@ -191,3 +194,35 @@ class TestBuildCustomModel:
         assert custom_model["distance_influence"] == 0.0
         assert {"if": "road_class == MOTORWAY", "multiply_by": 1.0} in custom_model["priority"]
         assert {"if": "road_environment == FERRY", "multiply_by": 0.0} in custom_model["priority"]
+
+    def test_two_simultaneous_vermiedene_faehren_produces_two_areas_and_two_priority_rules(
+        self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
+    ) -> None:
+        """Zwei vermiedene Fähren erzeugen zwei GeoJSON-Areas und zwei priority-Regeln."""
+        ausschluss0 = FaehrAusschluss(
+            name="Fähre A",
+            bbox_sw=(54.50, 11.22),
+            bbox_no=(54.66, 11.36),
+        )
+        ausschluss1 = FaehrAusschluss(
+            name="Fähre B",
+            bbox_sw=(54.20, 9.80),
+            bbox_no=(54.30, 9.90),
+        )
+        anfrage = trip_request.model_copy(update={"vermiedene_faehren": [ausschluss0, ausschluss1]})
+
+        custom_model = gh_provider._build_custom_model(anfrage)
+
+        assert custom_model is not None
+        # Two areas with stable IDs
+        assert "faehre_0" in custom_model["areas"]
+        assert "faehre_1" in custom_model["areas"]
+        # Two priority rules conjoined with road_environment == FERRY
+        assert {
+            "if": "in_faehre_0 && road_environment == FERRY",
+            "multiply_by": 0.0,
+        } in custom_model["priority"]
+        assert {
+            "if": "in_faehre_1 && road_environment == FERRY",
+            "multiply_by": 0.0,
+        } in custom_model["priority"]
