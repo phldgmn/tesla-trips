@@ -22,6 +22,10 @@ services:
       - "0.0.0.0"
     environment:
       # Kombinierter DE+DK+SE-Graph ist deutlich größer als der vorige
-      # Berlin-Demo-Extrakt - mehr Heap fuer Import und Betrieb.
-      - GRAPHHOPPER_JAVA_OPTS=-Xms2g -Xmx8g
+      # Berlin-Demo-Extrakt - mehr Heap fuer Import und Betrieb. Der
+      # graphhopper.sh-Entrypoint des Images liest `JAVA_OPTS` (nicht
+      # `GRAPHHOPPER_JAVA_OPTS` - das war vorher ein wirkungsloses,
+      # unbenutztes Environment-Var, weil der kleine Berlin-Extrakt auch
+      # mit dem Default-Heap von 1g funktionierte).
+      - JAVA_OPTS=-Xms2g -Xmx8g
     restart: unless-stopped

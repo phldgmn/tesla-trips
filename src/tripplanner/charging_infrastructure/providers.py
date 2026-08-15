@@ -367,6 +367,15 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         self._debug_log = debug_log
         self._stations: list[ChargingStation] | None = None
 
+    def close(self) -> None:
+        """Schließt die zugrunde liegende SQLite-Verbindung.
+
+        Aufrufer (z. B. `trip_input.api._lifespan`), die den Provider
+        prozessweit wiederverwenden, MÜSSEN dies beim Shutdown aufrufen, um
+        die Datenbankverbindung sauber freizugeben.
+        """
+        self._db.close()
+
     async def refresh(self) -> int:
         """Holt aktuelle Daten von supercharge.info und schreibt sie in die DB.
 

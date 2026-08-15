@@ -48,6 +48,28 @@ class SimulationFrame(BaseModel):
         return self
 
 
+class ChargingStopSummary(BaseModel):
+    """Zusammenfassung eines Ladehalts fuer die Visualisierung.
+
+    Ein Eintrag pro tatsaechlichem Ladehalt (nicht pro Simulationsframe) -
+    im Gegensatz zu den `SimulationFrame`-Eintraegen mit `zustand == LADEN`,
+    von denen es waehrend eines einzelnen Ladehalts mehrere geben kann.
+    """
+
+    name: str = Field(..., min_length=1, description="Name der Ladestation")
+    position: tuple[float, float] = Field(
+        ..., description="Position der Ladestation als (lat, lon)"
+    )
+    ankunfts_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
+    ziel_soc_pct: float = Field(
+        ..., ge=0.0, le=100.0, description="Angestrebter SoC nach dem Laden in %"
+    )
+    ladedauer_s: int = Field(..., ge=0, description="Ladedauer in Sekunden")
+    energie_geladen_kwh: float = Field(
+        ..., ge=0.0, description="Waehrend des Ladehalts geladene Energiemenge in kWh"
+    )
+
+
 class TripSimulationResult(BaseModel):
     """Vollständige Zeitreihe einer Reise."""
 
@@ -57,3 +79,7 @@ class TripSimulationResult(BaseModel):
     gesamt_ladezeit_min: float = Field(..., ge=0, description="Gesamtladezeit in Minuten")
     start_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Start-SoC in %")
     ziel_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ziel-SoC in %")
+    charging_stops: list[ChargingStopSummary] = Field(
+        default_factory=list,
+        description="Ein Eintrag pro Ladehalt (chronologisch), fuer die Kartendarstellung",
+    )

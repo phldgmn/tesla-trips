@@ -63,6 +63,6 @@ osmium merge \
   "$SOURCES_DIR/germany-latest.osm.pbf" \
   "$SOURCES_DIR/denmark-latest.osm.pbf" \
   "$SOURCES_DIR/sweden-latest.osm.pbf" \
-  -o "${OUTPUT}.tmp" --overwrite
+  -o "${OUTPUT}.tmp" -f pbf --overwrite
 mv "${OUTPUT}.tmp" "$OUTPUT"
 echo "OSM-EXTRACT: fertig ($(du -h "$OUTPUT" | cut -f1))."

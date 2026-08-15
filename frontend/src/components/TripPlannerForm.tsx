@@ -167,6 +167,15 @@ export function TripPlannerForm({
   // AbortController-Ref für laufende Geocoding-Requests
   const geocodingAbortRef = useRef<AbortController | null>(null);
 
+  // Timeout-Ref für das Debounce des Geocoding-Requests. MUSS bei jedem
+  // Tastenanschlag den vorherigen, noch ausstehenden Timeout löschen -
+  // andernfalls (siehe Bugfix unten) plant jeder Tastenanschlag einen
+  // eigenen, unabhängigen 400ms-Timer, der garantiert feuert, egal wie
+  // schnell weitergetippt wird: bei normaler Tippgeschwindigkeit löst das
+  // EINEN Nominatim-Request PRO ZEICHEN aus statt nur einen nach Tippende -
+  // verletzt die 1-req/s-Nutzungsrichtlinie und führt zu HTTP 429.
+  const geocodingTimeoutRef = useRef<number | null>(null);
+
   // Reverse-Geocoding-Guard: speichert "{lat},{lon}" → true, sobald einmal aufgelöst
   const resolvedPositionsRef = useRef<Set<string>>(new Set());
 
@@ -226,7 +235,15 @@ export function TripPlannerForm({
         ),
       );
 
-      // Vorherige Geocoding-Request abbrechen
+      // Vorherigen Debounce-Timer UND laufende Geocoding-Request abbrechen.
+      // Ohne `clearTimeout` hier würde jeder Tastenanschlag einen eigenen,
+      // unabhängigen Timer planen, der garantiert feuert (siehe Ref-
+      // Deklaration oben) - EIN Request pro Zeichen statt einer pro
+      // Tippende-Pause.
+      if (geocodingTimeoutRef.current !== null) {
+        clearTimeout(geocodingTimeoutRef.current);
+        geocodingTimeoutRef.current = null;
+      }
       if (geocodingAbortRef.current) {
         geocodingAbortRef.current.abort();
       }
@@ -250,7 +267,8 @@ export function TripPlannerForm({
       }));
 
       // Debounce
-      const timeoutId = setTimeout(async () => {
+      geocodingTimeoutRef.current = setTimeout(async () => {
+        geocodingTimeoutRef.current = null;
         const controller = new AbortController();
         geocodingAbortRef.current = controller;
 
@@ -276,14 +294,6 @@ export function TripPlannerForm({
           }));
         }
       }, GEOCODING_DEBOUNCE_MS);
-
-      // Cleanup: Timeout und AbortController
-      return () => {
-        clearTimeout(timeoutId);
-        if (geocodingAbortRef.current) {
-          geocodingAbortRef.current.abort();
-        }
-      };
     },
     [stops, onStopsChange],
   );

@@ -13,7 +13,7 @@ import traceback
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -304,20 +304,40 @@ async def _step_8_ladeplan_optimieren(  # noqa: PLR0913, PLR0917
     """
     optimizer = create_networkx_optimizer()
 
+    # Hinweis: `OptimizationConstraints` kennt nur `min_soc_pct`, `ziel_soc_pct`,
+    # `max_etappenlaenge_km`, `sicherheitsreserve_pct`, `max_ladezeit_s`
+    # (siehe optimization/models.py). Frühere Aufrufe übergaben zusätzlich
+    # `start_soc_pct`, `max_ladepausen`, `min_ladezeit_min`, `max_ladezeit_min`
+    # - nicht existierende Feldnamen, die Pydantic per Default still verwirft
+    # (kein Validierungsfehler), wodurch diese "Constraints" wirkungslos
+    # blieben. `start_soc_pct` wird bereits direkt an `optimizer.optimize()`
+    # übergeben; `max_ladezeit_min=60` entspricht dem echten Feld
+    # `max_ladezeit_s` (in Sekunden).
     constraints = OptimizationConstraints(
-        start_soc_pct=start_soc_pct,
         ziel_soc_pct=ziel_soc_pct,
-        max_ladepausen=10,
-        min_ladezeit_min=10,
-        max_ladezeit_min=60,
+        max_ladezeit_s=3600,
     )
 
     # Ladeinfrastruktur entlang der Route abrufen (Fake-Provider für Tests)
     charging_provider = charging_provider or FakeChargingStationProvider()
     stations_dict = await charging_provider.get_stations_along_route(route, search_radius_km=2.0)
+    # `get_stations_along_route()` mappt pro (feingranularem) Segment die
+    # Stationen im Suchradius - bei sehr kurzen Segmenten (z. B. ein Segment
+    # pro GraphHopper-Polyline-Punktpaar, oft <200 m) liegt dieselbe
+    # physische Station meist innerhalb des 2-km-Radius mehrerer
+    # aufeinanderfolgender Segmente und taucht entsprechend oft doppelt auf.
+    # Ohne Deduplizierung nach `station_id` würde der Optimierer dieselbe
+    # Station an vielen benachbarten Segment-Indizes als eigene Lade-
+    # Gelegenheit modellieren, was den Zustandsgraphen unnötig aufbläht
+    # (siehe docs/plans/07-optimization.md) und die Suche stark verlangsamt.
     charging_stations: list[ChargingStation] = []
+    seen_station_ids: set[str] = set()
     for station_list in stations_dict.values():
-        charging_stations.extend(station_list)
+        for station in station_list:
+            if station.station_id in seen_station_ids:
+                continue
+            seen_station_ids.add(station.station_id)
+            charging_stations.append(station)
 
     waypoints = list(zwischenstopps) if zwischenstopps else []
 
@@ -538,20 +558,26 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Verwaltet den Lebenszyklus des GraphHopper-HTTP-Clients für den Prozess.
+    """Verwaltet den Lebenszyklus der prozessweiten Provider-Ressourcen.
 
-    Der Client wird einmalig beim Start erzeugt (Connection-Pooling über alle
-    Requests hinweg) und beim Shutdown sauber geschlossen, statt pro Request
-    neu aufgebaut zu werden. Die Basis-URL ist über die Umgebungsvariable
-    `GRAPHHOPPER_URL` konfigurierbar (Default: `http://localhost:8989`,
-    siehe README.md).
+    Der GraphHopper-HTTP-Client und der Tesla-Supercharger-DB-Zugriff werden
+    einmalig beim Start erzeugt (Connection-/Verbindungs-Pooling über alle
+    Requests hinweg) statt pro Request neu aufgebaut zu werden. Die
+    GraphHopper-Basis-URL ist über die Umgebungsvariable `GRAPHHOPPER_URL`
+    konfigurierbar (Default: `http://localhost:8989`, siehe README.md).
     """
     base_url = os.environ.get(GRAPHHOPPER_URL_ENV_VAR, DEFAULT_GRAPHHOPPER_BASE_URL)
     app.state.graphhopper_client = GraphHopperClient(base_url=base_url)
+    # TeslaChargingStationProvider öffnet beim Konstruieren eine SQLite-Verbindung
+    # zu data/tesla_superchargers.db (siehe README.md) und cached die geladenen
+    # Stationen prozessweit - einmalig hier erzeugen statt pro Request neu zu
+    # öffnen/laden.
+    app.state.charging_provider = TeslaChargingStationProvider()
     try:
         yield
     finally:
         await app.state.graphhopper_client.close()
+        app.state.charging_provider.close()
 
 
 app = FastAPI(title="Tesla Trip Planner API", version="0.1.0", lifespan=_lifespan)
@@ -569,14 +595,21 @@ def get_routing_provider(request: Request) -> RoutingProvider:
     return GraphHopperRoutingProvider(request.app.state.graphhopper_client)
 
 
-def get_charging_provider() -> FakeChargingStationProvider:
-    """FastAPI-Dependency: liefert den ChargingStationProvider für create_trip_simulation().
+def get_charging_provider(request: Request) -> ChargingStationProvider:
+    """FastAPI-Dependency: liefert den produktiven ChargingStationProvider für `/trips`.
 
-    In der Produktion würde dies TeslaChargingStationProvider sein.
-    In Tests via `app.dependency_overrides[get_charging_provider]` durch eine
-    Fake-Instanz mit angepassten Stationen ersetzbar.
+    Nutzt den in `_lifespan` erzeugten, prozessweit wiederverwendeten
+    `TeslaChargingStationProvider` (SQLite-DB `data/tesla_superchargers.db`,
+    siehe README.md) für echte Supercharger-Standorte. In Tests via
+    `app.dependency_overrides[get_charging_provider]` durch eine
+    `FakeChargingStationProvider`-Instanz mit angepassten Stationen ersetzbar
+    (siehe AGENTS.md: keine Live-Calls externer Datenquellen in Unit-Tests).
     """
-    return FakeChargingStationProvider()
+    # `app.state` ist bei Starlette/FastAPI dynamisch typisiert (Any) - der
+    # explizite cast dokumentiert die durch `_lifespan` garantierte Invariante
+    # (dort wird `charging_provider` als `TeslaChargingStationProvider`
+    # gesetzt, die das `ChargingStationProvider`-Protocol erfüllt).
+    return cast("ChargingStationProvider", request.app.state.charging_provider)
 
 
 @app.get("/health")
@@ -774,6 +807,17 @@ class FrameAPI(BaseModel):
     geschwindigkeit_kmh: float = Field(..., ge=0.0)
 
 
+class ChargingStopAPI(BaseModel):
+    """Ladehalt in der API-Response, ein Eintrag pro tatsaechlichem Halt."""
+
+    name: str = Field(..., description="Name der Ladestation")
+    position: tuple[float, float] = Field(..., description="(lat, lon) der Ladestation")
+    ankunfts_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
+    ziel_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ziel-SoC nach dem Laden in %")
+    ladedauer_s: int = Field(..., ge=0, description="Ladedauer in Sekunden")
+    energie_geladen_kwh: float = Field(..., ge=0.0, description="Geladene Energiemenge in kWh")
+
+
 class TripSimulationResultAPI(BaseModel):
     """API-Response für /trips-Endpunkt."""
 
@@ -783,6 +827,9 @@ class TripSimulationResultAPI(BaseModel):
     start_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Start-SoC in %")
     ziel_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ziel-SoC in %")
     frames: list[FrameAPI] = Field(..., description="Liste von Simulationsframes")
+    charging_stops: list[ChargingStopAPI] = Field(
+        default_factory=list, description="Ein Eintrag pro Ladehalt, fuer die Kartendarstellung"
+    )
 
 
 @app.post("/trips", response_model=TripSimulationResultAPI, status_code=201)
@@ -791,7 +838,7 @@ async def create_trip_endpoint(
     # B008: Depends(...) im Default ist das FastAPI-Standardidiom für Dependency
     # Injection, kein veränderliches Objekt/kein echter Bug (siehe FastAPI-Doku).
     routing_provider: RoutingProvider = Depends(get_routing_provider),  # noqa: B008
-    charging_provider: FakeChargingStationProvider = Depends(get_charging_provider),  # noqa: B008
+    charging_provider: ChargingStationProvider = Depends(get_charging_provider),  # noqa: B008
 ) -> TripSimulationResultAPI:
     """Erstellt eine neue Reise-Simulation.
 
@@ -844,6 +891,17 @@ async def create_trip_endpoint(
                     geschwindigkeit_kmh=f.geschwindigkeit_kmh,
                 )
                 for f in ergebnis.frames
+            ],
+            charging_stops=[
+                ChargingStopAPI(
+                    name=stop.name,
+                    position=stop.position,
+                    ankunfts_soc_pct=stop.ankunfts_soc_pct,
+                    ziel_soc_pct=stop.ziel_soc_pct,
+                    ladedauer_s=stop.ladedauer_s,
+                    energie_geladen_kwh=stop.energie_geladen_kwh,
+                )
+                for stop in ergebnis.charging_stops
             ],
         )
     except ValueError as e:

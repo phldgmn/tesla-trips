@@ -7,10 +7,16 @@ Positionen, SoC und Geschwindigkeit.
 
 from __future__ import annotations
 
-from tripplanner.simulation.models import SimulationFrame, TripSimulationResult, TripState
+from tripplanner.simulation.models import (
+    ChargingStopSummary,
+    SimulationFrame,
+    TripSimulationResult,
+    TripState,
+)
 from tripplanner.simulation.simulate import simulate_trip
 
 __all__ = [
+    "ChargingStopSummary",
     "SimulationFrame",
     "TripSimulationResult",
     "TripState",

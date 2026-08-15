@@ -11,7 +11,12 @@ from datetime import datetime, timedelta
 from tripplanner.energy.models import SegmentEnergyResult
 from tripplanner.optimization.models import ChargingPlan
 from tripplanner.routing.models import Route, RouteSegment
-from tripplanner.simulation.models import SimulationFrame, TripSimulationResult, TripState
+from tripplanner.simulation.models import (
+    ChargingStopSummary,
+    SimulationFrame,
+    TripSimulationResult,
+    TripState,
+)
 from tripplanner.weather.models import WeatherSample
 
 # Konstanten fuer maximale Werte
@@ -144,6 +149,18 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         total_distance_m += segment.laenge_m
         cumulative_distances.append(total_distance_m)
 
+    # Praefix-Summe der Segment-Energie fuer O(1) "Energie seit Segment X"
+    # Lookups statt O(n) Neuaufsummierung pro Frame (`energy_prefix[i]` =
+    # kumulierter Energiebedarf der Segmente [0, i)).
+    energy_prefix: list[float] = [0.0] * (len(route.segments) + 1)
+    for i in range(len(route.segments)):
+        energy_prefix[i + 1] = energy_prefix[i] + energy_map[i].energiebedarf_kwh
+
+    # Ladehalte nach Segment-Index sortiert, um beim Durchlauf der FAHREN-
+    # Frames den zuletzt ABGESCHLOSSENEN Ladehalt als SoC-Baseline zu finden
+    # (siehe unten).
+    ladehalte_sortiert = sorted(charging_plan.ladehalte, key=lambda lh: lh.segment_index)
+
     current_soc_pct = start_soc_pct
     frames: list[SimulationFrame] = []
 
@@ -155,24 +172,55 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     # Verwende uebergebene Abfahrtszeit als Basis
     base_time = abfahrtszeit
 
+    # Ladehalte mit relativen (Sekunden-seit-Abfahrt) Ankunfts-/Abfahrtszeiten
+    # vorab aufbereiten. Wird sowohl zur Bestimmung des aktuellen Ladehalts
+    # als auch zur Umrechnung von "Gesamtzeit" in "reine Fahrzeit" gebraucht
+    # (siehe unten).
+    ladehalte_mit_relzeit = [
+        (
+            (lh.ankunftszeit - base_time).total_seconds(),
+            (lh.abfahrtszeit - base_time).total_seconds(),
+            lh,
+        )
+        for lh in charging_plan.ladehalte
+    ]
+    total_charging_time_s = sum(
+        rel_abfahrt - rel_ankunft for rel_ankunft, rel_abfahrt, _ in ladehalte_mit_relzeit
+    )
+    # Reine Fahrzeit = Gesamtreisezeit abzueglich aller Ladezeiten. Die
+    # zurueckgelegte Distanz muss proportional zur bereits VERSTRICHENEN
+    # FAHRZEIT wachsen, nicht zur verstrichenen Gesamtzeit (siehe Bugfix
+    # unten) - sonst "faehrt" das Fahrzeug waehrend eines Ladehalts entlang
+    # der Route weiter, statt an der Ladestation stehen zu bleiben.
+    total_driving_time_s = max(end_time_s - total_charging_time_s, 1e-9)
+
     while current_time_s <= end_time_s + 1e-6:
-        # Berechne zurückgelegte Distanz proportional zur Zeit
-        time_fraction = min(current_time_s / end_time_s, 1.0)
+        # Aktuellen Ladehalt bestimmen und zugleich die bereits waehrend
+        # Ladehalten verstrichene Zeit bis zum aktuellen Zeitpunkt aufsummieren
+        # (fuer bereits abgeschlossene Ladehalte vollstaendig, fuer den
+        # laufenden Ladehalt anteilig).
+        aktueller_ladehalt = None
+        charging_elapsed_before_now_s = 0.0
+        rel_ankunftszeit_s = 0.0
+        for rel_ankunft, rel_abfahrt, ladehalt in ladehalte_mit_relzeit:
+            if rel_abfahrt <= current_time_s:
+                charging_elapsed_before_now_s += rel_abfahrt - rel_ankunft
+            elif rel_ankunft <= current_time_s:
+                charging_elapsed_before_now_s += current_time_s - rel_ankunft
+                aktueller_ladehalt = ladehalt
+                rel_ankunftszeit_s = rel_ankunft
+
+        # Zurueckgelegte Distanz proportional zur bereits verstrichenen reinen
+        # Fahrzeit (Ladehalt-Zeit "friert" die Distanz ein statt sie
+        # weiterzurechnen).
+        effective_driving_time_s = current_time_s - charging_elapsed_before_now_s
+        time_fraction = min(effective_driving_time_s / total_driving_time_s, 1.0)
         current_distance_m = time_fraction * total_distance_m
 
         segment_idx, progress_in_segment = _find_segment_for_distance(
             cumulative_distances, total_distance_m, current_distance_m, route
         )
         segment = route.segments[segment_idx]
-
-        # Finde den aktuellen Ladehalt (falls vorhanden)
-        aktueller_ladehalt = None
-        for ladehalt in charging_plan.ladehalte:
-            rel_ankunftszeit_s = (ladehalt.ankunftszeit - base_time).total_seconds()
-            rel_abfahrtszeit_s = (ladehalt.abfahrtszeit - base_time).total_seconds()
-            if rel_ankunftszeit_s <= current_time_s <= rel_abfahrtszeit_s:
-                aktueller_ladehalt = ladehalt
-                break
 
         if aktueller_ladehalt is not None:
             zustand = TripState.LADEN
@@ -192,10 +240,25 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
                 energy = energy_map[segment_idx]
                 geschwindigkeit_kmh = energy.geschwindigkeit_m_s * ms_to_kmh
 
-                # Kumulative Energie seit Fahrtbeginn berechnen:
-                # Summe aller vollstaendig durchfahrenen Segmente + anteilig aktuelles Segment
-                completed_segments_energy_kwh = sum(
-                    energy_map[i].energiebedarf_kwh for i in range(segment_idx) if i in energy_map
+                # SoC-Baseline: der zuletzt VOR/AN diesem Segment abgeschlossene
+                # Ladehalt (dessen Ziel-SoC), sonst der Start-SoC. Ohne diese
+                # Baseline wuerde jeder Ladegewinn beim naechsten FAHREN-Frame
+                # verworfen, weil `start_soc_pct` immer auf den Reisebeginn
+                # zurueckgreifen wuerde (siehe
+                # docs/plans/08-simulation-visualization-api.md, Abschnitt 5.1.1).
+                baseline_soc_pct = start_soc_pct
+                baseline_segment_idx = 0
+                for ladehalt in ladehalte_sortiert:
+                    if ladehalt.segment_index > segment_idx:
+                        break
+                    baseline_soc_pct = ladehalt.ziel_soc_pct
+                    baseline_segment_idx = ladehalt.segment_index
+
+                # Energie seit der Baseline: Praefix-Summe der vollstaendig
+                # durchfahrenen Segmente zwischen Baseline und aktuellem
+                # Segment + anteilig aktuelles Segment.
+                completed_segments_energy_kwh = (
+                    energy_prefix[segment_idx] - energy_prefix[baseline_segment_idx]
                 )
                 current_segment_energy_kwh = energy.energiebedarf_kwh * progress_in_segment
                 cumulative_energy_kwh = completed_segments_energy_kwh + current_segment_energy_kwh
@@ -203,16 +266,22 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
                 if battery_capacity_kwh > 0:
                     current_soc_pct = max(
                         _MIN_SOC_PCT,
-                        start_soc_pct - (cumulative_energy_kwh / battery_capacity_kwh) * 100.0,
+                        baseline_soc_pct - (cumulative_energy_kwh / battery_capacity_kwh) * 100.0,
                     )
             else:
                 geschwindigkeit_kmh = 0.0
 
-        start_pt_idx = 0
-        end_pt_idx = len(segment.geometrie) - 1
-        position = _interpolate_position_along_segment(
-            segment, start_pt_idx, end_pt_idx, progress_in_segment
-        )
+        if aktueller_ladehalt is not None:
+            # Waehrend eines Ladehalts steht das Fahrzeug an der Station -
+            # exakte Stationskoordinate statt Streckeninterpolation, damit
+            # alle LADEN-Frames eines Halts auf demselben Punkt liegen.
+            position = aktueller_ladehalt.station.coordinate
+        else:
+            start_pt_idx = 0
+            end_pt_idx = len(segment.geometrie) - 1
+            position = _interpolate_position_along_segment(
+                segment, start_pt_idx, end_pt_idx, progress_in_segment
+            )
         frame = SimulationFrame(
             zeitpunkt=abfahrtszeit + timedelta(seconds=current_time_s),
             position=position,
@@ -223,6 +292,21 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         frames.append(frame)
 
         current_time_s += output_resolution_seconds
+
+    charging_stops = [
+        ChargingStopSummary(
+            name=ladehalt.station.name,
+            position=ladehalt.station.coordinate,
+            ankunfts_soc_pct=ladehalt.ankunfts_soc_pct,
+            ziel_soc_pct=ladehalt.ziel_soc_pct,
+            ladedauer_s=ladehalt.geschaetzte_ladedauer_s,
+            energie_geladen_kwh=max(
+                0.0,
+                (ladehalt.ziel_soc_pct - ladehalt.ankunfts_soc_pct) / 100.0 * battery_capacity_kwh,
+            ),
+        )
+        for ladehalt in ladehalte_sortiert
+    ]
 
     gesamt_ladezeit_min = 0.0
     for ladehalt in charging_plan.ladehalte:
@@ -240,4 +324,5 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         gesamt_ladezeit_min=gesamt_ladezeit_min,
         start_soc_pct=start_soc_pct,
         ziel_soc_pct=end_soc_pct,
+        charging_stops=charging_stops,
     )

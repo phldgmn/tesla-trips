@@ -38,9 +38,11 @@ export interface TripSimulationResult {
   start_soc_pct: number;
   /** Ziel-SoC in % */
   ziel_soc_pct: number;
+  /** Ladehalte (ein Eintrag pro tatsächlichem Halt, nicht pro Frame) */
+  charging_stops: ChargingStop[];
 }
 
-/** Ein Ladehalt (ChargingStop) aus dem Optimierungsplan. */
+/** Ein Ladehalt (ChargingStop) aus dem Simulationsergebnis (`/trips`-Response). */
 export interface ChargingStop {
   /** Name der Ladestation */
   name: string;
@@ -52,6 +54,8 @@ export interface ChargingStop {
   ziel_soc_pct: number;
   /** Ladedauer in Sekunden */
   ladedauer_s: number;
+  /** Waehrend des Ladehalts geladene Energiemenge in kWh */
+  energie_geladen_kwh: number;
 }
 
 /** Ein Zwischenstopp (Waypoint) mit optionaler Aufenthaltsdauer. */

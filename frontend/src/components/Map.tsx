@@ -5,17 +5,30 @@ import {
   Popup,
   LngLatBounds,
   LayerSpecification,
+  setWorkerUrl,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+// MapLibre GL JS berechnet die Worker-URL zur Laufzeit relativ zu
+// `import.meta.url` des eigenen Moduls (parst Vector-Tiles abseits des
+// Main-Threads). Im Vite-Production-Build wird diese dynamisch berechnete
+// URL von Rollup nicht erkannt/mitgebündelt - der Worker-Request würde ins
+// Leere laufen (Karte bleibt dauerhaft im Ladezustand, kein `load`-Event,
+// siehe `vite.config.ts`, `optimizeDeps.exclude` für den Dev-Server-seitigen
+// Teil des gleichen Problems). Der `?worker&url`-Import lässt Vite die
+// Worker-Datei als eigenständigen, korrekt referenzierten Chunk bündeln;
+// `setWorkerUrl()` überschreibt MapLibres eigene (kaputte) Berechnung damit.
+import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 
 import { toLngLat } from "../utils/geo-utils";
-import { TripSimulationResult } from "../types";
+import { ChargingStop, TripSimulationResult } from "../types";
 import type { Stop } from "../types/trip-request";
 import {
   fetchSuperchargers,
   refreshSupercharger,
   type SuperchargerStation,
 } from "../api/chargingApi";
+
+setWorkerUrl(maplibreWorkerUrl);
 
 // Farbpalette für SoC-Verlauf: rot → orange → gelb → grün
 export function socToColor(soc: number): string {
@@ -212,6 +225,65 @@ export function buildPopupText(stop: Stop, role: StopRole): string {
   return `${roleToLabel(role)} (${r(lat)}, ${r(lng)})`;
 }
 
+/** Erzeugt ein gestyltes DOM-Element fuer einen Ladehalt-Marker (Blitz-Symbol).
+ *
+ * Ein Marker pro tatsaechlichem Ladehalt (`TripSimulationResult.charging_stops`),
+ * nicht pro Simulationsframe - eine Ladepause erzeugt sonst mehrere
+ * `zustand === "LADEN"`-Frames, die andernfalls zu mehreren, entlang der
+ * Strecke verteilten Markern statt eines einzigen an der Ladestation fuehren
+ * wuerden.
+ */
+export function buildChargingStopMarkerElement(): HTMLElement {
+  const el = document.createElement("div");
+  el.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="#ffffff" style="pointer-events:none;">
+    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+  </svg>`;
+  el.style.cssText = [
+    "display:flex",
+    "align-items:center",
+    "justify-content:center",
+    "width:28px",
+    "height:28px",
+    "border-radius:50%",
+    "background-color:#f59e0b",
+    "border:2px solid #ffffff",
+    "box-shadow:0 1px 4px rgba(0,0,0,0.35)",
+    "cursor:pointer",
+  ].join(";");
+  return el;
+}
+
+/** Formatiert eine Dauer in Sekunden als "Xh Ymin" bzw. "Ymin". */
+export function formatChargingDuration(seconds: number): string {
+  const totalMinutes = Math.round(seconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours}h ${minutes}min` : `${minutes}min`;
+}
+
+/** Popup-HTML fuer einen Ladehalt: Name, Ankunfts-/Ziel-SoC, Dauer, geladene Energie. */
+export function buildChargingStopPopupHtml(stop: ChargingStop): string {
+  const rows: [string, string][] = [
+    ["Ankunft", `${stop.ankunfts_soc_pct.toFixed(0)}% SoC`],
+    ["Abfahrt", `${stop.ziel_soc_pct.toFixed(0)}% SoC`],
+    ["Dauer", formatChargingDuration(stop.ladedauer_s)],
+    ["Geladen", `${stop.energie_geladen_kwh.toFixed(1)} kWh`],
+  ];
+  const rowsHtml = rows
+    .map(
+      ([label, value]) =>
+        `<tr><td style="padding:2px 4px;color:#666;">${label}</td>` +
+        `<td style="padding:2px 4px;text-align:right;">${value}</td></tr>`,
+    )
+    .join("");
+  return (
+    `<div style="font-family:system-ui,sans-serif;font-size:13px;min-width:160px;">` +
+    `<strong style="font-size:14px;">${stop.name}</strong>` +
+    `<table style="width:100%;border-collapse:collapse;margin-top:4px;">${rowsHtml}</table>` +
+    `</div>`
+  );
+}
+
 interface MapProps {
   /** Simulationsergebnis (optional – entfällt im Planungsmodus). */
   simulationResult?: TripSimulationResult;
@@ -261,6 +333,9 @@ export function MapVisualization({
   // Anzahl der zuletzt hinzugefügten Routensegmente (für Cleanup bei Wechsel
   // in den Planungsmodus ohne simulationResult)
   const segmentCountRef = useRef<number>(0);
+  // Ladehalt-Marker (ein Eintrag pro tatsaechlichem Ladehalt aus
+  // `simulationResult.charging_stops`), analog zu `markersRef` fuer Stopps.
+  const chargingStopMarkersRef = useRef<Marker[]>([]);
 
   // Supercharger-Overlay
   const [superchargerStations, setSuperchargerStations] = useState<
@@ -311,8 +386,10 @@ export function MapVisualization({
     if (map.getLayer("route")) map.removeLayer("route");
     if (map.getSource("route")) map.removeSource("route");
     // Ladehalte
-    if (map.getLayer("charger-markers")) map.removeLayer("charger-markers");
-    if (map.getSource("chargers")) map.removeSource("chargers");
+    for (const marker of chargingStopMarkersRef.current) {
+      marker.remove();
+    }
+    chargingStopMarkersRef.current = [];
     // Zwischenstopps
     if (map.getLayer("waypoint-markers")) map.removeLayer("waypoint-markers");
     if (map.getSource("waypoints")) map.removeSource("waypoints");
@@ -407,44 +484,19 @@ export function MapVisualization({
     // Für das nächste Cleanup merken
     segmentCountRef.current = numSegments;
 
-    // Ladehalte-Marker hinzufügen (aus SimulationResult)
-    const chargerStops = simulationResult.frames.filter(
-      (f) => f.zustand === "LADEN",
-    );
-
-    if (chargerStops.length > 0) {
-      const chargerCoords = chargerStops.map((f) => toLngLat(f.position));
-
-      const chargersGeoJson: GeoJSON.FeatureCollection<GeoJSON.Point> = {
-        type: "FeatureCollection" as const,
-        features: chargerCoords.map((coord) => ({
-          type: "Feature" as const,
-          geometry: {
-            type: "Point" as const,
-            coordinates: coord,
-          },
-          properties: {
-            type: "charger" as const,
-          },
-        })),
-      };
-
-      map.addSource("chargers", {
-        type: "geojson" as const,
-        data: chargersGeoJson,
-      });
-
-      map.addLayer({
-        id: "charger-markers",
-        type: "circle" as const,
-        source: "chargers",
-        paint: {
-          "circle-color": "#f59e0b",
-          "circle-radius": 8,
-          "circle-stroke-color": "#ffffff",
-          "circle-stroke-width": 2,
-        } satisfies LayerSpecification["paint"],
-      } satisfies LayerSpecification);
+    // Ladehalt-Marker hinzufügen: ein Marker pro tatsächlichem Ladehalt aus
+    // `simulationResult.charging_stops` (nicht pro LADEN-Frame – ein Halt
+    // kann mehrere Frames erzeugen, siehe `buildChargingStopMarkerElement`),
+    // exakt auf der Position der Ladestation, mit Klick-Popup für Details.
+    for (const stop of simulationResult.charging_stops) {
+      const element = buildChargingStopMarkerElement();
+      const marker = new Marker({ element })
+        .setLngLat(toLngLat(stop.position))
+        .setPopup(
+          new Popup({ offset: 14 }).setHTML(buildChargingStopPopupHtml(stop)),
+        )
+        .addTo(map);
+      chargingStopMarkersRef.current.push(marker);
     }
 
     // Zwischenstopps-Marker hinzufügen (Frames mit Zustand 'PAUSE')

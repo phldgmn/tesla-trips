@@ -393,6 +393,257 @@ class TestNetworkXOptimizer:
             )
 
 
+class TestSocQuantisierungBeiFeingranularenSegmenten:
+    """Regressionstest: Bug - SoC-Verbrauch pro Kante wurde vom bereits GERUNDETEN
+    Bucket abgezogen statt vom kontinuierlichen SoC des Vorgaengerknotens.
+
+    Bei feingranularen Routen (z. B. ein Segment pro GraphHopper-Polyline-
+    Punktpaar, oft nur wenige zehn Meter) liegt der Verbrauch je Segment weit
+    unter der halben Bucket-Schrittweite (Default 1%). `round(verbrauch/1.0)`
+    ergab dann fuer praktisch jede Kante 0 - der gesamte Streckenverbrauch
+    verschwand, der Optimierer hielt selbst physikalisch unmoegliche Strecken
+    (mehr Energiebedarf als Batteriekapazitaet) faelschlich fuer ladehaltfrei
+    fahrbar.
+    """
+
+    def test_viele_kleine_segmente_erfordern_trotzdem_einen_ladehalt(self) -> None:
+        """1000 Segmente à 50 m (50 km), 15 kWh Gesamtverbrauch bei 10 kWh Akku
+        (0.015 kWh/Segment = 0.15% - weit unter der halben 1%-Bucket-Schrittweite):
+        Der Optimierer MUSS trotzdem mindestens einen Ladehalt einplanen, da
+        50 km auch mit vollem Akku (100%) physikalisch nicht ohne Laden
+        schaffbar sind (15 kWh Bedarf > 10 kWh Kapazitaet).
+        """
+        anzahl_segmente = 1000
+        segment_laenge_m = 50.0
+        gesamt_energie_kwh = 15.0
+        energie_je_segment_kwh = gesamt_energie_kwh / anzahl_segmente
+
+        segments = []
+        energy_results = []
+        for i in range(anzahl_segmente):
+            lat = BERLIN_COORD[0] + i * 0.0002
+            lon = BERLIN_COORD[1] + i * 0.0002
+            naechste_lat = BERLIN_COORD[0] + (i + 1) * 0.0002
+            naechste_lon = BERLIN_COORD[1] + (i + 1) * 0.0002
+            segments.append(
+                RouteSegment(
+                    segment_index=i,
+                    geometrie=[(lat, lon), (naechste_lat, naechste_lon)],
+                    laenge_m=segment_laenge_m,
+                    strassenklasse="MOTORWAY",
+                    tempolimit_kmh=110,
+                    steigung_rohdaten=0.0,
+                    bearing_deg=45.0,
+                )
+            )
+            energy_results.append(
+                SegmentEnergyResult(
+                    segment_index=i,
+                    energiebedarf_kwh=energie_je_segment_kwh,
+                    rekuperation_kwh=0.0,
+                    energiebedarf_brutto_kwh=energie_je_segment_kwh,
+                    geschwindigkeit_m_s=30.0,
+                    fahrzeit_s=segment_laenge_m / 30.0,
+                    streckenlaenge_m=segment_laenge_m,
+                )
+            )
+
+        route = Route(
+            segments=segments,
+            gesamtlaenge_m=anzahl_segmente * segment_laenge_m,
+            geometrie=[s.geometrie[0] for s in segments] + [segments[-1].geometrie[1]],
+        )
+
+        mitte = anzahl_segmente // 2
+        station = ChargingStation(
+            station_id="mitte-station",
+            name="Tesla Supercharger Mitte",
+            coordinate=segments[mitte].geometrie[0],
+            stalls={StallType.V3: 4},
+            max_ladeleistung_kw=250.0,
+            connector_types=[ConnectorType.CCS2],
+            country="DE",
+        )
+
+        vehicle_profile = VehicleProfile(
+            masse_kg=1706.0,
+            cw_wert=0.23,
+            stirnflaeche_m2=2.22,
+            rollwiderstandsbeiwert=0.011,
+            batteriekapazitaet_kwh=10.0,
+        )
+
+        constraints = OptimizationConstraints(min_soc_pct=5.0, ziel_soc_pct=20.0)
+        optimizer = create_networkx_optimizer()
+
+        plan = optimizer.optimize(
+            route=route,
+            segments=route.segments,
+            gradients=[
+                SegmentGradient(
+                    segment_index=i,
+                    steigung_prozent=0.0,
+                    hoehendifferenz_m=0.0,
+                    horizontale_distanz_m=segment_laenge_m,
+                )
+                for i in range(anzahl_segmente)
+            ],
+            energy_results=energy_results,
+            charging_stations=[station],
+            waypoints=[],
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+            start_soc_pct=100.0,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+        )
+
+        assert len(plan.ladehalte) >= 1
+
+
+class TestZeitbudgetBeruecksichtigtLadezeit:
+    """Regressionstest: Bug - das Zeitbudget der Suche (`_estimate_max_time_buckets`)
+    addierte nur einen fixen 5-Bucket-Sicherheitspuffer zur reinen Fahrzeit, ohne
+    die fuer notwendige Ladestopps benoetigte Zeit einzurechnen. Bei Routen, die
+    mehrere Ladestopps brauchen, verwarf die Suche dadurch faelschlich jeden Pfad
+    ueber das Zeitbudget hinaus als "nicht fahrbar" (ValueError), obwohl die Route
+    mit ausreichend Ladezeit sehr wohl fahrbar gewesen waere.
+    """
+
+    def test_zeitbudget_waechst_mit_benoetigten_ladestopps(self) -> None:
+        """Bei gleicher Fahrstrecke muss das geschaetzte Zeitbudget fuer ein
+        Szenario mit hohem Energiebedarf (viele Ladestopps noetig) deutlich
+        groesser sein als fuer eines mit niedrigem Energiebedarf (kein Laden
+        noetig) - der alte, fixe 5-Bucket-Puffer war fuer beide Szenarien
+        identisch.
+        """
+        segments = [
+            RouteSegment(
+                segment_index=0,
+                geometrie=[BERLIN_COORD, HAMBURG_COORD],
+                laenge_m=300_000,
+                strassenklasse="MOTORWAY",
+                tempolimit_kmh=110,
+                steigung_rohdaten=0.0,
+                bearing_deg=45.0,
+            )
+        ]
+        vehicle_profile = VehicleProfile(
+            masse_kg=1706.0,
+            cw_wert=0.23,
+            stirnflaeche_m2=2.22,
+            rollwiderstandsbeiwert=0.011,
+            batteriekapazitaet_kwh=60.0,
+        )
+        constraints = OptimizationConstraints(max_ladezeit_s=3600)
+        optimizer = create_networkx_optimizer()
+
+        buckets_ohne_laden = optimizer._estimate_max_time_buckets(
+            segments,
+            total_energy_kwh=30.0,  # deutlich unter Akkukapazitaet - kein Laden noetig
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+        )
+        buckets_mit_vielen_ladestopps = optimizer._estimate_max_time_buckets(
+            segments,
+            total_energy_kwh=300.0,  # 5x Akkukapazitaet - mehrere Ladestopps noetig
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+        )
+
+        assert buckets_mit_vielen_ladestopps > buckets_ohne_laden
+
+    def test_route_mit_mehreren_ladestopps_bleibt_fahrbar(self) -> None:
+        """End-to-end: Eine Route, die 4 volle Ladezyklen braucht, MUSS trotz der
+        dafuer noetigen Ladezeit (deutlich mehr als der alte fixe 75-Minuten-
+        Puffer) als fahrbar erkannt werden, statt faelschlich mit
+        'Kein erreichbarer Zielknoten' abgelehnt zu werden.
+        """
+        anzahl_segmente = 6
+        segment_laenge_m = 200_000.0
+        energie_je_segment_kwh = 40.0  # 6 * 40 = 240 kWh bei 60 kWh Akku (4x Kapazitaet)
+
+        segments = []
+        energy_results = []
+        stations = []
+        for i in range(anzahl_segmente):
+            lat = BERLIN_COORD[0] + i * 1.0
+            lon = BERLIN_COORD[1] + i * 1.0
+            naechste_lat = BERLIN_COORD[0] + (i + 1) * 1.0
+            naechste_lon = BERLIN_COORD[1] + (i + 1) * 1.0
+            segments.append(
+                RouteSegment(
+                    segment_index=i,
+                    geometrie=[(lat, lon), (naechste_lat, naechste_lon)],
+                    laenge_m=segment_laenge_m,
+                    strassenklasse="MOTORWAY",
+                    tempolimit_kmh=110,
+                    steigung_rohdaten=0.0,
+                    bearing_deg=45.0,
+                )
+            )
+            energy_results.append(
+                SegmentEnergyResult(
+                    segment_index=i,
+                    energiebedarf_kwh=energie_je_segment_kwh,
+                    rekuperation_kwh=0.0,
+                    energiebedarf_brutto_kwh=energie_je_segment_kwh,
+                    geschwindigkeit_m_s=30.0,
+                    fahrzeit_s=segment_laenge_m / 30.0,
+                    streckenlaenge_m=segment_laenge_m,
+                )
+            )
+            stations.append(
+                ChargingStation(
+                    station_id=f"station-{i}",
+                    name=f"Tesla Supercharger {i}",
+                    coordinate=((lat + naechste_lat) / 2, (lon + naechste_lon) / 2),
+                    stalls={StallType.V3: 4},
+                    max_ladeleistung_kw=250.0,
+                    connector_types=[ConnectorType.CCS2],
+                    country="DE",
+                )
+            )
+
+        route = Route(
+            segments=segments,
+            gesamtlaenge_m=anzahl_segmente * segment_laenge_m,
+            geometrie=[s.geometrie[0] for s in segments] + [segments[-1].geometrie[1]],
+        )
+
+        vehicle_profile = VehicleProfile(
+            masse_kg=1706.0,
+            cw_wert=0.23,
+            stirnflaeche_m2=2.22,
+            rollwiderstandsbeiwert=0.011,
+            batteriekapazitaet_kwh=60.0,
+        )
+        constraints = OptimizationConstraints(min_soc_pct=10.0, ziel_soc_pct=20.0)
+        optimizer = create_networkx_optimizer()
+
+        plan = optimizer.optimize(
+            route=route,
+            segments=route.segments,
+            gradients=[
+                SegmentGradient(
+                    segment_index=i,
+                    steigung_prozent=0.0,
+                    hoehendifferenz_m=0.0,
+                    horizontale_distanz_m=segment_laenge_m,
+                )
+                for i in range(anzahl_segmente)
+            ],
+            energy_results=energy_results,
+            charging_stations=stations,
+            waypoints=[],
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+            start_soc_pct=80.0,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+        )
+
+        assert len(plan.ladehalte) >= 3
+
+
 class TestORToolsOptimizer:
     """Tests für den OR-Tools-Optimizer (Platzhalter)."""
 

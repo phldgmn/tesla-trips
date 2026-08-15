@@ -7,6 +7,7 @@ ORToolsOptimizer: Platzhalter für zukünftige CP-SAT Implementierung.
 from __future__ import annotations
 
 import math
+from collections import deque
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -161,7 +162,12 @@ class NetworkXOptimizer(OptimizerInterface):
             start_node=start_node,
             ziel_soc_bucket=ziel_soc_bucket,
             ziel_soc_target=ziel_soc_target,
-            max_time_buckets=self._estimate_max_time_buckets(segments),
+            max_time_buckets=self._estimate_max_time_buckets(
+                segments,
+                total_energy_kwh=sum(e.energiebedarf_kwh for e in energy_results),
+                vehicle_profile=vehicle_profile,
+                constraints=constraints,
+            ),
         )
 
         # A*-Suche zum Zielknoten
@@ -296,14 +302,37 @@ class NetworkXOptimizer(OptimizerInterface):
         EARTH_RADIUS_M = 6_371_000.0
         return EARTH_RADIUS_M * c
 
-    def _estimate_max_time_buckets(self, segments: list[RouteSegment]) -> int:
-        """Schätze die maximale Anzahl an Zeit-Buckets für die gesamte Route."""
+    def _estimate_max_time_buckets(
+        self,
+        segments: list[RouteSegment],
+        total_energy_kwh: float,
+        vehicle_profile: VehicleProfile,
+        constraints: OptimizationConstraints,
+    ) -> int:
+        """Schätze die maximale Anzahl an Zeit-Buckets für die gesamte Route.
+
+        Das Zeitbudget MUSS die für notwendige Ladestopps benötigte Zeit mit
+        einschließen - ein reiner Fahrzeit-Puffer (ohne Ladezeit) würde jede
+        Route, die mehr als eine Handvoll Minuten Laden braucht, fälschlich
+        als "nicht fahrbar" verwerfen, sobald der kumulierte Zeit-Bucket-Pfad
+        durchs Laden über die reine Fahrzeit-Schätzung hinauswächst (siehe
+        docs/plans/07-optimization.md).
+        """
         total_distance_m = sum(seg.laenge_m for seg in segments)
         speed_mps = DEFAULT_SPEED_KMH * 1000 / 3600
         total_time_s = total_distance_m / speed_mps
         total_time_min = total_time_s / 60.0
 
-        return int(total_time_min / self.time_step_min) + 5  # Sicherheitspuffer
+        # Worst-Case-Anzahl Ladestopps: Gesamtenergiebedarf geteilt durch die
+        # nutzbare Kapazität je Ladezyklus (konservativ: halbe Batteriekapazität
+        # je Stopp, da praktisch selten von 0% auf 100% geladen wird).
+        nutzbare_kapazitaet_je_stopp_kwh = max(vehicle_profile.batteriekapazitaet_kwh * 0.5, 1.0)
+        geschaetzte_ladestopps = max(
+            math.ceil(total_energy_kwh / nutzbare_kapazitaet_je_stopp_kwh) - 1, 0
+        )
+        ladezeit_puffer_min = geschaetzte_ladestopps * (constraints.max_ladezeit_s / 60.0)
+
+        return int((total_time_min + ladezeit_puffer_min) / self.time_step_min) + 5
 
     def _generate_graph(  # noqa: PLR0913, PLR0917 -- Graph-Konstruktion braucht den vollen Kontext (Route, Energie, Laden, Zwischenstopps, Constraints)
         self,
@@ -324,12 +353,16 @@ class NetworkXOptimizer(OptimizerInterface):
         """Generiere Knoten und Kanten für den Zustandsgraphen."""
         # Nutze BFS/DFS-artige Erweiterung: nur erreichbare Knoten erzeugen
         visited: set[tuple[int, int, int]] = set()
-        queue: list[tuple[int, int, int]] = [start_node]
+        # deque statt list: `pop(0)` auf einer Python-Liste ist O(n) (Shift
+        # aller Folgeelemente), macht die BFS bei feingranularen Routen mit
+        # zehntausenden Zustandsknoten quadratisch. `popleft()` auf `deque`
+        # ist O(1).
+        queue: deque[tuple[int, int, int]] = deque([start_node])
         G.nodes[start_node]["total_cost"] = 0.0
         G.nodes[start_node]["parent"] = None
 
         while queue:
-            current = queue.pop(0)
+            current = queue.popleft()
             if current in visited:
                 continue
             visited.add(current)
@@ -404,7 +437,7 @@ class NetworkXOptimizer(OptimizerInterface):
         constraints: OptimizationConstraints,
         vehicle_profile: VehicleProfile,
         ladekurve: ChargingCurve,
-        queue: list[tuple[int, int, int]],
+        queue: deque[tuple[int, int, int]],
     ) -> None:
         """Füge eine Fahrtkante für segments[drive_seg_idx] hinzu (naechstes Segment)."""
         next_seg = segments[drive_seg_idx]
@@ -416,19 +449,24 @@ class NetworkXOptimizer(OptimizerInterface):
             vehicle_profile=vehicle_profile,
         )
 
-        new_soc_bucket = soc_bucket - round(verbrauch_pct / self.soc_step_pct)
+        # Verbrauch wird vom KONTINUIERLICHEN SoC des Vorgaengerknotens
+        # abgezogen (nicht vom gerundeten Bucket) und erst danach fuer den
+        # neuen Knoten wieder gebuckt. Wuerde man stattdessen bei jeder
+        # Kante `round(verbrauch_pct / soc_step_pct)` vom Bucket abziehen,
+        # ginge bei feingranularen Routen (z. B. ein Segment pro GraphHopper-
+        # Polyline-Punktpaar, oft <200 m) der Grossteil des Verbrauchs pro
+        # Kante unter der halben Bucket-Schrittweite (Default 1%) verloren -
+        # bei tausenden Segmenten summiert sich das zu praktisch null
+        # Gesamtverbrauch und der Optimierer haelt faelschlich gar kein
+        # Laden fuer noetig (siehe docs/plans/07-optimization.md).
+        current_soc_pct = G.nodes[current]["soc_pct"]
+        new_soc_pct = current_soc_pct - verbrauch_pct
 
-        # Prüfe, ob SoC unter Min-SoC (oder gar unter 0%) fällt. Der negative
-        # Bucket-Fall wird hier abgefangen, bevor bucket_to_soc() ihn als
-        # ungueltigen Bucket-Index zurueckweist -- ein negativer Bucket
-        # bedeutet schlicht "Reichweite reicht fuer dieses Segment nicht",
-        # also eine unzulaessige Kante wie jede andere Unterschreitung von
-        # min_soc_pct.
-        if new_soc_bucket < 0:
+        # Reichweite reicht nicht (SoC unter 0% oder unter Min-SoC) - eine
+        # unzulaessige Kante wie jede andere Unterschreitung von min_soc_pct.
+        if new_soc_pct < 0.0 or new_soc_pct < constraints.min_soc_pct:
             return  # Unzulässig
-        new_soc_pct = bucket_to_soc(new_soc_bucket, self.soc_step_pct)
-        if new_soc_pct < constraints.min_soc_pct:
-            return  # Unzulässig
+        new_soc_bucket = soc_to_bucket(new_soc_pct, self.soc_step_pct)
 
         # Fahrzeit berechnen. Der neue Zeit-Bucket wird aus der TATSAECHLICHEN
         # kumulierten Zeit des Vorgaengerknotens abgeleitet (nicht inkrementell
@@ -486,10 +524,10 @@ class NetworkXOptimizer(OptimizerInterface):
         time_bucket: int,
         max_time_buckets: int,
         constraints: OptimizationConstraints,
-        queue: list[tuple[int, int, int]],
+        queue: deque[tuple[int, int, int]],
     ) -> None:
         """Füge Ladekanten zu allen Stationen in diesem Segment hinzu."""
-        current_soc_pct = bucket_to_soc(soc_bucket, self.soc_step_pct)
+        current_soc_pct = G.nodes[current]["soc_pct"]
 
         for station in stations:
             # Ladeziel wählen: Ziel-SoC oder 100% (je nach Distanz zum Ziel)
@@ -568,7 +606,7 @@ class NetworkXOptimizer(OptimizerInterface):
         waypoint: Waypoint,
         time_bucket: int,
         max_time_buckets: int,
-        queue: list[tuple[int, int, int]],
+        queue: deque[tuple[int, int, int]],
     ) -> None:
         """Füge Kante hinzu, um Zwischenstopp-Aufenthaltsdauer zu warten."""
         if not waypoint.aufenthaltsdauer:
@@ -591,7 +629,7 @@ class NetworkXOptimizer(OptimizerInterface):
                 next_node,
                 type="waypoint_wait",
                 waypoint_koordinate=waypoint.koordinate,
-                soc_pct=bucket_to_soc(current[1], self.soc_step_pct),
+                soc_pct=G.nodes[current]["soc_pct"],
                 zeitpunkt=neuer_zeitpunkt,
                 segment_index=seg_idx,
                 total_cost=COST_INF,
@@ -725,8 +763,8 @@ class NetworkXOptimizer(OptimizerInterface):
 
             # Prüfe, ob es sich um eine Ladekante handelt
             if curr_node[0] == prev_node[0]:  # Selbes Segment → Ladevorgang
-                prev_soc_pct = bucket_to_soc(prev_node[1], self.soc_step_pct)
-                curr_soc_pct = bucket_to_soc(curr_node[1], self.soc_step_pct)
+                prev_soc_pct = G.nodes[prev_node]["soc_pct"]
+                curr_soc_pct = G.nodes[curr_node]["soc_pct"]
 
                 if curr_soc_pct > prev_soc_pct:
                     # Ladevorgang erkannt

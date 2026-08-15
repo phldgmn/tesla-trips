@@ -8,8 +8,12 @@ import {
   roleToMarkerGlyph,
   buildMarkerElement,
   buildPopupText,
+  buildChargingStopMarkerElement,
+  buildChargingStopPopupHtml,
+  formatChargingDuration,
 } from "@/components/Map";
 import type { Stop, StopRole } from "@/components/Map";
+import type { ChargingStop } from "@/types";
 
 describe("MapVisualization utilities", () => {
   describe("socToColor", () => {
@@ -169,6 +173,60 @@ describe("MapVisualization utilities", () => {
         position: null,
       };
       expect(buildPopupText(stop, startRole)).toBe("Start");
+    });
+  });
+
+  describe("buildChargingStopMarkerElement", () => {
+    it("should build a lightning-bolt marker with charger orange background", () => {
+      const el = buildChargingStopMarkerElement();
+      expect(el instanceof HTMLElement).toBe(true);
+      expect(el.style.backgroundColor).toBe("rgb(245, 158, 11)");
+      expect(el.innerHTML).toContain("<svg");
+    });
+  });
+
+  describe("formatChargingDuration", () => {
+    it("should format sub-hour durations as minutes only", () => {
+      expect(formatChargingDuration(1800)).toBe("30min");
+    });
+
+    it("should format durations over an hour as hours + minutes", () => {
+      expect(formatChargingDuration(5400)).toBe("1h 30min");
+    });
+
+    it("should round to the nearest minute", () => {
+      expect(formatChargingDuration(89)).toBe("1min");
+    });
+  });
+
+  describe("buildChargingStopPopupHtml", () => {
+    const stop: ChargingStop = {
+      name: "Tesla Supercharger Hamm",
+      position: [51.6806, 7.8206],
+      ankunfts_soc_pct: 22,
+      ziel_soc_pct: 80,
+      ladedauer_s: 1800,
+      energie_geladen_kwh: 33.5,
+    };
+
+    it("should include the station name", () => {
+      expect(buildChargingStopPopupHtml(stop)).toContain(
+        "Tesla Supercharger Hamm",
+      );
+    });
+
+    it("should include arrival and departure SoC", () => {
+      const html = buildChargingStopPopupHtml(stop);
+      expect(html).toContain("22% SoC");
+      expect(html).toContain("80% SoC");
+    });
+
+    it("should include formatted charging duration", () => {
+      expect(buildChargingStopPopupHtml(stop)).toContain("30min");
+    });
+
+    it("should include charged energy in kWh", () => {
+      expect(buildChargingStopPopupHtml(stop)).toContain("33.5 kWh");
     });
   });
 });

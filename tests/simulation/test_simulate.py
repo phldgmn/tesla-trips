@@ -603,3 +603,60 @@ class TestSocDepletionPhysikalischKorrekt:
 
         erwarteter_end_soc = 80.0 - (gesamt_energie_kwh / battery_capacity_kwh) * 100.0
         assert result.frames[-1].soc_pct == pytest.approx(erwarteter_end_soc, abs=0.5)
+
+
+class TestSocBaselineNachLadehalt:
+    """Regressionstests: Bug 3 - SoC waehrend FAHREN nach einem Ladehalt muss vom
+    Ziel-SoC dieses Ladehalts ausgehen, nicht vom Start-SoC der gesamten Reise.
+
+    Fruehere Implementierung berechnete den SoC waehrend FAHREN immer als
+    `start_soc_pct - kumulierte_energie_seit_reisebeginn`, unabhaengig davon,
+    ob zwischendurch bereits geladen wurde. Dadurch wurde jeder Ladegewinn
+    verworfen, sobald wieder gefahren wurde, und der SoC fiel einfach auf der
+    urspruenglichen (ungeladenen) Entladekurve weiter - bei laengeren Routen
+    mit mehreren Ladehalten faelschlich bis auf 0% trotz erfolgter Ladehalte.
+    """
+
+    def test_end_soc_basiert_auf_ladehalt_ziel_soc_nicht_auf_reise_start(
+        self,
+        route_with_charging: Route,
+        energy_results_with_charging: list[SegmentEnergyResult],
+        plan_with_charging: ChargingPlan,
+    ) -> None:
+        """End-SoC nach Ladehalt (Segment 1, Ziel 60%) + Segmente 1+2 (17.0 kWh von
+        62.5 kWh) muss ~32.8% ergeben (60.0 - 27.2), nicht ~39.2% (80.0 - 40.8), was
+        die fehlerhafte Implementierung liefern wuerde (Start-SoC 80% minus
+        Gesamtenergie aller 3 Segmente, ohne den Ladehalt zu beruecksichtigen).
+        """
+        battery_capacity_kwh = 62.5
+        ladehalt = plan_with_charging.ladehalte[0]
+        energie_nach_ladehalt_kwh = sum(
+            e.energiebedarf_kwh
+            for e in energy_results_with_charging
+            if e.segment_index >= ladehalt.segment_index
+        )
+        erwarteter_end_soc = (
+            ladehalt.ziel_soc_pct - (energie_nach_ladehalt_kwh / battery_capacity_kwh) * 100.0
+        )
+        fehlerhafter_end_soc = (
+            80.0
+            - (
+                sum(e.energiebedarf_kwh for e in energy_results_with_charging)
+                / battery_capacity_kwh
+            )
+            * 100.0
+        )
+
+        result = simulate_trip(
+            route=route_with_charging,
+            charging_plan=plan_with_charging,
+            segment_energy=energy_results_with_charging,
+            weather_samples=[],
+            start_soc_pct=80.0,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            output_resolution_seconds=60,
+            battery_capacity_kwh=battery_capacity_kwh,
+        )
+
+        assert result.frames[-1].soc_pct == pytest.approx(erwarteter_end_soc, abs=0.5)
+        assert result.frames[-1].soc_pct != pytest.approx(fehlerhafter_end_soc, abs=1.0)
