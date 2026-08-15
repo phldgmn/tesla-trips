@@ -9,6 +9,16 @@ services:
       # Download/Import bei jedem `docker compose up`). Bereits via
       # `.gitignore` (`data/`) von Git ausgeschlossen.
       - ./data:/data
+      # Ueberschreibt nur `routing.non_ch.max_waypoint_distance` gegenueber
+      # dem im Image gebackenen `config-example.yml` (auf 1000km limitiert -
+      # zu wenig fuer DE+DK+SE-Langstrecken sobald ein `custom_model`
+      # verwendet wird, z. B. Faehrvermeidung, was GraphHopper in den
+      # Nicht-CH/Flex-Modus zwingt, in dem dieses Limit greift; siehe
+      # docker/graphhopper/gh-config.yml). Alle anderen Einstellungen
+      # (Profile, encoded_values, Import-Filter) sind unveraendert, damit
+      # der bereits importierte Graph in `./data` nicht neu gebaut werden
+      # muss.
+      - ./docker/graphhopper/gh-config.yml:/graphhopper/gh-config.yml:ro
     # Nutzt den lokal per `scripts/prepare_osm_extract.sh` erzeugten,
     # zusammengeführten Extrakt aus vollständigem Deutschland-, Dänemark-
     # und Schweden-Datensatz (Geofabrik-Länderextrakte, per `osmium merge`
@@ -20,6 +30,8 @@ services:
       - /data/de-dk-se.osm.pbf
       - --host
       - "0.0.0.0"
+      - --config
+      - /graphhopper/gh-config.yml
     environment:
       # Kombinierter DE+DK+SE-Graph ist deutlich größer als der vorige
       # Berlin-Demo-Extrakt - mehr Heap fuer Import und Betrieb. Der
