@@ -1,0 +1,20 @@
+{
+  "paths": [
+    {
+      "distance": 22266.258,
+      "time": 4143128,
+      "points_encoded": true,
+      "points": "actkIc|ocAdAfA|AvBXf@Lf@Dz@n@l@CwAFuBAa@CYCOGQMQg@k@yAoAu@g@{LsIiKaMon@oa@ig@qTyn@y]qlDwrBcgLaiGyrAqfAon@{hBeYgr@{I_QsFmPsEkLsAsDe@mAU]QOUKSEUA]HW@UAWGUKUQeAoA{@cBqBiEk@{Aw@{Bg@{@_@_@Wc@}@kCi@gAS}@c@uAAQ@SBEx@kAeCmHeAcDmAoDWg@We@]]wBoBKj@KbAk@nC{BdKjEzDj@n@lA`Br@lAdCtFrIhS\\z@JZNt@BZAh@ATEVI\\Wp@k@jAgCfFrAnCxE|JArA?l@Nv@nDcCLAJLVz@?VCReBxEQ\\aAfA`@jB",
+      "details": {
+        "road_environment": [[0, 15, "road"], [15, 29, "ferry"], [29, 67, "road"], [67, 68, "bridge"], [68, 101, "road"]],
+        "street_name": [[0, 15, null], [15, 29, "Rødby (DK) - Puttgarden (D)"], [29, 52, "Sydmotorvejen"], [52, 58, null], [58, 65, "Færgestationsvej"], [65, 69, "Færgevej"], [69, 85, "Jøncksvej"], [85, 86, "Søpavillonvej"], [86, 101, "Vestre Kaj"]]
+      },
+      "instructions": []
+    }
+  ],
+  "info": {
+    "copyrights": ["GraphHopper", "OpenStreetMap contributors"],
+    "hints": [],
+    "took": 2
+  }
+}

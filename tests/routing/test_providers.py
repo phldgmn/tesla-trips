@@ -34,7 +34,8 @@ class TestMapPathToRoute:
         assert first.strassenklasse == "OTHER"
         assert first.tempolimit_kmh is None
         assert first.steigung_rohdaten is None
-        assert first.oberflaeche is None
+        assert first.road_environment is None
+        assert first.strassenname is None
 
     def test_maps_response_with_details(
         self,
@@ -49,6 +50,43 @@ class TestMapPathToRoute:
         assert first.tempolimit_kmh == 130
         assert first.steigung_rohdaten == pytest.approx(1.5)
         assert first.oberflaeche == "asphalt"
+
+
+class TestMapPathToRouteFerryDetails:
+    """Tests für road_environment/strassenname-Mapping (Grundlage der Fährerkennung)."""
+
+    def test_ferry_segment_has_uppercased_road_environment(
+        self,
+        gh_provider: GraphHopperRoutingProvider,
+        graphhopper_response_with_ferry: GraphHopperResponse,
+    ) -> None:
+        """Das Fährsegment hat road_environment='FERRY' (uppercased aus GraphHopper 'ferry')."""
+        route = gh_provider._map_path_to_route(graphhopper_response_with_ferry.paths[0])
+
+        ferry_segments = [s for s in route.segments if s.road_environment == "FERRY"]
+        assert len(ferry_segments) > 0
+
+    def test_ferry_segment_has_strassenname_from_street_name(
+        self,
+        gh_provider: GraphHopperRoutingProvider,
+        graphhopper_response_with_ferry: GraphHopperResponse,
+    ) -> None:
+        """Das Fährsegment übernimmt den Namen aus dem street_name Path-Detail."""
+        route = gh_provider._map_path_to_route(graphhopper_response_with_ferry.paths[0])
+
+        ferry_segment = next(s for s in route.segments if s.road_environment == "FERRY")
+        assert ferry_segment.strassenname == "Rødby (DK) - Puttgarden (D)"
+
+    def test_road_segment_has_none_strassenname_when_street_name_null(
+        self,
+        gh_provider: GraphHopperRoutingProvider,
+        graphhopper_response_with_ferry: GraphHopperResponse,
+    ) -> None:
+        """Ein Segment mit street_name=null im JSON wird zu strassenname=None."""
+        route = gh_provider._map_path_to_route(graphhopper_response_with_ferry.paths[0])
+
+        assert route.segments[0].strassenname is None
+        assert route.segments[0].road_environment == "ROAD"
 
     def test_all_segments_have_bearing_deg(
         self,

@@ -29,6 +29,13 @@ def graphhopper_response_with_details() -> GraphHopperResponse:
 
 
 @pytest.fixture
+def graphhopper_response_with_ferry() -> GraphHopperResponse:
+    """Reale GraphHopper-Antwort (Puttgarden -> Rødby) mit road_environment/street_name."""
+    data = json.loads((FIXTURES_DIR / "graphhopper_response_with_ferry.json").read_text())
+    return GraphHopperResponse.model_validate(data)
+
+
+@pytest.fixture
 def vehicle_profile() -> VehicleProfile:
     """Beispiel-Fahrzeugprofil für TripRequests."""
     return VehicleProfile(

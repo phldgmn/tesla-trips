@@ -156,7 +156,21 @@ class GraphHopperRoutingProvider:
     """Konkrete Implementierung über GraphHopper HTTP API."""
 
     # Alle Path-Details, die `RouteSegment` optional konsumiert (siehe models.py).
-    _ALLE_PATH_DETAILS: tuple[str, ...] = ("road_class", "max_speed", "average_slope", "surface")
+    _ALLE_PATH_DETAILS: tuple[str, ...] = (
+        "road_class",
+        "max_speed",
+        "average_slope",
+        "surface",
+        "road_environment",
+    )
+    # `street_name` liest OSM-Namen direkt (z. B. Fährlinien-Relationen wie
+    # "Rødby (DK) - Puttgarden (D)") und ist - anders als road_class/surface/
+    # etc. - KEIN `graph.encoded_values`-Eintrag: taucht nie in `/info` auf
+    # und würde von `_ermittele_verfuegbare_path_details()`s Verfügbarkeits-
+    # filter fälschlich verworfen. Wird deshalb unabhängig vom Filter immer
+    # angefragt (live gegen den Projekt-GraphHopper-Server verifiziert:
+    # Detail wird korrekt geliefert, siehe graphhopper_response_with_ferry.json).
+    _IMMER_VERFUEGBARE_DETAILS: tuple[str, ...] = ("street_name",)
 
     def __init__(self, client: GraphHopperClient, use_custom_model: bool = False):
         """Initialisiert den GraphHopper Routing Provider.
@@ -207,7 +221,10 @@ class GraphHopperRoutingProvider:
         # Umwandlung TripRequest → GraphHopper Parameter
         points = [anfrage.start] + [wp.koordinate for wp in anfrage.zwischenstopps] + [anfrage.ziel]
 
-        details_list = await self._ermittele_verfuegbare_path_details()
+        details_list = [
+            *await self._ermittele_verfuegbare_path_details(),
+            *self._IMMER_VERFUEGBARE_DETAILS,
+        ]
 
         # custom_model nur verwenden, wenn gewünscht
         custom_model = None
@@ -247,7 +264,10 @@ class GraphHopperRoutingProvider:
         # Umwandlung waypoints → points list
         points = [start] + [wp[0] for wp in zwischenstopps] + [ziel]
 
-        details_list = await self._ermittele_verfuegbare_path_details()
+        details_list = [
+            *await self._ermittele_verfuegbare_path_details(),
+            *self._IMMER_VERFUEGBARE_DETAILS,
+        ]
 
         response = await self.client.route(
             points=points,
@@ -275,6 +295,8 @@ class GraphHopperRoutingProvider:
         max_speeds = path.details.get("max_speed", [])
         average_slopes = path.details.get("average_slope", [])
         surfaces = path.details.get("surface", [])
+        road_environments = path.details.get("road_environment", [])
+        street_names = path.details.get("street_name", [])
 
         # Erstelle ein Segment pro Edge (zwischen zwei aufeinanderfolgenden Points)
         for i in range(len(coordinates) - 1):
@@ -291,6 +313,10 @@ class GraphHopperRoutingProvider:
             tempolimit_kmh = self._normalize_max_speed(self._wert_fuer_edge(max_speeds, i))
             steigung_raw = self._wert_fuer_edge(average_slopes, i)
             steigung_rohdaten = float(steigung_raw) if steigung_raw is not None else None
+            road_environment_raw = self._wert_fuer_edge(road_environments, i)
+            road_environment = str(road_environment_raw).upper() if road_environment_raw else None
+            strassenname_raw = self._wert_fuer_edge(street_names, i)
+            strassenname = str(strassenname_raw) if strassenname_raw else None
             oberflaeche_raw = self._wert_fuer_edge(surfaces, i)
             oberflaeche = str(oberflaeche_raw) if oberflaeche_raw is not None else None
 
@@ -305,6 +331,8 @@ class GraphHopperRoutingProvider:
                 oberflaeche=oberflaeche,
                 tempolimit_kmh=tempolimit_kmh,
                 steigung_rohdaten=steigung_rohdaten,
+                road_environment=road_environment,
+                strassenname=strassenname,
                 bearing_deg=bearing,
             )
             segments.append(segment)
