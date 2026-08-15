@@ -17,7 +17,7 @@ frontend/dist/
 frontend/.vite/
 
 # Data (large, not committed)
-data/
+/data/
 
 # Runtime state (PIDs, logs from scripts/run.sh)
 .run/
