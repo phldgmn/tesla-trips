@@ -145,9 +145,10 @@ inline comment referencing the live-confirmed server error. No signature change.
   are behaviorally equivalent for point-building (both currently discard waypoint
   `aufenthaltsdauer` when calling GraphHopper), but `berechne_route` receives the full
   `TripRequest`, which now carries the avoidance fields. `berechne_route_mit_waypoints`
-  keeps its existing signature/behavior (still used directly by existing unit tests and
-  remains part of `RoutingProvider`) — not removed, not deprecated, just no longer the
-  method the production endpoint calls first.
+  was later removed from `GraphHopperRoutingProvider` and from the `RoutingProvider`
+  Protocol entirely (final whole-branch review: it never called the ferry-avoidance
+  helper below and would have silently dropped preferences if anything had still called
+  it) — `FakeRoutingProvider` keeps its own copy as a plain method, unaffected.
 - New private helper builds the ferry portion of `custom_model` from
   `anfrage.alle_faehren_vermeiden` / `anfrage.vermiedene_faehren`:
   - Global: appends `{"if": "road_environment == FERRY", "multiply_by": 0.0}` to
@@ -156,7 +157,10 @@ inline comment referencing the live-confirmed server error. No signature change.
     (`f"faehre_{i}"`), builds a GeoJSON `Polygon` Feature from `bbox_sw`/`bbox_no`
     (converting `(lat, lon)` → `[lon, lat]` at this external serialization boundary, per
     the project's documented three GeoJSON conversion points), and appends
-    `{"if": "in_faehre_{i}", "multiply_by": 0.0}` to `priority`.
+    `{"if": "in_faehre_{i} && road_environment == FERRY", "multiply_by": 0.0}` to
+    `priority` (the `road_environment == FERRY` conjunct was added in the final
+    whole-branch review fix wave — without it the area rule blocked every road inside
+    the buffered box, not just the ferry).
   - Merges with the existing (currently dormant in production) `use_custom_model` speed
     profile: if that flag is set, ferry priority rules are appended to the same
     `priority` array (GraphHopper applies independent `if` rules multiplicatively, not as
