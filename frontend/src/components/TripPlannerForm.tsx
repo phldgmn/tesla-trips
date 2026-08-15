@@ -486,12 +486,17 @@ export function TripPlannerForm({
   const validationErrors = validateForm({ stops, startSoc, zielSoc });
 
   // --- Ferry Display Data ---
-  const faehrenZumAnzeigen = [
+  const faehrenZumAnzeigen: Array<{
+    name: string;
+    bboxSw: [number, number];
+    bboxNo: [number, number];
+    laengeM: number | null;
+  }> = [
     ...(erkannteFaehren ?? []).map((f) => ({
       name: f.name,
       bboxSw: f.bbox_sw,
       bboxNo: f.bbox_no,
-      laengeM: f.laenge_m as number | null,
+      laengeM: f.laenge_m,
     })),
     ...vermiedeneFaehren
       .filter(
@@ -508,7 +513,7 @@ export function TripPlannerForm({
         name: v.name,
         bboxSw: v.bbox_sw,
         bboxNo: v.bbox_no,
-        laengeM: null as number | null,
+        laengeM: null,
       })),
   ];
 
