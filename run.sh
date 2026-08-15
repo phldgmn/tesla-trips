@@ -2,20 +2,23 @@
 # run.sh — Centralized service runner for Tesla-Tripplaner
 #
 # Usage:
-#   ./run.sh start   [backend|frontend|graphhopper|all]  (default: all)
-#   ./run.sh stop    [backend|frontend|graphhopper|all]
-#   ./run.sh restart [backend|frontend|graphhopper|all]
+#   ./run.sh start   [backend|frontend|graphhopper|tiles|all]  (default: all)
+#   ./run.sh stop    [backend|frontend|graphhopper|tiles|all]
+#   ./run.sh restart [backend|frontend|graphhopper|tiles|all]
 #   ./run.sh status
 #
-# Manages backend (uvicorn on :8000), frontend (Vite on :3000) and the
-# local GraphHopper routing container (docker-compose.yml, :8989).
-# `start backend`/`start all` first ensure OrbStack's Docker daemon is
-# running (auto-starting it if needed) and then bring up/health-check the
-# GraphHopper container before the backend starts, since the backend
-# depends on GraphHopper for real routing. Stops already-running services
-# before starting, so it's safe to call repeatedly. All output is
-# prefixed with [BACKEND] / [FRONTEND] for clear identification in a
-# shared terminal session.
+# Manages backend (uvicorn on :8000), frontend (Vite on :3000), the local
+# GraphHopper routing container (docker-compose.yml, :8989) and the local
+# vector-tile basemap server (docker-compose.yml "tiles" service, :8081,
+# see scripts/build_basemap_tiles.sh). `start backend`/`start all` first
+# ensure OrbStack's Docker daemon is running (auto-starting it if needed)
+# and then bring up/health-check the GraphHopper container before the
+# backend starts, since the backend depends on GraphHopper for real
+# routing. `start frontend`/`start all` likewise bring up the tiles
+# server first, since the map needs it to render the basemap. Stops
+# already-running services before starting, so it's safe to call
+# repeatedly. All output is prefixed with [BACKEND] / [FRONTEND] for
+# clear identification in a shared terminal session.
 
 set -euo pipefail
 
@@ -30,8 +33,10 @@ LOG_FRONTEND="$RUN_DIR/frontend.log"
 PORT_BACKEND=8000
 PORT_FRONTEND=3000
 PORT_GRAPHHOPPER=8989
+PORT_TILES=8081
 OSM_EXTRACT="data/de-dk-se.osm.pbf"
 GRAPHHOPPER_CONTAINER="tesla-trips-graphhopper"
+TILES_OUTPUT="data/tiles/basemap.pmtiles"
 
 # ── Colors ────────────────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
@@ -170,6 +175,56 @@ stop_graphhopper() {
   fi
 }
 
+tiles_health() {
+  # go-pmtiles hat keinen eingebauten Docker-HEALTHCHECK — Bereitschaft
+  # daher per HTTP-Poll der TileJSON-Antwort prüfen (siehe
+  # docker-compose.yml, Service "tiles").
+  if curl -sf -o /dev/null "http://localhost:$PORT_TILES/basemap.json"; then
+    echo "healthy"
+  elif docker compose ps -q tiles 2>/dev/null | grep -q .; then
+    echo "starting"
+  else
+    echo "missing"
+  fi
+}
+
+start_tiles() {
+  ensure_orbstack || return 1
+  if [[ ! -f "$TILES_OUTPUT" ]]; then
+    info "TILES: Basemap-Tileset fehlt ($TILES_OUTPUT) — baue es aus $OSM_EXTRACT …"
+    info "TILES: Build (Planetiler, ganz DE+DK+SE) kann 15-60+ Minuten dauern."
+    if ! ./scripts/build_basemap_tiles.sh; then
+      err "TILES: Build des Basemap-Tilesets fehlgeschlagen."
+      return 1
+    fi
+  fi
+  info "TILES: starting via docker compose …"
+  docker compose up -d tiles
+  info "TILES: waiting for healthy container …"
+  local waited=0
+  local max_wait=60
+  while true; do
+    if [[ "$(tiles_health)" == "healthy" ]]; then
+      info "TILES: running and healthy (http://localhost:$PORT_TILES)"
+      return 0
+    fi
+    if ((waited >= max_wait)); then
+      err "TILES: nach ${max_wait}s nicht healthy — siehe 'docker compose logs tiles'"
+      return 1
+    fi
+    sleep 2
+    waited=$((waited + 2))
+  done
+}
+
+stop_tiles() {
+  if docker compose ps -q tiles 2>/dev/null | grep -q .; then
+    warn "TILES: stopping container …"
+    docker compose stop tiles
+    info "TILES: stopped"
+  fi
+}
+
 # ── Actions ───────────────────────────────────────────────────────────────
 
 stop_backend() {
@@ -220,6 +275,10 @@ start_backend() {
 start_frontend() {
   stop_frontend
   run_dir_init
+  start_tiles || {
+    err "FRONTEND: Basemap-Tiles nicht bereit — Frontend-Start abgebrochen."
+    return 1
+  }
   info "FRONTEND: starting Vite dev server on :$PORT_FRONTEND …"
   npm --prefix frontend run dev \
     >"$LOG_FRONTEND" 2>&1 &
@@ -245,6 +304,17 @@ status() {
     rc=1
   else
     printf '%s◐ GRAPHHOPPER%s  %s\n' "$YELLOW" "$NC" "$gh_health"
+    rc=1
+  fi
+  local tiles_st
+  tiles_st="$(tiles_health)"
+  if [[ "$tiles_st" == "healthy" ]]; then
+    printf '%s● TILES%s  healthy  http://localhost:%s\n' "$GREEN" "$NC" "$PORT_TILES"
+  elif [[ "$tiles_st" == "missing" ]]; then
+    printf '%s○ TILES%s  not running\n' "$RED" "$NC"
+    rc=1
+  else
+    printf '%s◐ TILES%s  %s\n' "$YELLOW" "$NC" "$tiles_st"
     rc=1
   fi
   if pid_alive "$PID_BACKEND"; then
@@ -273,12 +343,13 @@ start)
   backend) start_backend ;;
   frontend) start_frontend ;;
   graphhopper) start_graphhopper ;;
+  tiles) start_tiles ;;
   all)
     start_backend
     start_frontend
     ;;
   *)
-    echo "Usage: $0 start [backend|frontend|graphhopper|all]"
+    echo "Usage: $0 start [backend|frontend|graphhopper|tiles|all]"
     exit 1
     ;;
   esac
@@ -288,12 +359,13 @@ stop)
   backend) stop_backend ;;
   frontend) stop_frontend ;;
   graphhopper) stop_graphhopper ;;
+  tiles) stop_tiles ;;
   all)
     stop_frontend
     stop_backend
     ;;
   *)
-    echo "Usage: $0 stop [backend|frontend|graphhopper|all]"
+    echo "Usage: $0 stop [backend|frontend|graphhopper|tiles|all]"
     exit 1
     ;;
   esac
@@ -307,6 +379,10 @@ restart)
     stop_graphhopper
     start_graphhopper
     ;;
+  tiles)
+    stop_tiles
+    start_tiles
+    ;;
   all)
     stop_frontend
     stop_backend
@@ -315,14 +391,14 @@ restart)
     start_frontend
     ;;
   *)
-    echo "Usage: $0 restart [backend|frontend|graphhopper|all]"
+    echo "Usage: $0 restart [backend|frontend|graphhopper|tiles|all]"
     exit 1
     ;;
   esac
   ;;
 status) status ;;
 *)
-  echo "Usage: $0 {start|stop|restart|status} [backend|frontend|graphhopper|all]"
+  echo "Usage: $0 {start|stop|restart|status} [backend|frontend|graphhopper|tiles|all]"
   exit 1
   ;;
 esac

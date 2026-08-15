@@ -5,7 +5,10 @@ import {
   Popup,
   LngLatBounds,
   LayerSpecification,
+  GeoJSONSource,
   setWorkerUrl,
+  type StyleSpecification,
+  type SourceSpecification,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 // MapLibre GL JS berechnet die Worker-URL zur Laufzeit relativ zu
@@ -19,16 +22,52 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // `setWorkerUrl()` überschreibt MapLibres eigene (kaputte) Berechnung damit.
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 
-import { toLngLat } from "../utils/geo-utils";
-import { ChargingStop, TripSimulationResult } from "../types";
+import { toLngLat, haversineDistanceM } from "../utils/geo-utils";
+import { ChargingStop, TripSimulationResult, SimulationFrame } from "../types";
 import type { Stop } from "../types/trip-request";
 import {
   fetchSuperchargers,
   refreshSupercharger,
   type SuperchargerStation,
 } from "../api/chargingApi";
+// Liberty-Style (OpenMapTiles-Schema) von openfreemap.org, einmalig
+// vendored (siehe README.md). Sprite/Glyphs bleiben bei der CDN, nur die
+// Vektor-Tile-Quelle wird unten auf den selbst gehosteten Tile-Server
+// umgebogen (siehe buildBasemapStyle).
+import libertyStyleRaw from "../assets/liberty-style.json";
 
 setWorkerUrl(maplibreWorkerUrl);
+
+// Lokaler Vektor-Tile-Server (docker-compose.yml, Service "tiles"; siehe
+// scripts/build_basemap_tiles.sh, run.sh `start tiles`). Liefert PMTiles
+// per `pmtiles serve` als ZXY/TileJSON-Endpunkt aus, gebaut aus demselben
+// DE+DK+SE-OSM-Extrakt, den auch GraphHopper fuers Routing nutzt.
+const TILES_BASE_URL = "http://localhost:8081";
+
+/** Ersetzt in einem MapLibre-Style nur die `openmaptiles`-Vektor-Quelle
+ * durch den selbst gehosteten Tile-Server; alle anderen Felder (Sprite,
+ * Glyphs, Layer, weitere Quellen) bleiben unveraendert.
+ */
+export function buildBasemapStyle(
+  baseStyle: StyleSpecification,
+  tilesBaseUrl: string,
+): StyleSpecification {
+  return {
+    ...baseStyle,
+    sources: {
+      ...baseStyle.sources,
+      openmaptiles: {
+        ...baseStyle.sources.openmaptiles,
+        url: `${tilesBaseUrl}/basemap.json`,
+      } as SourceSpecification,
+    },
+  };
+}
+
+const basemapStyle = buildBasemapStyle(
+  libertyStyleRaw as unknown as StyleSpecification,
+  TILES_BASE_URL,
+);
 
 // Farbpalette für SoC-Verlauf: rot → orange → gelb → grün
 export function socToColor(soc: number): string {
@@ -39,9 +78,59 @@ export function socToColor(soc: number): string {
   return "#22c55e";
 }
 
-// Berechnet mittleren SoC für ein Segment (basierend auf Start- und End-SoC)
-export function segmentAvgSoc(startSoc: number, endSoc: number): number {
-  return (startSoc + endSoc) / 2;
+/** Baut die MapLibre `line-gradient`-Expression für den SoC-Farbverlauf
+ * entlang der gesamten Route aus einer einzigen Linie (statt vieler
+ * einzelner Segment-Layer – siehe `MapVisualization`). Die Stop-Position
+ * jedes Frames wird als kumulierte Distanz relativ zur Gesamtstrecke
+ * berechnet (`line-progress` ist ebenfalls distanzbasiert), auf maximal
+ * `maxStops` gleichmässig über den Frame-Index verteilte Stützpunkte
+ * heruntergesampelt (vermeidet riesige Expressions bei langen Trips mit
+ * tausenden Frames) und um Frames mit identischer Position (z. B.
+ * während eines Ladehalts) bereinigt, da `interpolate`-Stops strikt
+ * aufsteigend sein müssen.
+ */
+export function buildSocGradientExpression(
+  frames: SimulationFrame[],
+  maxStops = 64,
+): unknown[] {
+  if (frames.length === 0) {
+    return [
+      "interpolate",
+      ["linear"],
+      ["line-progress"],
+      0,
+      "#3b82f6",
+      1,
+      "#3b82f6",
+    ];
+  }
+
+  const cumulative = [0];
+  for (let i = 1; i < frames.length; i++) {
+    cumulative.push(
+      cumulative[i - 1] +
+        haversineDistanceM(frames[i - 1].position, frames[i].position),
+    );
+  }
+  const total = cumulative[cumulative.length - 1];
+
+  const stride = Math.max(1, Math.ceil((frames.length - 1) / (maxStops - 1)));
+  const sampledIndices: number[] = [];
+  for (let i = 0; i < frames.length - 1; i += stride) {
+    sampledIndices.push(i);
+  }
+  sampledIndices.push(frames.length - 1);
+
+  const stops: (number | string)[] = [];
+  let lastProgress = -1;
+  for (const idx of sampledIndices) {
+    const progress =
+      total > 0 ? cumulative[idx] / total : idx / (frames.length - 1 || 1);
+    if (progress <= lastProgress) continue;
+    stops.push(progress, socToColor(frames[idx].soc_pct));
+    lastProgress = progress;
+  }
+  return ["interpolate", ["linear"], ["line-progress"], ...stops];
 }
 
 /** Rolle eines Stopps, abgeleitet aus seiner Position im Array. */
@@ -114,27 +203,6 @@ export function buildMarkerElement(role: StopRole): HTMLElement {
   ]
     .concat(isMiddle ? [] : ["font-family:system-ui,sans-serif"])
     .join(";");
-  return el;
-}
-
-/** Erzeugt ein gestyltes DOM-Element fuer einen Supercharger-Marker (Blitz-Symbol). */
-export function buildSuperchargerMarkerElement(): HTMLElement {
-  const el = document.createElement("div");
-  el.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="#ffffff" style="pointer-events:none;">
-    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-  </svg>`;
-  el.style.cssText = [
-    "display:flex",
-    "align-items:center",
-    "justify-content:center",
-    "width:28px",
-    "height:28px",
-    "border-radius:50%",
-    "background-color:#2563eb",
-    "border:2px solid #ffffff",
-    "box-shadow:0 1px 4px rgba(0,0,0,0.35)",
-    "cursor:pointer",
-  ].join(";");
   return el;
 }
 
@@ -214,6 +282,35 @@ export function buildSuperchargerPopoverElement(
   container.appendChild(btnRow);
 
   return container;
+}
+
+/** Layer-IDs für das geclusterte Supercharger-Overlay (siehe
+ * `addSuperchargerLayers`).
+ */
+const SUPERCHARGER_LAYER_IDS = [
+  "supercharger-clusters",
+  "supercharger-cluster-count",
+  "supercharger-unclustered",
+] as const;
+
+/** Baut die GeoJSON-FeatureCollection für das Supercharger-Overlay aus den
+ * geladenen Stationen. `slug` in den Feature-Properties verweist beim
+ * Klick auf die volle Stationsdaten in `superchargerStationsRef`.
+ */
+export function buildSuperchargerGeoJson(
+  stations: SuperchargerStation[],
+): GeoJSON.FeatureCollection<GeoJSON.Point, { slug: string }> {
+  return {
+    type: "FeatureCollection",
+    features: stations.map((station) => ({
+      type: "Feature",
+      geometry: {
+        type: "Point",
+        coordinates: [station.longitude, station.latitude],
+      },
+      properties: { slug: station.slug },
+    })),
+  };
 }
 
 /** Popup-Text für einen Stopp: Adresse falls vorhanden, sonst Rolle + gerundete Koordinaten. */
@@ -330,9 +427,6 @@ export function MapVisualization({
   // Verwaltung der Stopp-Marker, keyed by stop.id
   // Record (kein typeof Map, um Konflikte mit MapLibre zu vermeiden)
   const markersRef = useRef<Record<string, Marker>>({});
-  // Anzahl der zuletzt hinzugefügten Routensegmente (für Cleanup bei Wechsel
-  // in den Planungsmodus ohne simulationResult)
-  const segmentCountRef = useRef<number>(0);
   // Ladehalt-Marker (ein Eintrag pro tatsaechlichem Ladehalt aus
   // `simulationResult.charging_stops`), analog zu `markersRef` fuer Stopps.
   const chargingStopMarkersRef = useRef<Marker[]>([]);
@@ -346,7 +440,7 @@ export function MapVisualization({
     null,
   );
   const [refreshingSlug, setRefreshingSlug] = useState<string | null>(null);
-  const superchargerMarkersRef = useRef<Record<string, Marker>>({});
+  const superchargerStationsRef = useRef<SuperchargerStation[]>([]);
   const activePopoverRef = useRef<Popup | null>(null);
 
   useEffect(() => {
@@ -355,7 +449,7 @@ export function MapVisualization({
 
     mapRef.current = new Map({
       container: mapContainerRef.current,
-      style: "https://tiles.openfreemap.org/styles/liberty",
+      style: basemapStyle,
       center: [0, 0],
       zoom: 2,
     });
@@ -374,15 +468,10 @@ export function MapVisualization({
 
   /** Entfernt alle Routen- und Marker-Sources/Layer aus der Karte. */
   function clearSimulationLayers(map: Map) {
-    // Segment-Layer und -Quellen entfernen
-    const segmentCount = segmentCountRef.current;
-    for (let i = 0; i < segmentCount; i++) {
-      const layerId = `route-segment-${i}`;
-      if (map.getLayer(layerId)) map.removeLayer(layerId);
-      if (map.getSource(layerId)) map.removeSource(layerId);
-    }
-    segmentCountRef.current = 0;
-    // Haupt-Route
+    // Route (Basislinie + SoC-Gradient, ein Source/zwei Layer statt vieler
+    // Segment-Layer)
+    if (map.getLayer("route-soc-gradient"))
+      map.removeLayer("route-soc-gradient");
     if (map.getLayer("route")) map.removeLayer("route");
     if (map.getSource("route")) map.removeSource("route");
     // Ladehalte
@@ -423,9 +512,14 @@ export function MapVisualization({
       },
     };
 
-    // Route als GeoJSON Source + Hauptlinie hinzufügen
+    // Route als GeoJSON Source (lineMetrics fuer `line-progress`, siehe
+    // `buildSocGradientExpression`) + zwei Layer: dezente Basislinie +
+    // SoC-Gradient obendrauf. Ersetzt die vorherigen 1+N Sources/Layer
+    // (ein flacher Layer pro Farbsegment) durch genau zwei GPU-Layer,
+    // unabhängig von der Trip-Länge.
     map.addSource("route", {
       type: "geojson" as const,
+      lineMetrics: true,
       data: routeGeoJson,
     });
     map.addLayer({
@@ -439,50 +533,17 @@ export function MapVisualization({
       } satisfies LayerSpecification["paint"],
     } satisfies LayerSpecification);
 
-    // Route-Linie mit segmentierten SoC-Farben (viele kleine Linienabschnitte)
     const frames = simulationResult.frames;
-    const numSegments = Math.max(10, frames.length - 1);
-
-    for (let i = 0; i < numSegments; i++) {
-      const startIdx = Math.floor((i / numSegments) * frames.length);
-      const endIdx = Math.floor(((i + 1) / numSegments) * frames.length);
-      const startFrame = frames[startIdx];
-      const endFrame = frames[Math.min(endIdx, frames.length - 1)];
-
-      // Segment-GeoJSON
-      const segmentGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
-        type: "Feature" as const,
-        properties: {},
-        geometry: {
-          type: "LineString" as const,
-          coordinates: [
-            toLngLat(startFrame.position),
-            toLngLat(endFrame.position),
-          ],
-        },
-      };
-
-      const avgSoc = segmentAvgSoc(startFrame.soc_pct, endFrame.soc_pct);
-      const color = socToColor(avgSoc);
-
-      map.addSource(`route-segment-${i}`, {
-        type: "geojson" as const,
-        data: segmentGeoJson,
-      });
-
-      map.addLayer({
-        id: `route-segment-${i}`,
-        type: "line" as const,
-        source: `route-segment-${i}`,
-        paint: {
-          "line-color": color,
-          "line-width": 4,
-          "line-opacity": 0.9,
-        } satisfies LayerSpecification["paint"],
-      } satisfies LayerSpecification);
-    }
-    // Für das nächste Cleanup merken
-    segmentCountRef.current = numSegments;
+    map.addLayer({
+      id: "route-soc-gradient",
+      type: "line",
+      source: "route",
+      paint: {
+        "line-width": 4,
+        "line-opacity": 0.9,
+        "line-gradient": buildSocGradientExpression(frames),
+      },
+    } as unknown as LayerSpecification);
 
     // Ladehalt-Marker hinzufügen: ein Marker pro tatsächlichem Ladehalt aus
     // `simulationResult.charging_stops` (nicht pro LADEN-Frame – ein Halt
@@ -670,107 +731,188 @@ export function MapVisualization({
     }
   }
 
-  /** Helfer: Rendert Supercharger-Marker auf der Karte. */
-  function renderSuperchargerMarkers(
-    map: Map,
-    markers: Record<string, Marker>,
-    stations: SuperchargerStation[],
-  ) {
-    const seen = new Set<string>();
+  /** Fügt die (dauerhaft vorhandene, zunächst ausgeblendete) Source und
+   * die Cluster-/Punkt-Layer für das Supercharger-Overlay hinzu und
+   * registriert die Klick-/Hover-Handler einmalig. Sichtbarkeit wird
+   * separat über `visibility` gesteuert (siehe Effects unten) statt die
+   * Layer bei jedem Ein-/Ausblenden neu anzulegen – vermeidet doppelt
+   * registrierte Event-Handler bei wiederholtem Toggle. Klick-Handler
+   * lesen Stationsdaten über `superchargerStationsRef`, nicht über einen
+   * Closure-Stand von `superchargerStations`/`refreshingSlug`.
+   */
+  function addSuperchargerLayers(map: Map) {
+    if (map.getSource("superchargers")) return;
 
-    for (const station of stations) {
-      const id = station.slug;
-      seen.add(id);
+    map.addSource("superchargers", {
+      type: "geojson",
+      data: buildSuperchargerGeoJson([]),
+      cluster: true,
+      clusterRadius: 50,
+      clusterMaxZoom: 14,
+    });
 
-      const existing = markers[id];
-      if (existing) {
-        existing.setLngLat([station.longitude, station.latitude]);
-      } else {
-        const element = buildSuperchargerMarkerElement();
-        const marker = new Marker({ element })
-          .setLngLat([station.longitude, station.latitude])
-          .addTo(map);
+    map.addLayer({
+      id: "supercharger-clusters",
+      type: "circle",
+      source: "superchargers",
+      filter: ["has", "point_count"],
+      layout: { visibility: "none" },
+      paint: {
+        "circle-color": "#dc2626",
+        "circle-radius": ["step", ["get", "point_count"], 14, 25, 18, 100, 24],
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 2,
+      } satisfies LayerSpecification["paint"],
+    } satisfies LayerSpecification);
 
-        // Popover beim Klick: Details + Refresh-Button
-        // Hinweis: maplibre-gl's Marker feuert selbst nie ein "click"-Event
-        // (nur dragstart/drag/dragend) – daher Listener direkt am DOM-Element.
-        element.addEventListener("click", (e) => {
-          e.stopPropagation();
-          // Vorheriges Popover schliessen
-          activePopoverRef.current?.remove();
+    map.addLayer({
+      id: "supercharger-cluster-count",
+      type: "symbol",
+      source: "superchargers",
+      filter: ["has", "point_count"],
+      layout: {
+        visibility: "none",
+        "text-field": ["get", "point_count_abbreviated"],
+        "text-font": ["Noto Sans Bold"],
+        "text-size": 12,
+      } satisfies LayerSpecification["layout"],
+      paint: {
+        "text-color": "#ffffff",
+      } satisfies LayerSpecification["paint"],
+    } satisfies LayerSpecification);
 
-          const popup = new Popup({ offset: 14, closeButton: true });
-          const popupEl = buildSuperchargerPopoverElement(
-            station,
-            refreshingSlug === station.slug,
-            () => handleSuperchargerRefresh(station, popup),
-          );
-          popup.setDOMContent(popupEl);
-          popup.setLngLat([station.longitude, station.latitude]);
-          popup.addTo(map);
-          activePopoverRef.current = popup;
-        });
+    map.addLayer({
+      id: "supercharger-unclustered",
+      type: "circle",
+      source: "superchargers",
+      filter: ["!", ["has", "point_count"]],
+      layout: { visibility: "none" },
+      paint: {
+        "circle-color": "#dc2626",
+        "circle-radius": 8,
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 2,
+      } satisfies LayerSpecification["paint"],
+    } satisfies LayerSpecification);
 
-        markers[id] = marker;
+    map.on("click", "supercharger-clusters", (e) => {
+      const feature = map.queryRenderedFeatures(e.point, {
+        layers: ["supercharger-clusters"],
+      })[0];
+      const clusterId = feature?.properties?.cluster_id as number | undefined;
+      if (
+        !feature ||
+        clusterId === undefined ||
+        feature.geometry.type !== "Point"
+      ) {
+        return;
       }
-    }
+      const source = map.getSource("superchargers") as GeoJSONSource;
+      const coordinates = feature.geometry.coordinates as [number, number];
+      source.getClusterExpansionZoom(clusterId).then((zoom) => {
+        map.easeTo({ center: coordinates, zoom });
+      });
+    });
 
-    // Marker entfernen, die nicht mehr in der Liste sind
-    for (const id of Object.keys(markers)) {
-      if (!seen.has(id)) {
-        markers[id].remove();
-        delete markers[id];
-      }
+    map.on("click", "supercharger-unclustered", (e) => {
+      const slug = e.features?.[0]?.properties?.slug as string | undefined;
+      const station = superchargerStationsRef.current.find(
+        (s) => s.slug === slug,
+      );
+      if (!station) return;
+
+      activePopoverRef.current?.remove();
+      const popup = new Popup({ offset: 14, closeButton: true });
+      const popupEl = buildSuperchargerPopoverElement(
+        station,
+        refreshingSlug === station.slug,
+        () => handleSuperchargerRefresh(station, popup),
+      );
+      popup.setDOMContent(popupEl);
+      popup.setLngLat([station.longitude, station.latitude]);
+      popup.addTo(map);
+      activePopoverRef.current = popup;
+    });
+
+    for (const layerId of [
+      "supercharger-clusters",
+      "supercharger-unclustered",
+    ]) {
+      map.on("mouseenter", layerId, () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", layerId, () => {
+        map.getCanvas().style.cursor = "";
+      });
     }
   }
 
-  // Supercharger-Overlay: Daten laden und Marker rendern
+  // Supercharger-Layer einmalig anlegen (ausgeblendet) - siehe
+  // `addSuperchargerLayers`.
+  useEffect(() => {
+    if (!isMapLoaded || !mapRef.current) return;
+    addSuperchargerLayers(mapRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMapLoaded]);
+
+  // Sichtbarkeit umschalten (Layer bleiben angelegt, nur `visibility`
+  // wechselt - vermeidet Neuanlegen/erneutes Registrieren der Handler bei
+  // jedem Toggle).
   useEffect(() => {
     if (!isMapLoaded || !mapRef.current) return;
     const map = mapRef.current;
-    const markers = superchargerMarkersRef.current;
-
-    if (!superchargerVisible) {
-      // Alle Supercharger-Marker entfernen
-      for (const id of Object.keys(markers)) {
-        markers[id].remove();
-        delete markers[id];
+    const visibility = superchargerVisible ? "visible" : "none";
+    for (const layerId of SUPERCHARGER_LAYER_IDS) {
+      if (map.getLayer(layerId)) {
+        map.setLayoutProperty(layerId, "visibility", visibility);
       }
-      // Overlay wird ausgeblendet: Marker-Aufräumen (externes System) und
-      // lokaler State müssen atomar im selben Effect-Lauf passieren, sonst
-      // zeigen Popover/Ladeindikator kurz veraltete Stationsdaten.
+    }
+  }, [superchargerVisible, isMapLoaded]);
+
+  // Stationsdaten laden, sobald das Overlay eingeblendet wird; beim
+  // Ausblenden zuruecksetzen, damit ein erneutes Einblenden frische Daten
+  // laedt statt (potenziell veralteter) Cache-Daten.
+  useEffect(() => {
+    if (!superchargerVisible) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSuperchargerStations([]);
       setSuperchargerError(null);
       return;
     }
-
-    if (superchargerStations.length > 0) {
-      // Marker rendern (bereits geladen)
-      renderSuperchargerMarkers(map, markers, superchargerStations);
+    if (
+      !isMapLoaded ||
+      superchargerStations.length > 0 ||
+      superchargerLoading
+    ) {
       return;
     }
-
-    if (superchargerLoading) return;
-
-    // Daten laden
     setSuperchargerLoading(true);
     setSuperchargerError(null);
     fetchSuperchargers()
       .then((stations) => {
         setSuperchargerStations(stations);
         setSuperchargerLoading(false);
-        renderSuperchargerMarkers(map, markers, stations);
       })
       .catch((err: unknown) => {
         setSuperchargerLoading(false);
         const msg = err instanceof Error ? err.message : "Unbekannter Fehler";
         setSuperchargerError(msg);
       });
-    // Wir muessen superchargerStations.length nicht in dependencies,
-    // da wir den state explizit setzen
+    // superchargerStations.length/superchargerLoading bewusst nicht in den
+    // Dependencies - wir setzen den State hier selbst.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [superchargerVisible, isMapLoaded]);
+
+  // GeoJSON-Source synchron mit dem State halten (initiales Laden +
+  // Refresh via `handleSuperchargerRefresh`) und aktuellen Stand für die
+  // Klick-Handler in `addSuperchargerLayers` referenzierbar halten.
+  useEffect(() => {
+    superchargerStationsRef.current = superchargerStations;
+    if (!isMapLoaded || !mapRef.current) return;
+    const source = mapRef.current.getSource("superchargers") as
+      GeoJSONSource | undefined;
+    source?.setData(buildSuperchargerGeoJson(superchargerStations));
+  }, [superchargerStations, isMapLoaded]);
 
   return (
     <div

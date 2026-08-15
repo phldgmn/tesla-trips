@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   socToColor,
-  segmentAvgSoc,
+  buildSocGradientExpression,
+  buildSuperchargerGeoJson,
+  buildBasemapStyle,
   stopRole,
   roleToMarkerColor,
   roleToLabel,
@@ -13,7 +15,9 @@ import {
   formatChargingDuration,
 } from "@/components/Map";
 import type { Stop, StopRole } from "@/components/Map";
-import type { ChargingStop } from "@/types";
+import type { ChargingStop, SimulationFrame } from "@/types";
+import type { SuperchargerStation } from "@/api/chargingApi";
+import type { StyleSpecification } from "maplibre-gl";
 
 describe("MapVisualization utilities", () => {
   describe("socToColor", () => {
@@ -43,16 +47,153 @@ describe("MapVisualization utilities", () => {
     });
   });
 
-  describe("segmentAvgSoc", () => {
-    it("should compute average of start and end SoC", () => {
-      expect(segmentAvgSoc(100, 80)).toBe(90);
-      expect(segmentAvgSoc(80, 60)).toBe(70);
-      expect(segmentAvgSoc(50, 50)).toBe(50);
+  describe("buildSocGradientExpression", () => {
+    function frame(
+      position: [number, number],
+      soc_pct: number,
+    ): SimulationFrame {
+      return {
+        zeitpunkt: "2026-01-01T00:00:00Z",
+        position,
+        soc_pct,
+        zustand: "FAHREN",
+        geschwindigkeit_kmh: 100,
+      };
+    }
+
+    it("returns a flat fallback expression for an empty frame list", () => {
+      expect(buildSocGradientExpression([])).toEqual([
+        "interpolate",
+        ["linear"],
+        ["line-progress"],
+        0,
+        "#3b82f6",
+        1,
+        "#3b82f6",
+      ]);
     });
 
-    it("should handle extremes correctly", () => {
-      expect(segmentAvgSoc(0, 100)).toBe(50);
-      expect(segmentAvgSoc(100, 0)).toBe(50);
+    it("builds strictly increasing line-progress stops from start (0) to end (1)", () => {
+      const frames = [
+        frame([52.5, 13.4], 100),
+        frame([52.6, 13.5], 60),
+        frame([52.7, 13.6], 20),
+      ];
+      const expr = buildSocGradientExpression(frames);
+      expect(expr[0]).toBe("interpolate");
+      expect(expr[1]).toEqual(["linear"]);
+      expect(expr[2]).toEqual(["line-progress"]);
+      const stops = expr.slice(3);
+      expect(stops[0]).toBe(0);
+      expect(stops[stops.length - 2]).toBe(1);
+      // Farben folgen dem SoC-Verlauf (100% -> gruen, 20% -> rot)
+      expect(stops[1]).toBe(socToColor(100));
+      expect(stops[stops.length - 1]).toBe(socToColor(20));
+      // Progress-Werte muessen strikt aufsteigend sein (MapLibre-Anforderung
+      // an `interpolate`-Stops).
+      const progressValues = stops.filter((_, i) => i % 2 === 0) as number[];
+      for (let i = 1; i < progressValues.length; i++) {
+        expect(progressValues[i]).toBeGreaterThan(progressValues[i - 1]);
+      }
+    });
+
+    it("dedupes frames at an identical position (e.g. a charging pause)", () => {
+      const frames = [
+        frame([52.5, 13.4], 80),
+        frame([52.6, 13.5], 50),
+        frame([52.6, 13.5], 50), // Ladehalt: identische Position
+        frame([52.6, 13.5], 80), // Ladehalt: identische Position
+        frame([52.7, 13.6], 80),
+      ];
+      const expr = buildSocGradientExpression(frames);
+      const stops = expr.slice(3);
+      const progressValues = stops.filter((_, i) => i % 2 === 0) as number[];
+      // Duplikate mit gleichem Progress-Wert wurden entfernt (sonst waere
+      // ["interpolate", ...] fuer MapLibre ungueltig).
+      expect(new Set(progressValues).size).toBe(progressValues.length);
+    });
+
+    it("downsamples long frame lists to at most maxStops points", () => {
+      const frames = Array.from({ length: 5000 }, (_, i) =>
+        frame([50 + i * 0.001, 10 + i * 0.001], 100 - (i / 5000) * 100),
+      );
+      const expr = buildSocGradientExpression(frames, 32);
+      const stops = expr.slice(3);
+      expect(stops.length / 2).toBeLessThanOrEqual(32);
+    });
+  });
+
+  describe("buildSuperchargerGeoJson", () => {
+    function station(
+      overrides: Partial<SuperchargerStation> = {},
+    ): SuperchargerStation {
+      return {
+        slug: "berlin-mitte",
+        name: "Berlin Mitte",
+        latitude: 52.52,
+        longitude: 13.405,
+        country: "DE",
+        total_stalls: 8,
+        power_kilowatt: 250,
+        status: "OPEN",
+        stalls_v2: 0,
+        stalls_v3: 8,
+        stalls_v3_ultra: 0,
+        stalls_v4: 0,
+        ist_24_7: true,
+        date_opened: "2020-01-01",
+        ...overrides,
+      };
+    }
+
+    it("builds a Point FeatureCollection with slug in properties", () => {
+      const geojson = buildSuperchargerGeoJson([
+        station({ slug: "a", longitude: 13.4, latitude: 52.5 }),
+        station({ slug: "b", longitude: 9.99, latitude: 53.55 }),
+      ]);
+      expect(geojson.type).toBe("FeatureCollection");
+      expect(geojson.features).toHaveLength(2);
+      expect(geojson.features[0].geometry).toEqual({
+        type: "Point",
+        coordinates: [13.4, 52.5],
+      });
+      expect(geojson.features[0].properties).toEqual({ slug: "a" });
+      expect(geojson.features[1].properties).toEqual({ slug: "b" });
+    });
+
+    it("returns an empty FeatureCollection for no stations", () => {
+      expect(buildSuperchargerGeoJson([])).toEqual({
+        type: "FeatureCollection",
+        features: [],
+      });
+    });
+  });
+
+  describe("buildBasemapStyle", () => {
+    it("replaces only the openmaptiles source url, keeping everything else", () => {
+      const baseStyle = {
+        version: 8,
+        sources: {
+          openmaptiles: {
+            type: "vector",
+            url: "https://tiles.openfreemap.org/planet",
+          },
+          ne2_shaded: { type: "raster", tiles: ["https://x/{z}/{x}/{y}"] },
+        },
+        sprite: "https://tiles.openfreemap.org/sprites/ofm_f384/ofm",
+        glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+        layers: [],
+      } as unknown as StyleSpecification;
+
+      const result = buildBasemapStyle(baseStyle, "http://localhost:8081");
+
+      expect(result.sources.openmaptiles).toMatchObject({
+        url: "http://localhost:8081/basemap.json",
+      });
+      expect(result.sources.ne2_shaded).toEqual(baseStyle.sources.ne2_shaded);
+      expect(result.sprite).toBe(baseStyle.sprite);
+      expect(result.glyphs).toBe(baseStyle.glyphs);
+      expect(result.layers).toBe(baseStyle.layers);
     });
   });
 

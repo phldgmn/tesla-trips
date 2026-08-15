@@ -16,17 +16,19 @@ uv run pytest -m "not integration"
 Für die tägliche Entwicklung gibt es ein zentrales Skript, das beide Services managed:
 
 ```bash
-# Beide starten (Default, stoppt ggf. laufende Instanzen)
+# Alle starten (Default, stoppt ggf. laufende Instanzen)
 ./run.sh start
 
-# Nur Backend / nur Frontend
+# Nur Backend / Frontend / GraphHopper / Basemap-Tiles
 ./run.sh start backend
 ./run.sh start frontend
+./run.sh start graphhopper
+./run.sh start tiles
 
 # Status prüfen
 ./run.sh status
 
-# Beide stoppen
+# Alle stoppen
 ./run.sh stop
 
 # Neu starten (stop + start)
@@ -85,6 +87,41 @@ Um die Quelldaten neu herunterzuladen/zusammenzuführen (z. B. nach einem Geofab
 **Alternativer GraphHopper-Endpunkt (GRAPHHOPPER_URL):**
 
 Wenn Sie einen entfernten oder gemeinsamen GraphHopper-Server nutzen möchten, können Sie die Umgebungsvariable `GRAPHHOPPER_URL` setzen (Standardwert: `http://localhost:8989`). Diese Variable wird vom Backend beim Start der API-Lifetime-Phase gelesen und in der `GraphHopperClient`-Instanz verwendet. In der CI-Pipeline wird dieselbe Variable für den Integrationstest-Job gesetzt (.github/workflows/ci.yml, Zeile 59).
+
+**Selbst gehostete Vektor-Basemap-Tiles (Port 8081):**
+
+Die Karte im Frontend nutzt einen selbst gehosteten Vektor-Tile-Server statt
+einer externen CDN, gebaut aus demselben DE+DK+SE-OSM-Extrakt, den auch
+GraphHopper fürs Routing nutzt (`data/de-dk-se.osm.pbf`). Der Build läuft
+per [Planetiler](https://github.com/onthegomap/planetiler)
+(OpenMapTiles-Schema, kompatibel zum verwendeten "liberty"-Style) und
+erzeugt ein einzelnes [PMTiles](https://docs.protomaps.com/pmtiles/)-Archiv
+(`data/tiles/basemap.pmtiles`), ausgeliefert per `pmtiles serve`
+(`docker-compose.yml`, Service "tiles").
+
+```bash
+./run.sh start tiles   # oder: ./run.sh start frontend / start (=all)
+```
+
+`./run.sh start tiles` (und damit auch `start frontend`/`start` ohne
+Argument) baut bei fehlendem Tileset automatisch
+`scripts/build_basemap_tiles.sh` (kann bei einem vollständigen DE+DK+SE-Build
+15-60+ Minuten dauern und benötigt ca. 30GB freien Diskspace) und wartet
+anschließend, bis der Tile-Server erreichbar ist. Manuell äquivalent:
+
+```bash
+./scripts/build_basemap_tiles.sh   # baut data/tiles/basemap.pmtiles
+docker compose up -d tiles
+```
+
+Sprite und Schriftarten (Glyphs) bleiben bewusst bei der öffentlichen
+openfreemap.org-CDN (kleine, unkritische Assets) – nur die eigentlichen
+Kartendaten (Straßen, Gebäude, Landnutzung etc.) werden selbst gehostet;
+siehe `frontend/src/components/Map.tsx` (`buildBasemapStyle`) und die
+vendorte Style-Definition `frontend/src/assets/liberty-style.json`.
+
+Um das Tileset neu zu bauen (z. B. nach einem OSM-Extrakt-Update):
+`./scripts/build_basemap_tiles.sh --force`, danach `./run.sh restart tiles`.
 
 #### Frontend (Vite + React + MapLibre GL JS)
 

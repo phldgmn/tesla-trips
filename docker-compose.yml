@@ -41,3 +41,22 @@ services:
       # mit dem Default-Heap von 1g funktionierte).
       - JAVA_OPTS=-Xms2g -Xmx8g
     restart: unless-stopped
+
+  tiles:
+    image: protomaps/go-pmtiles:latest
+    container_name: tesla-trips-tiles
+    ports:
+      - "8081:8080"
+    volumes:
+      # data/tiles/basemap.pmtiles wird von scripts/build_basemap_tiles.sh
+      # aus demselben DE+DK+SE-OSM-Extrakt erzeugt, den auch GraphHopper
+      # nutzt (siehe data/de-dk-se.osm.pbf). `--cors=*` ist fuer lokale
+      # Entwicklung angemessen (Frontend laeuft auf localhost:3000); siehe
+      # https://docs.protomaps.com/pmtiles/cli#serve.
+      - ./data/tiles:/data:ro
+    command:
+      - serve
+      - /data
+      - --cors=*
+      - --public-url=http://localhost:8081
+    restart: unless-stopped
