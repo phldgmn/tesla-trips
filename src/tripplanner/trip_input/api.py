@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import traceback
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, cast
@@ -82,20 +82,12 @@ async def _step_1_route_berechnen(
 
     Als Default-Provider wird `FakeRoutingProvider` verwendet, damit die Pipeline
     ohne echten GraphHopper-Server läuft. Für Produktion kann ein echter Provider
-    wie `GraphHopperRoutingProvider` übergeben werden.
+    wie `GraphHopperRoutingProvider` übergeben werden. Ruft `berechne_route()`
+    (nicht `berechne_route_mit_waypoints()`) auf, damit Präferenzen aus `anfrage`
+    (z. B. Fährvermeidung) den Provider erreichen.
     """
     provider = routing_provider or FakeRoutingProvider()
-
-    # Konvertiere Waypoints zu dem erwarteten Format
-    zwischenstopps: list[tuple[Coordinate, timedelta | None]] = [
-        (wp.koordinate, wp.aufenthaltsdauer) for wp in anfrage.zwischenstopps
-    ]
-
-    return await provider.berechne_route_mit_waypoints(
-        anfrage.start,
-        anfrage.ziel,
-        zwischenstopps,
-    )
+    return await provider.berechne_route(anfrage)
 
 
 def _step_2_hoehenprofil_extractieren(route: Route) -> list[ElevationPoint]:
@@ -450,6 +442,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
     charging_provider: ChargingStationProvider | None = None,
     start_soc_pct: float = 80.0,
     ziel_soc_pct: float = 20.0,
+    route_observer: Callable[[Route], None] | None = None,
 ) -> TripSimulationResult:
     """Orchestriert die 11 Datenfluss-Schritte für die Reiseplanung.
 
@@ -463,6 +456,10 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
             (Default: FakeChargingStationProvider).
         start_soc_pct: Start-SoC in Prozent (Default: 80%).
         ziel_soc_pct: Ziel-SoC in Prozent (Default: 20%).
+        route_observer: Optionaler Callback, der unmittelbar nach Schritt 1 (Routing)
+            mit der berechneten Route aufgerufen wird - z. B. um erkannte
+            Fährverbindungen zu extrahieren, ohne GraphHopper ein zweites Mal
+            aufzurufen (siehe `create_trip_endpoint`).
 
     Returns:
         TripSimulationResult: Vollständige Simulations-Ergebnis.
@@ -477,6 +474,8 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
 
     # 2. Step 1: Route berechnen
     route = await _step_1_route_berechnen(anfrage, routing_provider)
+    if route_observer is not None:
+        route_observer(route)
 
     # 3. Step 2: Höhenprofil extrahieren
     _ = _step_2_hoehenprofil_extractieren(route)

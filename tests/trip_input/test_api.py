@@ -24,7 +24,7 @@ from tripplanner.charging_infrastructure.models import ChargingStation, Connecto
 from tripplanner.charging_infrastructure.providers import TeslaChargingStationProvider
 from tripplanner.construction.providers import FakeConstructionProvider
 from tripplanner.routing import FakeRoutingProvider, GraphHopperClient, GraphHopperRoutingProvider
-from tripplanner.routing.models import RouteSegment
+from tripplanner.routing.models import Route, RouteSegment
 from tripplanner.trip_input.api import (
     app,
     create_trip_simulation,
@@ -32,7 +32,7 @@ from tripplanner.trip_input.api import (
     get_routing_provider,
 )
 from tripplanner.trip_input.cli import parse_coord, parse_waypoint
-from tripplanner.trip_input.models import VehicleProfile, Waypoint
+from tripplanner.trip_input.models import TripRequest, VehicleProfile, Waypoint
 from tripplanner.weather.providers import FakeWeatherProvider
 
 # =============================================================================
@@ -513,6 +513,67 @@ async def test_create_trip_simulation_kurze_reise(
 
     assert result.gesamt_distanz_km > 0  # Kurze Strecke
     assert result.gesamt_fahrzeit_min < 30  # Kurze Fahrzeit
+
+
+async def test_create_trip_simulation_calls_route_observer_with_computed_route(
+    valid_trip_request: dict,
+    fake_routing_provider: FakeRoutingProvider,
+    fake_weather_provider: FakeWeatherProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
+) -> None:
+    """route_observer wird nach Schritt 1 mit der berechneten Route aufgerufen."""
+    captured: list[Route] = []
+
+    await create_trip_simulation(
+        valid_trip_request,
+        routing_provider=fake_routing_provider,
+        weather_provider=fake_weather_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
+        route_observer=captured.append,
+    )
+
+    assert len(captured) == 1
+    assert isinstance(captured[0], Route)
+    assert captured[0].gesamtlaenge_m > 0
+
+
+async def test_create_trip_simulation_without_route_observer_unaffected(
+    valid_trip_request: dict,
+    fake_routing_provider: FakeRoutingProvider,
+    fake_weather_provider: FakeWeatherProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
+) -> None:
+    """Ohne route_observer (Default None) verhält sich die Funktion unverändert."""
+    result = await create_trip_simulation(
+        valid_trip_request,
+        routing_provider=fake_routing_provider,
+        weather_provider=fake_weather_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
+    )
+
+    assert result.gesamt_distanz_km > 0
+
+
+async def test_step_1_route_berechnen_uses_berechne_route_not_waypoints(
+    valid_trip_request: dict,
+) -> None:
+    """_step_1_route_berechnen() ruft berechne_route() auf (nicht berechne_route_mit_waypoints()),
+    damit TripRequest-Präferenzen (z. B. Fährvermeidung) den Provider erreichen."""
+
+    class _RecordingProvider(FakeRoutingProvider):
+        def __init__(self) -> None:
+            self.berechne_route_called_with: TripRequest | None = None
+
+        async def berechne_route(self, anfrage: TripRequest) -> Route:
+            self.berechne_route_called_with = anfrage
+            return await super().berechne_route(anfrage)
+
+    provider = _RecordingProvider()
+    anfrage = TripRequest.model_validate(valid_trip_request)
+
+    await trip_api._step_1_route_berechnen(anfrage, provider)
+
+    assert provider.berechne_route_called_with is anfrage
 
 
 # =============================================================================
