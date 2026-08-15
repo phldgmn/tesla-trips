@@ -34,6 +34,29 @@ class Waypoint(BaseModel):
     )
 
 
+class FaehrAusschluss(BaseModel):
+    """Eine vom Nutzer zu vermeidende Fährverbindung.
+
+    Stammt aus einer zuvor per `tripplanner.routing.erkenne_faehren()` aus einer
+    berechneten Route erkannten `FaehrSegment`-Struktur (gleiche Feldnamen für
+    `name`/`bbox_sw`/`bbox_no`, aber eigenständig definiert): `routing` importiert
+    bereits `trip_input.models` (`TripRequest`), ein Import in Gegenrichtung würde
+    einen Modul-Zyklus erzeugen. Der API-Layer (`trip_input.api`, der beide Module
+    bereits importiert) konvertiert zwischen beiden Repräsentationen.
+    """
+
+    name: str = Field(
+        ...,
+        description="Anzeigename der Fährverbindung (aus einer vorherigen Routenberechnung)",
+    )
+    bbox_sw: Coordinate = Field(
+        ..., description="Südwest-Ecke der (gepufferten) Bounding Box um die Fährverbindung"
+    )
+    bbox_no: Coordinate = Field(
+        ..., description="Nordost-Ecke der (gepufferten) Bounding Box um die Fährverbindung"
+    )
+
+
 class VehicleProfile(BaseModel):
     """Physikalisches Fahrzeugprofil, konsumiert von `energy`/`optimization`.
 
@@ -69,6 +92,21 @@ class TripRequest(BaseModel):
     )
     abfahrtszeit: datetime = Field(..., description="Geplante Abfahrtszeit")
     fahrzeugprofil: VehicleProfile = Field(..., description="Physikalisches Fahrzeugprofil")
+    alle_faehren_vermeiden: bool = Field(
+        default=False,
+        description=(
+            "Falls True, werden alle Fährverbindungen bei der Routenberechnung "
+            "vermieden (GraphHopper custom_model: road_environment == FERRY "
+            "ausgeschlossen)."
+        ),
+    )
+    vermiedene_faehren: list[FaehrAusschluss] = Field(
+        default_factory=list,
+        description=(
+            "Liste spezifischer, zuvor erkannter Fährverbindungen, die bei der "
+            "Routenberechnung vermieden werden sollen (siehe FaehrAusschluss)."
+        ),
+    )
     praeferenzen: dict[str, object] = Field(
         default_factory=dict,
         description="Erweiterbare Nutzerpräferenzen (aktuell nicht spezifiziert)",
