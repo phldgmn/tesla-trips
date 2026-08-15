@@ -13,11 +13,14 @@ import {
   buildChargingStopMarkerElement,
   buildChargingStopPopupHtml,
   formatChargingDuration,
+  findNearestFrame,
+  buildRouteHoverText,
 } from "@/components/Map";
 import type { Stop, StopRole } from "@/components/Map";
 import type { ChargingStop, SimulationFrame } from "@/types";
 import type { SuperchargerStation } from "@/api/chargingApi";
 import type { StyleSpecification } from "maplibre-gl";
+import { formatZeitpunkt } from "@/utils/datetime-utils";
 
 describe("MapVisualization utilities", () => {
   describe("socToColor", () => {
@@ -343,11 +346,14 @@ describe("MapVisualization utilities", () => {
   describe("buildChargingStopPopupHtml", () => {
     const stop: ChargingStop = {
       name: "Tesla Supercharger Hamm",
+      station_id: "hamm-1",
       position: [51.6806, 7.8206],
       ankunfts_soc_pct: 22,
       ziel_soc_pct: 80,
       ladedauer_s: 1800,
       energie_geladen_kwh: 33.5,
+      ankunftszeit: "2026-08-15T14:05:00",
+      abfahrtszeit: "2026-08-15T14:35:00",
     };
 
     it("should include the station name", () => {
@@ -362,12 +368,84 @@ describe("MapVisualization utilities", () => {
       expect(html).toContain("80% SoC");
     });
 
+    it("should include arrival and departure time", () => {
+      const html = buildChargingStopPopupHtml(stop);
+      expect(html).toContain(formatZeitpunkt(stop.ankunftszeit));
+      expect(html).toContain(formatZeitpunkt(stop.abfahrtszeit));
+    });
+
     it("should include formatted charging duration", () => {
       expect(buildChargingStopPopupHtml(stop)).toContain("30min");
     });
 
     it("should include charged energy in kWh", () => {
       expect(buildChargingStopPopupHtml(stop)).toContain("33.5 kWh");
+    });
+  });
+
+  describe("findNearestFrame", () => {
+    const frames: SimulationFrame[] = [
+      {
+        zeitpunkt: "2026-08-15T10:00:00",
+        position: [52.5, 13.4],
+        soc_pct: 90,
+        zustand: "FAHREN",
+        geschwindigkeit_kmh: 100,
+      },
+      {
+        zeitpunkt: "2026-08-15T11:00:00",
+        position: [53.0, 13.9],
+        soc_pct: 70,
+        zustand: "FAHREN",
+        geschwindigkeit_kmh: 100,
+      },
+      {
+        zeitpunkt: "2026-08-15T12:00:00",
+        position: [53.5, 14.4],
+        soc_pct: 50,
+        zustand: "FAHREN",
+        geschwindigkeit_kmh: 100,
+      },
+    ];
+
+    it("should return undefined for an empty frame list", () => {
+      expect(findNearestFrame([], [13.4, 52.5])).toBeUndefined();
+    });
+
+    it("should return the frame closest to the given lng/lat", () => {
+      // Nahe am zweiten Frame (53.0, 13.9)
+      const nearest = findNearestFrame(frames, [13.91, 53.01]);
+      expect(nearest).toBe(frames[1]);
+    });
+
+    it("should return the first frame when closest to its position", () => {
+      const nearest = findNearestFrame(frames, [13.4, 52.5]);
+      expect(nearest).toBe(frames[0]);
+    });
+
+    it("should return the last frame when closest to its position", () => {
+      const nearest = findNearestFrame(frames, [14.4, 53.5]);
+      expect(nearest).toBe(frames[2]);
+    });
+  });
+
+  describe("buildRouteHoverText", () => {
+    const frame: SimulationFrame = {
+      zeitpunkt: "2026-08-15T14:05:00",
+      position: [52.5, 13.4],
+      soc_pct: 63.4,
+      zustand: "FAHREN",
+      geschwindigkeit_kmh: 110,
+    };
+
+    it("should include the formatted date/time", () => {
+      expect(buildRouteHoverText(frame)).toContain(
+        formatZeitpunkt(frame.zeitpunkt),
+      );
+    });
+
+    it("should include the rounded SoC percentage", () => {
+      expect(buildRouteHoverText(frame)).toContain("63% SoC");
     });
   });
 });

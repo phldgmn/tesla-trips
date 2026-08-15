@@ -9,6 +9,7 @@ import {
   setWorkerUrl,
   type StyleSpecification,
   type SourceSpecification,
+  type MapMouseEvent,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 // MapLibre GL JS berechnet die Worker-URL zur Laufzeit relativ zu
@@ -23,6 +24,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 
 import { toLngLat, haversineDistanceM } from "../utils/geo-utils";
+import { formatZeitpunkt } from "../utils/datetime-utils";
 import { ChargingStop, TripSimulationResult, SimulationFrame } from "../types";
 import type { Stop } from "../types/trip-request";
 import {
@@ -358,11 +360,13 @@ export function formatChargingDuration(seconds: number): string {
   return hours > 0 ? `${hours}h ${minutes}min` : `${minutes}min`;
 }
 
-/** Popup-HTML fuer einen Ladehalt: Name, Ankunfts-/Ziel-SoC, Dauer, geladene Energie. */
+/** Popup-HTML fuer einen Ladehalt: Name, Ankunfts-/Ziel-SoC samt Uhrzeit, Dauer, geladene Energie. */
 export function buildChargingStopPopupHtml(stop: ChargingStop): string {
   const rows: [string, string][] = [
     ["Ankunft", `${stop.ankunfts_soc_pct.toFixed(0)}% SoC`],
+    ["Ankunftszeit", formatZeitpunkt(stop.ankunftszeit)],
     ["Abfahrt", `${stop.ziel_soc_pct.toFixed(0)}% SoC`],
+    ["Abfahrtszeit", formatZeitpunkt(stop.abfahrtszeit)],
     ["Dauer", formatChargingDuration(stop.ladedauer_s)],
     ["Geladen", `${stop.energie_geladen_kwh.toFixed(1)} kWh`],
   ];
@@ -374,11 +378,42 @@ export function buildChargingStopPopupHtml(stop: ChargingStop): string {
     )
     .join("");
   return (
-    `<div style="font-family:system-ui,sans-serif;font-size:13px;min-width:160px;">` +
+    `<div style="font-family:system-ui,sans-serif;font-size:13px;min-width:190px;">` +
     `<strong style="font-size:14px;">${stop.name}</strong>` +
     `<table style="width:100%;border-collapse:collapse;margin-top:4px;">${rowsHtml}</table>` +
     `</div>`
   );
+}
+
+/** Findet den Simulationsframe, dessen Position am naechsten an `lngLat` liegt
+ * (naive Nearest-Neighbor-Suche ueber alle Frames, mit Laengengrad-Korrektur
+ * per cos(lat) fuer eine realistischere Abstandsschaetzung in Breitengraden
+ * fernab des Aequators). Genutzt fuer den Routen-Hover-Tooltip. */
+export function findNearestFrame(
+  frames: SimulationFrame[],
+  lngLat: [number, number],
+): SimulationFrame | undefined {
+  if (frames.length === 0) return undefined;
+  const [lng, lat] = lngLat;
+  const cosLat = Math.cos((lat * Math.PI) / 180);
+  let nearest = frames[0];
+  let nearestDist = Infinity;
+  for (const frame of frames) {
+    const [flng, flat] = toLngLat(frame.position);
+    const dlng = (flng - lng) * cosLat;
+    const dlat = flat - lat;
+    const dist = dlng * dlng + dlat * dlat;
+    if (dist < nearestDist) {
+      nearestDist = dist;
+      nearest = frame;
+    }
+  }
+  return nearest;
+}
+
+/** Tooltip-Text fuer den Routen-Hover: Datum/Zeit und SoC am naechstgelegenen Streckenpunkt. */
+export function buildRouteHoverText(frame: SimulationFrame): string {
+  return `${formatZeitpunkt(frame.zeitpunkt)} · ${frame.soc_pct.toFixed(0)}% SoC`;
 }
 
 interface MapProps {
@@ -442,6 +477,17 @@ export function MapVisualization({
   const [refreshingSlug, setRefreshingSlug] = useState<string | null>(null);
   const superchargerStationsRef = useRef<SuperchargerStation[]>([]);
   const activePopoverRef = useRef<Popup | null>(null);
+  // Routen-Hover: zeigt Datum/Zeit + SoC des naechstgelegenen Simulationsframes
+  // in einem kleinen Tooltip neben dem Cursor an.
+  const [routeHoverInfo, setRouteHoverInfo] = useState<{
+    x: number;
+    y: number;
+    frame: SimulationFrame;
+  } | null>(null);
+  const routeHoverHandlersRef = useRef<{
+    move: (e: MapMouseEvent) => void;
+    leave: () => void;
+  } | null>(null);
 
   useEffect(() => {
     // Map initialisieren
@@ -474,6 +520,14 @@ export function MapVisualization({
       map.removeLayer("route-soc-gradient");
     if (map.getLayer("route")) map.removeLayer("route");
     if (map.getSource("route")) map.removeSource("route");
+    // Hover-Handler der Haupt-Route abmelden (sonst haeufen sich beim
+    // Neuaufbau der Route mehrere Listener mit veralteten `frames`-Closures)
+    if (routeHoverHandlersRef.current) {
+      map.off("mousemove", "route", routeHoverHandlersRef.current.move);
+      map.off("mouseleave", "route", routeHoverHandlersRef.current.leave);
+      routeHoverHandlersRef.current = null;
+    }
+    setRouteHoverInfo(null);
     // Ladehalte
     for (const marker of chargingStopMarkersRef.current) {
       marker.remove();
@@ -532,6 +586,24 @@ export function MapVisualization({
         "line-opacity": 0.6,
       } satisfies LayerSpecification["paint"],
     } satisfies LayerSpecification);
+
+    // Hover-Tooltip: bei Mausbewegung ueber der Route den naechstgelegenen
+    // Simulationsframe suchen und Zeitpunkt + SoC anzeigen.
+    const handleRouteMouseMove = (e: MapMouseEvent) => {
+      const frame = findNearestFrame(simulationResult.frames, [
+        e.lngLat.lng,
+        e.lngLat.lat,
+      ]);
+      if (!frame) return;
+      setRouteHoverInfo({ x: e.point.x, y: e.point.y, frame });
+    };
+    const handleRouteMouseLeave = () => setRouteHoverInfo(null);
+    map.on("mousemove", "route", handleRouteMouseMove);
+    map.on("mouseleave", "route", handleRouteMouseLeave);
+    routeHoverHandlersRef.current = {
+      move: handleRouteMouseMove,
+      leave: handleRouteMouseLeave,
+    };
 
     const frames = simulationResult.frames;
     map.addLayer({
@@ -990,6 +1062,27 @@ export function MapVisualization({
           }}
         >
           {superchargerError}
+        </div>
+      )}
+
+      {/* Routen-Hover-Tooltip: Datum/Zeit + SoC am naechstgelegenen Streckenpunkt */}
+      {routeHoverInfo && (
+        <div
+          style={{
+            position: "absolute",
+            left: routeHoverInfo.x + 14,
+            top: routeHoverInfo.y + 14,
+            zIndex: 10,
+            padding: "4px 8px",
+            fontSize: "12px",
+            borderRadius: "4px",
+            background: "rgba(0,0,0,0.75)",
+            color: "#fff",
+            pointerEvents: "none",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {buildRouteHoverText(routeHoverInfo.frame)}
         </div>
       )}
     </div>
