@@ -349,5 +349,35 @@ describe("TripPlannerForm pure helpers", () => {
       const result = toggleFaehrAusschluss([], faehre, false);
       expect(result).toHaveLength(0);
     });
+
+    it("distinguishes ferries by all fields, not just name (same name, different bbox)", () => {
+      // Two ferries with the same name but different bounding boxes should be distinct
+      const faehre1 = {
+        name: "Fährverbindung A",
+        laenge_m: 10000,
+        bbox_sw: [50.0, 10.0] as [number, number],
+        bbox_no: [50.5, 10.5] as [number, number],
+      };
+      const faehre2 = {
+        name: "Fährverbindung A",
+        laenge_m: 15000,
+        bbox_sw: [51.0, 11.0] as [number, number],
+        bbox_no: [51.5, 11.5] as [number, number],
+      };
+      // Toggling on faehre1 adds it
+      const withFaehre1 = toggleFaehrAusschluss([], faehre1, true);
+      expect(withFaehre1).toHaveLength(1);
+      // Toggling on faehre2 adds it as a separate entry (not a duplicate)
+      const withBoth = toggleFaehrAusschluss(withFaehre1, faehre2, true);
+      expect(withBoth).toHaveLength(2);
+      // Toggling off faehre1 removes only faehre1, leaving faehre2
+      const afterRemoveFaehre1 = toggleFaehrAusschluss(
+        withBoth,
+        faehre1,
+        false,
+      );
+      expect(afterRemoveFaehre1).toHaveLength(1);
+      expect(afterRemoveFaehre1[0].bbox_sw[0]).toBe(51.0);
+    });
   });
 });

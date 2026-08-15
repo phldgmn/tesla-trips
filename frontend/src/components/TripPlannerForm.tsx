@@ -490,6 +490,33 @@ export function TripPlannerForm({
 
   const validationErrors = validateForm({ stops, startSoc, zielSoc });
 
+  // --- Ferry Display Data ---
+  const faehrenZumAnzeigen = [
+    ...(erkannteFaehren ?? []).map((f) => ({
+      name: f.name,
+      bboxSw: f.bbox_sw,
+      bboxNo: f.bbox_no,
+      laengeM: f.laenge_m as number | null,
+    })),
+    ...vermiedeneFaehren
+      .filter(
+        (v) =>
+          !(erkannteFaehren ?? []).some((f) =>
+            sameFaehrAusschluss(v, {
+              name: f.name,
+              bbox_sw: f.bbox_sw,
+              bbox_no: f.bbox_no,
+            }),
+          ),
+      )
+      .map((v) => ({
+        name: v.name,
+        bboxSw: v.bbox_sw,
+        bboxNo: v.bbox_no,
+        laengeM: null as number | null,
+      })),
+  ];
+
   // --- Render Helpers ---
 
   const renderVehicleAdvanced = () => {
@@ -1159,19 +1186,20 @@ export function TripPlannerForm({
             Alle Fähren vermeiden
           </label>
         </div>
-        {erkannteFaehren && erkannteFaehren.length > 0 && (
+        {faehrenZumAnzeigen.length > 0 && (
           <div style={{ marginTop: "0.75rem", display: "grid", gap: "0.4rem" }}>
             <p style={{ margin: 0, fontSize: "0.8rem", fontWeight: 500 }}>
               In der letzten Route genutzte Fähren:
             </p>
-            {erkannteFaehren.map((faehre, idx) => {
+            {faehrenZumAnzeigen.map((faehre, idx) => {
               const checkboxId = `faehre-vermeiden-${idx}`;
+              const eintrag: FaehrAusschluss = {
+                name: faehre.name,
+                bbox_sw: faehre.bboxSw,
+                bbox_no: faehre.bboxNo,
+              };
               const vermieden = vermiedeneFaehren.some((f) =>
-                sameFaehrAusschluss(f, {
-                  name: faehre.name,
-                  bbox_sw: faehre.bbox_sw,
-                  bbox_no: faehre.bbox_no,
-                }),
+                sameFaehrAusschluss(f, eintrag),
               );
               return (
                 <div
@@ -1186,11 +1214,13 @@ export function TripPlannerForm({
                     type="checkbox"
                     checked={vermieden}
                     onChange={(e) => {
-                      const next = toggleFaehrAusschluss(
-                        vermiedeneFaehren,
-                        faehre,
-                        e.target.checked,
-                      );
+                      const next = e.target.checked
+                        ? vermieden
+                          ? vermiedeneFaehren
+                          : [...vermiedeneFaehren, eintrag]
+                        : vermiedeneFaehren.filter(
+                            (f) => !sameFaehrAusschluss(f, eintrag),
+                          );
                       setVermiedeneFaehren(next);
                       buildAndSubmit(alleFaehrenVermeiden, next);
                     }}
@@ -1198,8 +1228,9 @@ export function TripPlannerForm({
                     disabled={isSubmitting}
                   />
                   <label htmlFor={checkboxId}>
-                    {faehre.name} vermeiden (
-                    {(faehre.laenge_m / 1000).toFixed(1)} km)
+                    {faehre.name} vermeiden
+                    {faehre.laengeM !== null &&
+                      ` (${(faehre.laengeM / 1000).toFixed(1)} km)`}
                   </label>
                 </div>
               );
