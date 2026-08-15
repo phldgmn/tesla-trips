@@ -51,6 +51,28 @@ class TestMapPathToRoute:
         assert first.steigung_rohdaten == pytest.approx(1.5)
         assert first.oberflaeche == "asphalt"
 
+    def test_all_segments_have_bearing_deg(
+        self,
+        gh_provider: GraphHopperRoutingProvider,
+        graphhopper_response_with_details: GraphHopperResponse,
+    ) -> None:
+        """Jedes gemappte Segment hat ein berechnetes bearing_deg in [0, 360)."""
+        route = gh_provider._map_path_to_route(graphhopper_response_with_details.paths[0])
+
+        for segment in route.segments:
+            assert 0.0 <= segment.bearing_deg < 360.0
+
+    def test_segment_length_computed_via_haversine(
+        self,
+        gh_provider: GraphHopperRoutingProvider,
+        graphhopper_response_basic: GraphHopperResponse,
+    ) -> None:
+        """Segmentlängen sind positiv und summieren sich zur Gesamtlänge."""
+        route = gh_provider._map_path_to_route(graphhopper_response_basic.paths[0])
+
+        assert all(s.laenge_m > 0 for s in route.segments)
+        assert route.gesamtlaenge_m == pytest.approx(sum(s.laenge_m for s in route.segments))
+
 
 class TestMapPathToRouteFerryDetails:
     """Tests für road_environment/strassenname-Mapping (Grundlage der Fährerkennung)."""
@@ -87,28 +109,6 @@ class TestMapPathToRouteFerryDetails:
 
         assert route.segments[0].strassenname is None
         assert route.segments[0].road_environment == "ROAD"
-
-    def test_all_segments_have_bearing_deg(
-        self,
-        gh_provider: GraphHopperRoutingProvider,
-        graphhopper_response_with_details: GraphHopperResponse,
-    ) -> None:
-        """Jedes gemappte Segment hat ein berechnetes bearing_deg in [0, 360)."""
-        route = gh_provider._map_path_to_route(graphhopper_response_with_details.paths[0])
-
-        for segment in route.segments:
-            assert 0.0 <= segment.bearing_deg < 360.0
-
-    def test_segment_length_computed_via_haversine(
-        self,
-        gh_provider: GraphHopperRoutingProvider,
-        graphhopper_response_basic: GraphHopperResponse,
-    ) -> None:
-        """Segmentlängen sind positiv und summieren sich zur Gesamtlänge."""
-        route = gh_provider._map_path_to_route(graphhopper_response_basic.paths[0])
-
-        assert all(s.laenge_m > 0 for s in route.segments)
-        assert route.gesamtlaenge_m == pytest.approx(sum(s.laenge_m for s in route.segments))
 
 
 class TestNormalizeMaxSpeed:
