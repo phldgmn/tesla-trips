@@ -91,6 +91,14 @@ function TripSummary({ result, stops }: TripSummaryProps) {
             <td style={labelCellStyle}>Ziel-SoC</td>
             <td style={valueCellStyle}>{result.ziel_soc_pct} %</td>
           </tr>
+          {result.erkannte_faehren.length > 0 && (
+            <tr>
+              <td style={labelCellStyle}>Fähren</td>
+              <td style={valueCellStyle}>
+                {result.erkannte_faehren.map((f) => f.name).join(", ")}
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
 

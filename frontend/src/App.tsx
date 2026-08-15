@@ -105,6 +105,7 @@ export function App() {
         onSubmit={handleSubmit}
         isSubmitting={isSubmitting}
         submitError={submitError}
+        erkannteFaehren={simulationResult?.erkannte_faehren}
       />
       <div style={{ position: "relative", flex: 1 }}>
         <MapVisualization
