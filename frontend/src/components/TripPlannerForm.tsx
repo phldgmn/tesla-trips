@@ -147,22 +147,17 @@ export function sameFaehrAusschluss(
   );
 }
 
-/** Ergänzt oder entfernt eine erkannte Fährverbindung aus der Ausschlussliste. */
+/** Ergänzt oder entfernt eine Fährverbindung aus der Ausschlussliste. */
 export function toggleFaehrAusschluss(
   liste: FaehrAusschluss[],
-  faehre: FaehrSegment,
+  faehre: FaehrAusschluss,
   vermeiden: boolean,
 ): FaehrAusschluss[] {
-  const eintrag: FaehrAusschluss = {
-    name: faehre.name,
-    bbox_sw: faehre.bbox_sw,
-    bbox_no: faehre.bbox_no,
-  };
-  const bereitsVorhanden = liste.some((f) => sameFaehrAusschluss(f, eintrag));
+  const bereitsVorhanden = liste.some((f) => sameFaehrAusschluss(f, faehre));
   if (vermeiden) {
-    return bereitsVorhanden ? liste : [...liste, eintrag];
+    return bereitsVorhanden ? liste : [...liste, faehre];
   }
-  return liste.filter((f) => !sameFaehrAusschluss(f, eintrag));
+  return liste.filter((f) => !sameFaehrAusschluss(f, faehre));
 }
 
 // ============================================================================
@@ -1189,7 +1184,7 @@ export function TripPlannerForm({
         {faehrenZumAnzeigen.length > 0 && (
           <div style={{ marginTop: "0.75rem", display: "grid", gap: "0.4rem" }}>
             <p style={{ margin: 0, fontSize: "0.8rem", fontWeight: 500 }}>
-              In der letzten Route genutzte Fähren:
+              Fähren dieser Route und ausgeschlossene Fähren:
             </p>
             {faehrenZumAnzeigen.map((faehre, idx) => {
               const checkboxId = `faehre-vermeiden-${idx}`;
@@ -1214,13 +1209,11 @@ export function TripPlannerForm({
                     type="checkbox"
                     checked={vermieden}
                     onChange={(e) => {
-                      const next = e.target.checked
-                        ? vermieden
-                          ? vermiedeneFaehren
-                          : [...vermiedeneFaehren, eintrag]
-                        : vermiedeneFaehren.filter(
-                            (f) => !sameFaehrAusschluss(f, eintrag),
-                          );
+                      const next = toggleFaehrAusschluss(
+                        vermiedeneFaehren,
+                        eintrag,
+                        e.target.checked,
+                      );
                       setVermiedeneFaehren(next);
                       buildAndSubmit(alleFaehrenVermeiden, next);
                     }}

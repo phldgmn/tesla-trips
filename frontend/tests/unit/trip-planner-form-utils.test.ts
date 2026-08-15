@@ -322,7 +322,6 @@ describe("TripPlannerForm pure helpers", () => {
   describe("toggleFaehrAusschluss", () => {
     const faehre = {
       name: "Rødby (DK) - Puttgarden (D)",
-      laenge_m: 22000,
       bbox_sw: [54.5, 11.22] as [number, number],
       bbox_no: [54.66, 11.36] as [number, number],
     };
@@ -354,17 +353,14 @@ describe("TripPlannerForm pure helpers", () => {
       // Two ferries with the same name but different bounding boxes should be distinct
       const faehre1 = {
         name: "Fährverbindung A",
-        laenge_m: 10000,
         bbox_sw: [50.0, 10.0] as [number, number],
         bbox_no: [50.5, 10.5] as [number, number],
       };
       const faehre2 = {
         name: "Fährverbindung A",
-        laenge_m: 15000,
         bbox_sw: [51.0, 11.0] as [number, number],
         bbox_no: [51.5, 11.5] as [number, number],
       };
-      // Toggling on faehre1 adds it
       const withFaehre1 = toggleFaehrAusschluss([], faehre1, true);
       expect(withFaehre1).toHaveLength(1);
       // Toggling on faehre2 adds it as a separate entry (not a duplicate)
