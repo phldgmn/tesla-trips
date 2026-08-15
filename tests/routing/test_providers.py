@@ -33,7 +33,7 @@ class TestMapPathToRoute:
         first = route.segments[0]
         assert first.strassenklasse == "OTHER"
         assert first.tempolimit_kmh is None
-        assert first.steigung_rohdaten is None
+        assert first.oberflaeche is None
         assert first.road_environment is None
         assert first.strassenname is None
 
