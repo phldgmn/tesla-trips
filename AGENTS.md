@@ -11,6 +11,7 @@ Code gilt nur dann als fertig, wenn **alle** der folgenden Punkte erfüllt sind 
 3. `uv run pytest -m "not integration"` läuft vollständig grün.
 4. Die Coverage-Schwelle aus `docs/04-repo-tooling-setup.md` wird nicht unterschritten (85 % für `src/tripplanner/`).
 5. Keine neue Abhängigkeit zwischen Modulen außer über die in `models.py` definierten Schnittstellen (siehe `docs/03-modulspezifikationen.md`).
+6. **Änderungen werden IMMER committet.** Jede abgeschlossene Aufgabe (Bugfix, Feature, Refactor) endet mit einem `git commit` der Änderungen — unabhängig davon, ob explizit danach gefragt wurde. Unfertige/experimentelle Arbeit ausdrücklich ausgenommen (z. B. auf explizite Nutzeranweisung "noch nicht committen"). Kein Task gilt als abgeschlossen, solange Änderungen nur im Arbeitsverzeichnis liegen.
 
 ## Services starten und stoppen
 
