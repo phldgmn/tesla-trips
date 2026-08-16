@@ -15,6 +15,8 @@ import {
   formatChargingDuration,
   findNearestFrame,
   buildRouteHoverText,
+  isValidMapViewState,
+  DEFAULT_MAP_VIEW,
 } from "@/components/Map";
 import type { Stop, StopRole } from "@/components/Map";
 import type { ChargingStop, SimulationFrame } from "@/types";
@@ -446,6 +448,47 @@ describe("MapVisualization utilities", () => {
 
     it("should include the rounded SoC percentage", () => {
       expect(buildRouteHoverText(frame)).toContain("63% SoC");
+    });
+  });
+
+  describe("isValidMapViewState", () => {
+    it("accepts a well-formed state", () => {
+      expect(isValidMapViewState({ center: [13.4, 52.5], zoom: 9 })).toBe(true);
+    });
+
+    it("accepts the default state", () => {
+      expect(isValidMapViewState(DEFAULT_MAP_VIEW)).toBe(true);
+    });
+
+    it("rejects null/undefined/non-object values", () => {
+      expect(isValidMapViewState(null)).toBe(false);
+      expect(isValidMapViewState(undefined)).toBe(false);
+      expect(isValidMapViewState("not an object")).toBe(false);
+      expect(isValidMapViewState(42)).toBe(false);
+    });
+
+    it("rejects a center that is not a 2-tuple of finite numbers", () => {
+      expect(isValidMapViewState({ center: [13.4], zoom: 9 })).toBe(false);
+      expect(isValidMapViewState({ center: [13.4, 52.5, 1], zoom: 9 })).toBe(
+        false,
+      );
+      expect(isValidMapViewState({ center: [13.4, "52.5"], zoom: 9 })).toBe(
+        false,
+      );
+      expect(isValidMapViewState({ center: [13.4, Infinity], zoom: 9 })).toBe(
+        false,
+      );
+      expect(isValidMapViewState({ center: [13.4, NaN], zoom: 9 })).toBe(false);
+    });
+
+    it("rejects a non-finite or missing zoom", () => {
+      expect(isValidMapViewState({ center: [13.4, 52.5] })).toBe(false);
+      expect(isValidMapViewState({ center: [13.4, 52.5], zoom: "9" })).toBe(
+        false,
+      );
+      expect(isValidMapViewState({ center: [13.4, 52.5], zoom: NaN })).toBe(
+        false,
+      );
     });
   });
 });

@@ -25,6 +25,7 @@ import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&ur
 
 import { toLngLat, haversineDistanceM } from "../utils/geo-utils";
 import { formatZeitpunkt } from "../utils/datetime-utils";
+import { usePersistentState } from "../utils/persistent-state";
 import { ChargingStop, TripSimulationResult, SimulationFrame } from "../types";
 import type { Stop } from "../types/trip-request";
 import {
@@ -416,6 +417,32 @@ export function buildRouteHoverText(frame: SimulationFrame): string {
   return `${formatZeitpunkt(frame.zeitpunkt)} · ${frame.soc_pct.toFixed(0)}% SoC`;
 }
 
+/** Von der Karte persistierter Kartenausschnitt (Mittelpunkt + Zoomstufe). */
+export interface MapViewState {
+  center: [number, number];
+  zoom: number;
+}
+
+/** Ausschnitt beim allerersten Laden (kein `localStorage`-Wert vorhanden):
+ * Welt-Ansicht, wie zuvor fest im `Map`-Konstruktor verdrahtet. */
+export const DEFAULT_MAP_VIEW: MapViewState = { center: [0, 0], zoom: 2 };
+
+/** Validiert einen aus `localStorage` wiederhergestellten Kartenausschnitt.
+ * Schützt vor einem inkompatiblen/beschädigten Alt-Wert (z. B. nach
+ * manueller Bearbeitung der DevTools oder einem künftigen Schema-Wechsel),
+ * der sonst MapLibre beim Initialisieren mit NaN/Infinity abstürzen ließe. */
+export function isValidMapViewState(value: unknown): value is MapViewState {
+  if (typeof value !== "object" || value === null) return false;
+  const { center, zoom } = value as Record<string, unknown>;
+  return (
+    Array.isArray(center) &&
+    center.length === 2 &&
+    center.every((c) => typeof c === "number" && Number.isFinite(c)) &&
+    typeof zoom === "number" &&
+    Number.isFinite(zoom)
+  );
+}
+
 interface MapProps {
   /** Simulationsergebnis (optional – entfällt im Planungsmodus). */
   simulationResult?: TripSimulationResult;
@@ -489,6 +516,19 @@ export function MapVisualization({
     leave: () => void;
   } | null>(null);
 
+  // Kartenausschnitt (Mittelpunkt + Zoom) wird in `localStorage` gespiegelt
+  // und beim Neuladen wiederhergestellt, statt jedes Mal bei der
+  // Welt-Ansicht zu starten. `initialMapViewRef` friert den beim Mount
+  // wiederhergestellten Wert ein - der Map-Konstruktor braucht ihn nur
+  // einmalig, spätere Änderungen laufen über `moveend` (s. u.).
+  const [mapView, setMapView] = usePersistentState<MapViewState | null>(
+    "map-view",
+    null,
+  );
+  const initialMapViewRef = useRef<MapViewState>(
+    mapView && isValidMapViewState(mapView) ? mapView : DEFAULT_MAP_VIEW,
+  );
+
   useEffect(() => {
     // Map initialisieren
     if (!mapContainerRef.current || mapRef.current) return;
@@ -496,12 +536,18 @@ export function MapVisualization({
     mapRef.current = new Map({
       container: mapContainerRef.current,
       style: basemapStyle,
-      center: [0, 0],
-      zoom: 2,
+      center: initialMapViewRef.current.center,
+      zoom: initialMapViewRef.current.zoom,
     });
 
     mapRef.current.on("load", () => {
       setIsMapLoaded(true);
+    });
+    mapRef.current.on("moveend", () => {
+      const map = mapRef.current;
+      if (!map) return;
+      const center = map.getCenter();
+      setMapView({ center: [center.lng, center.lat], zoom: map.getZoom() });
     });
 
     return () => {
@@ -510,6 +556,7 @@ export function MapVisualization({
         mapRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `setMapView` (React-Setter, stabile Identität) wird bewusst nicht aufgenommen: der Effect soll nur beim Mount laufen, siehe `initialMapViewRef`.
   }, []);
 
   /** Entfernt alle Routen- und Marker-Sources/Layer aus der Karte. */
