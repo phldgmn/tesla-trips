@@ -1012,6 +1012,11 @@ async def test_create_trip_simulation_populates_charging_stop_distanz_m_and_deto
     assert stop.route_index_vor is not None
     assert stop.route_index_nach is not None
     assert stop.route_index_vor < stop.route_index_nach
+    # Exakter Split-Index (Hinweg->Station, siehe `_step_lade_detours_routen`),
+    # nicht per Naechster-Punkt-Heuristik geschaetzt - muss innerhalb der
+    # Geometrie liegen, mit mindestens einem Punkt auf jeder Seite.
+    assert stop.detour_station_index is not None
+    assert 0 < stop.detour_station_index < len(stop.detour_geometrie) - 1
 
 
 async def test_create_trip_simulation_handles_unreachable_charging_detour_gracefully(
@@ -1027,11 +1032,14 @@ async def test_create_trip_simulation_handles_unreachable_charging_detour_gracef
 
     class _DetourFailingRoutingProvider:
         """Routet die Hauptstrecke normal, verweigert aber jede Detour-Anfrage
-        (identifiziert an genau einem Zwischenstopp - nur `_step_lade_detours_routen`
-        stellt Anfragen mit einem einzelnen Zwischenstopp, siehe `Waypoint`)."""
+        (identifiziert daran, dass Start- oder Zielkoordinate exakt die
+        Ladestation ist - nur `_step_lade_detours_routen` routet Hin-/Rueckweg-
+        Beine mit der Stationskoordinate als Start bzw. Ziel)."""
+
+        _STATION_KOORDINATE = (49.45, 11.08)
 
         async def berechne_route(self, anfrage: TripRequest) -> Route:
-            if len(anfrage.zwischenstopps) == 1:
+            if self._STATION_KOORDINATE in (anfrage.start, anfrage.ziel):
                 raise httpx.HTTPError("Ladestation nicht erreichbar")
             return await fake_routing_provider.berechne_route(anfrage)
 
@@ -1065,6 +1073,7 @@ async def test_create_trip_simulation_handles_unreachable_charging_detour_gracef
     assert stop.detour_geometrie == []
     assert stop.route_index_vor is None
     assert stop.route_index_nach is None
+    assert stop.detour_station_index is None
 
 
 def test_fastapi_endpoint_akzeptiert_faehr_zeitfenster_und_ladedauer_vorgaben(

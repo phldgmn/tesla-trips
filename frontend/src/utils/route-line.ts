@@ -42,6 +42,13 @@ export interface ChargingDetourInput {
   /** Echte, ueber GraphHopper geroutete Geometrie von `routeIndexVor` ueber die
    *  Station zu `routeIndexNach` (leer = Fallback auf eine Luftlinie zur Station) */
   detourGeometrie: [number, number][];
+  /** Index in `detourGeometrie`, an dem die Ladestation tatsaechlich erreicht
+   *  wird - vom Backend exakt ermittelt (zwei separat geroutete Hin-/Rueckweg-
+   *  Beine statt eines Via-Punkt-Requests, siehe `_step_lade_detours_routen`),
+   *  statt es hier per Naechster-Punkt-Heuristik zu schaetzen, die bei
+   *  Autobahnkreuzen mit nah beieinander liegenden Rampen fehlschlagen kann
+   *  (null, falls `detourGeometrie` leer ist) */
+  stationIndex: number | null;
   /** Index in `routeGeometrie`, ab dem `detourGeometrie` die Hauptroute ersetzt
    *  (null, falls `detourGeometrie` leer ist) */
   routeIndexVor: number | null;
@@ -109,6 +116,10 @@ interface ResolvedDetour {
   /** Ersetzende Geometrie; `detour[0]`/`detour[detour.length-1]` liegen nahe
    *  bei `routeGeometrie[startIdx]`/`routeGeometrie[endIdx]` */
   detour: [number, number][];
+  /** Index in `detour`, an dem die Ladestation tatsaechlich erreicht wird -
+   *  vom Backend exakt ermittelt, oder `null` um auf eine Naechster-Punkt-Suche
+   *  zurueckzufallen (siehe `buildSplicedRoute`) */
+  stationIndex: number | null;
   stationPosition: [number, number];
   ankunftsSocPct: number;
   zielSocPct: number;
@@ -130,6 +141,7 @@ function resolveDetours(
         startIdx: stop.routeIndexVor,
         endIdx: stop.routeIndexNach,
         detour: stop.detourGeometrie,
+        stationIndex: stop.stationIndex,
         stationPosition: stop.position,
         ankunftsSocPct: stop.ankunftsSocPct,
         zielSocPct: stop.zielSocPct,
@@ -142,6 +154,8 @@ function resolveDetours(
       startIdx: idx,
       endIdx: idx,
       detour: [routeGeometrie[idx], stop.position, routeGeometrie[idx]],
+      // Der mittlere Punkt IST die Station - hier bekannt, keine Suche noetig.
+      stationIndex: 1,
       stationPosition: stop.position,
       ankunftsSocPct: stop.ankunftsSocPct,
       zielSocPct: stop.zielSocPct,
@@ -215,18 +229,31 @@ export function buildSplicedRoute(
         frameIdx++;
       }
 
-      // Index innerhalb der Detour-Geometrie, der der Ladestation am
-      // naechsten liegt - dort erfolgt der SoC-Farbsprung (Ankunft -> Ziel).
-      let splitIdx = 0;
-      let bestDist = Infinity;
-      for (let k = 0; k < detour.detour.length; k++) {
-        const dist = haversineDistanceM(
-          detour.detour[k],
-          detour.stationPosition,
-        );
-        if (dist < bestDist) {
-          bestDist = dist;
-          splitIdx = k;
+      // Index innerhalb der Detour-Geometrie, an dem die Ladestation
+      // tatsaechlich erreicht wird - dort erfolgt der SoC-Farbsprung
+      // (Ankunft -> Ziel). Bevorzugt der vom Backend exakt gelieferte Index
+      // (siehe `ResolvedDetour.stationIndex`/`_step_lade_detours_routen`);
+      // eine Naechster-Punkt-Suche waere bei Autobahnkreuzen mit nah
+      // beieinander liegenden Rampen unzuverlaessig (findet ggf. eine andere,
+      // geometrisch nahe aber tatsaechlich andere Rampe).
+      let splitIdx =
+        detour.stationIndex !== null &&
+        detour.stationIndex >= 0 &&
+        detour.stationIndex < detour.detour.length
+          ? detour.stationIndex
+          : -1;
+      if (splitIdx === -1) {
+        let bestDist = Infinity;
+        splitIdx = 0;
+        for (let k = 0; k < detour.detour.length; k++) {
+          const dist = haversineDistanceM(
+            detour.detour[k],
+            detour.stationPosition,
+          );
+          if (dist < bestDist) {
+            bestDist = dist;
+            splitIdx = k;
+          }
         }
       }
 

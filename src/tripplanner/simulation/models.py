@@ -98,6 +98,16 @@ class ChargingStopSummary(BaseModel):
             "`detour_geometrie` die Hauptroute ersetzt (None, falls `detour_geometrie` leer ist)"
         ),
     )
+    detour_station_index: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Index in `detour_geometrie`, an dem die Ladestation tatsaechlich erreicht wird - "
+            "dort erfolgt der SoC-Sprung Ankunfts- zu Ziel-Wert in der Kartendarstellung, statt "
+            "ueber die gesamte Rueckfahrt der Detour-Schleife verschmiert zu werden (None, "
+            "falls `detour_geometrie` leer ist)."
+        ),
+    )
     ankunfts_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
     ziel_soc_pct: float = Field(
         ..., ge=0.0, le=100.0, description="Angestrebter SoC nach dem Laden in %"
@@ -145,6 +155,16 @@ class LadehaltDetour(BaseModel):
         ...,
         min_length=2,
         description="Geroutete Geometrie von `route_index_vor` ueber die Station zum Ziel",
+    )
+    station_index: int = Field(
+        ...,
+        ge=0,
+        description=(
+            "Index in `geometrie`, an dem die Ladestation tatsaechlich erreicht wird (Ende des "
+            "Hinwegs / Anfang des Rueckwegs, siehe `_step_lade_detours_routen` - zwei separat "
+            "geroutete Beine statt eines Via-Punkt-Requests, damit dieser Index exakt statt per "
+            "Naechster-Punkt-Heuristik ermittelt wird)"
+        ),
     )
     route_index_vor: int = Field(
         ...,

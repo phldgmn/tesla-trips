@@ -83,6 +83,7 @@ describe("buildSplicedRoute", () => {
           position: station,
           distanzM: 1000,
           detourGeometrie,
+          stationIndex: 2,
           routeIndexVor: 1,
           routeIndexNach: 3,
           ankunftsSocPct: 25,
@@ -137,6 +138,7 @@ describe("buildSplicedRoute", () => {
           position: station,
           distanzM: 1000,
           detourGeometrie,
+          stationIndex: 2,
           routeIndexVor: 1,
           routeIndexNach: 3,
           ankunftsSocPct: 18,
@@ -161,6 +163,68 @@ describe("buildSplicedRoute", () => {
     expect(jumpSpan).toBeLessThan(returnLegLength);
   });
 
+  it("uses the backend-provided stationIndex instead of a nearest-point search that a nearby ramp could fool", () => {
+    // Realistischer Autobahnkreuz-Fall: eine andere, ueberlagernde Rampe
+    // (Index 1) liegt in der 2D-Projektion NAEHER an der Ladestation als der
+    // tatsaechliche Anschlusspunkt (Index 3), an dem der Detour die Station
+    // wirklich erreicht (siehe `_step_lade_detours_routen` - zwei separat
+    // geroutete Beine statt Naechster-Punkt-Heuristik).
+    const route: [number, number][] = [
+      [52.5, 13.4], // 0
+      [52.6, 13.5], // 1 <- routeIndexVor
+      [52.65, 13.55], // 2 - replaced
+      [52.7, 13.6], // 3 <- routeIndexNach
+      [52.8, 13.7], // 4
+    ];
+    const station: [number, number] = [52.6101, 13.5201];
+    const decoyRampPoint: [number, number] = [52.61005, 13.52005];
+    const echterStationsAnschluss: [number, number] = [52.611, 13.521];
+    const detourGeometrie: [number, number][] = [
+      [52.6, 13.5], // 0 == route[1]
+      decoyRampPoint, // 1 - geometrisch naeher, aber NICHT der echte Anschluss
+      [52.63, 13.54], // 2
+      echterStationsAnschluss, // 3 - echter Anschlusspunkt laut Backend
+      [52.7, 13.6], // 4 == route[3]
+    ];
+    // Sanity-Check der Testannahme: die Deko-Rampe liegt tatsaechlich naeher
+    // an der Station als der echte Anschlusspunkt.
+    expect(haversineDistanceM(decoyRampPoint, station)).toBeLessThan(
+      haversineDistanceM(echterStationsAnschluss, station),
+    );
+
+    const stop = {
+      position: station,
+      distanzM: 1000,
+      detourGeometrie,
+      routeIndexVor: 1,
+      routeIndexNach: 3,
+      ankunftsSocPct: 18,
+      zielSocPct: 80,
+    };
+
+    const explicit = buildSplicedRoute(
+      route,
+      [{ ...stop, stationIndex: 3 }],
+      [],
+    );
+    const fallback = buildSplicedRoute(
+      route,
+      [{ ...stop, stationIndex: null }],
+      [],
+    );
+
+    const explicitJumpAt = explicit.samples.filter((s) => s.critical)[0]
+      .distanzM;
+    const fallbackJumpAt = fallback.samples.filter((s) => s.critical)[0]
+      .distanzM;
+
+    // Mit explizitem stationIndex liegt der Sprung am ECHTEN Anschlusspunkt
+    // (weiter entlang der Detour-Geometrie) statt an der naeher liegenden,
+    // aber falschen Deko-Rampe, auf die die Naechster-Punkt-Suche hereinfallen
+    // wuerde.
+    expect(explicitJumpAt).toBeGreaterThan(fallbackJumpAt);
+  });
+
   it("falls back to a straight there-and-back detour when routeIndexVor/Nach are null", () => {
     const route: [number, number][] = [
       [52.5, 13.4],
@@ -177,6 +241,7 @@ describe("buildSplicedRoute", () => {
           position: station,
           distanzM,
           detourGeometrie: [],
+          stationIndex: null,
           routeIndexVor: null,
           routeIndexNach: null,
           ankunftsSocPct: 30,
@@ -216,6 +281,7 @@ describe("buildSplicedRoute", () => {
           position: [52.31, 13.31],
           distanzM: d2,
           detourGeometrie: [],
+          stationIndex: null,
           routeIndexVor: null,
           routeIndexNach: null,
           ankunftsSocPct: 15,
@@ -225,6 +291,7 @@ describe("buildSplicedRoute", () => {
           position: [52.11, 13.11],
           distanzM: d1,
           detourGeometrie: [],
+          stationIndex: null,
           routeIndexVor: null,
           routeIndexNach: null,
           ankunftsSocPct: 40,
@@ -258,6 +325,7 @@ describe("buildSplicedRoute", () => {
           position: stationB,
           distanzM: 2,
           detourGeometrie: [route[1], stationB, route[3]],
+          stationIndex: 1,
           routeIndexVor: 1,
           routeIndexNach: 3,
           ankunftsSocPct: 50,
@@ -267,6 +335,7 @@ describe("buildSplicedRoute", () => {
           position: stationA,
           distanzM: 1,
           detourGeometrie: [route[0], stationA, route[2]],
+          stationIndex: 1,
           routeIndexVor: 0,
           routeIndexNach: 2,
           ankunftsSocPct: 10,

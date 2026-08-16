@@ -331,6 +331,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
                 detour_geometrie=detour.geometrie if detour else [],
                 route_index_vor=detour.route_index_vor if detour else None,
                 route_index_nach=detour.route_index_nach if detour else None,
+                detour_station_index=detour.station_index if detour else None,
                 ankunfts_soc_pct=ladehalt.ankunfts_soc_pct,
                 ziel_soc_pct=ladehalt.ziel_soc_pct,
                 ladedauer_s=ladehalt.geschaetzte_ladedauer_s,

@@ -70,6 +70,9 @@ export interface ChargingStop {
   /** Index in `route_geometrie`, bis zu dem (inklusive) `detour_geometrie` die
    *  Hauptroute ersetzt (null, falls `detour_geometrie` leer ist) */
   route_index_nach: number | null;
+  /** Index in `detour_geometrie`, an dem die Ladestation tatsaechlich erreicht
+   *  wird (null, falls `detour_geometrie` leer ist) */
+  detour_station_index: number | null;
   /** Ankunfts-SoC in % */
   ankunfts_soc_pct: number;
   /** Ziel-SoC in % */
