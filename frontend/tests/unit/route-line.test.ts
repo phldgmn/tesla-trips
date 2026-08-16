@@ -113,6 +113,54 @@ describe("buildSplicedRoute", () => {
     expect(critical[1].distanzM).toBeGreaterThan(critical[0].distanzM);
   });
 
+  it("places the arrival->departure SoC jump right at the station instead of smearing it over the return leg", () => {
+    const route: [number, number][] = [
+      [52.5, 13.4], // 0
+      [52.6, 13.5], // 1 <- routeIndexVor
+      [52.65, 13.55], // 2 - replaced, must NOT appear in output
+      [52.7, 13.6], // 3 <- routeIndexNach
+      [52.8, 13.7], // 4
+    ];
+    const station: [number, number] = [52.63, 13.52];
+    const detourGeometrie: [number, number][] = [
+      [52.6, 13.5], // == route[1] (routeIndexVor)
+      [52.615, 13.51],
+      station,
+      [52.625, 13.53],
+      [52.7, 13.6], // == route[3] (routeIndexNach)
+    ];
+
+    const result = buildSplicedRoute(
+      route,
+      [
+        {
+          position: station,
+          distanzM: 1000,
+          detourGeometrie,
+          routeIndexVor: 1,
+          routeIndexNach: 3,
+          ankunftsSocPct: 18,
+          zielSocPct: 80,
+        },
+      ],
+      [],
+    );
+
+    const critical = result.samples.filter((s) => s.critical);
+    expect(critical).toHaveLength(2);
+    const jumpSpan = critical[1].distanzM - critical[0].distanzM;
+    // Der Sprung von Ankunfts- zu Ziel-SoC muss quasi am selben Punkt (der
+    // Ladestation) passieren statt ueber die gesamte Rueckfahrt der
+    // Detour-Schleife verschmiert zu werden.
+    expect(jumpSpan).toBeGreaterThan(0);
+    expect(jumpSpan).toBeLessThan(1);
+
+    const returnLegLength =
+      haversineDistanceM(station, detourGeometrie[3]) +
+      haversineDistanceM(detourGeometrie[3], detourGeometrie[4]);
+    expect(jumpSpan).toBeLessThan(returnLegLength);
+  });
+
   it("falls back to a straight there-and-back detour when routeIndexVor/Nach are null", () => {
     const route: [number, number][] = [
       [52.5, 13.4],

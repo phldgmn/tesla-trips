@@ -18,6 +18,17 @@
 
 import { toLngLat, haversineDistanceM } from "./geo-utils";
 
+/** Minimaler Distanz-Abstand (m) zwischen dem Ankunfts- und dem
+ * Abfahrts-Stuetzpunkt an einer Ladestation. Das Laden selbst dauert in der
+ * Kartendarstellung "keine" Fahrstrecke - der SoC-Sprung soll direkt an der
+ * Station sichtbar sein statt ueber die gesamte Rueckfahrt der Detour-Schleife
+ * verschmiert zu werden (siehe `buildSocGradientExpression`). Der Wert muss nur
+ * gross genug sein, damit beide Stuetzpunkte nach der `line-progress`-Normierung
+ * unterscheidbare Fortschrittswerte erhalten (siehe dortiger `progress <=
+ * lastProgress`-Dedup).
+ */
+const CHARGE_JUMP_EPSILON_M = 0.5;
+
 /** Ein Ladehalt-Abstecher, wie ihn `buildSplicedRoute` zum Einfuegen braucht. */
 export interface ChargingDetourInput {
   /** Position der Ladestation als [lat, lon] (Ziel des Fallback-Abstechers,
@@ -220,28 +231,28 @@ export function buildSplicedRoute(
       }
 
       coordinates.push(toLngLat(detour.detour[0]));
-      if (splitIdx === 0) {
+      const arrivalDistanzM = rangeStartOriginal + offset + detourCum[splitIdx];
+      const emitChargeJump = () => {
         samples.push({
-          distanzM: rangeStartOriginal + offset,
+          distanzM: arrivalDistanzM,
           socPct: detour.ankunftsSocPct,
           critical: true,
         });
+        samples.push({
+          distanzM: arrivalDistanzM + CHARGE_JUMP_EPSILON_M,
+          socPct: detour.zielSocPct,
+          critical: true,
+        });
+      };
+      if (splitIdx === 0) {
+        emitChargeJump();
       }
       for (let k = 1; k < detour.detour.length; k++) {
         coordinates.push(toLngLat(detour.detour[k]));
         if (k === splitIdx) {
-          samples.push({
-            distanzM: rangeStartOriginal + offset + detourCum[k],
-            socPct: detour.ankunftsSocPct,
-            critical: true,
-          });
+          emitChargeJump();
         }
       }
-      samples.push({
-        distanzM: rangeStartOriginal + offset + detourLen,
-        socPct: detour.zielSocPct,
-        critical: true,
-      });
 
       offset += detourLen - (rangeEndOriginal - rangeStartOriginal);
       i = detour.endIdx + 1;
