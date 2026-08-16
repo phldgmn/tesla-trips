@@ -93,6 +93,8 @@ describe("buildRouteEintraege", () => {
       expect(result[1].stop.id).toBe("2");
       expect(result[0].sortKey).toBeNull();
       expect(result[1].sortKey).toBeNull();
+      expect(result[0].timing).toEqual({ arrival: null, departure: null });
+      expect(result[1].timing).toEqual({ arrival: null, departure: null });
     });
   });
 
@@ -200,6 +202,103 @@ describe("buildRouteEintraege", () => {
       expect(result).toHaveLength(3);
       expect(result.find((e) => e.art === "Fähre")?.faehre.name).toBe(
         "Fähre A",
+      );
+    });
+  });
+
+  describe("timing-Feld", () => {
+    it("übernimmt Ankunft/Abfahrt für Stopps aus estimateWaypointTimings", () => {
+      const frames = [
+        makeFrame("2025-01-01T08:00:00", 52.52, 13.405),
+        makeFrame("2025-01-01T09:00:00", 53.0, 13.9),
+      ];
+      const stops = [
+        makeStop("1", "Start", [52.52, 13.405]),
+        makeStop("2", "Ziel", [53.0, 13.9]),
+      ];
+
+      const result = buildRouteEintraege({
+        stops,
+        frames,
+        chargingStops: undefined,
+        erkannteFaehren: undefined,
+        vermiedeneFaehren: [],
+      });
+
+      const start = result.find((e) => e.art === "Stopp" && e.stopIndex === 0);
+      const ziel = result.find((e) => e.art === "Stopp" && e.stopIndex === 1);
+      // Start hat keine Ankunft (erster Frame ist die Abfahrt)
+      expect(start?.timing).toEqual({
+        arrival: null,
+        departure: "2025-01-01T08:00:00",
+      });
+      // Ziel hat keine Abfahrt (letzter Frame ist die Ankunft)
+      expect(ziel?.timing).toEqual({
+        arrival: "2025-01-01T09:00:00",
+        departure: null,
+      });
+    });
+
+    it("übernimmt Ankunfts-/Abfahrtszeit für Ladehalte 1:1 aus dem ChargingStop", () => {
+      const frames = [
+        makeFrame("2025-01-01T08:00:00", 52.52, 13.405),
+        makeFrame("2025-01-01T09:00:00", 52.53, 13.41),
+      ];
+      const stops = [
+        makeStop("1", "Start", [52.52, 13.405]),
+        makeStop("2", "Ziel", [52.53, 13.41]),
+      ];
+      const chargingStops = [
+        makeChargingStop({
+          ankunftszeit: "2025-01-01T08:30:00",
+          abfahrtszeit: "2025-01-01T08:50:00",
+        }),
+      ];
+
+      const result = buildRouteEintraege({
+        stops,
+        frames,
+        chargingStops,
+        erkannteFaehren: undefined,
+        vermiedeneFaehren: [],
+      });
+
+      const ladehalt = result.find((e) => e.art === "Ladehalt");
+      expect(ladehalt?.timing).toEqual({
+        arrival: "2025-01-01T08:30:00",
+        departure: "2025-01-01T08:50:00",
+      });
+    });
+
+    it("leitet die Fähren-Timing aus estimatePositionTiming (BBox-Mitte) ab", () => {
+      const frames = [
+        makeFrame("2025-01-01T08:00:00", 52.52, 13.405),
+        makeFrame("2025-01-01T08:30:00", 52.525, 13.405), // nahe der Fähren-BBox-Mitte
+        makeFrame("2025-01-01T09:00:00", 52.53, 13.41),
+      ];
+      const stops = [
+        makeStop("1", "Start", [52.52, 13.405]),
+        makeStop("2", "Ziel", [52.53, 13.41]),
+      ];
+      const recognizedFerries = [
+        makeFaehre({
+          name: "Fähre A",
+          bbox_sw: [52.51, 13.395],
+          bbox_no: [52.54, 13.415],
+        }),
+      ];
+
+      const result = buildRouteEintraege({
+        stops,
+        frames,
+        chargingStops: undefined,
+        erkannteFaehren: recognizedFerries,
+        vermiedeneFaehren: [],
+      });
+
+      const faehre = result.find((e) => e.art === "Fähre");
+      expect(faehre?.timing.arrival ?? faehre?.timing.departure).toBe(
+        faehre?.sortKey,
       );
     });
   });

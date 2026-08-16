@@ -4,12 +4,16 @@
  *
  *  Jeder Route-Eintrag hat ein `sortKey`-Feld, das zur sortierung herangezogen
  *  wird (null-Werte werden ans Ende sortiert, stabile Sortierung erhält
- *  ursprüngliche Reihenfolge bei gleichen/null Keys).
+ *  ursprüngliche Reihenfolge bei gleichen/null Keys), sowie ein `timing`-Feld
+ *  (Ankunft/Abfahrt einzeln, `sortKey` ist `timing.arrival ?? timing.departure`),
+ *  aus dem TripPlannerForm.tsx die überhängenden Zeit-Badges und den
+ *  Tageswechsel-Trenner ableitet.
  */
 
 import type { Stop } from "../types/trip-request";
 import type { ChargingStop, FaehrSegment, SimulationFrame } from "../types";
 import type { FerryExclusion } from "../types/trip-request";
+import type { PositionTiming } from "./timing-utils";
 import {
   estimateWaypointTimings,
   estimatePositionTiming,
@@ -29,9 +33,25 @@ function sameFerryExclusion(a: FerryExclusion, b: FerryExclusion): boolean {
 }
 
 export type RouteEintrag =
-  | { art: "Stopp"; sortKey: string | null; stop: Stop; stopIndex: number }
-  | { art: "Ladehalt"; sortKey: string | null; chargingStop: ChargingStop }
-  | { art: "Fähre"; sortKey: string | null; faehre: FaehrSegment };
+  | {
+      art: "Stopp";
+      sortKey: string | null;
+      timing: PositionTiming;
+      stop: Stop;
+      stopIndex: number;
+    }
+  | {
+      art: "Ladehalt";
+      sortKey: string | null;
+      timing: PositionTiming;
+      chargingStop: ChargingStop;
+    }
+  | {
+      art: "Fähre";
+      sortKey: string | null;
+      timing: PositionTiming;
+      faehre: FaehrSegment;
+    };
 
 /** Baut eine chronologisch sortierte Liste von Route-Einträgen.
  *
@@ -61,6 +81,7 @@ export function buildRouteEintraege(args: {
     return stops.map((stop, idx) => ({
       art: "Stopp" as const,
       sortKey: null,
+      timing: { arrival: null, departure: null },
       stop,
       stopIndex: idx,
     }));
@@ -69,11 +90,12 @@ export function buildRouteEintraege(args: {
   // Stops: sortKey = Ankunftszeit (falls vorhanden, sonst Abfahrt)
   const waypointTimings = estimateWaypointTimings(frames, stops);
   const stopEintraege: RouteEintrag[] = stops.map((stop, idx) => {
-    const timing = waypointTimings[idx];
-    const sortKey = timing.arrival ?? timing.departure ?? null;
+    const { arrival, departure } = waypointTimings[idx];
+    const sortKey = arrival ?? departure ?? null;
     return {
       art: "Stopp" as const,
       sortKey,
+      timing: { arrival, departure },
       stop,
       stopIndex: idx,
     };
@@ -84,6 +106,10 @@ export function buildRouteEintraege(args: {
     (chargingStop) => ({
       art: "Ladehalt" as const,
       sortKey: chargingStop.ankunftszeit,
+      timing: {
+        arrival: chargingStop.ankunftszeit,
+        departure: chargingStop.abfahrtszeit,
+      },
       chargingStop,
     }),
   );
@@ -115,6 +141,7 @@ export function buildRouteEintraege(args: {
     return {
       art: "Fähre" as const,
       sortKey,
+      timing,
       faehre,
     };
   });

@@ -1,4 +1,3 @@
-import { describe, it, expect } from "vitest";
 import {
   getStopRole,
   isRawCoordinateLabel,
@@ -8,6 +7,7 @@ import {
   toggleFaehrAusschluss,
   setFaehrZeitfensterFuer,
   setLadedauerVorgabeFuer,
+  unterscheidetSichAlsUhrzeit,
 } from "@/components/TripPlannerForm";
 import type { Stop } from "@/types/trip-request";
 
@@ -469,6 +469,40 @@ describe("TripPlannerForm pure helpers", () => {
       expect(
         updated.find((v) => v.station_id === "station-2")?.ladedauer_s,
       ).toBe(900);
+    });
+  });
+
+  // =========================================================================
+  // unterscheidetSichAlsUhrzeit
+  // =========================================================================
+
+  describe("unterscheidetSichAlsUhrzeit", () => {
+    it("gibt false zurück, wenn beide Zeitpunkte auf dieselbe Minute fallen", () => {
+      expect(
+        unterscheidetSichAlsUhrzeit(
+          "2026-08-17T01:14:00",
+          "2026-08-17T01:14:00",
+        ),
+      ).toBe(false);
+    });
+
+    it("gibt true zurück, wenn sich die angezeigte Uhrzeit unterscheidet", () => {
+      expect(
+        unterscheidetSichAlsUhrzeit(
+          "2026-08-17T00:40:00",
+          "2026-08-17T00:53:00",
+        ),
+      ).toBe(true);
+    });
+
+    it("gibt true zurück, wenn einer der beiden Zeitpunkte unbekannt ist", () => {
+      expect(unterscheidetSichAlsUhrzeit(null, "2026-08-17T00:53:00")).toBe(
+        true,
+      );
+      expect(unterscheidetSichAlsUhrzeit("2026-08-17T00:53:00", null)).toBe(
+        true,
+      );
+      expect(unterscheidetSichAlsUhrzeit(null, null)).toBe(true);
     });
   });
 });

@@ -48,3 +48,52 @@ export function formatZeitpunkt(iso: string | null): string {
     return "ungültig";
   }
 }
+
+/** Formatiert einen ISO-Zeitstempel als reine Uhrzeit (z. B. "19:17"), ohne
+ *  Datum - für die überhängenden Zeit-Badges in `TripPlannerForm` (siehe
+ *  Route-Timeline), die dank des Tageswechsel-Trenners (`istTageswechsel`)
+ *  kein Datum mehr pro Eintrag benötigen. */
+export function formatUhrzeit(iso: string | null): string {
+  if (iso === null) return "unbekannt";
+  try {
+    return new Date(iso).toLocaleTimeString("de-DE", { timeStyle: "short" });
+  } catch {
+    return "ungültig";
+  }
+}
+
+/** Formatiert einen ISO-Zeitstempel als knappes Datum mit Wochentag (z. B.
+ *  "So., 16.08.") - für den Tageswechsel-Trenner in der Route-Timeline, der
+ *  bewusst klein gehalten wird (siehe `istTageswechsel`). */
+export function formatDatumKurz(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString("de-DE", {
+      weekday: "short",
+      day: "2-digit",
+      month: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
+
+/** Extrahiert den Kalendertag-Schlüssel (YYYY-MM-DD) aus einem naiven,
+ *  zeitzonenlosen ISO-Zeitstempel. Reines String-Slicing statt
+ *  `Date`-Parsing, um Zeitzonen-Verschiebungen bei der Tagesgrenze
+ *  auszuschließen (siehe Datei-Docstring: naive lokale ISO-Strings). */
+export function isoDatumSchluessel(iso: string): string {
+  return iso.slice(0, 10);
+}
+
+/** Prüft, ob zwischen zwei chronologisch aufeinanderfolgenden Zeitpunkten
+ *  ein Kalendertag-Wechsel liegt - für den Tageswechsel-Trenner in der
+ *  Route-Timeline (`TripPlannerForm`). `null` (kein bekannter Zeitpunkt)
+ *  ergibt nie einen Tageswechsel, damit unbekannte Zeiten keine
+ *  Trenner-Flut auslösen. */
+export function istTageswechsel(
+  vorherigeIso: string | null,
+  aktuelleIso: string | null,
+): boolean {
+  if (vorherigeIso === null || aktuelleIso === null) return false;
+  return isoDatumSchluessel(vorherigeIso) !== isoDatumSchluessel(aktuelleIso);
+}
