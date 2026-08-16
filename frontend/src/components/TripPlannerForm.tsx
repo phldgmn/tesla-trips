@@ -42,6 +42,9 @@ import {
   Milestone,
   Zap,
   Ship,
+  Crosshair,
+  BatteryCharging,
+  X,
   type LucideIcon,
 } from "lucide-react";
 
@@ -934,33 +937,68 @@ export function TripPlannerForm({
         </div>
       </Modal>
 
-      {/* 2. Alle Fähren vermeiden - wie die übrigen Buttons/Kacheln formatiert,
-          statt als isolierte Checkbox */}
-      <label
-        htmlFor="alle-faehren-vermeiden-checkbox"
+      {/* 2. Alle Fähren vermeiden + Zugriff auf ignorierte Fähren - in einer
+          Zeile, wie die übrigen Buttons/Kacheln formatiert (statt isolierter
+          Checkbox + separatem Vollbreite-Button) */}
+      <div
         style={{
           display: "flex",
           alignItems: "center",
           gap: "0.5rem",
-          width: "100%",
-          padding: "0.6rem 0.75rem",
           marginBottom: "1rem",
-          background: alleFaehrenVermeiden ? "#eff6ff" : "white",
-          border: `1px solid ${alleFaehrenVermeiden ? "#93c5fd" : "#e5e7eb"}`,
-          borderRadius: "6px",
-          cursor: isSubmitting ? "not-allowed" : "pointer",
-          boxSizing: "border-box",
         }}
       >
-        <input
-          type="checkbox"
-          checked={alleFaehrenVermeiden}
-          onChange={(e) => setAlleFaehrenVermeiden(e.target.checked)}
-          id="alle-faehren-vermeiden-checkbox"
-          disabled={isSubmitting}
-        />
-        Alle Fähren vermeiden
-      </label>
+        <label
+          htmlFor="alle-faehren-vermeiden-checkbox"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            flex: 1,
+            minWidth: 0,
+            padding: "0.6rem 0.75rem",
+            background: alleFaehrenVermeiden ? "#eff6ff" : "white",
+            border: `1px solid ${alleFaehrenVermeiden ? "#93c5fd" : "#e5e7eb"}`,
+            borderRadius: "6px",
+            cursor: isSubmitting ? "not-allowed" : "pointer",
+            boxSizing: "border-box",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={alleFaehrenVermeiden}
+            onChange={(e) => setAlleFaehrenVermeiden(e.target.checked)}
+            id="alle-faehren-vermeiden-checkbox"
+            disabled={isSubmitting}
+          />
+          <span
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Alle Fähren vermeiden
+          </span>
+        </label>
+        <button
+          type="button"
+          onClick={() => setIsIgnorierteFaehrenModalOpen(true)}
+          style={{
+            flexShrink: 0,
+            padding: "0.6rem 0.6rem",
+            background: "#f3f4f6",
+            border: "1px solid #d1d5db",
+            borderRadius: "6px",
+            cursor: "pointer",
+            fontSize: "0.8rem",
+            whiteSpace: "nowrap",
+          }}
+          title="Ignorierte Fähren verwalten"
+        >
+          Ignoriert ({vermiedeneFaehren.length})
+        </button>
+      </div>
 
       {/* 3. Route (dynamische Stopp-/Ladehalt-/Fähren-Timeline) */}
       <ol
@@ -1034,6 +1072,80 @@ export function TripPlannerForm({
                       {role}
                     </span>
                     <div style={{ display: "flex", gap: "0.25rem" }}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onRequestPick(
+                            pickingStopId === stop.id ? null : stop.id,
+                          )
+                        }
+                        disabled={isSubmitting}
+                        style={{
+                          display: "flex",
+                          padding: "0.2rem",
+                          background:
+                            pickingStopId === stop.id ? "#2563eb" : "#eff6ff",
+                          border: `1px solid ${pickingStopId === stop.id ? "#2563eb" : "#93c5fd"}`,
+                          borderRadius: "4px",
+                          color:
+                            pickingStopId === stop.id ? "white" : "#1d4ed8",
+                          cursor: isSubmitting ? "not-allowed" : "pointer",
+                          opacity: isSubmitting ? 0.5 : 1,
+                        }}
+                        title={
+                          pickingStopId === stop.id
+                            ? "Kartenauswahl abbrechen"
+                            : "Auf Karte wählen"
+                        }
+                        aria-label={
+                          pickingStopId === stop.id
+                            ? "Kartenauswahl abbrechen"
+                            : "Auf Karte wählen"
+                        }
+                      >
+                        {pickingStopId === stop.id ? (
+                          <X size={14} />
+                        ) : (
+                          <Crosshair size={14} />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPickerTargetId(
+                            pickerTargetId === stop.id ? null : stop.id,
+                          )
+                        }
+                        disabled={isSubmitting}
+                        style={{
+                          display: "flex",
+                          padding: "0.2rem",
+                          background:
+                            pickerTargetId === stop.id ? "#166534" : "#dcfce7",
+                          border: `1px solid ${pickerTargetId === stop.id ? "#166534" : "#86efac"}`,
+                          borderRadius: "4px",
+                          color:
+                            pickerTargetId === stop.id ? "white" : "#166534",
+                          cursor: isSubmitting ? "not-allowed" : "pointer",
+                          opacity: isSubmitting ? 0.5 : 1,
+                        }}
+                        title={
+                          pickerTargetId === stop.id
+                            ? "Ladestationsauswahl abbrechen"
+                            : "Ladestation statt Adresse wählen"
+                        }
+                        aria-label={
+                          pickerTargetId === stop.id
+                            ? "Ladestationsauswahl abbrechen"
+                            : "Ladestation statt Adresse wählen"
+                        }
+                      >
+                        {pickerTargetId === stop.id ? (
+                          <X size={14} />
+                        ) : (
+                          <BatteryCharging size={14} />
+                        )}
+                      </button>
                       <button
                         type="button"
                         onClick={() => handleMoveUp(idx)}
@@ -1192,34 +1304,10 @@ export function TripPlannerForm({
                     )}
                   </div>
 
-                  {/* Map Pick Button */}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onRequestPick(pickingStopId === stop.id ? null : stop.id)
-                    }
-                    disabled={isSubmitting}
-                    style={{
-                      width: "100%",
-                      padding: "0.4rem",
-                      background:
-                        pickingStopId === stop.id ? "#2563eb" : "#3b82f6",
-                      color: "white",
-                      border: "none",
-                      borderRadius: "4px",
-                      cursor: isSubmitting ? "not-allowed" : "pointer",
-                      opacity: isSubmitting ? 0.6 : 1,
-                    }}
-                  >
-                    {pickingStopId === stop.id
-                      ? "Abbrechen (Klicken Sie auf die Karte…)"
-                      : "Auf Karte wählen"}
-                  </button>
-
                   {pickingStopId === stop.id && (
                     <p
                       style={{
-                        margin: "0.4rem 0 0",
+                        margin: 0,
                         fontSize: "0.8rem",
                         color: "#2563eb",
                       }}
@@ -1227,32 +1315,6 @@ export function TripPlannerForm({
                       Klicken Sie auf die Karte, um den Punkt zu platzieren.
                     </p>
                   )}
-
-                  {/* Ladestation-Picker Button */}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setPickerTargetId(
-                        pickerTargetId === stop.id ? null : stop.id,
-                      )
-                    }
-                    disabled={isSubmitting}
-                    style={{
-                      width: "100%",
-                      padding: "0.4rem",
-                      background: "#dcfce7",
-                      border: "1px solid #86efac",
-                      borderRadius: "4px",
-                      color: "#166534",
-                      cursor: isSubmitting ? "not-allowed" : "pointer",
-                      opacity: isSubmitting ? 0.6 : 1,
-                      fontSize: "0.85rem",
-                    }}
-                  >
-                    {pickerTargetId === stop.id
-                      ? "Abbrechen"
-                      : "Ladestation statt Adresse wählen"}
-                  </button>
 
                   {/* Charging Station Picker (inline, nur für dieses Ziel) */}
                   {pickerTargetId === stop.id && (
@@ -1589,26 +1651,9 @@ export function TripPlannerForm({
         })}
       </ol>
 
-      {/* Ignorierte Fähren - separater, per Modal versteckter Bereich für
-            dauerhaft ausgeschlossene Fährverbindungen (unabhängig von der
-            aktuell berechneten Route). */}
-      <button
-        type="button"
-        onClick={() => setIsIgnorierteFaehrenModalOpen(true)}
-        style={{
-          width: "100%",
-          padding: "0.5rem",
-          marginBottom: "0.75rem",
-          background: "#f3f4f6",
-          border: "1px solid #d1d5db",
-          borderRadius: "4px",
-          cursor: "pointer",
-          fontSize: "0.85rem",
-        }}
-      >
-        Ignorierte Fähren ({vermiedeneFaehren.length})
-      </button>
-
+      {/* Ignorierte Fähren - Modal, ausgelöst über den "Ignoriert (n)"-Button
+          oben neben "Alle Fähren vermeiden"; enthält dauerhaft ausgeschlossene
+          Fährverbindungen (unabhängig von der aktuell berechneten Route). */}
       <Modal
         open={isIgnorierteFaehrenModalOpen}
         onClose={() => setIsIgnorierteFaehrenModalOpen(false)}
@@ -1689,6 +1734,7 @@ export function TripPlannerForm({
         style={{
           width: "100%",
           padding: "0.5rem",
+          marginBottom: "0.75rem",
           background: "#f3f4f6",
           border: "1px solid #d1d5db",
           borderRadius: "4px",
