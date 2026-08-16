@@ -79,13 +79,53 @@ const basemapStyle = buildBasemapStyle(
   TILES_BASE_URL,
 );
 
-// Farbpalette für SoC-Verlauf: rot → orange → gelb → grün
+// Farbpalette für den kontinuierlichen SoC-Verlauf: rot → orange → gelb →
+// hellgrün → grün, äquidistant über den vollen 0–100%-Bereich verteilt.
+const SOC_COLOR_STOPS: readonly [
+  soc: number,
+  r: number,
+  g: number,
+  b: number,
+][] = [
+  [0, 0xef, 0x44, 0x44],
+  [25, 0xf9, 0x73, 0x16],
+  [50, 0xea, 0xb3, 0x08],
+  [75, 0x84, 0xcc, 0x16],
+  [100, 0x22, 0xc5, 0x5e],
+];
+
+function toHex(value: number): string {
+  return Math.round(value).toString(16).padStart(2, "0");
+}
+
+/** Bildet einen SoC-Wert (0–100) linear auf eine Farbe entlang der Palette
+ * `SOC_COLOR_STOPS` ab. Anders als eine Bucket-Funktion (feste Farbe je
+ * Wertebereich) liefert dies für jeden SoC-Wert eine eigene, kontinuierlich
+ * zwischen den Nachbar-Stützfarben interpolierte Farbe - Voraussetzung dafür,
+ * dass der `line-gradient` in `buildSocGradientExpression` tatsächlich
+ * stufenlos verläuft statt aus flachen Farbplateaus mit kurzen, abrupten
+ * Übergängen an den alten Bucket-Grenzen zu bestehen (siehe dortiger
+ * Docstring).
+ */
 export function socToColor(soc: number): string {
-  if (soc <= 20) return "#ef4444";
-  if (soc <= 40) return "#f97316";
-  if (soc <= 60) return "#eab308";
-  if (soc <= 80) return "#84cc16";
-  return "#22c55e";
+  const clamped = Math.min(100, Math.max(0, soc));
+  let [socLo, rLo, gLo, bLo] = SOC_COLOR_STOPS[0];
+  let [socHi, rHi, gHi, bHi] = SOC_COLOR_STOPS[SOC_COLOR_STOPS.length - 1];
+  for (let i = 0; i < SOC_COLOR_STOPS.length - 1; i++) {
+    if (
+      clamped >= SOC_COLOR_STOPS[i][0] &&
+      clamped <= SOC_COLOR_STOPS[i + 1][0]
+    ) {
+      [socLo, rLo, gLo, bLo] = SOC_COLOR_STOPS[i];
+      [socHi, rHi, gHi, bHi] = SOC_COLOR_STOPS[i + 1];
+      break;
+    }
+  }
+  const t = socHi === socLo ? 0 : (clamped - socLo) / (socHi - socLo);
+  const r = rLo + (rHi - rLo) * t;
+  const g = gLo + (gHi - gLo) * t;
+  const b = bLo + (bHi - bLo) * t;
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
 /** Baut die MapLibre `line-gradient`-Expression für den SoC-Farbverlauf entlang

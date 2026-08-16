@@ -26,29 +26,47 @@ import { formatZeitpunkt } from "@/utils/datetime-utils";
 
 describe("MapVisualization utilities", () => {
   describe("socToColor", () => {
-    it("should return red for SoC <= 20%", () => {
+    it("returns the exact anchor colors at the palette's SoC breakpoints", () => {
       expect(socToColor(0)).toBe("#ef4444");
-      expect(socToColor(20)).toBe("#ef4444");
-    });
-
-    it("should return orange for 20% < SoC <= 40%", () => {
-      expect(socToColor(21)).toBe("#f97316");
-      expect(socToColor(40)).toBe("#f97316");
-    });
-
-    it("should return yellow for 40% < SoC <= 60%", () => {
-      expect(socToColor(41)).toBe("#eab308");
-      expect(socToColor(60)).toBe("#eab308");
-    });
-
-    it("should return light green for 60% < SoC <= 80%", () => {
-      expect(socToColor(61)).toBe("#84cc16");
-      expect(socToColor(80)).toBe("#84cc16");
-    });
-
-    it("should return dark green for SoC > 80%", () => {
-      expect(socToColor(81)).toBe("#22c55e");
+      expect(socToColor(25)).toBe("#f97316");
+      expect(socToColor(50)).toBe("#eab308");
+      expect(socToColor(75)).toBe("#84cc16");
       expect(socToColor(100)).toBe("#22c55e");
+    });
+
+    it("clamps out-of-range SoC values to the nearest anchor color", () => {
+      expect(socToColor(-10)).toBe("#ef4444");
+      expect(socToColor(150)).toBe("#22c55e");
+    });
+
+    it("interpolates continuously between anchors instead of snapping to buckets", () => {
+      // Regression: die alte Bucket-Implementierung lieferte fuer den
+      // gesamten Bereich (20, 40] dieselbe Farbe (#f97316) - dadurch
+      // entstanden auf der Karte flache Farbplateaus mit abrupten
+      // Uebergaengen an den Bucket-Grenzen statt eines stufenlosen
+      // Verlaufs. Werte innerhalb eines Anker-Intervalls muessen sich
+      // daher unterscheiden.
+      const a = socToColor(21);
+      const b = socToColor(30);
+      const c = socToColor(40);
+      expect(a).not.toBe(b);
+      expect(b).not.toBe(c);
+      expect(a).not.toBe(c);
+    });
+
+    it("blends RGB channels strictly between the two neighboring anchors", () => {
+      // Zwischen rot (0xef,0x44,0x44) und orange (0xf9,0x73,0x16) bei t=0.5
+      // (SoC 12.5 liegt in der Mitte des Anker-Intervalls [0, 25]).
+      const hex = socToColor(12.5);
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      expect(r).toBeGreaterThan(0xef);
+      expect(r).toBeLessThan(0xf9);
+      expect(g).toBeGreaterThan(0x44);
+      expect(g).toBeLessThan(0x73);
+      expect(b).toBeLessThan(0x44);
+      expect(b).toBeGreaterThan(0x16);
     });
   });
 
