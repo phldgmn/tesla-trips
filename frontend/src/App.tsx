@@ -1,5 +1,7 @@
 import { useCallback, useState } from "react";
 
+import { usePersistentState } from "./utils/persistent-state";
+
 import { MapVisualization } from "./components/Map";
 import { TripPlannerForm } from "./components/TripPlannerForm";
 import { TripSummary } from "./components/TripSummary";
@@ -43,14 +45,17 @@ const INITIAL_STOPS: Stop[] = [
  *   `POST /trips`-Aufrufs.
  */
 export function App() {
-  const [stops, setStops] = useState<Stop[]>(INITIAL_STOPS);
+  const [stops, setStops] = usePersistentState<Stop[]>("stops", INITIAL_STOPS);
   const [pickingStopId, setPickingStopId] = useState<string | null>(null);
   const [simulationResult, setSimulationResult] = useState<
     TripSimulationResult | undefined
   >(undefined);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [superchargerVisible, setSuperchargerVisible] = useState(false);
+  const [superchargerVisible, setSuperchargerVisible] = usePersistentState(
+    "supercharger-visible",
+    false,
+  );
 
   /** Einmaliger Kartenklick im Auswahlmodus: Koordinate speichern,
    *  dann den Auswahlmodus verlassen. */
@@ -61,7 +66,7 @@ export function App() {
       );
       setPickingStopId(null);
     },
-    [],
+    [setStops],
   );
 
   /** Drag-and-Drop auf der Karte: Stopp-Position aktualisieren, aber den
@@ -72,7 +77,7 @@ export function App() {
         prev.map((s) => (s.id === stopId ? { ...s, position } : s)),
       );
     },
-    [],
+    [setStops],
   );
 
   /** Reise berechnen lassen. */
@@ -107,6 +112,7 @@ export function App() {
         submitError={submitError}
         erkannteFaehren={simulationResult?.erkannte_faehren}
         chargingStops={simulationResult?.charging_stops}
+        frames={simulationResult?.frames}
       />
       <div style={{ position: "relative", flex: 1 }}>
         <MapVisualization

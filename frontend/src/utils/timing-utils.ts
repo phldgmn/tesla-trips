@@ -4,24 +4,29 @@
  * Mindestaufenthaltsdauern pro Zwischenstopp – keine frei wählbaren
  * Abfahrtszeitpunkte an Zwischenpunkten. Diese Datei rekonstruiert daher die
  * tatsächlichen Ankunfts-/Abfahrtszeiten, indem sie Simulationsframes den
- * Stopps zuordnet.
+ * Stopps (und, verallgemeinert, beliebigen Positionen wie Fährverbindungen)
+ * zuordnet.
  *
  * Die Rolle jedes Stopps (Start/Zwischenstopp/Ziel) ergibt sich rein aus
  * seiner Position im Array.
  */
 
-import type { TripSimulationResult } from "../types";
+import type { SimulationFrame } from "../types";
 import type { Stop } from "../types/trip-request";
 import { haversineDistanceM } from "./geo-utils";
 
-/** Zeitinformationen für einen einzelnen Stopp. */
-export interface WaypointTiming {
-  /** ID des zugehörigen Stopps. */
-  stopId: string;
+/** Zeitinformationen für eine Position (Ankunfts-/Abfahrts-Cluster). */
+export interface PositionTiming {
   /** ISO-Zeitstempel der Ankunft, oder null falls nicht ermittelbar. */
   arrival: string | null;
   /** ISO-Zeitstempel der Abfahrt, oder null falls nicht ermittelbar. */
   departure: string | null;
+}
+
+/** Zeitinformationen für einen einzelnen Stopp. */
+export interface WaypointTiming extends PositionTiming {
+  /** ID des zugehörigen Stopps. */
+  stopId: string;
 }
 
 /** Maximale Distanz in Metern, innerhalb der ein Frame noch als "am Stopp"
@@ -31,17 +36,15 @@ const CLUSTER_RADIUS_M = 2000;
 /** Ermittelt für jeden Stopp die Ankunfts- und Abfahrtszeit anhand
  *  der Simulationsframes.
  *
- * @param result  Simulationsergebnis mit einer zeitlich geordneten Liste von Frames.
+ * @param frames  Zeitlich geordnete Liste von Simulationsframes.
  * @param stops   Liste der Stopps (Array-Position bestimmt die Rolle:
  *                [0] = Start, [n-1] = Ziel, dazwischen = Zwischenstopps).
  * @returns  Gleichlange Liste von {@link WaypointTiming} – ein Eintrag pro Stopp.
  */
 export function estimateWaypointTimings(
-  result: TripSimulationResult,
+  frames: SimulationFrame[],
   stops: Stop[],
 ): WaypointTiming[] {
-  const { frames } = result;
-
   if (frames.length === 0) {
     return stops.map((s) => ({
       stopId: s.id,
@@ -74,18 +77,24 @@ export function estimateWaypointTimings(
       return { stopId: stop.id, arrival: null, departure: null };
     }
 
-    return computeStopoverTiming(stop.position, frames, stop.id);
+    return {
+      stopId: stop.id,
+      ...estimatePositionTiming(stop.position, frames),
+    };
   });
 }
 
 /** Sucht zum gegebenen Punkt den Frame-Cluster (< CLUSTER_RADIUS_M) und gibt
- *  die Ankunfts-/Abfahrtszeit dieses Clusters zurück.
- */
-function computeStopoverTiming(
+ *  die Ankunfts-/Abfahrtszeit dieses Clusters zurück. Generalisierte Variante
+ *  ohne Stopp-Bezug – wird auch zur chronologischen Einordnung unterminierter
+ *  Fährverbindungen anhand ihrer Bounding-Box-Mitte verwendet (siehe
+ *  `route-eintraege.ts`). */
+export function estimatePositionTiming(
   position: [number, number],
-  frames: TripSimulationResult["frames"],
-  stopId: string,
-): WaypointTiming {
+  frames: SimulationFrame[],
+): PositionTiming {
+  if (frames.length === 0) return { arrival: null, departure: null };
+
   let minDist = Infinity;
   let closestIdx = -1;
 
@@ -98,7 +107,7 @@ function computeStopoverTiming(
   }
 
   if (minDist > CLUSTER_RADIUS_M) {
-    return { stopId, arrival: null, departure: null };
+    return { arrival: null, departure: null };
   }
 
   // Expandiere nach links und rechts, solange Frames innerhalb CLUSTER_RADIUS_M bleiben
@@ -123,8 +132,41 @@ function computeStopoverTiming(
   }
 
   return {
-    stopId,
     arrival: frames[leftIdx].zeitpunkt,
     departure: frames[rightIdx].zeitpunkt,
   };
+}
+
+/** Berechnet für jeden Frame die kumulierte gefahrene Distanz in km seit
+ *  Frame 0 (Haversine-Summe entlang der Frame-Positionen). Gleiche Länge
+ *  wie `frames`; `result[0]` ist immer 0. */
+export function cumulativeDistancesKm(frames: SimulationFrame[]): number[] {
+  const out: number[] = frames.length > 0 ? [0] : [];
+  for (let i = 1; i < frames.length; i++) {
+    out.push(
+      out[i - 1] +
+        haversineDistanceM(frames[i - 1].position, frames[i].position) / 1000,
+    );
+  }
+  return out;
+}
+
+/** Findet den Index des Frames, dessen Zeitstempel `iso` am nächsten liegt
+ *  (kleinste absolute Differenz). Liefert `null` bei leerem `frames`-Array. */
+export function findNearestFrameIndex(
+  iso: string,
+  frames: SimulationFrame[],
+): number | null {
+  if (frames.length === 0) return null;
+  const target = new Date(iso).getTime();
+  let bestIdx = 0;
+  let bestDiff = Infinity;
+  for (let i = 0; i < frames.length; i++) {
+    const diff = Math.abs(new Date(frames[i].zeitpunkt).getTime() - target);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
 }

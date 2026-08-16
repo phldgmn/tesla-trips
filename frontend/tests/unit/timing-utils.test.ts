@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   estimateWaypointTimings,
+  estimatePositionTiming,
+  cumulativeDistancesKm,
+  findNearestFrameIndex,
   type WaypointTiming,
 } from "@/utils/timing-utils";
 import type { TripSimulationResult } from "@/types";
@@ -68,7 +71,11 @@ describe("estimateWaypointTimings", () => {
       erkannte_faehren: [],
     };
 
-    const timings = estimateWaypointTimings(result, [start, stopover, end]);
+    const timings = estimateWaypointTimings(result.frames, [
+      start,
+      stopover,
+      end,
+    ]);
 
     it("soll 3 Einträge zurückgeben", () => {
       expect(timings).toHaveLength(3);
@@ -119,7 +126,11 @@ describe("estimateWaypointTimings", () => {
       erkannte_faehren: [],
     };
 
-    const timings = estimateWaypointTimings(result, [start, farStop, end]);
+    const timings = estimateWaypointTimings(result.frames, [
+      start,
+      farStop,
+      end,
+    ]);
 
     it("soll für den weit entfernten Punkt arrival=null und departure=null liefern", () => {
       expect(timings[1].stopId).toBe("far");
@@ -153,7 +164,7 @@ describe("estimateWaypointTimings", () => {
         erkannte_faehren: [],
       };
 
-      const timings = estimateWaypointTimings(result, stops);
+      const timings = estimateWaypointTimings(result.frames, stops);
       expect(timings).toHaveLength(4);
       for (const t of timings) {
         expect(t.arrival).toBeNull();
@@ -186,7 +197,11 @@ describe("estimateWaypointTimings", () => {
         erkannte_faehren: [],
       };
 
-      const timings = estimateWaypointTimings(result, [start, unresolved, end]);
+      const timings = estimateWaypointTimings(result.frames, [
+        start,
+        unresolved,
+        end,
+      ]);
 
       expect(timings).toHaveLength(3);
       expect(timings[0].stopId).toBe("start");
@@ -226,10 +241,79 @@ describe("estimateWaypointTimings", () => {
         erkannte_faehren: [],
       };
 
-      const timings = estimateWaypointTimings(result, [start, point, end]);
+      const timings = estimateWaypointTimings(result.frames, [
+        start,
+        point,
+        end,
+      ]);
       expect(timings[1].stopId).toBe("ch");
       expect(timings[1].arrival).toBe("2025-06-01T12:15:00");
       expect(timings[1].departure).toBe("2025-06-01T12:20:00");
     });
+  });
+});
+
+describe("estimatePositionTiming", () => {
+  const frames = [
+    makeFrame("2025-06-01T08:00:00", 52.52, 13.405),
+    makeFrame("2025-06-01T08:30:00", 52.8, 12.0),
+    makeFrame("2025-06-01T09:00:00", 53.0, 11.0),
+    makeFrame("2025-06-01T09:30:00", 53.2, 10.5),
+    makeFrame("2025-06-01T10:00:00", 53.55, 10.0),
+  ];
+
+  it("liefert arrival/departure für einen Cluster nahe der Position", () => {
+    const timing = estimatePositionTiming([53.0, 11.0], frames);
+    expect(timing.arrival).toBe("2025-06-01T09:00:00");
+    expect(timing.departure).toBe("2025-06-01T09:00:00");
+  });
+
+  it("liefert null/null für eine Position weit abseits der Route", () => {
+    const timing = estimatePositionTiming([10.0, 10.0], frames);
+    expect(timing.arrival).toBeNull();
+    expect(timing.departure).toBeNull();
+  });
+
+  it("liefert null/null bei leerem frames-Array", () => {
+    const timing = estimatePositionTiming([53.0, 11.0], []);
+    expect(timing.arrival).toBeNull();
+    expect(timing.departure).toBeNull();
+  });
+});
+
+describe("cumulativeDistancesKm", () => {
+  it("beginnt bei 0 und summiert Haversine-Distanzen zwischen aufeinanderfolgenden Frames", () => {
+    const frames = [
+      makeFrame("2025-06-01T08:00:00", 52.52, 13.405),
+      makeFrame("2025-06-01T08:30:00", 52.52, 13.505), // ~6.8 km östlich
+      makeFrame("2025-06-01T09:00:00", 52.52, 13.605), // weitere ~6.8 km östlich
+    ];
+    const cumulative = cumulativeDistancesKm(frames);
+    expect(cumulative).toHaveLength(3);
+    expect(cumulative[0]).toBe(0);
+    expect(cumulative[1]).toBeGreaterThan(0);
+    expect(cumulative[2]).toBeGreaterThan(cumulative[1]);
+  });
+
+  it("liefert ein leeres Array für leere frames", () => {
+    expect(cumulativeDistancesKm([])).toEqual([]);
+  });
+});
+
+describe("findNearestFrameIndex", () => {
+  const frames = [
+    makeFrame("2025-06-01T08:00:00", 0, 0),
+    makeFrame("2025-06-01T08:10:00", 0, 0),
+    makeFrame("2025-06-01T08:30:00", 0, 0),
+  ];
+
+  it("findet den Index mit der kleinsten Zeitdifferenz", () => {
+    expect(findNearestFrameIndex("2025-06-01T08:09:00", frames)).toBe(1);
+    expect(findNearestFrameIndex("2025-06-01T08:00:00", frames)).toBe(0);
+    expect(findNearestFrameIndex("2025-06-01T23:00:00", frames)).toBe(2);
+  });
+
+  it("liefert null bei leerem frames-Array", () => {
+    expect(findNearestFrameIndex("2025-06-01T08:00:00", [])).toBeNull();
   });
 });
