@@ -55,43 +55,55 @@ def _interpolate_position_along_segment(
     return (lat, lon)
 
 
-def _find_segment_for_distance(
-    cumulative_distances: list[float],
-    total_distance_m: float,
-    distance_m: float,
+def _find_segment_for_time(
+    cumulative_times: list[float],
+    total_time_s: float,
+    time_s: float,
     route: Route,
 ) -> tuple[int, float]:
-    """Finde das Segment und den Fortschritt fuer eine gegebene Distanz vom Start.
+    """Finde das Segment und den Fortschritt fuer eine gegebene, skalierte Fahrzeit.
+
+    Sucht ueber die kumulierte Segment-FAHRZEIT (`cumulative_times`, aus
+    `SegmentEnergyResult.fahrzeit_s`) statt ueber die kumulierte Distanz -
+    damit Position, Segment-Index und
+    SoC-Baseline der TATSAECHLICHEN, je Segment unterschiedlichen
+    Geschwindigkeit folgen statt einer einzigen Durchschnittsgeschwindigkeit
+    ueber die gesamte Reise. Siehe `simulate_trip`: ohne dies "hinkt" die
+    Positions-/SoC-Schaetzung nach einem Ladehalt mehrere Frames lang der
+    tatsaechlichen Segment-Grenze (`Ladehalt.segment_index`) hinterher, sobald
+    die lokale Geschwindigkeit von der Reise-Durchschnittsgeschwindigkeit
+    abweicht (z. B. langsamere Zufahrt zur Ladestation) - sichtbar als
+    kurzzeitig falscher (zu niedriger) SoC direkt nach dem Ladehalt.
 
     Args:
-        cumulative_distances: Kumulative Distanzen bis zum Ende jedes Segments.
-        total_distance_m: Gesamtdistanz der Route in Metern.
-        distance_m: Gewuenschte Distanz vom Route-Start.
+        cumulative_times: Kumulierte Fahrzeit (s) bis zum Ende jedes Segments,
+            bereits so skaliert, dass `cumulative_times[-1] == total_time_s`.
+        total_time_s: Gesamte reine Fahrzeit der Reise in Sekunden.
+        time_s: Gewuenschte, bereits um Ladezeit bereinigte Fahrzeit seit
+            Reisebeginn.
         route: Die Route.
 
     Returns:
         Tuple von (segment_index, progress_in_segment).
     """
-    if distance_m <= 0:
+    if time_s <= 0:
         return (0, 0.0)
-    if distance_m >= total_distance_m:
+    if time_s >= total_time_s:
         return (len(route.segments) - 1, 1.0)
 
     segment_index = 0
-    for i, cum_dist in enumerate(cumulative_distances):
-        if distance_m <= cum_dist:
+    for i, cum_time in enumerate(cumulative_times):
+        if time_s <= cum_time:
             segment_index = i
             break
 
-    prev_cum_dist = 0.0 if segment_index == 0 else cumulative_distances[segment_index - 1]
-    segment_start_m = prev_cum_dist
-    segment_end_m = cumulative_distances[segment_index]
-    segment_distance_m = segment_end_m - segment_start_m
+    prev_cum_time = 0.0 if segment_index == 0 else cumulative_times[segment_index - 1]
+    segment_start_s = prev_cum_time
+    segment_end_s = cumulative_times[segment_index]
+    segment_time_s = segment_end_s - segment_start_s
 
-    distance_in_segment = distance_m - segment_start_m
-    progress_in_segment = (
-        distance_in_segment / segment_distance_m if segment_distance_m > 0 else 0.0
-    )
+    time_in_segment = time_s - segment_start_s
+    progress_in_segment = time_in_segment / segment_time_s if segment_time_s > 0 else 0.0
 
     return (segment_index, progress_in_segment)
 
@@ -208,6 +220,23 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     # der Route weiter, statt an der Ladestation stehen zu bleiben.
     total_driving_time_s = max(end_time_s - total_charging_time_s, 1e-9)
 
+    # Kumulierte, je Segment aus der tatsaechlichen Geschwindigkeit
+    # berechnete Fahrzeit (`SegmentEnergyResult.fahrzeit_s`) statt einer
+    # einzigen Durchschnittsgeschwindigkeit ueber die gesamte Reise (siehe
+    # `_find_segment_for_time`) - auf `total_driving_time_s` skaliert, damit
+    # Start (t=0 -> Distanz 0) und Ende (t=total_driving_time_s -> Distanz
+    # total_distance_m) trotz eventueller kleiner Abweichungen zwischen der
+    # Summe der Segment-Fahrzeiten und der vom Optimierer gelieferten
+    # Gesamtreisezeit exakt erhalten bleiben.
+    raw_cumulative_times: list[float] = []
+    raw_elapsed_time_s = 0.0
+    for i in range(len(route.segments)):
+        raw_elapsed_time_s += energy_map[i].fahrzeit_s
+        raw_cumulative_times.append(raw_elapsed_time_s)
+    total_raw_time_s = raw_cumulative_times[-1] if raw_cumulative_times else 0.0
+    time_scale = total_driving_time_s / total_raw_time_s if total_raw_time_s > 0 else 1.0
+    cumulative_times = [t * time_scale for t in raw_cumulative_times]
+
     while current_time_s <= end_time_s + 1e-6:
         # Aktuellen Ladehalt bestimmen und zugleich die bereits waehrend
         # Ladehalten verstrichene Zeit bis zum aktuellen Zeitpunkt aufsummieren
@@ -224,17 +253,22 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
                 aktueller_ladehalt = ladehalt
                 rel_ankunftszeit_s = rel_ankunft
 
-        # Zurueckgelegte Distanz proportional zur bereits verstrichenen reinen
-        # Fahrzeit (Ladehalt-Zeit "friert" die Distanz ein statt sie
-        # weiterzurechnen).
+        # Zurueckgelegte Distanz/Segment-Index anhand der bereits verstrichenen
+        # reinen Fahrzeit, aufgeloest ueber die TATSAECHLICHE, je Segment
+        # unterschiedliche Geschwindigkeit (siehe `_find_segment_for_time`) -
+        # nicht ueber eine einzige Durchschnittsgeschwindigkeit der gesamten
+        # Reise, sonst "hinkt" die Positions-/SoC-Schaetzung nach einem
+        # Ladehalt der tatsaechlichen Segment-Grenze hinterher (Ladehalt-Zeit
+        # "friert" die Distanz ein statt sie weiterzurechnen).
         effective_driving_time_s = current_time_s - charging_elapsed_before_now_s
-        time_fraction = min(effective_driving_time_s / total_driving_time_s, 1.0)
-        current_distance_m = time_fraction * total_distance_m
 
-        segment_idx, progress_in_segment = _find_segment_for_distance(
-            cumulative_distances, total_distance_m, current_distance_m, route
+        segment_idx, progress_in_segment = _find_segment_for_time(
+            cumulative_times, total_driving_time_s, effective_driving_time_s, route
         )
         segment = route.segments[segment_idx]
+        current_distance_m = (
+            cumulative_distances[segment_idx - 1] if segment_idx > 0 else 0.0
+        ) + progress_in_segment * segment.laenge_m
 
         if aktueller_ladehalt is not None:
             zustand = TripState.LADEN

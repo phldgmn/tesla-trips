@@ -42,9 +42,6 @@ if TYPE_CHECKING:
 COST_INF: float = 1e9  # Unendlich für unzulässige Kanten
 """Grobe Konstante für unzulässige Kanten (Constraint-Verletzung)."""
 
-DEFAULT_SPEED_KMH: float = 110.0
-"""Default-Reisegeschwindigkeit in km/h (Autobahn)."""
-
 MAX_SOC_PCT: float = 100.0
 """Maximaler SoC in Prozent."""
 
@@ -66,7 +63,7 @@ class NetworkXOptimizer(OptimizerInterface):
         self.soc_step_pct = soc_step_pct
         self.time_step_min = time_step_min
         self._base_time: datetime
-        self._cum_len_m: list[float]
+        self._cum_time_s: list[float]
 
     def optimize(  # noqa: PLR0913, PLR0917 -- vollständiger Zustand des Optimierungsproblems, siehe docs/plans/07-optimization.md Abschnitt 4
         self,
@@ -86,7 +83,9 @@ class NetworkXOptimizer(OptimizerInterface):
     ) -> ChargingPlan:
         """Optimiert Ladeplan unter Verwendung eines diskretisierten Zustandsgraphen.
 
-        A*-Suche mit Heuristik = verbleibende Distanz / geschätzte Reisegeschwindigkeit.
+        A*-Suche mit Heuristik = verbleibende Fahrzeit unter den tatsaechlichen, je
+        Segment ermittelten Geschwindigkeiten (siehe `_heuristik`,
+        `SegmentEnergyResult.fahrzeit_s`).
 
         Args:
             route: Die vollständige Route mit Metadaten.
@@ -154,26 +153,38 @@ class NetworkXOptimizer(OptimizerInterface):
         # Setze Basiszeit für Zeit-Bucket Berechnungen
         self._base_time = abfahrtszeit
 
-        # Kumulative Distanz-/Energie-Präfixsummen über die Roh-Segmente.
-        # Ermöglichen O(1)-Aggregation einer ganzen Teilstrecke zwischen zwei
-        # Entscheidungspunkten (`_add_drive_edge`) sowie eine O(1)-Restdistanz
-        # für die A*-Heuristik (`_heuristik`) statt O(n) Neuberechnung pro
+        # Kumulative Energie-/Fahrzeit-Praefixsummen ueber die Roh-Segmente,
+        # aus den TATSAECHLICHEN, je Segment via `SegmentEnergyResult.fahrzeit_s`
+        # ermittelten Geschwindigkeiten (Tempolimit/Baustellen-Override, siehe
+        # `energy.berechne_segment_verbrauch`) - NICHT aus einer einzigen
+        # Durchschnittsgeschwindigkeit ueber die gesamte Reise. Ermoeglichen
+        # O(1)-Aggregation einer ganzen Teilstrecke zwischen zwei
+        # Entscheidungspunkten (`_add_drive_edge`) sowie eine O(1)-Restfahrzeit
+        # fuer die A*-Heuristik (`_heuristik`) statt O(n) Neuberechnung pro
         # Kante/Heuristik-Aufruf - kritisch bei feingranularen Routen mit
         # tausenden Roh-Segmenten (ein Segment pro GraphHopper-Polyline-
         # Punktpaar), siehe docs/plans/07-optimization.md, Risiko
-        # "Skalierbarkeit der NetworkX-Lösung".
-        cum_len_m = [0.0] * (len(segments) + 1)
+        # "Skalierbarkeit der NetworkX-Lösung". Nur mit dieser echten
+        # Zeitbasis stimmen Ankunfts-/Abfahrtszeiten an Ladehalten
+        # (`ChargingStop.ankunftszeit`/`abfahrtszeit`) sowie `gesamtreisezeit_s`
+        # mit dem tatsaechlichen, je Segment unterschiedlichen Tempo ueberein -
+        # eine pauschale Durchschnittsgeschwindigkeit fuehrt sonst dazu, dass
+        # die Ankunft an einem Ladehalt (bzw. dessen `segment_index`) und die
+        # Fahrzeit bis dorthin auseinanderlaufen (sichtbar u. a. als falscher
+        # SoC/Position fuer mehrere Frames direkt nach einem Ladehalt in
+        # `simulate_trip`).
         cum_energy_kwh = [0.0] * (len(segments) + 1)
-        for i, (seg, er) in enumerate(zip(segments, energy_results, strict=True)):
-            cum_len_m[i + 1] = cum_len_m[i] + seg.laenge_m
+        cum_time_s = [0.0] * (len(segments) + 1)
+        for i, (_, er) in enumerate(zip(segments, energy_results, strict=True)):
             cum_energy_kwh[i + 1] = cum_energy_kwh[i] + er.energiebedarf_kwh
-        self._cum_len_m = cum_len_m
+            cum_time_s[i + 1] = cum_time_s[i] + er.fahrzeit_s
+        self._cum_time_s = cum_time_s
 
         # Generiere Knoten und Kanten
         self._generate_graph(
             G=G,
             segments=segments,
-            cum_len_m=cum_len_m,
+            cum_time_s=cum_time_s,
             cum_energy_kwh=cum_energy_kwh,
             waypoint_map=waypoint_map,
             station_segments=station_segments,
@@ -184,7 +195,7 @@ class NetworkXOptimizer(OptimizerInterface):
             ziel_soc_bucket=ziel_soc_bucket,
             ziel_soc_target=ziel_soc_target,
             max_time_buckets=self._estimate_max_time_buckets(
-                segments,
+                total_time_s=cum_time_s[-1],
                 total_energy_kwh=cum_energy_kwh[-1],
                 vehicle_profile=vehicle_profile,
                 constraints=constraints,
@@ -325,7 +336,7 @@ class NetworkXOptimizer(OptimizerInterface):
 
     def _estimate_max_time_buckets(
         self,
-        segments: list[RouteSegment],
+        total_time_s: float,
         total_energy_kwh: float,
         vehicle_profile: VehicleProfile,
         constraints: OptimizationConstraints,
@@ -338,10 +349,18 @@ class NetworkXOptimizer(OptimizerInterface):
         als "nicht fahrbar" verwerfen, sobald der kumulierte Zeit-Bucket-Pfad
         durchs Laden über die reine Fahrzeit-Schätzung hinauswächst (siehe
         docs/plans/07-optimization.md).
+
+        Args:
+            total_time_s: Reale, aus `SegmentEnergyResult.fahrzeit_s` aufsummierte
+                Gesamtfahrzeit der Route (`cum_time_s[-1]` in `optimize()`) - kein
+                Distanz/Durchschnittsgeschwindigkeit-Schaetzwert, sonst koennte das
+                Budget bei tatsaechlich langsameren Streckenabschnitten
+                unterschaetzt werden und fahrbare, nur langsamere Routen faelschlich
+                als "nicht fahrbar" verwerfen.
+            total_energy_kwh: Gesamtenergiebedarf der Route in kWh.
+            vehicle_profile: Physikalisches Fahrzeugprofil.
+            constraints: Optimierungs-Constraints (u. a. `max_ladezeit_s`).
         """
-        total_distance_m = sum(seg.laenge_m for seg in segments)
-        speed_mps = DEFAULT_SPEED_KMH * 1000 / 3600
-        total_time_s = total_distance_m / speed_mps
         total_time_min = total_time_s / 60.0
 
         # Worst-Case-Anzahl Ladestopps: Gesamtenergiebedarf geteilt durch die
@@ -359,7 +378,7 @@ class NetworkXOptimizer(OptimizerInterface):
         self,
         G: DiGraph,
         segments: list[RouteSegment],
-        cum_len_m: list[float],
+        cum_time_s: list[float],
         cum_energy_kwh: list[float],
         waypoint_map: dict[int, list[Waypoint]],
         station_segments: dict[int, list[ChargingStation]],
@@ -432,7 +451,7 @@ class NetworkXOptimizer(OptimizerInterface):
                         current=current,
                         seg_idx=seg_idx,
                         target_seg_idx=target_seg_idx,
-                        cum_len_m=cum_len_m,
+                        cum_time_s=cum_time_s,
                         cum_energy_kwh=cum_energy_kwh,
                         max_time_buckets=max_time_buckets,
                         constraints=constraints,
@@ -478,7 +497,7 @@ class NetworkXOptimizer(OptimizerInterface):
         current: tuple[int, int, int],
         seg_idx: int,
         target_seg_idx: int,
-        cum_len_m: list[float],
+        cum_time_s: list[float],
         cum_energy_kwh: list[float],
         max_time_buckets: int,
         constraints: OptimizationConstraints,
@@ -493,7 +512,7 @@ class NetworkXOptimizer(OptimizerInterface):
         Entscheidungspunkten verzweigt der Zustandsgraph nicht - eine einzelne
         Fahrtkante über ALLE dazwischenliegenden Roh-Segmente liefert exakt
         dasselbe Ergebnis wie eine Kante pro Roh-Segment (Energie/Zeit sind
-        linear additiv, siehe `cum_len_m`/`cum_energy_kwh` in `optimize()`),
+        linear additiv, siehe `cum_time_s`/`cum_energy_kwh` in `optimize()`),
         vermeidet aber die sonst bei feingranularen Routen (ein Segment pro
         GraphHopper-Polyline-Punktpaar) explodierende Anzahl an
         Zustandsknoten (docs/plans/07-optimization.md, Risiko "Skalierbarkeit
@@ -520,13 +539,15 @@ class NetworkXOptimizer(OptimizerInterface):
             return  # Unzulässig
         new_soc_bucket = soc_to_bucket(new_soc_pct, self.soc_step_pct)
 
-        # Fahrzeit für die gesamte Teilstrecke (aggregierte Distanz über
-        # cum_len_m). Der neue Zeit-Bucket wird aus der TATSAECHLICHEN
-        # kumulierten Zeit des Vorgaengerknotens abgeleitet (nicht
-        # inkrementell aus dem bereits gerundeten Bucket), sonst ginge bei
-        # kurzen Teilstrecken Fahrzeit durch Rundung verloren.
-        distanz_m = cum_len_m[target_seg_idx] - cum_len_m[seg_idx]
-        fahrzeit_s = distanz_m / (DEFAULT_SPEED_KMH * 1000 / 3600)
+        # Fahrzeit fuer die gesamte Teilstrecke: aggregierte, aus der
+        # TATSAECHLICHEN je-Segment-Geschwindigkeit ermittelte Fahrzeit
+        # (`cum_time_s`, siehe `optimize()`/`SegmentEnergyResult.fahrzeit_s`) -
+        # NICHT aus einer pauschalen Durchschnittsgeschwindigkeit. Der neue
+        # Zeit-Bucket wird aus der TATSAECHLICHEN kumulierten Zeit des
+        # Vorgaengerknotens abgeleitet (nicht inkrementell aus dem bereits
+        # gerundeten Bucket), sonst ginge bei kurzen Teilstrecken Fahrzeit
+        # durch Rundung verloren.
+        fahrzeit_s = cum_time_s[target_seg_idx] - cum_time_s[seg_idx]
         neuer_zeitpunkt = G.nodes[current]["zeitpunkt"] + timedelta(seconds=fahrzeit_s)
         new_time_bucket = zeit_to_bucket(neuer_zeitpunkt, self._base_time, self.time_step_min)
 
@@ -559,6 +580,14 @@ class NetworkXOptimizer(OptimizerInterface):
             G.nodes[next_node]["total_cost"] = new_total_cost
             G.nodes[next_node]["parent"] = current
             G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
+            # `soc_pct` MUSS bei jeder guenstigeren Kante aktualisiert werden
+            # (nicht nur beim allerersten Anlegen des Knotens) - sonst kann
+            # ein Knoten-Schluessel `(segment_index, soc_bucket, time_bucket)`,
+            # der zuerst durch eine ANDERE (spaeter verworfene) Kante angelegt
+            # wurde, einen veralteten SoC-Wert behalten, obwohl die tatsaechlich
+            # gewaehlte Kante einen anderen kontinuierlichen SoC erreicht (siehe
+            # `TestLadehaltUeberlebtKnotenKollision` in test_optimization.py).
+            G.nodes[next_node]["soc_pct"] = new_soc_pct
 
     def _add_ferry_edge(
         self,
@@ -620,6 +649,7 @@ class NetworkXOptimizer(OptimizerInterface):
             G.nodes[next_node]["total_cost"] = new_total_cost
             G.nodes[next_node]["parent"] = current
             G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
+            G.nodes[next_node]["soc_pct"] = G.nodes[current]["soc_pct"]
 
     def _add_charging_edges(  # noqa: PLR0913, PLR0917 -- Ladekanten-Konstruktion braucht den vollen Kantenkontext
         self,
@@ -762,10 +792,25 @@ class NetworkXOptimizer(OptimizerInterface):
         new_total_cost = current_cost + kosten
 
         if new_total_cost < G.nodes[next_node].get("total_cost", COST_INF):
-            G.add_edge(current, next_node, cost=kosten)
+            # `station_id` als EDGE-Attribut (nicht nur Node-Attribut) setzen:
+            # ein Knoten-Schluessel `(segment_index, soc_bucket, time_bucket)`
+            # kann durch Diskretisierung mit einer ANDEREN Fahrt-/Faehrkante
+            # kollidieren, die denselben Knoten frueher bereits (mit
+            # `type="drive"`, ohne `station_id`) angelegt hat - der Knoten
+            # selbst wird dann NICHT erneut mit `type="charge"`/`station_id`
+            # initialisiert (siehe `if next_node not in G.nodes` oben). Die
+            # tatsaechlich im Pfad gewaehlte Kante (`prev_node -> curr_node`)
+            # ist aber immer eindeutig - `_extract_charging_stops` liest den
+            # Ladehalt daher von der KANTE, nicht vom Knoten (sonst wird der
+            # Ladehalt bei einer solchen Kollision aus dem Ergebnis verschluckt,
+            # obwohl seine Kosten/Zeit sehr wohl im Pfad stecken - sichtbar als
+            # Diskrepanz zwischen `gesamtreisezeit_s` und der Summe der
+            # tatsaechlich zurueckgegebenen `ChargingStop`-Ladedauern).
+            G.add_edge(current, next_node, cost=kosten, station_id=station.station_id)
             G.nodes[next_node]["total_cost"] = new_total_cost
             G.nodes[next_node]["parent"] = current
             G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
+            G.nodes[next_node]["soc_pct"] = ziel_soc_pct
 
     def _soc_nach_fester_ladezeit(
         self,
@@ -856,6 +901,7 @@ class NetworkXOptimizer(OptimizerInterface):
             G.nodes[next_node]["total_cost"] = new_total_cost
             G.nodes[next_node]["parent"] = current
             G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
+            G.nodes[next_node]["soc_pct"] = G.nodes[current]["soc_pct"]
 
     def _calc_soc_verbrauch_pct(
         self,
@@ -938,7 +984,9 @@ class NetworkXOptimizer(OptimizerInterface):
         v: tuple[int, int, int],
         segments: list[RouteSegment],
     ) -> float:
-        """Admissible Heuristik: Zeit bis zum Ziel unter idealen Bedingungen.
+        """Admissible Heuristik: verbleibende reale Fahrzeit unter idealen Bedingungen.
+
+        Ideale Bedingungen = ohne Ladestopps.
 
         Args:
             u: Aktueller Knoten (segment_index, soc_bucket, time_bucket).
@@ -950,21 +998,20 @@ class NetworkXOptimizer(OptimizerInterface):
         """
         u_seg, _, _ = u
 
-        # Restdistanz per O(1)-Lookup aus der in `optimize()` vorberechneten
-        # Präfixsumme statt `sum(seg.laenge_m for seg in segments[u_seg:])` -
-        # A* ruft die Heuristik pro expandiertem Knoten auf; bei
-        # feingranularen Routen mit tausenden Segmenten wäre die O(n)-Summe
-        # sonst selbst nach der Aggregation der Fahrtkanten
-        # (`_add_drive_edge`) noch ein spürbarer Kostenfaktor.
-        rest_distanz_m = self._cum_len_m[len(segments)] - self._cum_len_m[u_seg]
-
-        # Idealgeschwindigkeit (Autobahn, 110 km/h)
-        v_ideal_mps = DEFAULT_SPEED_KMH * 1000 / 3600
-
-        # Zeitdauer
-        rest_zeit_s = rest_distanz_m / v_ideal_mps
-
-        return rest_zeit_s
+        # Exakte verbleibende Fahrzeit per O(1)-Lookup aus der in `optimize()`
+        # vorberechneten Praefixsumme der TATSAECHLICHEN, je Segment
+        # ermittelten Fahrzeiten (`self._cum_time_s`, siehe
+        # `SegmentEnergyResult.fahrzeit_s`) statt einer Distanz/Pauschal-
+        # geschwindigkeit-Schaetzung. A* ruft die Heuristik pro expandiertem
+        # Knoten auf; bei feingranularen Routen mit tausenden Segmenten waere
+        # eine O(n)-Neuberechnung sonst selbst nach der Aggregation der
+        # Fahrtkanten (`_add_drive_edge`) noch ein spuerbarer Kostenfaktor.
+        # Admissible, da die reine Restfahrzeit (ohne Ladestopps) niemals
+        # groesser als die tatsaechlichen Restkosten (Fahrzeit + evtl.
+        # Ladezeit) sein kann - und straffer/informierter als eine pauschale
+        # 110-km/h-Annahme, die auf Streckenabschnitten mit hoeherem
+        # Tempolimit sogar INADMISSIBLE waere (Heuristik > wahre Kosten).
+        return self._cum_time_s[len(segments)] - self._cum_time_s[u_seg]
 
     def _extract_charging_stops(
         self,
@@ -982,57 +1029,64 @@ class NetworkXOptimizer(OptimizerInterface):
             prev_node = path[i - 1]
             curr_node = path[i]
 
-            # Prüfe, ob es sich um eine Ladekante handelt
-            if curr_node[0] == prev_node[0]:  # Selbes Segment → Ladevorgang
-                prev_soc_pct = G.nodes[prev_node]["soc_pct"]
-                curr_soc_pct = G.nodes[curr_node]["soc_pct"]
+            # Ladekante ueber das EDGE-Attribut `station_id` erkennen (siehe
+            # `_fuege_ladekante_hinzu`) statt ueber Segment-Index-Gleichheit +
+            # Node-Attribut: der Knoten-Schluessel `(segment_index, soc_bucket,
+            # time_bucket)` kann durch Diskretisierung mit einer ANDEREN,
+            # bereits frueher angelegten Fahrt-/Faehrkante kollidieren, die
+            # keine `station_id` traegt - der Knoten selbst wird dann NICHT
+            # erneut mit den Ladekanten-Attributen initialisiert. Die
+            # tatsaechlich im Pfad gewaehlte Kante ist aber immer eindeutig,
+            # daher hier von der KANTE statt vom Knoten lesen (sonst wird der
+            # Ladehalt bei einer solchen Kollision aus dem Ergebnis
+            # verschluckt, obwohl seine Kosten/Zeit sehr wohl im Pfad stecken).
+            edge_data = G.get_edge_data(prev_node, curr_node)
+            station_id = edge_data.get("station_id") if edge_data else None
+            if station_id is None:
+                continue  # Fahrt-/Faehr-/Wartekante, keine Ladekante
 
-                if curr_soc_pct > prev_soc_pct:
-                    # Ladevorgang erkannt. Station ueber die beim Erzeugen der
-                    # Kante (`_fuege_ladekante_hinzu`) am Knoten hinterlegte
-                    # `station_id` auflösen - NICHT ueber eine erneute
-                    # geografische Naechste-Station-Suche
-                    # (`segment.geometrie`-Mittelpunkt): mehrere Ladekanten
-                    # koennen am selben Segment fuer VERSCHIEDENE Stationen
-                    # existieren (z. B. wenn zwei Stationen auf denselben
-                    # naechstgelegenen Segment-Index abgebildet werden, siehe
-                    # `_map_stations_to_segments`) - eine geografische
-                    # Neu-Suche wuerde dann unabhaengig von der TATSAECHLICH
-                    # gewaehlten Kante immer dieselbe (naechstgelegene)
-                    # Station zurueckgeben und so z. B. eine gezielt an einer
-                    # ANDEREN Station vorgegebene feste Ladedauer
-                    # (`ladedauer_vorgaben`) der falschen Station zuschreiben.
-                    station_id = G.nodes[curr_node].get("station_id")
-                    station = stations_by_id.get(station_id) if station_id else None
+            # Station ueber die an der Kante hinterlegte `station_id`
+            # auflösen - NICHT ueber eine erneute geografische Naechste-
+            # Station-Suche (`segment.geometrie`-Mittelpunkt): mehrere
+            # Ladekanten koennen am selben Segment fuer VERSCHIEDENE
+            # Stationen existieren (z. B. wenn zwei Stationen auf denselben
+            # naechstgelegenen Segment-Index abgebildet werden, siehe
+            # `_map_stations_to_segments`) - eine geografische Neu-Suche
+            # wuerde dann unabhaengig von der TATSAECHLICH gewaehlten Kante
+            # immer dieselbe (naechstgelegene) Station zurueckgeben und so
+            # z. B. eine gezielt an einer ANDEREN Station vorgegebene feste
+            # Ladedauer (`ladedauer_vorgaben`) der falschen Station zuschreiben.
+            station = stations_by_id.get(station_id)
+            if station is None:
+                continue  # Sollte nicht vorkommen (station_id stets gueltig)
 
-                    if station is None:
-                        continue  # Keine Station im Segment
+            # Zeitpunkte direkt aus den Knoten lesen statt die Ladezeit
+            # erneut ueber die Ladekurve zu berechnen: `zeitpunkt` ist
+            # exakt der Wert, der beim Erzeugen dieser Kante in
+            # `_fuege_ladekante_hinzu` gesetzt wurde - fuer eine vom
+            # Nutzer per `ladedauer_vorgaben` fest vorgegebene Ladedauer
+            # (siehe `_add_charging_edges`) waere eine Neuberechnung ueber
+            # `_calc_ladezeit_s(delta_soc, ...)` NICHT die vorgegebene
+            # Dauer, sondern die (durch Bisektion nur angenaeherte)
+            # automatische Herleitung - und selbst im Normalfall vermeidet
+            # dies eine unnoetige zweite, rundungsbehaftete Berechnung.
+            prev_soc_pct = G.nodes[prev_node]["soc_pct"]
+            curr_soc_pct = G.nodes[curr_node]["soc_pct"]
+            start_zeit = G.nodes[prev_node]["zeitpunkt"]
+            end_zeit = G.nodes[curr_node]["zeitpunkt"]
+            ladezeit_s = (end_zeit - start_zeit).total_seconds()
 
-                    # Zeitpunkte direkt aus den Knoten lesen statt die Ladezeit
-                    # erneut ueber die Ladekurve zu berechnen: `zeitpunkt` ist
-                    # exakt der Wert, der beim Erzeugen dieser Kante in
-                    # `_fuege_ladekante_hinzu` gesetzt wurde - fuer eine vom
-                    # Nutzer per `ladedauer_vorgaben` fest vorgegebene Ladedauer
-                    # (siehe `_add_charging_edges`) waere eine Neuberechnung ueber
-                    # `_calc_ladezeit_s(delta_soc, ...)` NICHT die vorgegebene
-                    # Dauer, sondern die (durch Bisektion nur angenaeherte)
-                    # automatische Herleitung - und selbst im Normalfall vermeidet
-                    # dies eine unnoetige zweite, rundungsbehaftete Berechnung.
-                    start_zeit = G.nodes[prev_node]["zeitpunkt"]
-                    end_zeit = G.nodes[curr_node]["zeitpunkt"]
-                    ladezeit_s = (end_zeit - start_zeit).total_seconds()
-
-                    ladehalte.append(
-                        ChargingStop(
-                            station=station,
-                            segment_index=curr_node[0],
-                            ankunfts_soc_pct=prev_soc_pct,
-                            ziel_soc_pct=curr_soc_pct,
-                            geschaetzte_ladedauer_s=int(ladezeit_s),
-                            ankunftszeit=start_zeit,
-                            abfahrtszeit=end_zeit,
-                        )
-                    )
+            ladehalte.append(
+                ChargingStop(
+                    station=station,
+                    segment_index=curr_node[0],
+                    ankunfts_soc_pct=prev_soc_pct,
+                    ziel_soc_pct=curr_soc_pct,
+                    geschaetzte_ladedauer_s=int(ladezeit_s),
+                    ankunftszeit=start_zeit,
+                    abfahrtszeit=end_zeit,
+                )
+            )
 
         return ladehalte
 

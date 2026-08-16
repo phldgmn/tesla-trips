@@ -5,8 +5,10 @@ Alle Tests sind deterministisch und verwenden kleine, synthetische Szenarien.
 
 from __future__ import annotations
 
+from collections import deque
 from datetime import UTC, datetime, timedelta
 
+import networkx as nx
 import pytest
 
 from tripplanner.charging_infrastructure.models import (
@@ -516,17 +518,6 @@ class TestZeitbudgetBeruecksichtigtLadezeit:
         noetig) - der alte, fixe 5-Bucket-Puffer war fuer beide Szenarien
         identisch.
         """
-        segments = [
-            RouteSegment(
-                segment_index=0,
-                geometrie=[BERLIN_COORD, HAMBURG_COORD],
-                laenge_m=300_000,
-                strassenklasse="MOTORWAY",
-                tempolimit_kmh=110,
-                steigung_rohdaten=0.0,
-                bearing_deg=45.0,
-            )
-        ]
         vehicle_profile = VehicleProfile(
             masse_kg=1706.0,
             cw_wert=0.23,
@@ -537,14 +528,15 @@ class TestZeitbudgetBeruecksichtigtLadezeit:
         constraints = OptimizationConstraints(max_ladezeit_s=3600)
         optimizer = create_networkx_optimizer()
 
+        total_time_s = 300_000 / (110.0 * 1000 / 3600)  # reale Fahrzeit, Tempolimit 110 km/h, 300km
         buckets_ohne_laden = optimizer._estimate_max_time_buckets(
-            segments,
+            total_time_s=total_time_s,
             total_energy_kwh=30.0,  # deutlich unter Akkukapazitaet - kein Laden noetig
             vehicle_profile=vehicle_profile,
             constraints=constraints,
         )
         buckets_mit_vielen_ladestopps = optimizer._estimate_max_time_buckets(
-            segments,
+            total_time_s=total_time_s,
             total_energy_kwh=300.0,  # 5x Akkukapazitaet - mehrere Ladestopps noetig
             vehicle_profile=vehicle_profile,
             constraints=constraints,
@@ -642,6 +634,115 @@ class TestZeitbudgetBeruecksichtigtLadezeit:
         )
 
         assert len(plan.ladehalte) >= 3
+
+
+class TestLadehaltUeberlebtKnotenKollision:
+    """Regressionstest: Bug - der Zustandsknoten-Schluessel `(segment_index,
+    soc_bucket, time_bucket)` kann durch die Diskretisierung mit einer
+    ANDEREN, bereits frueher angelegten Fahrtkante kollidieren (dieselbe
+    Kombination aus Segment, gerundetem SoC und gerundeter Zeit, aber ueber
+    eine Route ohne Ladehalt erreicht). `_fuege_ladekante_hinzu` initialisiert
+    `type`/`station_id` nur beim ERSTEN Anlegen eines Knotens
+    (`if next_node not in G.nodes`) - kollidiert eine spaeter gefundene,
+    guenstigere Ladekante mit einem bereits bestehenden (kollidierenden)
+    Knoten, bleibt dessen `type="drive"` ohne `station_id` bestehen, obwohl
+    die tatsaechlich gewaehlte Kante sehr wohl eine Ladekante ist.
+    `_extract_charging_stops` las `station_id` bisher vom KNOTEN und
+    verschluckte den Ladehalt dadurch komplett aus dem Ergebnis - dessen
+    Ladezeit floss aber sehr wohl in `gesamtreisezeit_s` ein (ueber die
+    Kantenkosten), was sich als mehrminuetig falscher SoC/Position direkt
+    nach dem betroffenen Ladehalt in `simulate_trip` zeigte (Diskrepanz
+    zwischen realer Gesamtreisezeit und der Summe der extrahierten
+    `ChargingStop`-Ladedauern).
+    """
+
+    def test_ladehalt_wird_trotz_kollidierendem_knoten_extrahiert(self) -> None:
+        optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=15)
+        base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
+        optimizer._base_time = base_time
+
+        station = ChargingStation(
+            station_id="kollisions-station",
+            name="Kollisions-Station",
+            coordinate=(52.0, 13.0),
+            stalls={StallType.V3: 4},
+            max_ladeleistung_kw=250.0,
+            connector_types=[ConnectorType.CCS2],
+            country="DE",
+            letzte_datenAktualisierung=datetime.now(UTC),
+        )
+
+        G: nx.DiGraph = nx.DiGraph()
+
+        # Ankunft an der Ladestation (Segment 5) mit niedrigem SoC.
+        current = (5, 3, 4)
+        current_zeitpunkt = base_time + timedelta(minutes=100)
+        G.add_node(
+            current,
+            type="drive",
+            soc_pct=15.0,
+            zeitpunkt=current_zeitpunkt,
+            segment_index=5,
+            total_cost=1000.0,
+            parent=None,
+        )
+
+        ziel_soc_pct = 80.0
+        ladezeit_s = 900.0
+        neuer_zeitpunkt = current_zeitpunkt + timedelta(seconds=ladezeit_s)
+        new_soc_bucket = soc_to_bucket(ziel_soc_pct, optimizer.soc_step_pct)
+        new_time_bucket = zeit_to_bucket(neuer_zeitpunkt, base_time, optimizer.time_step_min)
+        target_key = (5, new_soc_bucket, new_time_bucket)
+
+        # Kollidierender Knoten: von einer FRUEHER angelegten, unrelaten
+        # Fahrtkante (keine Ladestation) erzeugt - identischer Schluessel,
+        # aber ohne `station_id`/mit `type="drive"`. Sehr hohe `total_cost`
+        # stellt sicher, dass die spaeter hinzugefuegte Ladekante guenstiger
+        # ist und den Pfad tatsaechlich gewinnt (siehe `_fuege_ladekante_hinzu`).
+        G.add_node(
+            target_key,
+            type="drive",
+            soc_pct=61.0,
+            zeitpunkt=base_time + timedelta(minutes=90),
+            segment_index=5,
+            total_cost=1e8,
+            parent=None,
+        )
+
+        queue: deque[tuple[int, int, int]] = deque()
+        optimizer._fuege_ladekante_hinzu(
+            G=G,
+            current=current,
+            seg_idx=5,
+            station=station,
+            ziel_soc_pct=ziel_soc_pct,
+            ladezeit_s=ladezeit_s,
+            max_time_buckets=10_000,
+            queue=queue,
+        )
+
+        # Vorbedingung des Bugs bestaetigt: der Knoten wurde NICHT neu
+        # angelegt, sein `type` blieb "drive" ohne Node-`station_id`.
+        assert G.nodes[target_key]["type"] == "drive"
+        assert G.nodes[target_key].get("station_id") is None
+
+        constraints = OptimizationConstraints()
+        ladehalte = optimizer._extract_charging_stops(
+            G=G,
+            path=[current, target_key],
+            segments=[],
+            charging_stations=[station],
+            constraints=constraints,
+        )
+
+        assert len(ladehalte) == 1
+        ladehalt = ladehalte[0]
+        assert ladehalt.station.station_id == "kollisions-station"
+        assert ladehalt.ankunfts_soc_pct == 15.0
+        assert ladehalt.ziel_soc_pct == ziel_soc_pct
+        assert ladehalt.geschaetzte_ladedauer_s == int(ladezeit_s)
+        assert ladehalt.ankunftszeit == current_zeitpunkt
+        assert ladehalt.abfahrtszeit == neuer_zeitpunkt
 
 
 class TestORToolsOptimizer:
@@ -929,7 +1030,11 @@ class TestFaehrZeitfenster:
 
         assert plan.ladehalte == []  # kein Ladehalt noetig (Segment 1 kostet kein SoC)
 
-        drive_seg2_s = 30_000 / (110.0 * 1000 / 3600)
+        # Restfahrzeit nach der Faehre = das TATSAECHLICHE `fahrzeit_s` von
+        # Segment 2 (siehe `_basis_szenario`/`energy_results[2]`), nicht eine
+        # pauschale 110-km/h-Annahme (siehe optimizer.py: `_add_drive_edge`
+        # nutzt jetzt `SegmentEnergyResult.fahrzeit_s` je Segment).
+        drive_seg2_s = energy_results[2].fahrzeit_s
         erwartete_gesamtzeit_s = (faehr_ankunft - abfahrtszeit).total_seconds() + drive_seg2_s
         assert plan.gesamtreisezeit_s == pytest.approx(erwartete_gesamtzeit_s, abs=1.0)
 
