@@ -1,11 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { buildSplicedRoute } from "@/utils/route-line";
+import { buildSplicedRoute, splitRouteIntoLegs } from "@/utils/route-line";
 import { haversineDistanceM } from "@/utils/geo-utils";
 
 describe("buildSplicedRoute", () => {
   it("returns an empty result for an empty route geometry", () => {
     const result = buildSplicedRoute([], [], []);
-    expect(result).toEqual({ coordinates: [], totalDistanceM: 0, samples: [] });
+    expect(result).toEqual({
+      coordinates: [],
+      totalDistanceM: 0,
+      samples: [],
+      legBoundaries: [],
+    });
   });
 
   it("converts (lat, lon) route points to [lng, lat] with no charging stops", () => {
@@ -357,5 +362,111 @@ describe("buildSplicedRoute", () => {
     ]);
     const critical = result.samples.filter((s) => s.critical);
     expect(critical.map((s) => s.socPct)).toEqual([10, 20]);
+  });
+});
+
+describe("splitRouteIntoLegs", () => {
+  it("returns a single leg spanning the whole route when there are no charging stops", () => {
+    const route: [number, number][] = [
+      [52.5, 13.4],
+      [52.6, 13.5],
+      [52.7, 13.6],
+    ];
+    const spliced = buildSplicedRoute(route, [], []);
+    const legs = splitRouteIntoLegs(spliced);
+
+    expect(legs).toHaveLength(1);
+    expect(legs[0].coordinates).toEqual(spliced.coordinates);
+    expect(legs[0].totalDistanceM).toBeCloseTo(spliced.totalDistanceM, 6);
+  });
+
+  it("splits at each charging stop so every leg gets its own, much shorter total distance", () => {
+    // Zwei weit auseinanderliegende Ladehalte auf einer langen Route -
+    // reproduziert den Bug, dass eine gemeinsame MapLibre-line-gradient-
+    // Texture (256 Texel) ueber die GESAMTE Route den an jedem Ladehalt auf
+    // <1 m kollabierten SoC-Sprung nicht mehr darstellen kann, sobald die
+    // Gesamtroute viele hundert km lang ist (siehe `splitRouteIntoLegs`-
+    // Docstring). Mit dem Split muss jeder Leg eine viel kuerzere
+    // `totalDistanceM` als die Gesamtroute haben.
+    const route: [number, number][] = [
+      [50.0, 8.0], // 0
+      [50.5, 8.0], // 1 <- routeIndexVor Station A
+      [51.0, 8.0], // 2 - ersetzt
+      [51.5, 8.0], // 3 <- routeIndexNach Station A
+      [52.0, 8.0], // 4
+      [52.5, 8.0], // 5 <- routeIndexVor Station B
+      [53.0, 8.0], // 6 - ersetzt
+      [53.5, 8.0], // 7 <- routeIndexNach Station B
+      [54.0, 8.0], // 8
+    ];
+    const stationA: [number, number] = [50.75, 8.02];
+    const detourA: [number, number][] = [
+      [50.5, 8.0],
+      [50.6, 8.01],
+      stationA,
+      [50.9, 8.01],
+      [51.5, 8.0],
+    ];
+    const stationB: [number, number] = [52.75, 8.02];
+    const detourB: [number, number][] = [
+      [52.5, 8.0],
+      [52.6, 8.01],
+      stationB,
+      [52.9, 8.01],
+      [53.5, 8.0],
+    ];
+
+    const spliced = buildSplicedRoute(
+      route,
+      [
+        {
+          position: stationA,
+          distanzM: 1000,
+          detourGeometrie: detourA,
+          stationIndex: 2,
+          routeIndexVor: 1,
+          routeIndexNach: 3,
+          ankunftsSocPct: 18,
+          zielSocPct: 80,
+        },
+        {
+          position: stationB,
+          distanzM: 2000,
+          detourGeometrie: detourB,
+          stationIndex: 2,
+          routeIndexVor: 5,
+          routeIndexNach: 7,
+          ankunftsSocPct: 22,
+          zielSocPct: 80,
+        },
+      ],
+      [],
+    );
+
+    const legs = splitRouteIntoLegs(spliced);
+
+    expect(legs).toHaveLength(3);
+    for (const leg of legs) {
+      // Jeder Leg ist ein echter Bruchteil der Gesamtroute, nicht die
+      // gesamte (verschmierte) Streckenlaenge.
+      expect(leg.totalDistanceM).toBeLessThan(spliced.totalDistanceM * 0.6);
+    }
+
+    // Leg 1 endet mit dem Ankunfts-SoC von Station A bei voller Distanz
+    // (progress = 1), Leg 2 beginnt mit dem Ziel-SoC von Station A bei
+    // Distanz ~0 (progress = 0) - der Sprung liegt an der LEG-GRENZE, ohne
+    // Duplikat des Ankunfts-Stuetzpunkts (siehe `isFirstLeg`-Sonderfall in
+    // `splitRouteIntoLegs`). Leg 2 endet seinerseits mit dem Ankunfts-SoC
+    // von Station B.
+    const leg1Critical = legs[0].samples.filter((s) => s.critical);
+    const leg2Critical = legs[1].samples.filter((s) => s.critical);
+    const leg3Critical = legs[2].samples.filter((s) => s.critical);
+    expect(leg1Critical.map((s) => s.socPct)).toEqual([18]);
+    expect(leg1Critical[0].distanzM).toBeCloseTo(legs[0].totalDistanceM, 3);
+    expect(leg2Critical.map((s) => s.socPct)).toEqual([80, 22]);
+    expect(leg2Critical[0].distanzM).toBeLessThan(1);
+    expect(leg2Critical[1].distanzM).toBeCloseTo(legs[1].totalDistanceM, 3);
+    expect(leg3Critical.map((s) => s.socPct)).toEqual([80]);
+    expect(leg3Critical[0].distanzM).toBeLessThan(1);
   });
 });

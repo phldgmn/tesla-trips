@@ -24,7 +24,11 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 
 import { toLngLat } from "../utils/geo-utils";
-import { buildSplicedRoute, type RouteSample } from "../utils/route-line";
+import {
+  buildSplicedRoute,
+  splitRouteIntoLegs,
+  type RouteSample,
+} from "../utils/route-line";
 import { formatZeitpunkt } from "../utils/datetime-utils";
 import { usePersistentState } from "../utils/persistent-state";
 import { ChargingStop, TripSimulationResult, SimulationFrame } from "../types";
@@ -522,6 +526,9 @@ export function MapVisualization({
     move: (e: MapMouseEvent) => void;
     leave: () => void;
   } | null>(null);
+  // Ids der pro-Leg SoC-Gradient-Sources (siehe `splitRouteIntoLegs`) - fuer
+  // sauberes Entfernen in `clearSimulationLayers` beim naechsten Rebuild.
+  const routeLegSourceIdsRef = useRef<string[]>([]);
 
   // Kartenausschnitt (Mittelpunkt + Zoom) wird in `localStorage` gespiegelt
   // und beim Neuladen wiederhergestellt, statt jedes Mal bei der
@@ -568,10 +575,15 @@ export function MapVisualization({
 
   /** Entfernt alle Routen- und Marker-Sources/Layer aus der Karte. */
   function clearSimulationLayers(map: Map) {
-    // Route (Basislinie + SoC-Gradient, ein Source/zwei Layer statt vieler
-    // Segment-Layer)
-    if (map.getLayer("route-soc-gradient"))
-      map.removeLayer("route-soc-gradient");
+    // Route (Basislinie, ein Source/Layer) + pro-Leg SoC-Gradient-Layer
+    // (siehe `splitRouteIntoLegs` - eigene Texture-Aufloesung pro Leg statt
+    // einer gemeinsamen 256-Texel-Texture ueber die gesamte Route).
+    for (const sourceId of routeLegSourceIdsRef.current) {
+      const layerId = `${sourceId}-gradient`;
+      if (map.getLayer(layerId)) map.removeLayer(layerId);
+      if (map.getSource(sourceId)) map.removeSource(sourceId);
+    }
+    routeLegSourceIdsRef.current = [];
     if (map.getLayer("route")) map.removeLayer("route");
     if (map.getSource("route")) map.removeSource("route");
     // Hover-Handler der Haupt-Route abmelden (sonst haeufen sich beim
@@ -679,19 +691,47 @@ export function MapVisualization({
       leave: handleRouteMouseLeave,
     };
 
-    map.addLayer({
-      id: "route-soc-gradient",
-      type: "line",
-      source: "route",
-      paint: {
-        "line-width": 4,
-        "line-opacity": 0.9,
-        "line-gradient": buildSocGradientExpression(
-          splicedRoute.samples,
-          splicedRoute.totalDistanceM,
-        ),
-      },
-    } as unknown as LayerSpecification);
+    // SoC-Gradient: EIN Source+Layer PRO Leg (siehe `splitRouteIntoLegs`)
+    // statt eines gemeinsamen Layers ueber die gesamte Route - MapLibre
+    // backt `line-gradient` in eine feste 256-Texel-Texture ueber die
+    // GESAMTE Linienlaenge; bei einer einzigen, mehrere hundert/tausend km
+    // langen Route waere ein an einem Ladehalt technisch korrekt auf <1 m
+    // kollabierter SoC-Sprung (siehe `CHARGE_JUMP_EPSILON_M`) weit unter der
+    // Texture-Aufloesung und wuerde schlicht nicht dargestellt (dokumentiertes
+    // MapLibre/Mapbox-Verhalten). Jeder Leg bekommt so seine eigene, viel
+    // kuerzere Texture-Basislaenge - der SoC-Sprung liegt dann exakt an der
+    // Grenze zwischen zwei Layern statt in einer gemeinsamen Texture verloren
+    // zu gehen.
+    for (const [legIndex, leg] of splitRouteIntoLegs(splicedRoute).entries()) {
+      const sourceId = `route-leg-${legIndex}`;
+      const legGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
+        type: "Feature" as const,
+        properties: {},
+        geometry: {
+          type: "LineString" as const,
+          coordinates: leg.coordinates,
+        },
+      };
+      map.addSource(sourceId, {
+        type: "geojson" as const,
+        lineMetrics: true,
+        data: legGeoJson,
+      });
+      map.addLayer({
+        id: `${sourceId}-gradient`,
+        type: "line",
+        source: sourceId,
+        paint: {
+          "line-width": 4,
+          "line-opacity": 0.9,
+          "line-gradient": buildSocGradientExpression(
+            leg.samples,
+            leg.totalDistanceM,
+          ),
+        },
+      } as unknown as LayerSpecification);
+      routeLegSourceIdsRef.current.push(sourceId);
+    }
 
     // Ladehalt-Marker hinzufügen: ein Marker pro tatsächlichem Ladehalt aus
     // `simulationResult.charging_stops` (nicht pro LADEN-Frame – ein Halt
