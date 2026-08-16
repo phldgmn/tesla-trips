@@ -10,14 +10,14 @@ unter Berücksichtigung von:
 """
 
 from tripplanner.energy.energy import (
-    berechne_gesamtverbrauch,
-    berechne_segment_verbrauch,
+    calculate_segment_consumption,
+    calculate_total_consumption,
 )
 from tripplanner.energy.models import SegmentEnergyResult, VehicleEnergyParameters
 
 __all__ = [
     "SegmentEnergyResult",
     "VehicleEnergyParameters",
-    "berechne_gesamtverbrauch",
-    "berechne_segment_verbrauch",
+    "calculate_segment_consumption",
+    "calculate_total_consumption",
 ]

@@ -83,7 +83,7 @@ export interface WaypointInput {
 
 /** Eine (gepufferte) Bounding Box um eine erkannte Fährverbindung, zur Vermeidung
  *  in einer nachfolgenden Routenberechnung (`FaehrAusschlussAPI`). */
-export interface FaehrAusschluss {
+export interface FerryExclusion {
   name: string;
   bbox_sw: [number, number];
   bbox_no: [number, number];
@@ -121,7 +121,7 @@ export interface TripRequestPayload {
   start_soc_pct: number;
   ziel_soc_pct: number;
   alle_faehren_vermeiden: boolean;
-  vermiedene_faehren: FaehrAusschluss[];
+  vermiedene_faehren: FerryExclusion[];
   faehr_zeitfenster: FaehrZeitfenster[];
   ladedauer_vorgaben: LadedauerVorgabe[];
 }
@@ -142,7 +142,7 @@ export function buildTripRequestPayload(args: {
   zielSocPct: number;
   praeferenzen?: Record<string, unknown>;
   alleFaehrenVermeiden?: boolean;
-  vermiedeneFaehren?: FaehrAusschluss[];
+  vermiedeneFaehren?: FerryExclusion[];
   faehrZeitfenster?: FaehrZeitfenster[];
   ladedauerVorgaben?: LadedauerVorgabe[];
 }): TripRequestPayload {
@@ -154,7 +154,7 @@ export function buildTripRequestPayload(args: {
   }
   const start = stops[0];
   const ziel = stops[stops.length - 1];
-  const zwischen = stops.slice(1, -1);
+  const between = stops.slice(1, -1);
 
   if (!start.position) {
     throw new TripRequestBuildError(
@@ -166,7 +166,7 @@ export function buildTripRequestPayload(args: {
       "Der Zielpunkt hat keine aufgelöste Adresse.",
     );
   }
-  const unresolved = zwischen.find((s) => !s.position);
+  const unresolved = between.find((s) => !s.position);
   if (unresolved) {
     throw new TripRequestBuildError(
       `Der Zwischenstopp "${unresolved.address || "(leer)"}" hat keine aufgelöste Adresse.`,
@@ -176,7 +176,7 @@ export function buildTripRequestPayload(args: {
   return {
     start: start.position,
     ziel: ziel.position,
-    zwischenstopps: zwischen.map((s) => ({
+    zwischenstopps: between.map((s) => ({
       koordinate: s.position as [number, number],
       aufenthaltsdauer_s: null,
       geplante_abfahrt: s.leaveAt ?? null,

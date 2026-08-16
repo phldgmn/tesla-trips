@@ -121,7 +121,7 @@ def api_request_payload(berlin_muenchen_request: dict) -> dict:
 
 
 @pytest.fixture
-def api_request_payload_mit_zwischenstopp(berlin_hamburg_request: dict) -> dict:
+def api_request_payload_with_stop(berlin_hamburg_request: dict) -> dict:
     """API-Request-Format mit Zwischenstopp."""
     wp = berlin_hamburg_request["zwischenstopps"][0]
     return {

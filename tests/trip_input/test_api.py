@@ -221,7 +221,7 @@ def fake_charging_provider_berlin_munich() -> FakeChargingStationProvider:
 
 # =============================================================================
 @pytest.mark.asyncio
-async def test_create_trip_simulation_vollstaendiger_durchlauf(
+async def test_create_trip_simulation_complete_run(
     valid_trip_request: dict,
     fake_routing_provider: FakeRoutingProvider,
     fake_weather_provider: FakeWeatherProvider,
@@ -259,7 +259,7 @@ async def test_create_trip_simulation_vollstaendiger_durchlauf(
 
 
 @pytest.mark.asyncio
-async def test_create_trip_simulation_e2e_regression_abfahrtszeit_und_soc(
+async def test_create_trip_simulation_e2e_regression_departure_time_and_soc(
     valid_trip_request: dict,
     fake_routing_provider: FakeRoutingProvider,
     fake_weather_provider: FakeWeatherProvider,
@@ -308,7 +308,7 @@ async def test_create_trip_simulation_e2e_regression_abfahrtszeit_und_soc(
 
 
 @pytest.mark.asyncio
-async def test_create_trip_simulation_mit_zwischenstopp(
+async def test_create_trip_simulation_with_stop(
     fake_routing_provider: FakeRoutingProvider,
     fake_weather_provider: FakeWeatherProvider,
 ) -> None:
@@ -425,7 +425,7 @@ async def test_create_trip_simulation_different_vehicle_profiles(
 
 
 @pytest.mark.asyncio
-async def test_create_trip_simulation_ohne_construction_provider(
+async def test_create_trip_simulation_without_construction_provider(
     valid_trip_request: dict,
     fake_routing_provider: FakeRoutingProvider,
     fake_weather_provider: FakeWeatherProvider,
@@ -446,7 +446,7 @@ async def test_create_trip_simulation_ohne_construction_provider(
     assert len(result.frames) > 0
 
 
-async def test_create_trip_simulation_ohne_wetter_provider(
+async def test_create_trip_simulation_without_weather_provider(
     valid_trip_request: dict,
     fake_routing_provider: FakeRoutingProvider,
     fake_charging_provider_berlin_munich: FakeChargingStationProvider,
@@ -561,10 +561,10 @@ async def test_create_trip_simulation_without_route_observer_unaffected(
     assert result.gesamt_distanz_km > 0
 
 
-async def test_step_1_route_berechnen_uses_berechne_route_not_waypoints(
+async def test_step_1_route_calculation_uses_calculate_route(
     valid_trip_request: dict,
 ) -> None:
-    """_step_1_route_berechnen() ruft berechne_route() auf (nicht berechne_route_mit_waypoints()),
+    """_step_1_route_calculate() ruft berechne_route() auf (nicht berechne_route_mit_waypoints()),
     damit TripRequest-Präferenzen (z. B. Fährvermeidung) den Provider erreichen."""
 
     class _RecordingProvider(FakeRoutingProvider):
@@ -578,7 +578,7 @@ async def test_step_1_route_berechnen_uses_berechne_route_not_waypoints(
     provider = _RecordingProvider()
     anfrage = TripRequest.model_validate(valid_trip_request)
 
-    await trip_api._step_1_route_berechnen(anfrage, provider)
+    await trip_api._step_1_route_calculate(anfrage, provider)
 
     assert provider.berechne_route_called_with is anfrage
 
@@ -605,7 +605,7 @@ def _make_fahrzeugprofil_dict() -> dict:
     }
 
 
-def test_mit_abgeleiteter_wartezeit_erzwingt_wartezeit_bei_spaeterer_geplanter_abfahrt() -> None:
+def test_with_derived_waiting_time_requires_waiting_time_with_later_planned_departure() -> None:
     """Leitet aus einer spaet geplanten Abfahrt eine Mindestaufenthaltsdauer ab.
 
     Liegt `geplante_abfahrt` spaeter als die geschaetzte Ankunft, wird die
@@ -638,7 +638,7 @@ def test_mit_abgeleiteter_wartezeit_erzwingt_wartezeit_bei_spaeterer_geplanter_a
     assert ergebnis[0].aufenthaltsdauer >= timedelta(minutes=25)
 
 
-def test_mit_abgeleiteter_wartezeit_keine_wartezeit_bei_bereits_verspaeteter_abfahrt() -> None:
+def test_with_derived_waiting_time_no_waiting_time_when_already_delayed_departure() -> None:
     """Liegt `geplante_abfahrt` vor der geschaetzten Ankunft, wird keine
     zusaetzliche Wartezeit erzwungen (man ist ohnehin schon spaeter dran)."""
     abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0)
@@ -664,7 +664,7 @@ def test_mit_abgeleiteter_wartezeit_keine_wartezeit_bei_bereits_verspaeteter_abf
     assert ergebnis[0].aufenthaltsdauer == timedelta(0)
 
 
-def test_mit_abgeleiteter_wartezeit_unveraendert_ohne_geplante_abfahrt() -> None:
+def test_with_derived_waiting_time_unchanged_without_planned_departure() -> None:
     """Wegpunkte ohne `geplante_abfahrt` werden unveraendert durchgereicht."""
     abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0)
     segment = RouteSegment(
@@ -690,7 +690,7 @@ def test_mit_abgeleiteter_wartezeit_unveraendert_ohne_geplante_abfahrt() -> None
 # =============================================================================
 
 
-def test_matche_faehr_zeitfenster_reichert_bei_namensgleichheit_an() -> None:
+def test_match_ferry_time_window_expanded_when_same_name() -> None:
     """Ein Zeitfenster mit passendem Namen reichert die erkannte Fähre um
     abfahrt/ankunft an."""
     faehre = FaehrSegment(
@@ -721,7 +721,7 @@ def test_matche_faehr_zeitfenster_reichert_bei_namensgleichheit_an() -> None:
     assert ergebnis[0].segment_index_end == 7
 
 
-def test_matche_faehr_zeitfenster_ignoriert_nicht_passenden_namen() -> None:
+def test_match_ferry_time_window_ignore_not_matching_names() -> None:
     """Ein Zeitfenster fuer eine nicht (mehr) vorhandene Fähre wird stillschweigend
     ignoriert - die erkannte Fähre bleibt ohne abfahrt/ankunft."""
     faehre = FaehrSegment(
@@ -747,7 +747,7 @@ def test_matche_faehr_zeitfenster_ignoriert_nicht_passenden_namen() -> None:
     assert ergebnis[0].ankunft is None
 
 
-def test_matche_faehr_zeitfenster_waehlt_naechste_bbox_bei_mehrdeutigem_namen() -> None:
+def test_match_ferry_time_window_select_next_bbox_for_multiple_matching_names() -> None:
     """Bei mehreren gleichnamigen Zeitfenstern gewinnt die naehere Bounding-Box-Mitte."""
     faehre = FaehrSegment(
         name="Fähre X",
@@ -816,7 +816,7 @@ class _FerryRoutingProvider(FakeRoutingProvider):
         )
 
 
-async def test_create_trip_simulation_faehren_observer_erhaelt_gepinnte_zeiten(
+async def test_create_trip_simulation_ferry_observer_receives_pinned_times(
     valid_trip_request: dict,
     fake_weather_provider: FakeWeatherProvider,
     fake_charging_provider_berlin_munich: FakeChargingStationProvider,
@@ -858,7 +858,7 @@ async def test_create_trip_simulation_faehren_observer_erhaelt_gepinnte_zeiten(
     assert result.gesamt_distanz_km == pytest.approx(102.0, abs=0.1)
 
 
-async def test_create_trip_simulation_ladedauer_vorgabe_wirkt_auf_ladeplan(
+async def test_create_trip_simulation_charge_duration_specification_applies_to_charge_plan(
     valid_trip_request: dict,
     fake_routing_provider: FakeRoutingProvider,
     fake_weather_provider: FakeWeatherProvider,
@@ -919,7 +919,7 @@ async def test_create_trip_simulation_ladedauer_vorgabe_wirkt_auf_ladeplan(
     assert result.charging_stops[0].ladedauer_s == vorgabe_s
 
 
-def test_finde_klammerpunkte_walkt_mindestens_margin_in_beide_richtungen() -> None:
+def test_find_edges_walk_at_least_margin_in_both_directions() -> None:
     """`_finde_klammerpunkte` liefert zwei Punkte, die zusammen mindestens
     `margin_m` vor UND nach dem Abzweigpunkt liegen - fixiert die
     Fahrtrichtung fuer das Detour-Routing (siehe `_step_lade_detours_routen`).

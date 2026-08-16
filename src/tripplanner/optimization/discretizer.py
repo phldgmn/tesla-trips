@@ -65,7 +65,7 @@ def bucket_to_soc(bucket: int, soc_step_pct: float = SOC_STEP_PCT_DEFAULT) -> fl
     return bucket * soc_step_pct
 
 
-def zeit_to_bucket(
+def time_to_bucket(
     zeitpunkt: datetime,
     base_time: datetime,
     time_step_min: int = TIME_STEP_MIN_DEFAULT,
@@ -84,9 +84,9 @@ def zeit_to_bucket(
 
     Example:
         >>> start = datetime(2025, 1, 1, 8, 0, 0)
-        >>> zeit_to_bucket(datetime(2025, 1, 1, 8, 17, 0), start)
+        >>> time_to_bucket(datetime(2025, 1, 1, 8, 17, 0), start)
         1
-        >>> zeit_to_bucket(datetime(2025, 1, 1, 8, 45, 0), start)
+        >>> time_to_bucket(datetime(2025, 1, 1, 8, 45, 0), start)
         3
     """
     if time_step_min <= 0:
@@ -104,7 +104,7 @@ def zeit_to_bucket(
     return rounded_minutes // time_step_minutes
 
 
-def bucket_to_zeit(
+def bucket_to_time(
     bucket: int, base_time: datetime, time_step_min: int = TIME_STEP_MIN_DEFAULT
 ) -> datetime:
     """Konvertiert Zeit-Bucket-Index in datetime-Zeitpunkt.
@@ -119,9 +119,9 @@ def bucket_to_zeit(
 
     Example:
         >>> base = datetime(2025, 1, 1, 8, 0, 0)
-        >>> bucket_to_zeit(1, base)
+        >>> bucket_to_time(1, base)
         datetime.datetime(2025, 1, 1, 8, 15)
-        >>> bucket_to_zeit(3, base)
+        >>> bucket_to_time(3, base)
         datetime.datetime(2025, 1, 1, 9, 0)
     """
     if bucket < 0:
@@ -151,7 +151,7 @@ def create_state_node(
         Tuple (segment_index, soc_bucket, time_bucket).
     """
     soc_bucket = soc_to_bucket(soc_pct, soc_step_pct)
-    time_bucket = zeit_to_bucket(zeitpunkt, zeitpunkt, TIME_STEP_MIN_DEFAULT)
+    time_bucket = time_to_bucket(zeitpunkt, zeitpunkt, TIME_STEP_MIN_DEFAULT)
     return (segment_index, soc_bucket, time_bucket)
 
 

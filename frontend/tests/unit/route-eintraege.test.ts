@@ -112,13 +112,13 @@ describe("buildRouteEintraege", () => {
         makeChargingStop({ ankunftszeit: "2025-01-01T08:45:00" }),
       ];
 
-      const erkannteFaehren = [makeFaehre({ name: "Fähre A" })];
+      const recognizedFerries = [makeFaehre({ name: "Fähre A" })];
 
       const result = buildRouteEintraege({
         stops,
         frames,
         chargingStops,
-        erkannteFaehren,
+        erkannteFaehren: recognizedFerries,
         vermiedeneFaehren: [],
       });
 
@@ -150,7 +150,7 @@ describe("buildRouteEintraege", () => {
         makeStop("2", "Ziel", [52.53, 13.41]),
       ];
 
-      const erkannteFaehren = [makeFaehre({ name: "Fähre A" })];
+      const recognizedFerries = [makeFaehre({ name: "Fähre A" })];
 
       // Die Fähre ist in vermiedeneFaehren
       const vermiedeneFaehren = [
@@ -161,7 +161,7 @@ describe("buildRouteEintraege", () => {
         stops,
         frames,
         chargingStops: undefined,
-        erkannteFaehren,
+        erkannteFaehren: recognizedFerries,
         vermiedeneFaehren,
       });
 
@@ -181,7 +181,7 @@ describe("buildRouteEintraege", () => {
         makeStop("2", "Ziel", [52.53, 13.41]),
       ];
 
-      const erkannteFaehren = [makeFaehre({ name: "Fähre A" })];
+      const recognizedFerries = [makeFaehre({ name: "Fähre A" })];
 
       // ANDERE Fähre ist vermieden, aber "Fähre A" ist nicht enthalten
       const vermiedeneFaehren = [
@@ -192,7 +192,7 @@ describe("buildRouteEintraege", () => {
         stops,
         frames,
         chargingStops: undefined,
-        erkannteFaehren,
+        erkannteFaehren: recognizedFerries,
         vermiedeneFaehren,
       });
 

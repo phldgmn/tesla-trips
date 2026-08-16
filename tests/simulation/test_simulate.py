@@ -367,7 +367,7 @@ class TestTotals:
 
         assert result.gesamt_distanz_km == pytest.approx(150.0, abs=0.1)
 
-    def test_total_fahrzeit_correct(
+    def test_total_driving_time_correct(
         self,
         route_3_segments: Route,
         energy_results_3_segments: list[SegmentEnergyResult],
@@ -389,7 +389,7 @@ class TestTotals:
 
         assert result.gesamt_fahrzeit_min == pytest.approx(75.0, abs=0.1)
 
-    def test_total_ladezeit_correct(
+    def test_total_charge_time_correct(
         self,
         route_3_segments: Route,
         energy_results_3_segments: list[SegmentEnergyResult],
@@ -502,10 +502,10 @@ class TestNoChargingScenario:
         assert result.start_soc_pct > result.ziel_soc_pct
 
 
-class TestAbfahrtszeitBasis:
+class TestDepartureTimeBasis:
     """Regressionstests Bug 1: Zeitstempel muessen auf abfahrtszeit basieren, nicht Unix-Epoch."""
 
-    def test_zeitpunkt_basiert_auf_abfahrtszeit(
+    def test_timepoint_based_on_departuretime(
         self,
         route_3_segments: Route,
         energy_results_3_segments: list[SegmentEnergyResult],
@@ -527,7 +527,7 @@ class TestAbfahrtszeitBasis:
         assert result.frames[0].zeitpunkt == abfahrtszeit
         assert result.frames[1].zeitpunkt == abfahrtszeit + timedelta(seconds=60)
 
-    def test_zeitpunkt_mit_anderer_abfahrtszeit(
+    def test_timepoint_with_other_departuretime(
         self,
         route_3_segments: Route,
         energy_results_3_segments: list[SegmentEnergyResult],
@@ -554,7 +554,7 @@ class TestAbfahrtszeitBasis:
 class TestSocDepletionPhysikalischKorrekt:
     """Regressionstests: Bug 2 - SoC-Abfall muss auf Energie/Batteriekapazitaet basieren."""
 
-    def test_soc_verbrauch_proportional_zu_energiebedarf_und_batteriekapazitaet(self) -> None:
+    def test_soc_consumption_proportional_to_energy_usage_and_battery_capacity(self) -> None:
         """1 Segment, 10 kWh Verbrauch, 50 kWh Kapazitaet -> Abfall exakt 20 Prozentpunkte."""
         route = Route(
             segments=[make_route_segment(0, [BERLIN_COORD, LEIPZIG_COORD], 100_000)],
@@ -580,7 +580,7 @@ class TestSocDepletionPhysikalischKorrekt:
         assert result.frames[-1].soc_pct == pytest.approx(60.0, abs=0.5)
         assert result.frames[-1].soc_pct != pytest.approx(0.0, abs=1.0)
 
-    def test_soc_verbrauch_kumulativ_ueber_mehrere_segmente(
+    def test_soc_consumption_cumulative_across_multiple_segments(
         self,
         route_3_segments: Route,
         energy_results_3_segments: list[SegmentEnergyResult],
@@ -605,7 +605,7 @@ class TestSocDepletionPhysikalischKorrekt:
         assert result.frames[-1].soc_pct == pytest.approx(erwarteter_end_soc, abs=0.5)
 
 
-class TestSocBaselineNachLadehalt:
+class TestSocBaselineAfterChargingStop:
     """Regressionstests: Bug 3 - SoC waehrend FAHREN nach einem Ladehalt muss vom
     Ziel-SoC dieses Ladehalts ausgehen, nicht vom Start-SoC der gesamten Reise.
 
@@ -617,7 +617,7 @@ class TestSocBaselineNachLadehalt:
     mit mehreren Ladehalten faelschlich bis auf 0% trotz erfolgter Ladehalte.
     """
 
-    def test_end_soc_basiert_auf_ladehalt_ziel_soc_nicht_auf_reise_start(
+    def test_end_soc_based_on_charging_stop_end_soc_not_travel_start(
         self,
         route_with_charging: Route,
         energy_results_with_charging: list[SegmentEnergyResult],
@@ -630,15 +630,15 @@ class TestSocBaselineNachLadehalt:
         """
         battery_capacity_kwh = 62.5
         ladehalt = plan_with_charging.ladehalte[0]
-        energie_nach_ladehalt_kwh = sum(
+        energy_after_charging_stop_kwh = sum(
             e.energiebedarf_kwh
             for e in energy_results_with_charging
             if e.segment_index >= ladehalt.segment_index
         )
         erwarteter_end_soc = (
-            ladehalt.ziel_soc_pct - (energie_nach_ladehalt_kwh / battery_capacity_kwh) * 100.0
+            ladehalt.ziel_soc_pct - (energy_after_charging_stop_kwh / battery_capacity_kwh) * 100.0
         )
-        fehlerhafter_end_soc = (
+        wrong_end_soc = (
             80.0
             - (
                 sum(e.energiebedarf_kwh for e in energy_results_with_charging)
@@ -659,4 +659,4 @@ class TestSocBaselineNachLadehalt:
         )
 
         assert result.frames[-1].soc_pct == pytest.approx(erwarteter_end_soc, abs=0.5)
-        assert result.frames[-1].soc_pct != pytest.approx(fehlerhafter_end_soc, abs=1.0)
+        assert result.frames[-1].soc_pct != pytest.approx(wrong_end_soc, abs=1.0)

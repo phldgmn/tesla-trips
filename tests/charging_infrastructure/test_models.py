@@ -201,8 +201,8 @@ class TestChargingStation:
         # sample_station: V3: 4, V2: 2 = 6
         assert sample_station.anzahl_verfuegbare_stalls() == 6
 
-    def test_max_parallele_nutzbarkeit(self) -> None:
-        """Testet die Methode max_parallele_nutzbarkeit."""
+    def test_max_parallel_usage(self) -> None:
+        """Testet die Methode max_parallel_usability."""
         # V2: 2, V3: 4 -> (2+4+3)//4 + (0+7)//8 = 2 + 0 = 2
         station = ChargingStation(
             station_id="test",
@@ -213,7 +213,7 @@ class TestChargingStation:
             connector_types=[ConnectorType.CCS2],
             country="DE",
         )
-        assert station.max_parallele_nutzbarkeit() == 2
+        assert station.max_parallel_usability() == 2
 
         # V2: 4, V3: 4 -> (4+4)//4 = 2
         station2 = ChargingStation(
@@ -225,7 +225,7 @@ class TestChargingStation:
             connector_types=[ConnectorType.CCS2],
             country="DE",
         )
-        assert station2.max_parallele_nutzbarkeit() == 2
+        assert station2.max_parallel_usability() == 2
 
         # V4: 8 -> (8+7)//8 = 1
         station3 = ChargingStation(
@@ -237,7 +237,7 @@ class TestChargingStation:
             connector_types=[ConnectorType.CCS2],
             country="DE",
         )
-        assert station3.max_parallele_nutzbarkeit() == 1
+        assert station3.max_parallel_usability() == 1
 
         # V4: 16 -> (16+7)//8 = 2, but max_ladeleistung_kw <= 5000
         station4 = ChargingStation(
@@ -249,7 +249,7 @@ class TestChargingStation:
             connector_types=[ConnectorType.CCS2],
             country="DE",
         )
-        assert station4.max_parallele_nutzbarkeit() == 2
+        assert station4.max_parallel_usability() == 2
 
     def test_defaults(self) -> None:
         """Testet, dass Defaults korrekt gesetzt werden."""

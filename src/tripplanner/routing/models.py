@@ -123,7 +123,7 @@ class FaehrSegment(BaseModel):
 
     Erzeugt von `tripplanner.routing.faehren.erkenne_faehren()`. `bbox_sw`/`bbox_no`
     beschreiben eine um `FAEHR_PUFFER_GRAD` gepufferte Bounding Box um die exakte
-    Segmentgeometrie - zur Wiederverwendung als `FaehrAusschluss`
+    Segmentgeometrie - zur Wiederverwendung als `FerryExclusion`
     (`tripplanner.trip_input.models`) in einer nachfolgenden Routenberechnung, die
     genau diese Fährverbindung vermeiden soll.
     """

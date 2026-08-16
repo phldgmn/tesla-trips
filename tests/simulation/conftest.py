@@ -79,8 +79,8 @@ def make_charging_stop(
     segment_index: int,
     ankunfts_soc_pct: float,
     ziel_soc_pct: float,
-    geschaetzte_ladedauer_s: int,
-    ankunftszeit: datetime,
+    estimated_charge_duration_s: int,
+    arrival_time: datetime,
 ) -> ChargingStop:
     """Hilfsfunktion zur Erstellung von ChargingStop-Instanzen."""
     return ChargingStop(
@@ -88,9 +88,9 @@ def make_charging_stop(
         segment_index=segment_index,
         ankunfts_soc_pct=ankunfts_soc_pct,
         ziel_soc_pct=ziel_soc_pct,
-        geschaetzte_ladedauer_s=geschaetzte_ladedauer_s,
-        ankunftszeit=ankunftszeit,
-        abfahrtszeit=ankunftszeit + timedelta(seconds=geschaetzte_ladedauer_s),
+        geschaetzte_ladedauer_s=estimated_charge_duration_s,
+        ankunftszeit=arrival_time,
+        abfahrtszeit=arrival_time + timedelta(seconds=estimated_charge_duration_s),
     )
 
 
@@ -236,8 +236,8 @@ def plan_with_charging(
                 segment_index=1,
                 ankunfts_soc_pct=30.0,
                 ziel_soc_pct=60.0,
-                geschaetzte_ladedauer_s=1800,
-                ankunftszeit=base_time + timedelta(seconds=1500),
+                estimated_charge_duration_s=1800,
+                arrival_time=base_time + timedelta(seconds=1500),
             ),
         ],
         gesamtreisezeit_s=6300,

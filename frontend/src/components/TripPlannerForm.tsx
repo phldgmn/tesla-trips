@@ -12,7 +12,7 @@ import type {
   Stop,
   VehicleProfileInput,
   TripRequestPayload,
-  FaehrAusschluss,
+  FerryExclusion,
   FaehrZeitfenster,
   LadedauerVorgabe,
 } from "../types/trip-request";
@@ -168,8 +168,8 @@ export function validateForm(args: {
 
 /** Vergleicht zwei FaehrAusschluss-Einträge auf inhaltliche Gleichheit. */
 export function sameFaehrAusschluss(
-  a: FaehrAusschluss,
-  b: FaehrAusschluss,
+  a: FerryExclusion,
+  b: FerryExclusion,
 ): boolean {
   return (
     a.name === b.name &&
@@ -182,10 +182,10 @@ export function sameFaehrAusschluss(
 
 /** Ergänzt oder entfernt eine Fährverbindung aus der Ausschlussliste. */
 export function toggleFaehrAusschluss(
-  liste: FaehrAusschluss[],
-  faehre: FaehrAusschluss,
+  liste: FerryExclusion[],
+  faehre: FerryExclusion,
   vermeiden: boolean,
-): FaehrAusschluss[] {
+): FerryExclusion[] {
   const bereitsVorhanden = liste.some((f) => sameFaehrAusschluss(f, faehre));
   if (vermeiden) {
     return bereitsVorhanden ? liste : [...liste, faehre];
@@ -197,7 +197,7 @@ export function toggleFaehrAusschluss(
  *  wird entfernt, wenn `abfahrt`/`ankunft` beide leer sind. */
 export function setFaehrZeitfensterFuer(
   liste: FaehrZeitfenster[],
-  eintrag: FaehrAusschluss,
+  eintrag: FerryExclusion,
   abfahrt: string,
   ankunft: string,
 ): FaehrZeitfenster[] {
@@ -223,7 +223,7 @@ export function setLadedauerVorgabeFuer(
 
 /** Stabiler Identitäts-Schlüssel für eine Fährverbindung (Name + Bounding Box),
  *  zur Indizierung von React-State und -Listen abseits von Array-Index. */
-export function faehrKey(eintrag: FaehrAusschluss): string {
+export function faehrKey(eintrag: FerryExclusion): string {
   return `${eintrag.name}|${eintrag.bbox_sw.join(",")}|${eintrag.bbox_no.join(",")}`;
 }
 
@@ -325,7 +325,7 @@ export function TripPlannerForm({
     false,
   );
   const [vermiedeneFaehren, setVermiedeneFaehren] = usePersistentState<
-    FaehrAusschluss[]
+    FerryExclusion[]
   >("vermiedene-faehren", []);
   const [faehrZeitfenster, setFaehrZeitfenster] = usePersistentState<
     FaehrZeitfenster[]
@@ -605,7 +605,7 @@ export function TripPlannerForm({
 
   const buildAndSubmit = (
     alleFaehren: boolean,
-    vermiedene: FaehrAusschluss[],
+    vermiedene: FerryExclusion[],
     zeitfenster: FaehrZeitfenster[],
     ladedauern: LadedauerVorgabe[],
   ) => {
@@ -1476,7 +1476,7 @@ export function TripPlannerForm({
 
           // eintrag.art === "Fähre"
           const faehre = eintrag.faehre;
-          const ausschlussEintrag: FaehrAusschluss = {
+          const ausschlussEintrag: FerryExclusion = {
             name: faehre.name,
             bbox_sw: faehre.bbox_sw,
             bbox_no: faehre.bbox_no,

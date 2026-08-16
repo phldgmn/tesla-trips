@@ -24,9 +24,9 @@ from tripplanner.optimization import (
 )
 from tripplanner.optimization.discretizer import (
     bucket_to_soc,
-    bucket_to_zeit,
+    bucket_to_time,
     soc_to_bucket,
-    zeit_to_bucket,
+    time_to_bucket,
 )
 from tripplanner.optimization.models import (
     OptimizationConstraints,
@@ -81,19 +81,19 @@ class TestDiscretizerFunctions:
         """Test Zeit-Bucket-Konvertierung."""
         base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
 
-        assert zeit_to_bucket(base_time, base_time) == 0
-        assert zeit_to_bucket(base_time + timedelta(minutes=15), base_time) == 1
-        assert zeit_to_bucket(base_time + timedelta(minutes=30), base_time) == 2
-        assert zeit_to_bucket(base_time + timedelta(minutes=60), base_time) == 4
+        assert time_to_bucket(base_time, base_time) == 0
+        assert time_to_bucket(base_time + timedelta(minutes=15), base_time) == 1
+        assert time_to_bucket(base_time + timedelta(minutes=30), base_time) == 2
+        assert time_to_bucket(base_time + timedelta(minutes=60), base_time) == 4
 
     def test_bucket_to_zeit(self) -> None:
         """Test Bucket-zu-Zeit-Konvertierung."""
         base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
 
-        assert bucket_to_zeit(0, base_time) == base_time
-        assert bucket_to_zeit(1, base_time) == base_time + timedelta(minutes=15)
-        assert bucket_to_zeit(2, base_time) == base_time + timedelta(minutes=30)
-        assert bucket_to_zeit(4, base_time) == base_time + timedelta(minutes=60)
+        assert bucket_to_time(0, base_time) == base_time
+        assert bucket_to_time(1, base_time) == base_time + timedelta(minutes=15)
+        assert bucket_to_time(2, base_time) == base_time + timedelta(minutes=30)
+        assert bucket_to_time(4, base_time) == base_time + timedelta(minutes=60)
 
     def test_bucket_to_zeit_roundtrip(self) -> None:
         """Test Rundungstoleranz der Zeit-Bucket-Konvertierung."""
@@ -101,8 +101,8 @@ class TestDiscretizerFunctions:
         time_steps = [0, 1, 2, 4, 8, 16]
 
         for bucket in time_steps:
-            time = bucket_to_zeit(bucket, base_time)
-            result_bucket = zeit_to_bucket(time, base_time)
+            time = bucket_to_time(bucket, base_time)
+            result_bucket = time_to_bucket(time, base_time)
             assert result_bucket == bucket
 
 
@@ -691,7 +691,7 @@ class TestLadehaltUeberlebtKnotenKollision:
         ladezeit_s = 900.0
         neuer_zeitpunkt = current_zeitpunkt + timedelta(seconds=ladezeit_s)
         new_soc_bucket = soc_to_bucket(ziel_soc_pct, optimizer.soc_step_pct)
-        new_time_bucket = zeit_to_bucket(neuer_zeitpunkt, base_time, optimizer.time_step_min)
+        new_time_bucket = time_to_bucket(neuer_zeitpunkt, base_time, optimizer.time_step_min)
         target_key = (5, new_soc_bucket, new_time_bucket)
 
         # Kollidierender Knoten: von einer FRUEHER angelegten, unrelaten

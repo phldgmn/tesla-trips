@@ -38,7 +38,7 @@ class ChargingCurvePoint(BaseModel):
 
     @field_validator("ladeleistung_kw")
     @classmethod
-    def validate_leistung(cls, v: float) -> float:
+    def validate_power(cls, v: float) -> float:
         """Stellt sicher, dass ladeleistung_kw endlich und nichtnegativ ist."""
         if not isfinite(v) or v < 0:
             raise ValueError("ladeleistung_kw muss endlich und nichtnegativ sein")

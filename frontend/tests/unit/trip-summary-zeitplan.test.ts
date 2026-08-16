@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { buildZeitplan } from "@/components/TripSummary";
+import { buildTimePlan } from "@/components/TripSummary";
 import { createEmptyStop } from "@/types/trip-request";
 import type { Stop } from "@/types/trip-request";
 import type { TripSimulationResult, ChargingStop, FaehrSegment } from "@/types";
 
-/** Minimales TripSimulationResult mit den fuer buildZeitplan relevanten Feldern. */
+/** Minimales TripSimulationResult mit den fuer buildTimePlan relevanten Feldern. */
 function makeResult(
   overrides: Partial<TripSimulationResult> = {},
 ): TripSimulationResult {
@@ -70,10 +70,10 @@ function makeStops(): Stop[] {
   ];
 }
 
-describe("buildZeitplan", () => {
+describe("buildTimePlan", () => {
   it("includes an entry per user stop with role 'Stopp'", () => {
-    const zeitplan = buildZeitplan(makeResult(), makeStops());
-    const stopEintraege = zeitplan.filter((e) => e.art === "Stopp");
+    const schedule = buildTimePlan(makeResult(), makeStops());
+    const stopEintraege = schedule.filter((e) => e.art === "Stopp");
     expect(stopEintraege).toHaveLength(2);
     expect(stopEintraege[0].label).toBe("Berlin");
     expect(stopEintraege[1].label).toBe("Hamburg");
@@ -81,8 +81,8 @@ describe("buildZeitplan", () => {
 
   it("includes a charging stop with its real arrival/departure timestamps", () => {
     const result = makeResult({ charging_stops: [makeChargingStop()] });
-    const zeitplan = buildZeitplan(result, makeStops());
-    const ladehalt = zeitplan.find((e) => e.art === "Ladehalt");
+    const schedule = buildTimePlan(result, makeStops());
+    const ladehalt = schedule.find((e) => e.art === "Ladehalt");
     expect(ladehalt).toBeDefined();
     expect(ladehalt?.label).toBe("Tesla Supercharger - Dresden");
     expect(ladehalt?.arrival).toBe("2026-08-15T10:00:00");
@@ -98,8 +98,8 @@ describe("buildZeitplan", () => {
         }),
       ],
     });
-    const zeitplan = buildZeitplan(result, makeStops());
-    const faehre = zeitplan.find((e) => e.art === "Fähre");
+    const schedule = buildTimePlan(result, makeStops());
+    const faehre = schedule.find((e) => e.art === "Fähre");
     expect(faehre).toBeDefined();
     expect(faehre?.arrival).toBe("2026-08-15T09:00:00");
     expect(faehre?.departure).toBe("2026-08-15T09:45:00");
@@ -107,8 +107,8 @@ describe("buildZeitplan", () => {
 
   it("includes a detected ferry without a user schedule, with unknown timing if not near a frame", () => {
     const result = makeResult({ erkannte_faehren: [makeFaehre()] });
-    const zeitplan = buildZeitplan(result, makeStops());
-    const faehre = zeitplan.find((e) => e.art === "Fähre");
+    const schedule = buildTimePlan(result, makeStops());
+    const faehre = schedule.find((e) => e.art === "Fähre");
     expect(faehre).toBeDefined();
     expect(faehre?.arrival).toBeNull();
     expect(faehre?.departure).toBeNull();
@@ -120,8 +120,8 @@ describe("buildZeitplan", () => {
         makeFaehre({ bbox_sw: [52.5, 13.4], bbox_no: [52.54, 13.41] }),
       ],
     });
-    const zeitplan = buildZeitplan(result, makeStops());
-    const faehre = zeitplan.find((e) => e.art === "Fähre");
+    const schedule = buildTimePlan(result, makeStops());
+    const faehre = schedule.find((e) => e.art === "Fähre");
     expect(faehre).toBeDefined();
     expect(faehre?.arrival).toBe("2026-08-15T08:00:00");
     expect(faehre?.departure).toBe("2026-08-15T08:00:00");
@@ -137,17 +137,17 @@ describe("buildZeitplan", () => {
         }),
       ],
     });
-    const zeitplan = buildZeitplan(result, makeStops());
-    const arten = zeitplan.map((e) => e.art);
+    const schedule = buildTimePlan(result, makeStops());
+    const arten = schedule.map((e) => e.art);
     // Start-Stopp (Abfahrt 08:00, keine Ankunft) -> Fähre (09:00) -> Ladehalt (10:00) -> Ziel-Stopp (14:00)
     expect(arten).toEqual(["Stopp", "Fähre", "Ladehalt", "Stopp"]);
   });
 });
 
-describe("buildZeitplan - Strecke/Dauer/SoC/Energie", () => {
+describe("buildTimePlan - Strecke/Dauer/SoC/Energie", () => {
   it("liefert am Start-Stopp null für Strecke/Dauer/Ankunfts-SoC, aber Abfahrts-SoC", () => {
-    const zeitplan = buildZeitplan(makeResult(), makeStops());
-    const start = zeitplan.find((e) => e.label === "Berlin");
+    const schedule = buildTimePlan(makeResult(), makeStops());
+    const start = schedule.find((e) => e.label === "Berlin");
     expect(start?.distanceSinceLastKm).toBeNull();
     expect(start?.durationSinceLastMin).toBeNull();
     expect(start?.ankunftsSocPct).toBeNull();
@@ -155,8 +155,8 @@ describe("buildZeitplan - Strecke/Dauer/SoC/Energie", () => {
   });
 
   it("berechnet Strecke/Dauer zum Ziel-Stopp aus den Frames und dessen Ankunfts-SoC", () => {
-    const zeitplan = buildZeitplan(makeResult(), makeStops());
-    const ziel = zeitplan.find((e) => e.label === "Hamburg");
+    const schedule = buildTimePlan(makeResult(), makeStops());
+    const ziel = schedule.find((e) => e.label === "Hamburg");
     expect(ziel?.distanceSinceLastKm).toBeGreaterThan(200);
     expect(ziel?.distanceSinceLastKm).toBeLessThan(300);
     expect(ziel?.durationSinceLastMin).toBe(360);
@@ -166,8 +166,8 @@ describe("buildZeitplan - Strecke/Dauer/SoC/Energie", () => {
 
   it("übernimmt SoC und geladene Energie eines Ladehalts exakt aus dem ChargingStop", () => {
     const result = makeResult({ charging_stops: [makeChargingStop()] });
-    const zeitplan = buildZeitplan(result, makeStops());
-    const ladehalt = zeitplan.find((e) => e.art === "Ladehalt");
+    const schedule = buildTimePlan(result, makeStops());
+    const ladehalt = schedule.find((e) => e.art === "Ladehalt");
     expect(ladehalt?.ankunftsSocPct).toBe(40);
     expect(ladehalt?.abfahrtsSocPct).toBe(80);
     expect(ladehalt?.energieGeladenKwh).toBe(25);
@@ -182,8 +182,8 @@ describe("buildZeitplan - Strecke/Dauer/SoC/Energie", () => {
         }),
       ],
     });
-    const zeitplan = buildZeitplan(result, makeStops());
-    for (const eintrag of zeitplan) {
+    const schedule = buildTimePlan(result, makeStops());
+    for (const eintrag of schedule) {
       if (eintrag.art !== "Ladehalt") {
         expect(eintrag.energieGeladenKwh).toBeNull();
       }

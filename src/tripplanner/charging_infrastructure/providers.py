@@ -139,7 +139,7 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
 
             # Max Leistung berechnen: Summe aller Stalls * durchschnittliche Leistung pro Stall
             # Vereinfachung: V2=150kW, V3=250kW, V3Ultra=325kW, V4=325kW
-            max_leistung = (
+            max_power = (
                 stalls[StallType.V2] * 150.0
                 + stalls[StallType.V3] * 250.0
                 + stalls[StallType.V3_ULTRA] * 325.0
@@ -165,7 +165,7 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
                     name=item["name"],
                     coordinate=(item["lat"], item["lon"]),
                     stalls=stalls,
-                    max_ladeleistung_kw=max_leistung,
+                    max_ladeleistung_kw=max_power,
                     connector_types=[ConnectorType(c) for c in item["connector_types"]],
                     country=item["country"],
                     ist_24_7=item.get("ist_24_7", True),

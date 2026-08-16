@@ -43,7 +43,7 @@ function stopLabel(stop: Stop): string {
 
 /** Ein Eintrag im vereinheitlichten, chronologischen Zeitplan - entweder ein
  *  Nutzer-Stopp, ein Ladehalt oder eine terminierte Fähre. */
-export interface ZeitplanEintrag {
+export interface TimePlanEntry {
   key: string;
   art: "Stopp" | "Ladehalt" | "Fähre";
   label: string;
@@ -78,14 +78,14 @@ export interface ZeitplanEintrag {
  * `findNearestFrameIndex`/`cumulativeDistancesKm`). Für Ladehalte stammen
  * SoC und geladene Energie direkt aus dem `ChargingStop` (exakt statt
  * geschätzt). */
-export function buildZeitplan(
+export function buildTimePlan(
   result: TripSimulationResult,
   stops: Stop[],
-): ZeitplanEintrag[] {
+): TimePlanEntry[] {
   const { frames } = result;
   const timings = estimateWaypointTimings(frames, stops);
 
-  const stopEintraege: ZeitplanEintrag[] = stops.map((stop, i) => ({
+  const stopEintraege: TimePlanEntry[] = stops.map((stop, i) => ({
     key: `stopp-${stop.id}`,
     art: "Stopp",
     label: stopLabel(stop),
@@ -98,7 +98,7 @@ export function buildZeitplan(
     energieGeladenKwh: null,
   }));
 
-  const ladehaltEintraege: ZeitplanEintrag[] = result.charging_stops.map(
+  const ladehaltEintraege: TimePlanEntry[] = result.charging_stops.map(
     (stop) => ({
       key: `ladehalt-${stop.station_id}-${stop.ankunftszeit}`,
       art: "Ladehalt",
@@ -113,7 +113,7 @@ export function buildZeitplan(
     }),
   );
 
-  const faehrEintraege: ZeitplanEintrag[] = result.erkannte_faehren.map(
+  const faehrEintraege: TimePlanEntry[] = result.erkannte_faehren.map(
     (f, idx) => {
       let arrival = f.abfahrt;
       let departure = f.ankunft;
@@ -122,9 +122,9 @@ export function buildZeitplan(
           (f.bbox_sw[0] + f.bbox_no[0]) / 2,
           (f.bbox_sw[1] + f.bbox_no[1]) / 2,
         ];
-        const geschaetzt = estimatePositionTiming(bboxMitte, frames);
-        arrival = arrival ?? geschaetzt.arrival;
-        departure = departure ?? geschaetzt.departure;
+        const estimated = estimatePositionTiming(bboxMitte, frames);
+        arrival = arrival ?? estimated.arrival;
+        departure = departure ?? estimated.departure;
       }
       return {
         key: `faehre-${idx}-${f.name}`,
@@ -141,14 +141,14 @@ export function buildZeitplan(
     },
   );
 
-  const sortiert = [
+  const sorted = [
     ...stopEintraege,
     ...ladehaltEintraege,
     ...faehrEintraege,
   ].sort((a, b) => {
-    const zeitA = a.arrival ?? a.departure ?? "";
-    const zeitB = b.arrival ?? b.departure ?? "";
-    return zeitA.localeCompare(zeitB);
+    const timeA = a.arrival ?? a.departure ?? "";
+    const timeB = b.arrival ?? b.departure ?? "";
+    return timeA.localeCompare(timeB);
   });
 
   // Zweiter Durchlauf: Strecke/Zeit seit dem vorherigen Eintrag sowie (für
@@ -158,7 +158,7 @@ export function buildZeitplan(
   let prevExitIso: string | null = null;
   let prevExitIdx: number | null = null;
 
-  for (const eintrag of sortiert) {
+  for (const eintrag of sorted) {
     const arrivalIso = eintrag.arrival ?? eintrag.departure;
     const exitIso = eintrag.departure ?? eintrag.arrival;
     const arrivalIdx = arrivalIso
@@ -196,12 +196,12 @@ export function buildZeitplan(
     prevExitIdx = exitIdx;
   }
 
-  return sortiert;
+  return sorted;
 }
 
 function TripSummary({ result, stops }: TripSummaryProps) {
   const [zeitplanOpen, setZeitplanOpen] = useState(false);
-  const zeitplan = buildZeitplan(result, stops);
+  const schedule = buildTimePlan(result, stops);
 
   return (
     <div
@@ -269,7 +269,7 @@ function TripSummary({ result, stops }: TripSummaryProps) {
           fontWeight: 600,
         }}
       >
-        Zeitplan öffnen ({zeitplan.length} Einträge)
+        Zeitplan öffnen ({schedule.length} Einträge)
       </button>
 
       <Modal
@@ -293,7 +293,7 @@ function TripSummary({ result, stops }: TripSummaryProps) {
             </tr>
           </thead>
           <tbody>
-            {zeitplan.map((eintrag) => (
+            {schedule.map((eintrag) => (
               <tr key={eintrag.key}>
                 <td style={cellStyle}>{eintrag.art}</td>
                 <td style={cellStyle}>{eintrag.label}</td>

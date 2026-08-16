@@ -6,7 +6,7 @@ from datetime import datetime
 
 import pytest
 
-from tripplanner.trip_input.models import FaehrAusschluss, TripRequest, VehicleProfile
+from tripplanner.trip_input.models import FerryExclusion, TripRequest, VehicleProfile
 
 
 @pytest.fixture
@@ -21,12 +21,12 @@ def vehicle_profile() -> VehicleProfile:
     )
 
 
-class TestFaehrAusschluss:
-    """Tests für das FaehrAusschluss-Pydantic-Modell."""
+class TestDriveExclusion:
+    """Tests für das FerryExclusion-Pydantic-Modell."""
 
-    def test_faehr_ausschluss_requires_name_and_bbox(self) -> None:
-        """FaehrAusschluss benötigt name, bbox_sw, bbox_no."""
-        ausschluss = FaehrAusschluss(
+    def test_ferry_exclusion_requires_name_and_bbox(self) -> None:
+        """FerryExclusion benötigt name, bbox_sw, bbox_no."""
+        ausschluss = FerryExclusion(
             name="Rødby (DK) - Puttgarden (D)",
             bbox_sw=(54.50, 11.22),
             bbox_no=(54.66, 11.36),
@@ -39,9 +39,7 @@ class TestFaehrAusschluss:
 class TestTripRequestFaehrPraeferenzen:
     """Tests für die Fährvermeidungs-Felder von TripRequest."""
 
-    def test_alle_faehren_vermeiden_defaults_to_false(
-        self, vehicle_profile: VehicleProfile
-    ) -> None:
+    def test_avoid_all_ferries_defaults_false(self, vehicle_profile: VehicleProfile) -> None:
         """alle_faehren_vermeiden ist standardmäßig False."""
         anfrage = TripRequest(
             start=(52.52, 13.405),
@@ -52,10 +50,10 @@ class TestTripRequestFaehrPraeferenzen:
         assert anfrage.alle_faehren_vermeiden is False
         assert anfrage.vermiedene_faehren == []
 
-    def test_vermiedene_faehren_accepts_faehr_ausschluss_list(
+    def test_avoided_ferries_accepts_ferry_exclusion_list(
         self, vehicle_profile: VehicleProfile
     ) -> None:
-        """vermiedene_faehren akzeptiert eine Liste von FaehrAusschluss."""
+        """vermiedene_faehren akzeptiert eine Liste von FerryExclusion."""
         anfrage = TripRequest(
             start=(52.52, 13.405),
             ziel=(53.5511, 9.9937),
@@ -63,7 +61,7 @@ class TestTripRequestFaehrPraeferenzen:
             fahrzeugprofil=vehicle_profile,
             alle_faehren_vermeiden=True,
             vermiedene_faehren=[
-                FaehrAusschluss(name="Testfähre", bbox_sw=(54.0, 11.0), bbox_no=(55.0, 12.0))
+                FerryExclusion(name="Testfähre", bbox_sw=(54.0, 11.0), bbox_no=(55.0, 12.0))
             ],
         )
         assert anfrage.alle_faehren_vermeiden is True

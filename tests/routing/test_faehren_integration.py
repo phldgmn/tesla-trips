@@ -14,7 +14,7 @@ import pytest
 from tripplanner.routing.client import GraphHopperClient
 from tripplanner.routing.faehren import erkenne_faehren
 from tripplanner.routing.providers import GraphHopperRoutingProvider
-from tripplanner.trip_input.models import FaehrAusschluss, TripRequest, VehicleProfile
+from tripplanner.trip_input.models import FerryExclusion, TripRequest, VehicleProfile
 
 # Rødby (DK) <-> Puttgarden (D): direkte Fährüberquerung des Fehmarnbelt,
 # ca. 22 km / 69 min per Fähre (live verifiziert).
@@ -69,7 +69,7 @@ async def test_baseline_route_uses_the_ferry(vehicle_profile: VehicleProfile) ->
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_alle_faehren_vermeiden_forces_long_detour(vehicle_profile: VehicleProfile) -> None:
+async def test_avoid_all_ferries_forces_long_detour(vehicle_profile: VehicleProfile) -> None:
     """alle_faehren_vermeiden=True erzwingt eine deutlich längere Landroute ohne Fähre."""
     client = GraphHopperClient(base_url="http://localhost:8989")
     provider = GraphHopperRoutingProvider(client)
@@ -112,7 +112,7 @@ async def test_specific_ferry_exclusion_reroutes_around_detected_segment(
         ausschluss_anfrage = baseline_anfrage.model_copy(
             update={
                 "vermiedene_faehren": [
-                    FaehrAusschluss(
+                    FerryExclusion(
                         name=erkannt[0].name,
                         bbox_sw=erkannt[0].bbox_sw,
                         bbox_no=erkannt[0].bbox_no,
@@ -154,7 +154,7 @@ async def test_long_distance_ferry_exclusion_does_not_hit_waypoint_distance_limi
         ausschluss_anfrage = baseline_anfrage.model_copy(
             update={
                 "vermiedene_faehren": [
-                    FaehrAusschluss(
+                    FerryExclusion(
                         name=erkannt[0].name,
                         bbox_sw=erkannt[0].bbox_sw,
                         bbox_no=erkannt[0].bbox_no,

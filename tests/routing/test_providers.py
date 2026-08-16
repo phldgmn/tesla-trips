@@ -9,7 +9,7 @@ import pytest
 
 from tripplanner.routing.models import GraphHopperResponse
 from tripplanner.routing.providers import GraphHopperRoutingProvider
-from tripplanner.trip_input.models import FaehrAusschluss, TripRequest
+from tripplanner.trip_input.models import FerryExclusion, TripRequest
 
 
 @pytest.fixture
@@ -146,7 +146,7 @@ class TestBuildCustomModel:
         """Ohne Fährvermeidung und ohne use_custom_model wird kein custom_model gebaut."""
         assert gh_provider._build_custom_model(trip_request) is None
 
-    def test_alle_faehren_vermeiden_adds_ferry_priority_rule(
+    def test_avoid_all_ferries_adds_ferry_priority_rule(
         self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
     ) -> None:
         """alle_faehren_vermeiden=True fügt eine road_environment==FERRY Priority-Regel hinzu."""
@@ -162,7 +162,7 @@ class TestBuildCustomModel:
         self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
     ) -> None:
         """Jede vermiedene Fähre erzeugt eine GeoJSON-Area und eine in_<id> Priority-Regel."""
-        ausschluss = FaehrAusschluss(
+        ausschluss = FerryExclusion(
             name="Rødby (DK) - Puttgarden (D)",
             bbox_sw=(54.50, 11.22),
             bbox_no=(54.66, 11.36),
@@ -199,17 +199,17 @@ class TestBuildCustomModel:
         self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
     ) -> None:
         """Zwei vermiedene Fähren erzeugen zwei GeoJSON-Areas und zwei priority-Regeln."""
-        ausschluss0 = FaehrAusschluss(
+        exclusion0 = FerryExclusion(
             name="Fähre A",
             bbox_sw=(54.50, 11.22),
             bbox_no=(54.66, 11.36),
         )
-        ausschluss1 = FaehrAusschluss(
+        exclusion1 = FerryExclusion(
             name="Fähre B",
             bbox_sw=(54.20, 9.80),
             bbox_no=(54.30, 9.90),
         )
-        anfrage = trip_request.model_copy(update={"vermiedene_faehren": [ausschluss0, ausschluss1]})
+        anfrage = trip_request.model_copy(update={"vermiedene_faehren": [exclusion0, exclusion1]})
 
         custom_model = gh_provider._build_custom_model(anfrage)
 

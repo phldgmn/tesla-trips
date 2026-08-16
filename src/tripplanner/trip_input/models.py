@@ -34,7 +34,7 @@ class Waypoint(BaseModel):
     )
 
 
-class FaehrAusschluss(BaseModel):
+class FerryExclusion(BaseModel):
     """Eine vom Nutzer zu vermeidende Fährverbindung.
 
     Stammt aus einer zuvor per `tripplanner.routing.erkenne_faehren()` aus einer
@@ -61,7 +61,7 @@ class FaehrZeitfenster(BaseModel):
     """Vom Nutzer vorgegebene Abfahrts-/Ankunftszeit für eine Fährverbindung.
 
     Zur Abstimmung der Planung mit dem tatsächlichen Fährfahrplan.
-    Identifikation über `name`/`bbox_sw`/`bbox_no` wie `FaehrAusschluss` (aus einer
+    Identifikation über `name`/`bbox_sw`/`bbox_no` wie `FerryExclusion` (aus einer
     vorherigen Routenberechnung via `tripplanner.routing.erkenne_faehren()`). Der
     API-Layer (`trip_input.api`) matcht dies gegen die frisch berechnete Route und
     reicht bei Treffer die feste Abfahrts-/Ankunftszeit als Zeitplan-Vorgabe an
@@ -83,7 +83,7 @@ class FaehrZeitfenster(BaseModel):
 
     @field_validator("ankunft")
     @classmethod
-    def _ankunft_nach_abfahrt(cls, v: datetime, info: ValidationInfo) -> datetime:
+    def _arrival_after_departure(cls, v: datetime, info: ValidationInfo) -> datetime:
         """Stellt sicher, dass die Ankunft zeitlich nach der Abfahrt liegt."""
         abfahrt = info.data.get("abfahrt")
         if abfahrt is not None and v <= abfahrt:
@@ -149,11 +149,11 @@ class TripRequest(BaseModel):
             "ausgeschlossen)."
         ),
     )
-    vermiedene_faehren: list[FaehrAusschluss] = Field(
+    vermiedene_faehren: list[FerryExclusion] = Field(
         default_factory=list,
         description=(
             "Liste spezifischer, zuvor erkannter Fährverbindungen, die bei der "
-            "Routenberechnung vermieden werden sollen (siehe FaehrAusschluss)."
+            "Routenberechnung vermieden werden sollen (siehe FerryExclusion)."
         ),
     )
     faehr_zeitfenster: list[FaehrZeitfenster] = Field(

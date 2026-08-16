@@ -9,7 +9,7 @@
 
 import type { Stop } from "../types/trip-request";
 import type { ChargingStop, FaehrSegment, SimulationFrame } from "../types";
-import type { FaehrAusschluss } from "../types/trip-request";
+import type { FerryExclusion } from "../types/trip-request";
 import {
   estimateWaypointTimings,
   estimatePositionTiming,
@@ -18,7 +18,7 @@ import {
 /**
  * Vergleicht zwei FaehrAusschluss-Einträge auf inhaltliche Gleichheit.
  */
-function sameFaehrAusschluss(a: FaehrAusschluss, b: FaehrAusschluss): boolean {
+function sameFerryExclusion(a: FerryExclusion, b: FerryExclusion): boolean {
   return (
     a.name === b.name &&
     a.bbox_sw[0] === b.bbox_sw[0] &&
@@ -51,7 +51,7 @@ export function buildRouteEintraege(args: {
   frames: SimulationFrame[] | undefined;
   chargingStops: ChargingStop[] | undefined;
   erkannteFaehren: FaehrSegment[] | undefined;
-  vermiedeneFaehren: FaehrAusschluss[];
+  vermiedeneFaehren: FerryExclusion[];
 }): RouteEintrag[] {
   const { stops, frames, chargingStops, erkannteFaehren, vermiedeneFaehren } =
     args;
@@ -89,10 +89,10 @@ export function buildRouteEintraege(args: {
   );
 
   // Fähren (nur nicht-vermiedene): sortKey = Ankunftszeit (BBox-Mitte)
-  const erkannteFaehrenOhneVermiedene = erkannteFaehren?.filter(
+  const recognizedFerriesWithoutAvoided = erkannteFaehren?.filter(
     (faehre) =>
       !vermiedeneFaehren.some((vermieden) =>
-        sameFaehrAusschluss(vermieden, {
+        sameFerryExclusion(vermieden, {
           name: faehre.name,
           bbox_sw: faehre.bbox_sw,
           bbox_no: faehre.bbox_no,
@@ -101,7 +101,7 @@ export function buildRouteEintraege(args: {
   );
 
   const faehreEintraege: RouteEintrag[] = (
-    erkannteFaehrenOhneVermiedene ?? []
+    recognizedFerriesWithoutAvoided ?? []
   ).map((faehre) => {
     // BBox-Mitte berechnen
     const bbox_sw = faehre.bbox_sw;

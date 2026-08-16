@@ -102,19 +102,19 @@ def trips(  # noqa: PLR0913, PLR0917
         start_coord = parse_coord(start)
         ziel_coord = parse_coord(ziel)
 
-        zwischen = []
+        between = []
         if zwischenstopps:
             for wp in zwischenstopps:
                 coord, dur = parse_waypoint(wp)
-                zwischen.append({"koordinate": coord, "aufenthaltsdauer": dur})
+                between.append({"koordinate": coord, "aufenthaltsdauer": dur})
 
-        abfahrtszeit_dt = datetime.fromisoformat(abfahrtszeit)
+        departuretime_dt = datetime.fromisoformat(abfahrtszeit)
 
         request = {
             "start": start_coord,
             "ziel": ziel_coord,
-            "zwischenstopps": zwischen,
-            "abfahrtszeit": abfahrtszeit_dt,
+            "zwischenstopps": between,
+            "abfahrtszeit": departuretime_dt,
             "fahrzeugprofil": {
                 "masse_kg": 1800.0,
                 "cw_wert": 0.23,

@@ -8,12 +8,12 @@ import pytest
 
 from tripplanner.optimization.discretizer import (
     bucket_to_soc,
-    bucket_to_zeit,
+    bucket_to_time,
     create_state_node,
     get_all_soc_buckets,
     get_all_time_buckets_for_duration,
     soc_to_bucket,
-    zeit_to_bucket,
+    time_to_bucket,
 )
 
 
@@ -95,33 +95,33 @@ class TestDiscretizerEdgeCases:
         assert bucket_to_soc(100, soc_step_pct=0.5) == 50.0
         assert bucket_to_soc(20, soc_step_pct=5.0) == 100.0
 
-    # --- zeit_to_bucket ---
+    # --- time_to_bucket ---
 
-    def test_zeit_to_bucket_invalid_step_zero_raises(self) -> None:
+    def test_time_to_bucket_invalid_step_zero_raises(self) -> None:
         """Test: time_step_min <= 0 wirft ValueError."""
         base = datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC)
         with pytest.raises(ValueError, match="time_step_min muss positiv"):
-            zeit_to_bucket(base, base, time_step_min=0)
+            time_to_bucket(base, base, time_step_min=0)
         with pytest.raises(ValueError, match="time_step_min muss positiv"):
-            zeit_to_bucket(base, base, time_step_min=-5)
+            time_to_bucket(base, base, time_step_min=-5)
 
-    def test_zeit_to_bucket_negative_delta(self) -> None:
+    def test_time_to_bucket_negative_delta(self) -> None:
         """Test: Zeitpunkt vor base_time ergibt negativen Bucket."""
         base = datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC)
         earlier = base - timedelta(minutes=15)
 
         # Negative Zeitdifferenz -> negativer Bucket
-        result = zeit_to_bucket(earlier, base)
+        result = time_to_bucket(earlier, base)
         assert result == -1
 
-    def test_zeit_to_bucket_negative_delta_larger(self) -> None:
+    def test_time_to_bucket_negative_delta_larger(self) -> None:
         """Test: Größere negative Zeitdifferenz."""
         base = datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC)
         earlier = base - timedelta(minutes=30)
-        result = zeit_to_bucket(earlier, base)
+        result = time_to_bucket(earlier, base)
         assert result == -2
 
-    def test_zeit_to_bucket_rounding_behavior_at_half_step(self) -> None:
+    def test_time_to_bucket_rounding_behavior_at_half_step(self) -> None:
         """Test: Rundung bei halber Schrittweite (banker's rounding).
 
         Hinweis: Implementation nutzt int(delta.total_seconds() / 60) was
@@ -132,75 +132,75 @@ class TestDiscretizerEdgeCases:
         # 15 min Schritt:
         # 7.5 min -> int=7 -> 7/15=0.46 -> round(0.46) = 0 -> Bucket 0
         t1 = base + timedelta(minutes=7, seconds=30)
-        assert zeit_to_bucket(t1, base) == 0
+        assert time_to_bucket(t1, base) == 0
 
         # 22.5 min -> int=22 -> 22/15=1.46 -> round(1.46) = 1 -> Bucket 1
         t2 = base + timedelta(minutes=22, seconds=30)
-        assert zeit_to_bucket(t2, base) == 1
+        assert time_to_bucket(t2, base) == 1
 
         # 37.5 min -> int=37 -> 37/15=2.46 -> round(2.46) = 2 -> Bucket 2
         t3 = base + timedelta(minutes=37, seconds=30)
-        assert zeit_to_bucket(t3, base) == 2
+        assert time_to_bucket(t3, base) == 2
 
         # 52.5 min -> int=52 -> 52/15=3.46 -> round(3.46) = 3 -> Bucket 3
         t4 = base + timedelta(minutes=52, seconds=30)
-        assert zeit_to_bucket(t4, base) == 3
+        assert time_to_bucket(t4, base) == 3
 
-    def test_zeit_to_bucket_exact_boundaries(self) -> None:
+    def test_time_to_bucket_exact_boundaries(self) -> None:
         """Test: Exakte Zeit-Grenzen."""
         base = datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC)
 
-        assert zeit_to_bucket(base, base) == 0
-        assert zeit_to_bucket(base + timedelta(minutes=15), base) == 1
-        assert zeit_to_bucket(base + timedelta(minutes=30), base) == 2
-        assert zeit_to_bucket(base + timedelta(minutes=45), base) == 3
-        assert zeit_to_bucket(base + timedelta(hours=1), base) == 4
+        assert time_to_bucket(base, base) == 0
+        assert time_to_bucket(base + timedelta(minutes=15), base) == 1
+        assert time_to_bucket(base + timedelta(minutes=30), base) == 2
+        assert time_to_bucket(base + timedelta(minutes=45), base) == 3
+        assert time_to_bucket(base + timedelta(hours=1), base) == 4
 
-    def test_zeit_to_bucket_custom_step(self) -> None:
+    def test_time_to_bucket_custom_step(self) -> None:
         """Test: Zeit-Bucket mit anderer Schrittweite."""
         base = datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC)
 
         # 10 min Schritte
         # 5 min -> 0.5 -> round(0.5) = 0
-        assert zeit_to_bucket(base + timedelta(minutes=5), base, time_step_min=10) == 0
+        assert time_to_bucket(base + timedelta(minutes=5), base, time_step_min=10) == 0
         # 10 min -> 1.0 -> round(1.0) = 1
-        assert zeit_to_bucket(base + timedelta(minutes=10), base, time_step_min=10) == 1
+        assert time_to_bucket(base + timedelta(minutes=10), base, time_step_min=10) == 1
         # 15 min -> 1.5 -> round(1.5) = 2
-        assert zeit_to_bucket(base + timedelta(minutes=15), base, time_step_min=10) == 2
+        assert time_to_bucket(base + timedelta(minutes=15), base, time_step_min=10) == 2
 
-    # --- bucket_to_zeit ---
+    # --- bucket_to_time ---
 
-    def test_bucket_to_zeit_negative_raises(self) -> None:
+    def test_bucket_to_time_negative_raises(self) -> None:
         """Test: Negativer Bucket wirft ValueError."""
         base = datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC)
         with pytest.raises(ValueError, match="Bucket-Index muss nicht-negativ"):
-            bucket_to_zeit(-1, base)
+            bucket_to_time(-1, base)
         with pytest.raises(ValueError, match="Bucket-Index muss nicht-negativ"):
-            bucket_to_zeit(-100, base)
+            bucket_to_time(-100, base)
 
-    def test_bucket_to_zeit_invalid_step_zero_raises(self) -> None:
+    def test_bucket_to_time_invalid_step_zero_raises(self) -> None:
         """Test: time_step_min <= 0 wirft ValueError."""
         base = datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC)
         with pytest.raises(ValueError, match="time_step_min muss positiv"):
-            bucket_to_zeit(1, base, time_step_min=0)
+            bucket_to_time(1, base, time_step_min=0)
         with pytest.raises(ValueError, match="time_step_min muss positiv"):
-            bucket_to_zeit(1, base, time_step_min=-5)
+            bucket_to_time(1, base, time_step_min=-5)
 
-    def test_bucket_to_zeit_zero_bucket(self) -> None:
+    def test_bucket_to_time_zero_bucket(self) -> None:
         """Test: Bucket 0 gibt base_time zurück."""
         base = datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC)
-        assert bucket_to_zeit(0, base) == base
+        assert bucket_to_time(0, base) == base
 
-    def test_bucket_to_zeit_custom_step(self) -> None:
-        """Test: bucket_to_zeit mit anderer Schrittweite."""
+    def test_bucket_to_time_custom_step(self) -> None:
+        """Test: bucket_to_time mit anderer Schrittweite."""
         base = datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC)
-        assert bucket_to_zeit(1, base, time_step_min=10) == base + timedelta(minutes=10)
-        assert bucket_to_zeit(2, base, time_step_min=5) == base + timedelta(minutes=10)
+        assert bucket_to_time(1, base, time_step_min=10) == base + timedelta(minutes=10)
+        assert bucket_to_time(2, base, time_step_min=5) == base + timedelta(minutes=10)
 
-    def test_bucket_to_zeit_large_bucket(self) -> None:
+    def test_bucket_to_time_large_bucket(self) -> None:
         """Test: Großer Bucket-Index."""
         base = datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC)
-        result = bucket_to_zeit(1000, base)
+        result = bucket_to_time(1000, base)
         expected = base + timedelta(minutes=1000 * 15)
         assert result == expected
 
@@ -220,7 +220,7 @@ class TestDiscretizerEdgeCases:
         assert seg_idx == segment_index
         assert soc_bucket == soc_to_bucket(soc_pct)
         # create_state_node nutzt zeitpunkt als base_time für time_bucket
-        assert time_bucket == zeit_to_bucket(zeitpunkt, zeitpunkt)
+        assert time_bucket == time_to_bucket(zeitpunkt, zeitpunkt)
 
     def test_create_state_node_custom_soc_step(self) -> None:
         """Test: create_state_node mit benutzerdefinierter SoC-Schrittweite."""
@@ -357,7 +357,7 @@ class TestDiscretizerRoundtripConsistency:
                 # Fehler <= step/2
                 assert abs(back - soc) <= step / 2.0 + 1e-9
 
-    def test_zeit_roundtrip_various_steps(self) -> None:
+    def test_time_roundtrip_various_steps(self) -> None:
         """Test: Zeit Roundtrip für verschiedene Schritte (nur positive Buckets)."""
         base = datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC)
         test_times = [
@@ -371,15 +371,15 @@ class TestDiscretizerRoundtripConsistency:
         ]
         for step in [5, 10, 15, 30]:
             for t in test_times:
-                bucket = zeit_to_bucket(t, base, time_step_min=step)
-                # Nur testen wenn Bucket nicht-negativ ist (bucket_to_zeit verlangt das)
+                bucket = time_to_bucket(t, base, time_step_min=step)
+                # Nur testen wenn Bucket nicht-negativ ist (bucket_to_time verlangt das)
                 if bucket >= 0:
-                    back = bucket_to_zeit(bucket, base, time_step_min=step)
+                    back = bucket_to_time(bucket, base, time_step_min=step)
                     # Differenz <= step/2 Minuten
                     diff_min = abs((back - t).total_seconds()) / 60
                     assert diff_min <= step / 2.0 + 1e-9
 
-    def test_zeit_roundtrip_negative_times_produces_negative_buckets(self) -> None:
+    def test_time_roundtrip_negative_times_produces_negative_buckets(self) -> None:
         """Test: Zeit vor base_time produziert negative Buckets (kein Roundtrip möglich)."""
         base = datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC)
         test_times = [
@@ -390,10 +390,10 @@ class TestDiscretizerRoundtripConsistency:
         ]
         for step in [5, 10, 15, 30]:
             for t in test_times:
-                bucket = zeit_to_bucket(t, base, time_step_min=step)
-                # Negative Buckets sind erlaubt bei zeit_to_bucket
+                bucket = time_to_bucket(t, base, time_step_min=step)
+                # Negative Buckets sind erlaubt bei time_to_bucket
                 assert bucket <= 0
-                # Aber bucket_to_zeit akzeptiert nur nicht-negative Buckets
+                # Aber bucket_to_time akzeptiert nur nicht-negative Buckets
                 if bucket < 0:
                     with pytest.raises(ValueError, match="Bucket-Index muss nicht-negativ"):
-                        bucket_to_zeit(bucket, base, time_step_min=step)
+                        bucket_to_time(bucket, base, time_step_min=step)

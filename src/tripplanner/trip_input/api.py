@@ -35,7 +35,7 @@ from tripplanner.construction.providers import FakeConstructionProvider
 from tripplanner.elevation import ElevationProvider
 from tripplanner.elevation.models import ElevationPoint, SegmentGradient
 from tripplanner.elevation.providers import FakeDataSource
-from tripplanner.energy import berechne_segment_verbrauch
+from tripplanner.energy import calculate_segment_consumption
 from tripplanner.energy.models import SegmentEnergyResult, VehicleEnergyParameters
 from tripplanner.geo import haversine_distance_m
 from tripplanner.optimization import create_networkx_optimizer
@@ -80,7 +80,7 @@ DEFAULT_GRAPHHOPPER_BASE_URL = "http://localhost:8989"
 # =============================================================================
 
 
-async def _step_1_route_berechnen(
+async def _step_1_route_calculate(
     anfrage: TripRequest,
     routing_provider: RoutingProvider | None = None,
 ) -> Route:
@@ -139,8 +139,8 @@ def _step_4_initiale_eta_schaetzen(
         elif segment.oberflaeche and "paved" in segment.oberflaeche.lower():
             durchschnittsgeschwindigkeit_kmh = 100.0
 
-        dauer_stunden = laenge_km / durchschnittsgeschwindigkeit_kmh
-        dauer = timedelta(hours=dauer_stunden)
+        duration_h = laenge_km / durchschnittsgeschwindigkeit_kmh
+        dauer = timedelta(hours=duration_h)
 
         segment_eta_liste.append((segment, dauer))
 
@@ -162,19 +162,19 @@ async def _step_5_wetterabfrage(
 
     # Queries erzeugen: Koordinate + ETA pro Segment
     queries: list[WeatherQuery] = []
-    aktuelle_zeit = abfahrtszeit
+    current_time = abfahrtszeit
 
     for segment, dauer in segment_eta_liste:
         # Mittelpunkt des Segments als Abfragepunkt
         mitte_idx = len(segment.geometrie) // 2
         koordinate = segment.geometrie[mitte_idx]
-        queries.append(WeatherQuery(koordinate=koordinate, zeitpunkt=aktuelle_zeit))
-        aktuelle_zeit += dauer
+        queries.append(WeatherQuery(koordinate=koordinate, zeitpunkt=current_time))
+        current_time += dauer
 
     return await provider.fetch_weather(queries)
 
 
-async def _step_6_baustellen(
+async def _step_6_construction_sites(
     construction_provider: FakeConstructionProvider | None,
     route: Route,
     laender: list[str] | None = None,
@@ -271,7 +271,7 @@ async def _step_7_energieverbrauch_segment(  # noqa: PLR0913, PLR0917
                 bewoelkung_pct=20.0,
             )
 
-        ergebnis = berechne_segment_verbrauch(
+        ergebnis = calculate_segment_consumption(
             segment=segment,
             gradient=gradient,  # type: ignore[arg-type]
             wetter=wetter,
@@ -398,8 +398,8 @@ def _step_9_eta_aktualisieren(
     # zudem komplett unnötiger Kostenfaktor.
     for segment_idx, (segment, urspruengliche_dauer) in enumerate(segment_eta_liste):
         ladezeit = ladezeiten_pro_segment.get(segment_idx, timedelta())
-        neue_dauer = urspruengliche_dauer + ladezeit
-        neue_eta_liste.append((segment, neue_dauer))
+        new_duration = urspruengliche_dauer + ladezeit
+        neue_eta_liste.append((segment, new_duration))
 
     return neue_eta_liste
 
@@ -430,7 +430,7 @@ def _finde_klammerpunkte(
     Returns:
         (vor_index, nach_index): Indizes in `route.geometrie`.
     """
-    letzter_index = len(route.geometrie) - 1
+    last_index = len(route.geometrie) - 1
     segment_index = min(segment_index, len(route.segments) - 1)
 
     vor_index = segment_index
@@ -439,13 +439,13 @@ def _finde_klammerpunkte(
         vor_index -= 1
         distanz_zurueck += route.segments[vor_index].laenge_m
 
-    nach_index = segment_index
+    after_index = segment_index
     distanz_vor = 0.0
-    while nach_index < letzter_index and distanz_vor < margin_m:
-        distanz_vor += route.segments[nach_index].laenge_m
-        nach_index += 1
+    while after_index < last_index and distanz_vor < margin_m:
+        distanz_vor += route.segments[after_index].laenge_m
+        after_index += 1
 
-    return vor_index, nach_index
+    return vor_index, after_index
 
 
 async def _step_lade_detours_routen(
@@ -487,7 +487,7 @@ async def _step_lade_detours_routen(
     provider = routing_provider or FakeRoutingProvider()
     detouren: dict[int, LadehaltDetour] = {}
     for ladehalt in charging_plan.ladehalte:
-        vor_index, nach_index = _finde_klammerpunkte(route, ladehalt.segment_index)
+        vor_index, after_index = _finde_klammerpunkte(route, ladehalt.segment_index)
         hinweg_anfrage = TripRequest(
             start=route.geometrie[vor_index],
             ziel=ladehalt.station.coordinate,
@@ -496,7 +496,7 @@ async def _step_lade_detours_routen(
         )
         rueckweg_anfrage = TripRequest(
             start=ladehalt.station.coordinate,
-            ziel=route.geometrie[nach_index],
+            ziel=route.geometrie[after_index],
             abfahrtszeit=abfahrtszeit,
             fahrzeugprofil=fahrzeugprofil,
         )
@@ -509,7 +509,7 @@ async def _step_lade_detours_routen(
         detouren[id(ladehalt)] = LadehaltDetour(
             geometrie=hinweg_route.geometrie + rueckweg_route.geometrie[1:],
             route_index_vor=vor_index,
-            route_index_nach=nach_index,
+            route_index_nach=after_index,
             station_index=station_index,
         )
     return detouren
@@ -570,7 +570,7 @@ def _matche_faehr_zeitfenster(
 
     Identifikation über `name` (bei mehrdeutigem Namen über die nächste
     Bounding-Box-Mitte) - analog zur Identifikationskonvention von
-    `FaehrAusschluss`. Nicht (mehr) passende Zeitfenster (Name in der aktuellen
+    `FerryExclusion`. Nicht (mehr) passende Zeitfenster (Name in der aktuellen
     Route nicht mehr vorhanden) werden stillschweigend ignoriert - konsistent
     mit dem selbstkorrigierenden Ansatz der Fährvermeidung (siehe
     docs/superpowers/specs/2026-08-15-ferry-avoidance-design.md).
@@ -640,7 +640,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
     anfrage = TripRequest.model_validate(anfrage_dict)
 
     # 2. Step 1: Route berechnen
-    route = await _step_1_route_berechnen(anfrage, routing_provider)
+    route = await _step_1_route_calculate(anfrage, routing_provider)
     if route_observer is not None:
         route_observer(route)
 
@@ -676,7 +676,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
     )
 
     # 7. Step 6: Baustellen (optional)
-    baustellen = await _step_6_baustellen(construction_provider, route, ["DE", "DK", "SE"])
+    baustellen = await _step_6_construction_sites(construction_provider, route, ["DE", "DK", "SE"])
 
     # 8. Step 7: Energieverbrauch berechnen
     energie_ergebnisse = await _step_7_energieverbrauch_segment(

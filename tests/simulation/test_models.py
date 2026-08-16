@@ -57,7 +57,7 @@ class TestSimulationFrame:
         assert frame.zustand == TripState.PAUSE
         assert frame.geschwindigkeit_kmh == 2.0
 
-    def test_laden_frame_hohe_geschwindigkeit_raise(self) -> None:
+    def test_charging_frame_high_speed_raise(self) -> None:
         """Testfall 4: LADEN mit hoher Geschwindigkeit muss ValueError werfen."""
         with pytest.raises(ValueError, match="Beim Laden muss Geschwindigkeit"):
             SimulationFrame(
@@ -69,7 +69,7 @@ class TestSimulationFrame:
                 geschwindigkeit_kmh=10.0,
             )
 
-    def test_pause_frame_hohe_geschwindigkeit_raise(self) -> None:
+    def test_pause_frame_high_speed_raise(self) -> None:
         """Testfall 5: PAUSE mit hoher Geschwindigkeit muss ValueError werfen."""
         with pytest.raises(ValueError, match="Bei Pause sollte Geschwindigkeit"):
             SimulationFrame(

@@ -23,7 +23,7 @@ from tripplanner.optimization.discretizer import (
     SOC_STEP_PCT_DEFAULT,
     TIME_STEP_MIN_DEFAULT,
     soc_to_bucket,
-    zeit_to_bucket,
+    time_to_bucket,
 )
 from tripplanner.optimization.models import (
     ChargingPlan,
@@ -125,7 +125,7 @@ class NetworkXOptimizer(OptimizerInterface):
 
         # Erstelle Startknoten (segment_index=0, soc=start_soc, zeit=abfahrtszeit)
         start_soc_bucket = soc_to_bucket(start_soc_pct, self.soc_step_pct)
-        start_zeit_bucket = zeit_to_bucket(abfahrtszeit, abfahrtszeit, self.time_step_min)
+        start_zeit_bucket = time_to_bucket(abfahrtszeit, abfahrtszeit, self.time_step_min)
 
         start_node = (0, start_soc_bucket, start_zeit_bucket)
         G.add_node(
@@ -156,7 +156,7 @@ class NetworkXOptimizer(OptimizerInterface):
         # Kumulative Energie-/Fahrzeit-Praefixsummen ueber die Roh-Segmente,
         # aus den TATSAECHLICHEN, je Segment via `SegmentEnergyResult.fahrzeit_s`
         # ermittelten Geschwindigkeiten (Tempolimit/Baustellen-Override, siehe
-        # `energy.berechne_segment_verbrauch`) - NICHT aus einer einzigen
+        # `energy.calculate_segment_consumption`) - NICHT aus einer einzigen
         # Durchschnittsgeschwindigkeit ueber die gesamte Reise. Ermoeglichen
         # O(1)-Aggregation einer ganzen Teilstrecke zwischen zwei
         # Entscheidungspunkten (`_add_drive_edge`) sowie eine O(1)-Restfahrzeit
@@ -549,7 +549,7 @@ class NetworkXOptimizer(OptimizerInterface):
         # durch Rundung verloren.
         fahrzeit_s = cum_time_s[target_seg_idx] - cum_time_s[seg_idx]
         neuer_zeitpunkt = G.nodes[current]["zeitpunkt"] + timedelta(seconds=fahrzeit_s)
-        new_time_bucket = zeit_to_bucket(neuer_zeitpunkt, self._base_time, self.time_step_min)
+        new_time_bucket = time_to_bucket(neuer_zeitpunkt, self._base_time, self.time_step_min)
 
         if new_time_bucket > max_time_buckets:
             return  # Zeitlimit überschritten
@@ -618,7 +618,7 @@ class NetworkXOptimizer(OptimizerInterface):
             return  # Fähre zu diesem Zeitpunkt bereits abgefahren - Pfad unzulässig
 
         neuer_zeitpunkt = ankunft
-        new_time_bucket = zeit_to_bucket(neuer_zeitpunkt, self._base_time, self.time_step_min)
+        new_time_bucket = time_to_bucket(neuer_zeitpunkt, self._base_time, self.time_step_min)
         if new_time_bucket > max_time_buckets:
             return  # Zeitlimit überschritten
 
@@ -766,7 +766,7 @@ class NetworkXOptimizer(OptimizerInterface):
         """
         new_soc_bucket = soc_to_bucket(ziel_soc_pct, self.soc_step_pct)
         neuer_zeitpunkt = G.nodes[current]["zeitpunkt"] + timedelta(seconds=ladezeit_s)
-        new_time_bucket = zeit_to_bucket(neuer_zeitpunkt, self._base_time, self.time_step_min)
+        new_time_bucket = time_to_bucket(neuer_zeitpunkt, self._base_time, self.time_step_min)
 
         if new_time_bucket > max_time_buckets:
             return  # Zeitlimit überschritten
@@ -870,7 +870,7 @@ class NetworkXOptimizer(OptimizerInterface):
 
         wait_time_s = int(waypoint.aufenthaltsdauer.total_seconds())
         neuer_zeitpunkt = G.nodes[current]["zeitpunkt"] + timedelta(seconds=wait_time_s)
-        new_time_bucket = zeit_to_bucket(neuer_zeitpunkt, self._base_time, self.time_step_min)
+        new_time_bucket = time_to_bucket(neuer_zeitpunkt, self._base_time, self.time_step_min)
 
         if new_time_bucket > max_time_buckets:
             return  # Zeitlimit überschritten

@@ -15,7 +15,7 @@ FAEHR_PUFFER_GRAD: float = 0.005
 exakte Segmentgeometrie einer erkannten Fährverbindung, damit die daraus gebaute
 GraphHopper Custom-Model-Area die komplette Fährlinie sicher abdeckt."""
 
-_UNBENANNTE_FAEHRE = "Unbenannte Fähre"
+UNNAMED_FERRY = "Unbenannte Fähre"
 
 
 def erkenne_faehren(route: Route) -> list[FaehrSegment]:
@@ -36,29 +36,29 @@ def erkenne_faehren(route: Route) -> list[FaehrSegment]:
         (z. B. `FakeRoutingProvider`-Routen).
     """
     ergebnis: list[FaehrSegment] = []
-    aktueller_lauf: list[RouteSegment] = []
+    current_run: list[RouteSegment] = []
 
-    def _lauf_abschliessen() -> None:
-        if aktueller_lauf:
-            ergebnis.append(_lauf_zu_faehrsegment(aktueller_lauf))
+    def run_finish() -> None:
+        if current_run:
+            ergebnis.append(run_to_ferry_segment(current_run))
 
     for segment in route.segments:
         if segment.road_environment == "FERRY":
-            aktueller_lauf.append(segment)
+            current_run.append(segment)
         else:
-            _lauf_abschliessen()
-            aktueller_lauf = []
-    _lauf_abschliessen()
+            run_finish()
+            current_run = []
+    run_finish()
 
     return ergebnis
 
 
-def _lauf_zu_faehrsegment(lauf: list[RouteSegment]) -> FaehrSegment:
+def run_to_ferry_segment(run: list[RouteSegment]) -> FaehrSegment:
     """Baut ein `FaehrSegment` aus einem zusammenhängenden Lauf von Fähr-`RouteSegment`s."""
-    name = next((s.strassenname for s in lauf if s.strassenname), None) or _UNBENANNTE_FAEHRE
-    laenge_m = sum(s.laenge_m for s in lauf)
+    name = next((s.strassenname for s in run if s.strassenname), None) or UNNAMED_FERRY
+    laenge_m = sum(s.laenge_m for s in run)
 
-    koordinaten: list[Coordinate] = [koord for s in lauf for koord in s.geometrie]
+    koordinaten: list[Coordinate] = [koord for s in run for koord in s.geometrie]
     lats = [k[0] for k in koordinaten]
     lons = [k[1] for k in koordinaten]
 
@@ -67,10 +67,10 @@ def _lauf_zu_faehrsegment(lauf: list[RouteSegment]) -> FaehrSegment:
         laenge_m=laenge_m,
         bbox_sw=(min(lats) - FAEHR_PUFFER_GRAD, min(lons) - FAEHR_PUFFER_GRAD),
         bbox_no=(max(lats) + FAEHR_PUFFER_GRAD, max(lons) + FAEHR_PUFFER_GRAD),
-        segment_index_start=lauf[0].segment_index,
+        segment_index_start=run[0].segment_index,
         # Exklusiv (wie bei Python-Slices), damit `route.segments[start:end]`
         # genau den Fähr-Lauf ergibt - vom `optimization`-Modul genutzt, um
         # eine vom Nutzer vorgegebene Fährüberfahrt in der Zustandsgraph-
         # Suche in einem Sprung zu ueberspringen (siehe optimizer.py).
-        segment_index_end=lauf[-1].segment_index + 1,
+        segment_index_end=run[-1].segment_index + 1,
     )

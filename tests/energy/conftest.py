@@ -61,13 +61,13 @@ def make_route_segment(
 
 def make_segment_gradient(
     segment_index: int,
-    steigung_prozent: float = 0.0,
+    slope_percent: float = 0.0,
     hoehendifferenz_m: float = 0.0,
 ) -> SegmentGradient:
     """Hilfsfunktion zur Erstellung von SegmentGradient-Instanzen."""
     return SegmentGradient(
         segment_index=segment_index,
-        steigung_prozent=steigung_prozent,
+        steigung_prozent=slope_percent,
         hoehendifferenz_m=hoehendifferenz_m,
         horizontale_distanz_m=1000.0,
     )
@@ -158,19 +158,19 @@ def segment_gefaelle_4pct() -> RouteSegment:
 @pytest.fixture
 def gradient_eben() -> SegmentGradient:
     """Ebene Segment-Gradient (0 %)."""
-    return make_segment_gradient(segment_index=0, steigung_prozent=0.0, hoehendifferenz_m=0.0)
+    return make_segment_gradient(segment_index=0, slope_percent=0.0, hoehendifferenz_m=0.0)
 
 
 @pytest.fixture
 def gradient_steigung_3pct() -> SegmentGradient:
     """Segment-Gradient mit +3 % Steigung."""
-    return make_segment_gradient(segment_index=1, steigung_prozent=3.0, hoehendifferenz_m=24.0)
+    return make_segment_gradient(segment_index=1, slope_percent=3.0, hoehendifferenz_m=24.0)
 
 
 @pytest.fixture
 def gradient_gefaelle_4pct() -> SegmentGradient:
     """Segment-Gradient mit -4 % Gefaelle."""
-    return make_segment_gradient(segment_index=2, steigung_prozent=-4.0, hoehendifferenz_m=-48.0)
+    return make_segment_gradient(segment_index=2, slope_percent=-4.0, hoehendifferenz_m=-48.0)
 
 
 # Fixtures fuer Wind

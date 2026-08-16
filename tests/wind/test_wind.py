@@ -109,7 +109,7 @@ def test_compute_wind_components_ostwind_norden() -> None:
     assert math.isclose(result.seitenwind_ms, 10.0, abs_tol=1e-6)
 
 
-def test_compute_wind_components_45_grad_grenzfall() -> None:
+def test_compute_wind_components_45_dregree_edge_case() -> None:
     """Test 4: 45°-Winkel-Grenzfall (Bearing 45°, Wind aus 225°).
 
     Gegeben: Wind aus 225° (Süd-West), Bearing 45° (Nord-Ost)
@@ -149,7 +149,7 @@ def test_compute_wind_components_windrichtung_normalisierung() -> None:
     assert math.isclose(result.seitenwind_ms, 0.0, abs_tol=1e-6)
 
 
-def test_compute_wind_components_for_route_mehrere_segmente() -> None:
+def test_compute_wind_components_for_route_multiple_segments() -> None:
     """Test 6: compute_wind_components_for_route mit mehreren Segmenten.
 
     Gegeben: 3 Segmente mit verschiedenen Bearings, 3 Wetterdatenpunkte

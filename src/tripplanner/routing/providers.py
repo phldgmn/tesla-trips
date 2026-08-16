@@ -19,7 +19,7 @@ from tripplanner.routing.models import (
     Route,
     RouteSegment,
 )
-from tripplanner.trip_input.models import FaehrAusschluss, TripRequest
+from tripplanner.trip_input.models import FerryExclusion, TripRequest
 
 
 class RoutingProvider(Protocol):
@@ -111,14 +111,14 @@ class FakeRoutingProvider:
         )
 
     def _diskretisiere_teilstrecke(
-        self, start: Coordinate, ende: Coordinate
+        self, start: Coordinate, end: Coordinate
     ) -> list[tuple[Coordinate, Coordinate, float]]:
         """Zerlegt eine Teilstrecke in mehrere kuerzere Segmente (~SEGMENT_LAENGE_ZIEL_M).
 
         Identische Start-/Endkoordinaten (Laenge 0) liefern eine leere Liste,
         sodass der Aufrufer diese Teilstrecke automatisch überspringt.
         """
-        gesamtlaenge_m = haversine_distance_m(start, ende)
+        gesamtlaenge_m = haversine_distance_m(start, end)
         if gesamtlaenge_m <= 0:
             return []
 
@@ -128,11 +128,11 @@ class FakeRoutingProvider:
             anteil = i / anzahl_segmente
             punkte.append(
                 (
-                    start[0] + (ende[0] - start[0]) * anteil,
-                    start[1] + (ende[1] - start[1]) * anteil,
+                    start[0] + (end[0] - start[0]) * anteil,
+                    start[1] + (end[1] - start[1]) * anteil,
                 )
             )
-        punkte.append(ende)
+        punkte.append(end)
 
         ergebnis: list[tuple[Coordinate, Coordinate, float]] = []
         for i in range(len(punkte) - 1):
@@ -143,7 +143,7 @@ class FakeRoutingProvider:
         return ergebnis
 
 
-def _faehr_ausschluss_zu_geojson_feature(ausschluss: FaehrAusschluss) -> dict[str, object]:
+def ferry_exclusion_to_geojson_feature(ausschluss: FerryExclusion) -> dict[str, object]:
     """Baut ein rechteckiges GeoJSON `Polygon`-Feature aus einer gepufferten Bounding Box.
 
     GeoJSON-Koordinaten sind `[lon, lat]` (Umwandlung von der projektweiten
@@ -284,7 +284,7 @@ class GraphHopperRoutingProvider:
         areas: dict[str, object] = {}
         for index, ausschluss in enumerate(anfrage.vermiedene_faehren):
             area_id = f"faehre_{index}"
-            areas[area_id] = _faehr_ausschluss_zu_geojson_feature(ausschluss)
+            areas[area_id] = ferry_exclusion_to_geojson_feature(ausschluss)
             priority.append(
                 {"if": f"in_{area_id} && road_environment == FERRY", "multiply_by": 0.0}
             )
@@ -413,7 +413,7 @@ class GraphHopperRoutingProvider:
             Der Wert des Intervalls, das `edge_index` enthält, oder `None`
             wenn kein passendes Intervall existiert.
         """
-        for start, ende, wert in intervalle:
-            if start <= edge_index < ende:
+        for start, end, wert in intervalle:
+            if start <= edge_index < end:
                 return wert
         return None

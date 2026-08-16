@@ -58,7 +58,7 @@ def f_oberflaeche(oberflaeche: str | None) -> float:
     return OBERFLAECHEN_ROLLWIDERSTAND_FAKTOR.get(oberflaeche.lower(), DEFAULT_OBERFLAECHEN_FAKTOR)
 
 
-def berechne_segment_verbrauch(
+def calculate_segment_consumption(
     segment: RouteSegment,
     gradient: SegmentGradient,
     wetter: WeatherSample,
@@ -139,7 +139,7 @@ def berechne_segment_verbrauch(
 
     # 5. HVAC-Verbrauch (temperaturabhängig)
     T_c = wetter.temperatur_c
-    P_neben_kw = fahrzeug_params.nebenverbraucher_baseline_kw
+    P_next_to_kw = fahrzeug_params.nebenverbraucher_baseline_kw
 
     delta_T_min = fahrzeug_params.komforttemperatur_min_c - T_c
     delta_T_max = T_c - fahrzeug_params.komforttemperatur_max_c
@@ -147,32 +147,32 @@ def berechne_segment_verbrauch(
     if delta_T_min > 0:
         # Heizung nötig
         P_heiz_kw = fahrzeug_params.heizung_max_kw * min(delta_T_min / 10.0, 1.0)
-        P_neben_kw += P_heiz_kw
+        P_next_to_kw += P_heiz_kw
     elif delta_T_max > 0:
         # Klima nötig
         P_klima_kw = fahrzeug_params.klimaanlage_max_kw * min(delta_T_max / 10.0, 1.0)
-        P_neben_kw += P_klima_kw
+        P_next_to_kw += P_klima_kw
 
-    E_neben_j = P_neben_kw * 1000 * t_s  # kW → W, dann * s
+    E_next_to_j = P_next_to_kw * 1000 * t_s  # kW → W, dann * s
 
     # 6. Rekuperation (nur bei Verzögerung)
     # Vereinfachung: v_anfang = v_mittel, v_ende reduziert um 10 % der Steigung (in m/s Äquivalent)
     v_anfang_ms = v_mittel_ms
     # Verzögerung bei Steigung, Beschleunigung bei Gefälle
     aenderung_ms = 0.1 * abs(gradient.steigung_prozent)
-    v_ende_ms = max(v_anfang_ms - aenderung_ms, 0) if gradient.steigung_prozent > 0 else v_anfang_ms
+    v_end_ms = max(v_anfang_ms - aenderung_ms, 0) if gradient.steigung_prozent > 0 else v_anfang_ms
 
     E_rekup_j = 0.0
-    if v_ende_ms < v_anfang_ms:
+    if v_end_ms < v_anfang_ms:
         # Rekuperation nur bei Verzögerung
-        E_kin_j = 0.5 * fahrzeug_params.masse_kg * (v_anfang_ms**2 - v_ende_ms**2)
+        E_kin_j = 0.5 * fahrzeug_params.masse_kg * (v_anfang_ms**2 - v_end_ms**2)
         E_rekup_j = min(
             E_kin_j * fahrzeug_params.wirkungsgrad_rekuperation,
             REKUPERATION_MAX_POWER_W * t_s,
         )
 
     # 7. Gesamtergebnis
-    E_brutto_j = E_bewegung_j + E_neben_j
+    E_brutto_j = E_bewegung_j + E_next_to_j
 
     # Rekuperation abziehen
     E_gesamt_j = E_brutto_j - E_rekup_j
@@ -196,7 +196,7 @@ def berechne_segment_verbrauch(
     )
 
 
-def berechne_gesamtverbrauch(
+def calculate_total_consumption(
     route_segments: Sequence[RouteSegment],
     gradients: Sequence[SegmentGradient],
     wetter_samples: Sequence[WeatherSample],
@@ -235,7 +235,7 @@ def berechne_gesamtverbrauch(
     ergebnisse: list[SegmentEnergyResult] = []
 
     for i in range(n):
-        ergebnis = berechne_segment_verbrauch(
+        ergebnis = calculate_segment_consumption(
             segment=route_segments[i],
             gradient=gradients[i],
             wetter=wetter_samples[i],

@@ -15,8 +15,8 @@ import pytest
 
 from tripplanner.elevation.models import SegmentGradient
 from tripplanner.energy.energy import (
-    berechne_gesamtverbrauch,
-    berechne_segment_verbrauch,
+    calculate_segment_consumption,
+    calculate_total_consumption,
     f_oberflaeche,
 )
 from tripplanner.energy.models import VehicleEnergyParameters
@@ -44,7 +44,7 @@ class TestEnergieberechnung:
         - fahrzeit_s ≈ 30.0 s (1000 m / 33.33 m/s fuer 120 km/h)
         - geschwindigkeit_m_s ≈ 33.33 m/s (120 km/h)
         """
-        ergebnis = berechne_segment_verbrauch(
+        ergebnis = calculate_segment_consumption(
             segment=segment_eben,
             gradient=gradient_eben,
             wetter=wetter_sample_ref,
@@ -76,7 +76,7 @@ class TestEnergieberechnung:
         - rekuperation_kwh = 0.0 kWh (Steigung -> keine Verzögerung)
         - fahrzeit_s ≈ 28.8 s (100 km/h fuer 800 m)
         """
-        ergebnis = berechne_segment_verbrauch(
+        ergebnis = calculate_segment_consumption(
             segment=segment_steigung_3pct,
             gradient=gradient_steigung_3pct,
             wetter=wetter_sample_neg10c_heizung,
@@ -106,7 +106,7 @@ class TestEnergieberechnung:
         - rekuperation_kwh >= 0.01 kWh (Rekuperation bei Verzögerung)
         - fahrzeit_s ≈ 39.3 s (110 km/h fuer 1200 m)
         """
-        ergebnis = berechne_segment_verbrauch(
+        ergebnis = calculate_segment_consumption(
             segment=segment_gefaelle_4pct,
             gradient=gradient_gefaelle_4pct,
             wetter=wetter_sample_ref,
@@ -121,7 +121,7 @@ class TestEnergieberechnung:
         # Fahrzeit: 1200 m / 30.56 m/s = 39.3 s fuer 110 km/h
         assert ergebnis.fahrzeit_s == pytest.approx(39.3, abs=0.5)
 
-    def test_gravel_erhoeht_verbrauch_vs_asphalt(
+    def test_gravel_increases_consumption_vs_asphalt(
         self,
         gradient_eben: SegmentGradient,
         wetter_sample_ref: WeatherSample,
@@ -156,7 +156,7 @@ class TestEnergieberechnung:
             bearing_deg=0.0,
         )
 
-        ergebnis_asphalt = berechne_segment_verbrauch(
+        result_asphalt = calculate_segment_consumption(
             segment=segment_asphalt,
             gradient=gradient_eben,
             wetter=wetter_sample_ref,
@@ -164,7 +164,7 @@ class TestEnergieberechnung:
             fahrzeug_params=default_model3_params,
         )
 
-        ergebnis_gravel = berechne_segment_verbrauch(
+        ergebnis_gravel = calculate_segment_consumption(
             segment=segment_gravel,
             gradient=gradient_eben,
             wetter=wetter_sample_ref,
@@ -173,7 +173,7 @@ class TestEnergieberechnung:
         )
 
         # Gravel muss strikt hoeheren Verbrauch liefern (Faktor 1.5 fuer gravel)
-        assert ergebnis_gravel.energiebedarf_kwh > ergebnis_asphalt.energiebedarf_kwh
+        assert ergebnis_gravel.energiebedarf_kwh > result_asphalt.energiebedarf_kwh
 
     def test_oberflaeche_none_fallback(
         self,
@@ -198,7 +198,7 @@ class TestEnergieberechnung:
             bearing_deg=0.0,
         )
 
-        ergebnis = berechne_segment_verbrauch(
+        ergebnis = calculate_segment_consumption(
             segment=segment_without_surface,
             gradient=gradient_eben,
             wetter=wetter_sample_ref,
@@ -210,7 +210,7 @@ class TestEnergieberechnung:
         assert ergebnis.energiebedarf_kwh > 0.0
         assert ergebnis.rekuperation_kwh == pytest.approx(0.0, abs=0.01)
 
-    def test_rekuperation_liefert_energiegewinn(
+    def test_recuperation_produces_energy(
         self,
         gradient_gefaelle_4pct: SegmentGradient,
         wetter_sample_ref: WeatherSample,
@@ -233,7 +233,7 @@ class TestEnergieberechnung:
             bearing_deg=0.0,
         )
 
-        ergebnis = berechne_segment_verbrauch(
+        ergebnis = calculate_segment_consumption(
             segment=segment_gefaelle_stark,
             gradient=gradient_gefaelle_4pct,
             wetter=wetter_sample_ref,
@@ -246,7 +246,7 @@ class TestEnergieberechnung:
         # Energiebedarf ist gering (Gefaelle unterstuetzt)
         assert ergebnis.energiebedarf_kwh < 0.3
 
-    def test_gegenwind_erhoeht_verbrauch(
+    def test_headwind_increases_consumption(
         self,
         segment_eben: RouteSegment,
         gradient_eben: SegmentGradient,
@@ -271,7 +271,7 @@ class TestEnergieberechnung:
             seitenwind_ms=1.0,
         )
 
-        ergebnis_windstill = berechne_segment_verbrauch(
+        ergebnis_windstill = calculate_segment_consumption(
             segment=segment_eben,
             gradient=gradient_eben,
             wetter=wetter_sample_ref,
@@ -279,7 +279,7 @@ class TestEnergieberechnung:
             fahrzeug_params=default_model3_params,
         )
 
-        ergebnis_gegenwind = berechne_segment_verbrauch(
+        result_headwind = calculate_segment_consumption(
             segment=segment_eben,
             gradient=gradient_eben,
             wetter=wetter_sample_ref,
@@ -288,9 +288,9 @@ class TestEnergieberechnung:
         )
 
         # Gegenwind muss strikt hoeheren Verbrauch liefern
-        assert ergebnis_gegenwind.energiebedarf_kwh > ergebnis_windstill.energiebedarf_kwh
+        assert result_headwind.energiebedarf_kwh > ergebnis_windstill.energiebedarf_kwh
 
-    def test_dachbox_erhoeht_luftwiderstand(
+    def test_roofbox_increases_air_resistance(
         self,
         segment_eben: RouteSegment,
         gradient_eben: SegmentGradient,
@@ -302,18 +302,18 @@ class TestEnergieberechnung:
         Expected:
         - Fahrzeug mit dachbox=True hat hoeheren Verbrauch als ohne.
         """
-        params_ohne_dachbox = VehicleEnergyParameters(dachbox=False)
+        params_without_roofbox = VehicleEnergyParameters(dachbox=False)
         params_mit_dachbox = VehicleEnergyParameters(dachbox=True)
 
-        ergebnis_ohne = berechne_segment_verbrauch(
+        result_without = calculate_segment_consumption(
             segment=segment_eben,
             gradient=gradient_eben,
             wetter=wetter_sample_ref,
             wind=wind_components_windstill,
-            fahrzeug_params=params_ohne_dachbox,
+            fahrzeug_params=params_without_roofbox,
         )
 
-        ergebnis_mit = berechne_segment_verbrauch(
+        result_with = calculate_segment_consumption(
             segment=segment_eben,
             gradient=gradient_eben,
             wetter=wetter_sample_ref,
@@ -322,13 +322,13 @@ class TestEnergieberechnung:
         )
 
         # Dachbox muss strikt hoeheren Verbrauch liefern
-        assert ergebnis_mit.energiebedarf_kwh > ergebnis_ohne.energiebedarf_kwh
+        assert result_with.energiebedarf_kwh > result_without.energiebedarf_kwh
 
 
-class TestEnergieberechnungZusaetzliche:
+class TestEnergyCalculationAdditional:
     """Zusaetzliche Tests fuer Testabdeckung."""
 
-    def test_klima_hoher_temp(
+    def test_ac_higher_temp(
         self,
         gradient_eben: SegmentGradient,
         wetter_sample_32c_klima: WeatherSample,
@@ -347,7 +347,7 @@ class TestEnergieberechnungZusaetzliche:
             bearing_deg=0.0,
         )
 
-        ergebnis = berechne_segment_verbrauch(
+        ergebnis = calculate_segment_consumption(
             segment=segment,
             gradient=gradient_eben,
             wetter=wetter_sample_32c_klima,
@@ -378,7 +378,7 @@ class TestEnergieberechnungZusaetzliche:
         )
 
         # Mit tempolimit_override auf 60 km/h sollte langsamer gefahren werden
-        ergebnis = berechne_segment_verbrauch(
+        ergebnis = calculate_segment_consumption(
             segment=segment,
             gradient=gradient_eben,
             wetter=wetter_sample_ref,
@@ -390,7 +390,7 @@ class TestEnergieberechnungZusaetzliche:
         # Geschwindigkeit sollte niedriger sein als bei 120 km/h
         assert ergebnis.geschwindigkeit_m_s < 30.0
 
-    def test_berechne_gesamtverbrauch(
+    def test_calculate_total_consumption(
         self,
         gradient_eben: SegmentGradient,
         gradient_steigung_3pct: SegmentGradient,
@@ -398,7 +398,7 @@ class TestEnergieberechnungZusaetzliche:
         wind_components_windstill: WindComponents,
         default_model3_params: VehicleEnergyParameters,
     ) -> None:
-        """Test berechne_gesamtverbrauch fuer mehrere Segmente."""
+        """Test calculate_total_consumption fuer mehrere Segmente."""
         segments = [
             RouteSegment(
                 segment_index=0,
@@ -425,7 +425,7 @@ class TestEnergieberechnungZusaetzliche:
         wetter_samples = [wetter_sample_ref, wetter_sample_ref]
         wind_components_list = [wind_components_windstill, wind_components_windstill]
 
-        ergebnisse = berechne_gesamtverbrauch(
+        results = calculate_total_consumption(
             route_segments=segments,
             gradients=gradients,
             wetter_samples=wetter_samples,
@@ -434,9 +434,9 @@ class TestEnergieberechnungZusaetzliche:
         )
 
         # Es sollten 2 Ergebnisse zurueckgegeben werden
-        assert len(ergebnisse) == 2
-        assert ergebnisse[0].segment_index == 0
-        assert ergebnisse[1].segment_index == 1
+        assert len(results) == 2
+        assert results[0].segment_index == 0
+        assert results[1].segment_index == 1
 
 
 class TestFOberflaeche:

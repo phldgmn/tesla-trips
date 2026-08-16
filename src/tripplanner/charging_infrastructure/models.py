@@ -143,7 +143,7 @@ class ChargingStation(BaseModel):
         """Gesamtanzahl der Stalls unabhängig vom Typ."""
         return sum(self.stalls.values())
 
-    def max_parallele_nutzbarkeit(self) -> int:
+    def max_parallel_usability(self) -> int:
         """Schätzung, wie viele Stalls gleichzeitig genutzt werden können.
 
         V2/V3 nutzen oft gemeinsame Kabinette (z. B. 4 Posts teilen 1 MW).
