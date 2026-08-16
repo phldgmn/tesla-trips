@@ -16,7 +16,7 @@ const MIN_QUERY_LENGTH = 3;
 
 /** Ein Adressvorschlag aus der Geocoding-Suche. */
 export interface GeocodeSuggestion {
-  /** Menschenlesbare Adresse (Nominatim `display_name`). */
+  /** Menschenlesbare Adresse (formatiert). */
   label: string;
   /** Aufgelöste Koordinate [lat, lon]. */
   position: [number, number];
@@ -31,15 +31,60 @@ function readStringField(value: object, field: string): string | null {
   return null;
 }
 
+/**
+ * Formatierungshilfe für Nominatim-Adressen mit addressdetails=1.
+ * Liefert "Hauptstraße 8, 12345 Musterstadt, Germany" etc.
+ */
+export function formatDisplayAddress(entry: object, fallback: string): string {
+  if (!entry || typeof entry !== "object") return fallback;
+  const address = (entry as Record<string, unknown>).address;
+  if (!address || typeof address !== "object") return fallback;
+
+  const addr = address as Record<string, unknown>;
+  const road = readStringField(addr, "road");
+  const houseNumber = readStringField(addr, "house_number");
+  const postcode = readStringField(addr, "postcode");
+
+  // City fallback chain: city → town → village → municipality → county
+  const city =
+    readStringField(addr, "city") ??
+    readStringField(addr, "town") ??
+    readStringField(addr, "village") ??
+    readStringField(addr, "municipality") ??
+    readStringField(addr, "county");
+
+  const country = readStringField(addr, "country");
+
+  // streetLine: road alone, or "road house_number"
+  const streetLine = road
+    ? houseNumber
+      ? `${road} ${houseNumber}`
+      : road
+    : undefined;
+
+  // cityLine: "postcode city" (both optional, join with space if present)
+  const cityLine =
+    postcode && city ? `${postcode} ${city}` : (postcode ?? city ?? undefined);
+
+  // Join non-undefined parts with ", "
+  const parts = [streetLine, cityLine, country].filter(Boolean) as string[];
+  return parts.length > 0 ? parts.join(", ") : fallback;
+}
+
 function parseSuggestion(entry: unknown): GeocodeSuggestion | null {
   if (!entry || typeof entry !== "object") return null;
   const latRaw = readStringField(entry, "lat");
   const lonRaw = readStringField(entry, "lon");
-  const label = readStringField(entry, "display_name");
-  if (latRaw === null || lonRaw === null || label === null) return null;
+  const labelRaw = readStringField(entry, "display_name");
+  if (latRaw === null || lonRaw === null || labelRaw === null) return null;
   const lat = Number(latRaw);
   const lon = Number(lonRaw);
   if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
+
+  // Use formatDisplayAddress for label, fallback to raw display_name
+  const label = formatDisplayAddress(entry, labelRaw ?? "");
+  if (label === "") return null; // formatDisplayAddress returned empty fallback
+
   return { label, position: [lat, lon] };
 }
 
@@ -53,7 +98,7 @@ export async function searchAddress(
   const trimmed = query.trim();
   if (trimmed.length < MIN_QUERY_LENGTH) return [];
 
-  const url = `${NOMINATIM_BASE}/search?format=jsonv2&addressdetails=0&limit=5&q=${encodeURIComponent(trimmed)}`;
+  const url = `${NOMINATIM_BASE}/search?format=jsonv2&addressdetails=1&limit=5&q=${encodeURIComponent(trimmed)}`;
   const response = await fetch(url, {
     signal,
     headers: { Accept: "application/json" },
@@ -80,7 +125,7 @@ export async function reverseGeocode(
   signal?: AbortSignal,
 ): Promise<string | null> {
   const [lat, lon] = position;
-  const url = `${NOMINATIM_BASE}/reverse?format=jsonv2&lat=${lat}&lon=${lon}`;
+  const url = `${NOMINATIM_BASE}/reverse?format=jsonv2&addressdetails=1&lat=${lat}&lon=${lon}`;
   try {
     const response = await fetch(url, {
       signal,
@@ -89,7 +134,11 @@ export async function reverseGeocode(
     if (!response.ok) return null;
     const data: unknown = await response.json();
     if (!data || typeof data !== "object") return null;
-    return readStringField(data, "display_name");
+    const rawDisplayName = readStringField(data, "display_name");
+    const formatted = formatDisplayAddress(data, rawDisplayName ?? "");
+    // If no display_name AND formatDisplayAddress also found nothing, return null
+    if (rawDisplayName === null && formatted === "") return null;
+    return formatted;
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError")
       throw error;
