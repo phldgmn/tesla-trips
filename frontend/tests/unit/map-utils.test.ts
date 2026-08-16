@@ -13,13 +13,12 @@ import {
   buildChargingStopMarkerElement,
   buildChargingStopPopupHtml,
   formatChargingDuration,
-  findNearestFrame,
   buildRouteHoverText,
   isValidMapViewState,
   DEFAULT_MAP_VIEW,
 } from "@/components/Map";
 import type { Stop, StopRole } from "@/components/Map";
-import type { ChargingStop, SimulationFrame } from "@/types";
+import type { ChargingStop } from "@/types";
 import type { RouteSample } from "@/utils/route-line";
 import type { SuperchargerStation } from "@/api/chargingApi";
 import type { StyleSpecification } from "maplibre-gl";
@@ -417,69 +416,27 @@ describe("MapVisualization utilities", () => {
     });
   });
 
-  describe("findNearestFrame", () => {
-    const frames: SimulationFrame[] = [
-      {
-        zeitpunkt: "2026-08-15T10:00:00",
-        position: [52.5, 13.4],
-        soc_pct: 90,
-        zustand: "FAHREN",
-        geschwindigkeit_kmh: 100,
-      },
-      {
-        zeitpunkt: "2026-08-15T11:00:00",
-        position: [53.0, 13.9],
-        soc_pct: 70,
-        zustand: "FAHREN",
-        geschwindigkeit_kmh: 100,
-      },
-      {
-        zeitpunkt: "2026-08-15T12:00:00",
-        position: [53.5, 14.4],
-        soc_pct: 50,
-        zustand: "FAHREN",
-        geschwindigkeit_kmh: 100,
-      },
-    ];
-
-    it("should return undefined for an empty frame list", () => {
-      expect(findNearestFrame([], [13.4, 52.5])).toBeUndefined();
-    });
-
-    it("should return the frame closest to the given lng/lat", () => {
-      // Nahe am zweiten Frame (53.0, 13.9)
-      const nearest = findNearestFrame(frames, [13.91, 53.01]);
-      expect(nearest).toBe(frames[1]);
-    });
-
-    it("should return the first frame when closest to its position", () => {
-      const nearest = findNearestFrame(frames, [13.4, 52.5]);
-      expect(nearest).toBe(frames[0]);
-    });
-
-    it("should return the last frame when closest to its position", () => {
-      const nearest = findNearestFrame(frames, [14.4, 53.5]);
-      expect(nearest).toBe(frames[2]);
-    });
-  });
-
   describe("buildRouteHoverText", () => {
-    const frame: SimulationFrame = {
+    const sample: RouteSample = {
+      distanzM: 1000,
       zeitpunkt: "2026-08-15T14:05:00",
-      position: [52.5, 13.4],
-      soc_pct: 63.4,
-      zustand: "FAHREN",
-      geschwindigkeit_kmh: 110,
+      socPct: 63.4,
     };
 
     it("should include the formatted date/time", () => {
-      expect(buildRouteHoverText(frame)).toContain(
-        formatZeitpunkt(frame.zeitpunkt),
+      expect(buildRouteHoverText(sample)).toContain(
+        formatZeitpunkt(sample.zeitpunkt ?? null),
       );
     });
 
     it("should include the rounded SoC percentage", () => {
-      expect(buildRouteHoverText(frame)).toContain("63% SoC");
+      expect(buildRouteHoverText(sample)).toContain("63% SoC");
+    });
+
+    it("should render 'unbekannt' when the sample has no timestamp", () => {
+      expect(buildRouteHoverText({ distanzM: 0, socPct: 50 })).toContain(
+        "unbekannt",
+      );
     });
   });
 

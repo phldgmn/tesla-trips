@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { buildSplicedRoute, splitRouteIntoLegs } from "@/utils/route-line";
+import {
+  buildSplicedRoute,
+  splitRouteIntoLegs,
+  projectDistanceAlongLineM,
+  findNearestRouteSample,
+  type RouteSample,
+} from "@/utils/route-line";
 import { haversineDistanceM } from "@/utils/geo-utils";
 
 describe("buildSplicedRoute", () => {
@@ -468,5 +474,146 @@ describe("splitRouteIntoLegs", () => {
     expect(leg2Critical[1].distanzM).toBeCloseTo(legs[1].totalDistanceM, 3);
     expect(leg3Critical.map((s) => s.socPct)).toEqual([80]);
     expect(leg3Critical[0].distanzM).toBeLessThan(1);
+  });
+});
+
+describe("projectDistanceAlongLineM", () => {
+  it("returns 0 for an empty line", () => {
+    expect(projectDistanceAlongLineM([], [10, 50])).toBe(0);
+  });
+
+  it("returns 0 for a point at the start of the line", () => {
+    const coords: [number, number][] = [
+      [10, 50],
+      [10.1, 50],
+      [10.2, 50],
+    ];
+    expect(projectDistanceAlongLineM(coords, [10, 50])).toBeCloseTo(0, 3);
+  });
+
+  it("returns the cumulative distance to a later vertex the point sits on", () => {
+    const coords: [number, number][] = [
+      [10, 50],
+      [10.1, 50],
+      [10.2, 50],
+    ];
+    const d1 = haversineDistanceM([50, 10], [50, 10.1]);
+    expect(
+      Math.abs(projectDistanceAlongLineM(coords, [10.1, 50]) - d1) / d1,
+    ).toBeLessThan(0.01);
+  });
+
+  it("projects a point near the middle of a segment onto that segment, not onto a vertex", () => {
+    const coords: [number, number][] = [
+      [10, 50],
+      [10.2, 50],
+    ];
+    const dHalf = projectDistanceAlongLineM(coords, [10.1, 50]);
+    const dFull = haversineDistanceM([50, 10], [50, 10.2]);
+    expect(dHalf).toBeGreaterThan(0);
+    expect(dHalf).toBeLessThan(dFull);
+    expect(Math.abs(dHalf - dFull / 2) / dFull).toBeLessThan(0.01);
+  });
+});
+
+describe("findNearestRouteSample", () => {
+  const samples: RouteSample[] = [
+    { distanzM: 0, socPct: 90, zeitpunkt: "2026-08-16T18:00:00" },
+    { distanzM: 1000, socPct: 70, zeitpunkt: "2026-08-16T18:10:00" },
+    { distanzM: 5000, socPct: 40, zeitpunkt: "2026-08-16T18:30:00" },
+  ];
+
+  it("returns undefined for an empty sample list", () => {
+    expect(findNearestRouteSample([], 1000)).toBeUndefined();
+  });
+
+  it("returns the exact match when distanzM lines up with a sample", () => {
+    expect(findNearestRouteSample(samples, 1000)).toBe(samples[1]);
+  });
+
+  it("picks the closer of the two surrounding samples", () => {
+    expect(findNearestRouteSample(samples, 1200)).toBe(samples[1]);
+    expect(findNearestRouteSample(samples, 3500)).toBe(samples[2]);
+  });
+
+  it("clamps to the first/last sample beyond the line's ends", () => {
+    expect(findNearestRouteSample(samples, -500)).toBe(samples[0]);
+    expect(findNearestRouteSample(samples, 9000)).toBe(samples[2]);
+  });
+});
+
+describe("route-hover regression: post-charging SoC/time near a charging stop", () => {
+  // Reproduziert den gemeldeten Bug: der Routen-Hover-Tooltip einige
+  // Kilometer NACH einem Ladehalt zeigte weiterhin die Vor-Lade-Werte
+  // (niedrige SoC, fruehere Uhrzeit) an, weil er den raeumlich naechsten
+  // `SimulationFrame` suchte statt den Punkt anhand seiner Distanz entlang
+  // der tatsaechlich gezeichneten (gesplicete) Linie zu bestimmen. Ein
+  // Autobahnkreuz nahe einer Ladestation bringt Vor- und Nach-Ladehalt-
+  // Streckenpunkte raeumlich nah zusammen (siehe `routeIndexVor`/
+  // `routeIndexNach` unten), obwohl sie streckenmaessig weit auseinander
+  // liegen.
+  const route: [number, number][] = [
+    [50.0, 10.0], // 0 - Start
+    [50.5, 10.0], // 1 - routeIndexVor (Autobahnkreuz-Zufahrt)
+    [50.55, 10.0], // 2 - ersetzt, darf nicht im Output auftauchen
+    [50.5, 10.0002], // 3 - routeIndexNach, raeumlich nur ~15m von Punkt 1 entfernt
+    [51.0, 10.0], // 4 - Ziel, weit entfernt
+  ];
+  const station: [number, number] = [50.52, 10.1];
+  const detourGeometrie: [number, number][] = [
+    route[1],
+    [50.51, 10.05],
+    station,
+    [50.51, 10.06],
+    route[3],
+  ];
+
+  const spliced = buildSplicedRoute(
+    route,
+    [
+      {
+        position: station,
+        distanzM: 1000,
+        detourGeometrie,
+        stationIndex: 2,
+        routeIndexVor: 1,
+        routeIndexNach: 3,
+        ankunftsSocPct: 20,
+        zielSocPct: 80,
+        ankunftszeit: "2026-08-16T19:17:00",
+        abfahrtszeit: "2026-08-16T19:30:00",
+      },
+    ],
+    [],
+  );
+
+  it("resolves the departure SoC/time right at the point the detour rejoins the highway", () => {
+    // Hover-Punkt: exakt an routeIndexNach (dem raeumlich nah an
+    // routeIndexVor liegenden Wiedereinstiegspunkt).
+    const hoverPoint: [number, number] = [10.0002, 50.5];
+    const distAlongM = projectDistanceAlongLineM(
+      spliced.coordinates,
+      hoverPoint,
+    );
+    const sample = findNearestRouteSample(spliced.samples, distAlongM);
+
+    expect(sample).toBeDefined();
+    // Muss den Abfahrts- (post-Ladehalt) Zustand liefern, nicht den
+    // Ankunfts-Zustand - trotz raeumlicher Naehe zu routeIndexVor.
+    expect(sample!.socPct).toBe(80);
+    expect(sample!.zeitpunkt).toBe("2026-08-16T19:30:00");
+  });
+
+  it("still resolves the arrival SoC/time right before the detour, spatially near the same spot", () => {
+    const hoverPoint: [number, number] = [10.0, 50.5];
+    const distAlongM = projectDistanceAlongLineM(
+      spliced.coordinates,
+      hoverPoint,
+    );
+    const sample = findNearestRouteSample(spliced.samples, distAlongM);
+
+    expect(sample).toBeDefined();
+    expect(sample!.socPct).toBe(20);
+    expect(sample!.zeitpunkt).toBe("2026-08-16T19:17:00");
   });
 });

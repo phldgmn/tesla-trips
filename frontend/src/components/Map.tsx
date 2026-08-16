@@ -27,11 +27,13 @@ import { toLngLat } from "../utils/geo-utils";
 import {
   buildSplicedRoute,
   splitRouteIntoLegs,
+  projectDistanceAlongLineM,
+  findNearestRouteSample,
   type RouteSample,
 } from "../utils/route-line";
 import { formatZeitpunkt } from "../utils/datetime-utils";
 import { usePersistentState } from "../utils/persistent-state";
-import { ChargingStop, TripSimulationResult, SimulationFrame } from "../types";
+import { ChargingStop, TripSimulationResult } from "../types";
 import type { Stop } from "../types/trip-request";
 import {
   fetchSuperchargers,
@@ -397,35 +399,15 @@ export function buildChargingStopPopupHtml(stop: ChargingStop): string {
   );
 }
 
-/** Findet den Simulationsframe, dessen Position am naechsten an `lngLat` liegt
- * (naive Nearest-Neighbor-Suche ueber alle Frames, mit Laengengrad-Korrektur
- * per cos(lat) fuer eine realistischere Abstandsschaetzung in Breitengraden
- * fernab des Aequators). Genutzt fuer den Routen-Hover-Tooltip. */
-export function findNearestFrame(
-  frames: SimulationFrame[],
-  lngLat: [number, number],
-): SimulationFrame | undefined {
-  if (frames.length === 0) return undefined;
-  const [lng, lat] = lngLat;
-  const cosLat = Math.cos((lat * Math.PI) / 180);
-  let nearest = frames[0];
-  let nearestDist = Infinity;
-  for (const frame of frames) {
-    const [flng, flat] = toLngLat(frame.position);
-    const dlng = (flng - lng) * cosLat;
-    const dlat = flat - lat;
-    const dist = dlng * dlng + dlat * dlat;
-    if (dist < nearestDist) {
-      nearestDist = dist;
-      nearest = frame;
-    }
-  }
-  return nearest;
-}
-
-/** Tooltip-Text fuer den Routen-Hover: Datum/Zeit und SoC am naechstgelegenen Streckenpunkt. */
-export function buildRouteHoverText(frame: SimulationFrame): string {
-  return `${formatZeitpunkt(frame.zeitpunkt)} · ${frame.soc_pct.toFixed(0)}% SoC`;
+/** Tooltip-Text fuer den Routen-Hover: Datum/Zeit und SoC am naechstgelegenen
+ * Streckenpunkt. `sample` stammt aus `findNearestRouteSample()` ueber die
+ * per `projectDistanceAlongLineM()` auf die gezeichnete (gesplicete) Linie
+ * projizierte Mausposition - NICHT aus einer raeumlichen Naechster-Punkt-
+ * Suche ueber `SimulationFrame.position`, die an Stellen, wo sich die Route
+ * raeumlich (aber nicht streckenmaessig) annaehert, z. B. kurz nach einem
+ * Ladehalt-Abstecher, den falschen (Vor-Lade-)Frame waehlen konnte. */
+export function buildRouteHoverText(sample: RouteSample): string {
+  return `${formatZeitpunkt(sample.zeitpunkt ?? null)} · ${sample.socPct.toFixed(0)}% SoC`;
 }
 
 /** Von der Karte persistierter Kartenausschnitt (Mittelpunkt + Zoomstufe). */
@@ -515,12 +497,13 @@ export function MapVisualization({
   const [refreshingSlug, setRefreshingSlug] = useState<string | null>(null);
   const superchargerStationsRef = useRef<SuperchargerStation[]>([]);
   const activePopoverRef = useRef<Popup | null>(null);
-  // Routen-Hover: zeigt Datum/Zeit + SoC des naechstgelegenen Simulationsframes
-  // in einem kleinen Tooltip neben dem Cursor an.
+  // Routen-Hover: zeigt Datum/Zeit + SoC des naechstgelegenen Streckenpunkts
+  // (per Distanz-entlang-der-Linie, nicht raeumlich) in einem kleinen
+  // Tooltip neben dem Cursor an.
   const [routeHoverInfo, setRouteHoverInfo] = useState<{
     x: number;
     y: number;
-    frame: SimulationFrame;
+    sample: RouteSample;
   } | null>(null);
   const routeHoverHandlersRef = useRef<{
     move: (e: MapMouseEvent) => void;
@@ -636,10 +619,16 @@ export function MapVisualization({
         routeIndexNach: stop.route_index_nach,
         ankunftsSocPct: stop.ankunfts_soc_pct,
         zielSocPct: stop.ziel_soc_pct,
+        ankunftszeit: stop.ankunftszeit,
+        abfahrtszeit: stop.abfahrtszeit,
       })),
       simulationResult.frames
         .filter((f) => f.zustand === "FAHREN")
-        .map((f) => ({ distanzM: f.distanz_m, socPct: f.soc_pct })),
+        .map((f) => ({
+          distanzM: f.distanz_m,
+          socPct: f.soc_pct,
+          zeitpunkt: f.zeitpunkt,
+        })),
     );
     const routeCoordinates = splicedRoute.coordinates;
 
@@ -673,15 +662,20 @@ export function MapVisualization({
       } satisfies LayerSpecification["paint"],
     } satisfies LayerSpecification);
 
-    // Hover-Tooltip: bei Mausbewegung ueber der Route den naechstgelegenen
-    // Simulationsframe suchen und Zeitpunkt + SoC anzeigen.
+    // Hover-Tooltip: bei Mausbewegung ueber der Route die Mausposition auf
+    // die tatsaechlich gezeichnete (gesplicete) Linie projizieren und den
+    // Stuetzpunkt mit der naechstgelegenen Distanz-entlang-der-Linie
+    // anzeigen - NICHT den raeumlich naechstgelegenen Simulationsframe (der
+    // wenige Kilometer nach einem Ladehalt-Abstecher noch die Vor-Lade-Werte
+    // liefern konnte, siehe `buildRouteHoverText`).
     const handleRouteMouseMove = (e: MapMouseEvent) => {
-      const frame = findNearestFrame(simulationResult.frames, [
+      const distAlongM = projectDistanceAlongLineM(routeCoordinates, [
         e.lngLat.lng,
         e.lngLat.lat,
       ]);
-      if (!frame) return;
-      setRouteHoverInfo({ x: e.point.x, y: e.point.y, frame });
+      const sample = findNearestRouteSample(splicedRoute.samples, distAlongM);
+      if (!sample) return;
+      setRouteHoverInfo({ x: e.point.x, y: e.point.y, sample });
     };
     const handleRouteMouseLeave = () => setRouteHoverInfo(null);
     map.on("mousemove", "route", handleRouteMouseMove);
@@ -1198,7 +1192,7 @@ export function MapVisualization({
             whiteSpace: "nowrap",
           }}
         >
-          {buildRouteHoverText(routeHoverInfo.frame)}
+          {buildRouteHoverText(routeHoverInfo.sample)}
         </div>
       )}
     </div>

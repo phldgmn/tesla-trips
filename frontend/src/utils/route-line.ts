@@ -57,6 +57,14 @@ export interface ChargingDetourInput {
   routeIndexNach: number | null;
   ankunftsSocPct: number;
   zielSocPct: number;
+  /** Zeitpunkt (ISO), an dem der Ladehalt tatsaechlich erreicht/verlassen wird -
+   *  fuer den Routen-Hover-Tooltip (siehe `findNearestRouteSample` in
+   *  `Map.tsx`), damit der Sprung von Ankunfts- zu Abfahrtszeit exakt am
+   *  Ladehalt liegt statt am naechstgelegenen (raeumlich verwechselbaren)
+   *  Fahr-Frame. Optional, da nicht jeder Aufrufer (z. B. reine SoC-
+   *  Gradient-Tests) ihn benoetigt. */
+  ankunftszeit?: string;
+  abfahrtszeit?: string;
 }
 
 /** Ein SoC-Stuetzpunkt fuer `buildSocGradientExpression`, positioniert per
@@ -64,6 +72,11 @@ export interface ChargingDetourInput {
 export interface RouteSample {
   distanzM: number;
   socPct: number;
+  /** Zeitpunkt (ISO) dieses Stuetzpunkts - fuer den Routen-Hover-Tooltip
+   *  (siehe `findNearestRouteSample`/`buildRouteHoverText` in `Map.tsx`).
+   *  Optional, da nicht jeder Aufrufer (z. B. reine SoC-Gradient-Tests) ihn
+   *  benoetigt. */
+  zeitpunkt?: string;
   /** Ladehalt-Ankunft/-Abfahrt: wird beim Downsampling nie uebersprungen, damit
    *  der SoC-Sprung an der Ladestation sichtbar bleibt. */
   critical?: boolean;
@@ -127,6 +140,8 @@ interface ResolvedDetour {
   stationPosition: [number, number];
   ankunftsSocPct: number;
   zielSocPct: number;
+  ankunftszeit?: string;
+  abfahrtszeit?: string;
 }
 
 function resolveDetours(
@@ -149,6 +164,8 @@ function resolveDetours(
         stationPosition: stop.position,
         ankunftsSocPct: stop.ankunftsSocPct,
         zielSocPct: stop.zielSocPct,
+        ankunftszeit: stop.ankunftszeit,
+        abfahrtszeit: stop.abfahrtszeit,
       };
     }
     // Fallback: keine geroutete Geometrie verfuegbar (siehe
@@ -163,6 +180,8 @@ function resolveDetours(
       stationPosition: stop.position,
       ankunftsSocPct: stop.ankunftsSocPct,
       zielSocPct: stop.zielSocPct,
+      ankunftszeit: stop.ankunftszeit,
+      abfahrtszeit: stop.abfahrtszeit,
     };
   });
 }
@@ -170,7 +189,7 @@ function resolveDetours(
 export function buildSplicedRoute(
   routeGeometrie: [number, number][],
   chargingStops: ChargingDetourInput[],
-  frameSamples: { distanzM: number; socPct: number }[],
+  frameSamples: { distanzM: number; socPct: number; zeitpunkt?: string }[],
 ): SplicedRoute {
   if (routeGeometrie.length === 0) {
     return {
@@ -197,8 +216,12 @@ export function buildSplicedRoute(
   let offset = 0;
   let i = 0;
 
-  const emitPlainFrame = (distanzM: number, socPct: number) => {
-    samples.push({ distanzM: distanzM + offset, socPct });
+  const emitPlainFrame = (
+    distanzM: number,
+    socPct: number,
+    zeitpunkt?: string,
+  ) => {
+    samples.push({ distanzM: distanzM + offset, socPct, zeitpunkt });
   };
 
   while (i < routeGeometrie.length) {
@@ -226,7 +249,7 @@ export function buildSplicedRoute(
       ) {
         const frame = sortedFrames[frameIdx];
         if (frame.distanzM < rangeStartOriginal) {
-          emitPlainFrame(frame.distanzM, frame.socPct);
+          emitPlainFrame(frame.distanzM, frame.socPct, frame.zeitpunkt);
         } else {
           const span = rangeEndOriginal - rangeStartOriginal;
           const frac =
@@ -234,6 +257,7 @@ export function buildSplicedRoute(
           samples.push({
             distanzM: rangeStartOriginal + offset + frac * detourLen,
             socPct: frame.socPct,
+            zeitpunkt: frame.zeitpunkt,
           });
         }
         frameIdx++;
@@ -273,11 +297,13 @@ export function buildSplicedRoute(
         samples.push({
           distanzM: arrivalDistanzM,
           socPct: detour.ankunftsSocPct,
+          zeitpunkt: detour.ankunftszeit,
           critical: true,
         });
         samples.push({
           distanzM: arrivalDistanzM + CHARGE_JUMP_EPSILON_M,
           socPct: detour.zielSocPct,
+          zeitpunkt: detour.abfahrtszeit,
           critical: true,
         });
         legBoundaries.push({ coordinateIndex, distanzM: arrivalDistanzM });
@@ -306,6 +332,7 @@ export function buildSplicedRoute(
       emitPlainFrame(
         sortedFrames[frameIdx].distanzM,
         sortedFrames[frameIdx].socPct,
+        sortedFrames[frameIdx].zeitpunkt,
       );
       frameIdx++;
     }
@@ -318,6 +345,7 @@ export function buildSplicedRoute(
     emitPlainFrame(
       sortedFrames[frameIdx].distanzM,
       sortedFrames[frameIdx].socPct,
+      sortedFrames[frameIdx].zeitpunkt,
     );
     frameIdx++;
   }
@@ -401,4 +429,95 @@ export function splitRouteIntoLegs(spliced: SplicedRoute): RouteLeg[] {
   pushLeg(spliced.coordinates.length - 1, spliced.totalDistanceM);
 
   return legs.filter((leg) => leg.coordinates.length >= 2);
+}
+
+/** Meter pro Breitengrad - konstant genug fuer die kurzen Segmentabstaende
+ *  einer dichten GraphHopper-Polyline (siehe `projectDistanceAlongLineM`). */
+const METERS_PER_DEGREE_LAT = 111_320;
+
+/** Projiziert `point` (lng, lat) auf die naechstgelegene Stelle der
+ * gesplicete Linie `coordinates` (ebenfalls lng, lat) und liefert die
+ * kumulierte Distanz (m) entlang der Linie bis zu dieser Projektion.
+ *
+ * Nutzt eine lokale ebene Naeherung (mit cos(lat)-Korrektur fuer die
+ * Laengengrad-Verzerrung) statt einer Grosskreis-Projektion - fuer die
+ * kurzen Segmentabstaende einer dichten GraphHopper-Polyline ausreichend
+ * genau und deutlich einfacher als eine Grosskreis-Projektion pro Segment.
+ *
+ * Im Gegensatz zu einer reinen raeumlichen Naechster-Punkt-Suche ueber
+ * `SimulationFrame.position` (die die Streckenreihenfolge ignoriert) nutzt
+ * diese Funktion die tatsaechlich gezeichnete (gesplicete) Linie und liefert
+ * die Distanz IN DEREN Reihenfolge. Das vermeidet Verwechslungen an Stellen,
+ * an denen sich die Route raeumlich nahekommt (z. B. eine Autobahnabfahrt
+ * nahe einem Ladehalt-Abstecher), obwohl die Punkte streckenmaessig weit
+ * auseinanderliegen - der Bug, der zuvor dazu fuehrte, dass der Routen-
+ * Hover-Tooltip einige Kilometer hinter einem Ladehalt noch die Vor-Lade-
+ * Werte (Uhrzeit/SoC) anzeigte, weil der naechstgelegene `SimulationFrame`
+ * raeumlich (nicht streckenmaessig) bestimmt wurde.
+ */
+export function projectDistanceAlongLineM(
+  coordinates: [number, number][],
+  point: [number, number],
+): number {
+  if (coordinates.length === 0) return 0;
+  const cosLat = Math.cos((point[1] * Math.PI) / 180);
+  const toLocalMeters = (p: [number, number]): [number, number] => [
+    (p[0] - point[0]) * METERS_PER_DEGREE_LAT * cosLat,
+    (p[1] - point[1]) * METERS_PER_DEGREE_LAT,
+  ];
+
+  let cumulative = 0;
+  let bestDistSq = Infinity;
+  let bestCumulative = 0;
+  for (let i = 0; i < coordinates.length - 1; i++) {
+    const [ax, ay] = toLocalMeters(coordinates[i]);
+    const [bx, by] = toLocalMeters(coordinates[i + 1]);
+    const abx = bx - ax;
+    const aby = by - ay;
+    const segLenSq = abx * abx + aby * aby;
+    const segLen = Math.sqrt(segLenSq);
+    let t = segLenSq > 0 ? (-ax * abx - ay * aby) / segLenSq : 0;
+    t = Math.max(0, Math.min(1, t));
+    const projX = ax + t * abx;
+    const projY = ay + t * aby;
+    const distSq = projX * projX + projY * projY;
+    if (distSq < bestDistSq) {
+      bestDistSq = distSq;
+      bestCumulative = cumulative + t * segLen;
+    }
+    cumulative += segLen;
+  }
+  return bestCumulative;
+}
+
+/** Findet den `RouteSample`, dessen `distanzM` (kumulierte Distanz entlang
+ * der gesplicete Linie) am naechsten an `distanzM` liegt - per Binaersuche,
+ * da `samples` nach `distanzM` aufsteigend sortiert ist (siehe
+ * `buildSplicedRoute`). Genutzt zusammen mit `projectDistanceAlongLineM` fuer
+ * den Routen-Hover-Tooltip: die Mausposition wird auf die gezeichnete Linie
+ * projiziert, die resultierende Distanz-entlang-der-Linie dann hier auf den
+ * naechstgelegenen Stuetzpunkt (mit Zeitpunkt + SoC) abgebildet. */
+export function findNearestRouteSample(
+  samples: RouteSample[],
+  distanzM: number,
+): RouteSample | undefined {
+  if (samples.length === 0) return undefined;
+  let lo = 0;
+  let hi = samples.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (samples[mid].distanzM < distanzM) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  if (
+    lo > 0 &&
+    Math.abs(samples[lo - 1].distanzM - distanzM) <
+      Math.abs(samples[lo].distanzM - distanzM)
+  ) {
+    return samples[lo - 1];
+  }
+  return samples[lo];
 }
