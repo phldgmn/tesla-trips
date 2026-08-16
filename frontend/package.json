@@ -14,6 +14,7 @@
     "gen:types": "python -m tripplanner.simulation.generate_schema && json2ts -i frontend/src/types/simulation.schema.json -o frontend/src/types/generated.ts"
   },
   "dependencies": {
+    "lucide-react": "^1.31.0",
     "maplibre-gl": "^6.3.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
