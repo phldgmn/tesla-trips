@@ -12,13 +12,6 @@ export function toLngLat([lat, lon]: [number, number]): [number, number] {
   return [lon, lat];
 }
 
-/** Konvertiert eine Liste von Backend-Koordinaten für eine GeoJSON-LineString. */
-export function routeToGeoJsonCoordinates(
-  geometrie: [number, number][],
-): [number, number][] {
-  return geometrie.map(toLngLat);
-}
-
 /** Berechnet die Distanz zwischen zwei Punkten auf der Erde (Haversine-Formel).
  *
  * @param a Erster Punkt als [lat, lon]

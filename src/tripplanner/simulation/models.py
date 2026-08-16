@@ -70,6 +70,16 @@ class ChargingStopSummary(BaseModel):
     position: tuple[float, float] = Field(
         ..., description="Position der Ladestation als (lat, lon)"
     )
+    distanz_m: float = Field(
+        ..., ge=0.0, description="Kumulierte Distanz entlang der Route, an der abgebogen wird"
+    )
+    detour_geometrie: list[tuple[float, float]] = Field(
+        default_factory=list,
+        description=(
+            "Echte, ueber GraphHopper geroutete Hin-und-zurueck-Geometrie von der Route zur "
+            "Ladestation (leer, falls die Detour-Route nicht ermittelt werden konnte)"
+        ),
+    )
     ankunfts_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
     ziel_soc_pct: float = Field(
         ..., ge=0.0, le=100.0, description="Angestrebter SoC nach dem Laden in %"

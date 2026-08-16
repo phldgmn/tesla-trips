@@ -23,7 +23,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // `setWorkerUrl()` überschreibt MapLibres eigene (kaputte) Berechnung damit.
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 
-import { toLngLat, routeToGeoJsonCoordinates } from "../utils/geo-utils";
+import { toLngLat } from "../utils/geo-utils";
+import { buildSplicedRoute, type RouteSample } from "../utils/route-line";
 import { formatZeitpunkt } from "../utils/datetime-utils";
 import { usePersistentState } from "../utils/persistent-state";
 import { ChargingStop, TripSimulationResult, SimulationFrame } from "../types";
@@ -81,27 +82,27 @@ export function socToColor(soc: number): string {
   return "#22c55e";
 }
 
-/** Baut die MapLibre `line-gradient`-Expression für den SoC-Farbverlauf
- * entlang der gesamten Route aus einer einzigen Linie (statt vieler
- * einzelner Segment-Layer – siehe `MapVisualization`). Die Stop-Position
- * jedes Frames wird ueber sein vom Backend geliefertes `distanz_m`
- * (kumulierte Distanz entlang der Route) relativ zu `totalDistanceM`
- * bestimmt - NICHT über die Kettenlänge zwischen Frame-Positionen, da die
- * Linie inzwischen aus `route_geometrie` (voller GraphHopper-Polyline)
- * statt aus den zeitbasiert groben Frame-Positionen aufgebaut wird und
- * `line-progress` sich auf deren (längere) tatsächliche Streckenlänge
- * bezieht. Auf maximal `maxStops` gleichmässig über den Frame-Index
- * verteilte Stützpunkte heruntergesampelt (vermeidet riesige Expressions
- * bei langen Trips mit tausenden Frames) und um Frames mit identischer
- * Distanz (z. B. während eines Ladehalts) bereinigt, da `interpolate`-Stops
- * strikt aufsteigend sein müssen.
+/** Baut die MapLibre `line-gradient`-Expression für den SoC-Farbverlauf entlang
+ * der gesamten (gespliceten) Route aus einer einzigen Linie (statt vieler
+ * einzelner Segment-Layer – siehe `MapVisualization`). `samples` kommt aus
+ * `buildSplicedRoute()` und enthält sowohl Fahr-Stützpunkte (per `distanz_m`
+ * positioniert) als auch `critical`-markierte Ladehalt-Ankunfts-/Abfahrts-
+ * Stützpunkte, die beim Downsampling nie übersprungen werden - sonst wäre der
+ * SoC-Sprung an einer Ladestation (niedriger Ankunfts- zu höherem Ziel-SoC)
+ * nicht sichtbar. Alle Distanzwerte sind relativ zur gespliceten Linie
+ * (inkl. Ladehalt-Abstecher), passend zu `line-progress`. Reguläre
+ * Stützpunkte werden auf maximal `maxStops - critical.length` gleichmässig
+ * heruntergesampelt (vermeidet riesige Expressions bei langen Trips mit
+ * tausenden Frames); Stützpunkte mit identischer Distanz (z. B. während
+ * eines Ladehalts) werden bereinigt, da `interpolate`-Stops strikt
+ * aufsteigend sein müssen.
  */
 export function buildSocGradientExpression(
-  frames: SimulationFrame[],
+  samples: RouteSample[],
   totalDistanceM: number,
   maxStops = 64,
 ): unknown[] {
-  if (frames.length === 0 || totalDistanceM <= 0) {
+  if (samples.length === 0 || totalDistanceM <= 0) {
     return [
       "interpolate",
       ["linear"],
@@ -113,19 +114,30 @@ export function buildSocGradientExpression(
     ];
   }
 
-  const stride = Math.max(1, Math.ceil((frames.length - 1) / (maxStops - 1)));
-  const sampledIndices: number[] = [];
-  for (let i = 0; i < frames.length - 1; i += stride) {
-    sampledIndices.push(i);
+  const sorted = [...samples].sort((a, b) => a.distanzM - b.distanzM);
+  const critical = sorted.filter((s) => s.critical);
+  const regular = sorted.filter((s) => !s.critical);
+
+  const budget = Math.max(2, maxStops - critical.length);
+  const stride = Math.max(1, Math.ceil((regular.length - 1) / (budget - 1)));
+  const sampledRegular: RouteSample[] = [];
+  for (let i = 0; i < regular.length - 1; i += stride) {
+    sampledRegular.push(regular[i]);
   }
-  sampledIndices.push(frames.length - 1);
+  if (regular.length > 0) {
+    sampledRegular.push(regular[regular.length - 1]);
+  }
+
+  const merged = [...sampledRegular, ...critical].sort(
+    (a, b) => a.distanzM - b.distanzM,
+  );
 
   const stops: (number | string)[] = [];
   let lastProgress = -1;
-  for (const idx of sampledIndices) {
-    const progress = Math.min(1, frames[idx].distanz_m / totalDistanceM);
+  for (const sample of merged) {
+    const progress = Math.min(1, Math.max(0, sample.distanzM / totalDistanceM));
     if (progress <= lastProgress) continue;
-    stops.push(progress, socToColor(frames[idx].soc_pct));
+    stops.push(progress, socToColor(sample.socPct));
     lastProgress = progress;
   }
   return ["interpolate", ["linear"], ["line-progress"], ...stops];
@@ -596,11 +608,25 @@ export function MapVisualization({
 
     // Route in GeoJSON konvertieren: volle GraphHopper-Geometrie (nicht die
     // zeitbasiert groben Simulationsframes) fuer eine winkeltreue Linie, die
-    // dem tatsaechlichen Strassenverlauf folgt (siehe `buildSocGradientExpression`
-    // fuer die davon entkoppelte SoC-Farbverlauf-Positionierung ueber `distanz_m`).
-    const routeCoordinates = routeToGeoJsonCoordinates(
+    // dem tatsaechlichen Strassenverlauf folgt, GESPLICET mit echten,
+    // geroutete Abstechern zu jedem Ladehalt (`ChargingStop.detour_geometrie`)
+    // - sonst wuerde die Route nie die Ladestation verlassen (siehe
+    // `buildSplicedRoute`). Liefert passend dazu SoC-Stuetzpunkte fuer
+    // `buildSocGradientExpression`.
+    const splicedRoute = buildSplicedRoute(
       simulationResult.route_geometrie,
+      simulationResult.charging_stops.map((stop) => ({
+        position: stop.position,
+        distanzM: stop.distanz_m,
+        detourGeometrie: stop.detour_geometrie,
+        ankunftsSocPct: stop.ankunfts_soc_pct,
+        zielSocPct: stop.ziel_soc_pct,
+      })),
+      simulationResult.frames
+        .filter((f) => f.zustand === "FAHREN")
+        .map((f) => ({ distanzM: f.distanz_m, socPct: f.soc_pct })),
     );
+    const routeCoordinates = splicedRoute.coordinates;
 
     const routeGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
       type: "Feature" as const,
@@ -650,7 +676,6 @@ export function MapVisualization({
       leave: handleRouteMouseLeave,
     };
 
-    const frames = simulationResult.frames;
     map.addLayer({
       id: "route-soc-gradient",
       type: "line",
@@ -659,8 +684,8 @@ export function MapVisualization({
         "line-width": 4,
         "line-opacity": 0.9,
         "line-gradient": buildSocGradientExpression(
-          frames,
-          simulationResult.gesamt_distanz_km * 1000,
+          splicedRoute.samples,
+          splicedRoute.totalDistanceM,
         ),
       },
     } as unknown as LayerSpecification);

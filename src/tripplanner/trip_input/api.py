@@ -404,6 +404,49 @@ def _step_9_eta_aktualisieren(
     return neue_eta_liste
 
 
+async def _step_lade_detours_routen(
+    routing_provider: RoutingProvider | None,
+    route: Route,
+    charging_plan: ChargingPlan,
+    abfahrtszeit: datetime,
+    fahrzeugprofil: VehicleProfile,
+) -> dict[int, list[Coordinate]]:
+    """Schritt 8b: Routet fuer jeden Ladehalt eine echte Hin-und-zurueck-Verbindung.
+
+    GraphHopper kennt Ladestationen nicht als Wegpunkte der Hauptroute - die
+    Stationswahl erfolgt erst NACH der Routenberechnung durch den Optimierer
+    (`_step_8_ladeplan_optimieren`). Deshalb ein separater, kleiner Routing-
+    Aufruf pro Ladehalt (typischerweise 0-3 pro Reise) statt eines
+    gemeinsamen Multi-Waypoint-Aufrufs, der die Segmentierung/Energie-
+    berechnung der bereits abgeschlossenen Schritte 2-7 invalidieren wuerde.
+
+    Returns:
+        dict von `id()` des `ChargingStop`-Objekts (Ladehalt) -> dichte
+        Streckengeometrie der Hin-und-zurueck-Fahrt. Ein Ladehalt fehlt im
+        Ergebnis, wenn GraphHopper keine Route zur Station liefern konnte
+        (`ChargingStopSummary.detour_geometrie` bleibt dann leer - der
+        Ladehalt selbst bleibt gueltig, nur ohne Kartengeometrie fuer den
+        Abstecher).
+    """
+    provider = routing_provider or FakeRoutingProvider()
+    detouren: dict[int, list[Coordinate]] = {}
+    for ladehalt in charging_plan.ladehalte:
+        abzweigpunkt = route.geometrie[min(ladehalt.segment_index, len(route.geometrie) - 1)]
+        detour_anfrage = TripRequest(
+            start=abzweigpunkt,
+            ziel=abzweigpunkt,
+            zwischenstopps=[Waypoint(koordinate=ladehalt.station.coordinate)],
+            abfahrtszeit=abfahrtszeit,
+            fahrzeugprofil=fahrzeugprofil,
+        )
+        try:
+            detour_route = await provider.berechne_route(detour_anfrage)
+        except httpx.HTTPError:
+            continue
+        detouren[id(ladehalt)] = detour_route.geometrie
+    return detouren
+
+
 def _segment_index_fuer_koordinate(koordinate: Coordinate, segments: list[RouteSegment]) -> int:
     """Segment, dessen Ende der gegebenen Koordinate am nächsten liegt (haversine)."""
     best_idx, best_dist = 0, float("inf")
@@ -601,6 +644,17 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
         faehr_zeitfenster=faehr_pins,
     )
 
+    # 9b. Fuer jeden Ladehalt eine echte Hin-und-zurueck-Verbindung zur
+    # Ladestation routen (siehe `_step_lade_detours_routen`), damit die Karte
+    # den Abstecher strassengetreu statt als Luftlinie zeigt.
+    ladehalt_detouren = await _step_lade_detours_routen(
+        routing_provider,
+        route,
+        ladeplan,
+        anfrage.abfahrtszeit,
+        anfrage.fahrzeugprofil,
+    )
+
     # 10. Step 9: ETA aktualisieren
     _ = _step_9_eta_aktualisieren(segment_eta_liste, ladeplan)
 
@@ -616,6 +670,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
         output_resolution_seconds=60,
         abfahrtszeit=anfrage.abfahrtszeit,
         battery_capacity_kwh=anfrage.fahrzeugprofil.batteriekapazitaet_kwh,
+        ladehalt_detour_geometrie=ladehalt_detouren,
     )
 
     # 12. Step 11: Ergebnis zurückgeben
@@ -934,6 +989,16 @@ class ChargingStopAPI(BaseModel):
     name: str = Field(..., description="Name der Ladestation")
     station_id: str = Field(..., description="Eindeutige ID der Ladestation")
     position: tuple[float, float] = Field(..., description="(lat, lon) der Ladestation")
+    distanz_m: float = Field(
+        ..., ge=0.0, description="Kumulierte Distanz entlang der Route, an der abgebogen wird"
+    )
+    detour_geometrie: list[Coordinate] = Field(
+        default_factory=list,
+        description=(
+            "Echte, ueber GraphHopper geroutete Hin-und-zurueck-Geometrie von der Route zur "
+            "Ladestation (leer, falls die Detour-Route nicht ermittelt werden konnte)"
+        ),
+    )
     ankunfts_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
     ziel_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ziel-SoC nach dem Laden in %")
     ladedauer_s: int = Field(..., ge=0, description="Ladedauer in Sekunden")
@@ -1088,6 +1153,8 @@ async def create_trip_endpoint(
                     name=stop.name,
                     station_id=stop.station_id,
                     position=stop.position,
+                    distanz_m=stop.distanz_m,
+                    detour_geometrie=stop.detour_geometrie,
                     ankunfts_soc_pct=stop.ankunfts_soc_pct,
                     ziel_soc_pct=stop.ziel_soc_pct,
                     ladedauer_s=stop.ladedauer_s,

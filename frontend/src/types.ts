@@ -44,7 +44,7 @@ export interface TripSimulationResult {
   charging_stops: ChargingStop[];
   /** Vollstaendige Streckengeometrie der Route als Liste von [lat, lon]-Punkten
    *  (dichte GraphHopper-Polyline, nicht auf `frames` reduziert - fuer eine
-   *  winkeltreue Kartendarstellung, siehe geo-utils.ts::routeToGeoJsonCoordinates()) */
+   *  winkeltreue Kartendarstellung, siehe route-line.ts::buildSplicedRoute()) */
   route_geometrie: [number, number][];
   /** In der berechneten Route erkannte Fährverbindungen */
   erkannte_faehren: FaehrSegment[];
@@ -58,6 +58,12 @@ export interface ChargingStop {
   station_id: string;
   /** Position der Ladestation als [lat, lon] */
   position: [number, number];
+  /** Kumulierte Distanz entlang der Route, an der zur Ladestation abgebogen wird */
+  distanz_m: number;
+  /** Echte, ueber GraphHopper geroutete Hin-und-zurueck-Geometrie von der Route
+   *  zur Ladestation als Liste von [lat, lon]-Punkten (leer, falls nicht
+   *  ermittelbar - siehe route-line.ts::buildSplicedRoute()) */
+  detour_geometrie: [number, number][];
   /** Ankunfts-SoC in % */
   ankunfts_soc_pct: number;
   /** Ziel-SoC in % */

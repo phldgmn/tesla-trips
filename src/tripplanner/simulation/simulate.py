@@ -106,6 +106,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     convergence_threshold_minutes: float = 30.0,
     output_resolution_seconds: int = 60,
     battery_capacity_kwh: float = 62.5,
+    ladehalt_detour_geometrie: dict[int, list[tuple[float, float]]] | None = None,
 ) -> TripSimulationResult:
     """Simuliert die komplette Reise entlang der Route unter Beruecksichtigung des Ladeplans.
 
@@ -120,6 +121,12 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         output_resolution_seconds: Zeitauflösung der Ausgabe (default: 60s)
         abfahrtszeit: Abfahrtszeitpunkt der Reise (timezone-aware datetime)
         battery_capacity_kwh: Nutzbare Batteriekapazitaet in kWh (default: 62.5 kWh)
+        ladehalt_detour_geometrie: Optionale, ueber GraphHopper geroutete Hin-und-
+            zurueck-Geometrie je Ladehalt (Schluessel: `id()` des `ChargingStop`-
+            Objekts aus `charging_plan.ladehalte`), fuer eine strassengetreue
+            Kartendarstellung des Abstechers zur Ladestation (siehe
+            `tripplanner.trip_input.api._step_lade_detours_routen`). Fehlt ein
+            Eintrag, bleibt `ChargingStopSummary.detour_geometrie` leer.
 
     Returns:
         TripSimulationResult: Zeitreihe aus Frames (Zeit, Position, SoC, Zustand, Geschwindigkeit)
@@ -163,6 +170,12 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
 
     current_soc_pct = start_soc_pct
     frames: list[SimulationFrame] = []
+    # Kumulierte Routendistanz, an der jeder Ladehalt beginnt (Schluessel:
+    # `id()` des `ChargingStop`-Objekts) - erfasst beim ersten LADEN-Frame
+    # dieses Halts, siehe unten. Fuer `ChargingStopSummary.distanz_m` und um
+    # `ladehalt_detour_geometrie` an der richtigen Stelle in die Karten-
+    # Geometrie einzufuegen (siehe `route-line.ts` im Frontend).
+    distanz_bei_ladehalt: dict[int, float] = {}
 
     end_time_s = charging_plan.gesamtreisezeit_s if charging_plan.gesamtreisezeit_s > 0 else 1
 
@@ -225,6 +238,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         if aktueller_ladehalt is not None:
             zustand = TripState.LADEN
             geschwindigkeit_kmh = 0.0
+            distanz_bei_ladehalt.setdefault(id(aktueller_ladehalt), current_distance_m)
 
             total_charge_time_s = aktueller_ladehalt.geschaetzte_ladedauer_s
             if total_charge_time_s > 0:
@@ -294,11 +308,22 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
 
         current_time_s += output_resolution_seconds
 
+    detour_geometrie_by_id = ladehalt_detour_geometrie or {}
     charging_stops = [
         ChargingStopSummary(
             name=ladehalt.station.name,
             station_id=ladehalt.station.station_id,
             position=ladehalt.station.coordinate,
+            # Fallback (kein LADEN-Frame erfasst, z. B. sehr kurze Ladedauer
+            # unterhalb der Frame-Aufloesung `output_resolution_seconds`):
+            # Distanz am Beginn des Ladehalt-Segments.
+            distanz_m=distanz_bei_ladehalt.get(
+                id(ladehalt),
+                cumulative_distances[ladehalt.segment_index - 1]
+                if ladehalt.segment_index > 0
+                else 0.0,
+            ),
+            detour_geometrie=detour_geometrie_by_id.get(id(ladehalt), []),
             ankunfts_soc_pct=ladehalt.ankunfts_soc_pct,
             ziel_soc_pct=ladehalt.ziel_soc_pct,
             ladedauer_s=ladehalt.geschaetzte_ladedauer_s,

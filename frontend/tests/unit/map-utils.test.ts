@@ -20,6 +20,7 @@ import {
 } from "@/components/Map";
 import type { Stop, StopRole } from "@/components/Map";
 import type { ChargingStop, SimulationFrame } from "@/types";
+import type { RouteSample } from "@/utils/route-line";
 import type { SuperchargerStation } from "@/api/chargingApi";
 import type { StyleSpecification } from "maplibre-gl";
 import { formatZeitpunkt } from "@/utils/datetime-utils";
@@ -53,22 +54,15 @@ describe("MapVisualization utilities", () => {
   });
 
   describe("buildSocGradientExpression", () => {
-    function frame(
-      position: [number, number],
-      soc_pct: number,
-      distanz_m: number,
-    ): SimulationFrame {
-      return {
-        zeitpunkt: "2026-01-01T00:00:00Z",
-        position,
-        distanz_m,
-        soc_pct,
-        zustand: "FAHREN",
-        geschwindigkeit_kmh: 100,
-      };
+    function sample(
+      distanzM: number,
+      socPct: number,
+      critical = false,
+    ): RouteSample {
+      return critical ? { distanzM, socPct, critical } : { distanzM, socPct };
     }
 
-    it("returns a flat fallback expression for an empty frame list", () => {
+    it("returns a flat fallback expression for an empty sample list", () => {
       expect(buildSocGradientExpression([], 1000)).toEqual([
         "interpolate",
         ["linear"],
@@ -81,8 +75,8 @@ describe("MapVisualization utilities", () => {
     });
 
     it("returns a flat fallback expression for a zero/negative total distance", () => {
-      const frames = [frame([52.5, 13.4], 80, 0)];
-      expect(buildSocGradientExpression(frames, 0)).toEqual([
+      const samples = [sample(0, 80)];
+      expect(buildSocGradientExpression(samples, 0)).toEqual([
         "interpolate",
         ["linear"],
         ["line-progress"],
@@ -94,12 +88,8 @@ describe("MapVisualization utilities", () => {
     });
 
     it("builds strictly increasing line-progress stops from start (0) to end (1)", () => {
-      const frames = [
-        frame([52.5, 13.4], 100, 0),
-        frame([52.6, 13.5], 60, 5000),
-        frame([52.7, 13.6], 20, 10000),
-      ];
-      const expr = buildSocGradientExpression(frames, 10000);
+      const samples = [sample(0, 100), sample(5000, 60), sample(10000, 20)];
+      const expr = buildSocGradientExpression(samples, 10000);
       expect(expr[0]).toBe("interpolate");
       expect(expr[1]).toEqual(["linear"]);
       expect(expr[2]).toEqual(["line-progress"]);
@@ -117,30 +107,23 @@ describe("MapVisualization utilities", () => {
       }
     });
 
-    it("positions stops by distanz_m, decoupled from the frame-to-frame chord length", () => {
-      // Ein einzelner Frame "springt" ueber eine grosse Kurve (z. B. 60s bei
-      // Autobahntempo) - die Linie folgt der vollen `route_geometrie`, daher
-      // muss der Stop bei der tatsaechlichen Streckendistanz liegen, nicht
-      // bei der (kuerzeren) Luftlinien-Distanz zum vorherigen Frame.
-      const frames = [
-        frame([52.5, 13.4], 90, 0),
-        frame([53.0, 14.0], 50, 9000),
-      ];
-      const expr = buildSocGradientExpression(frames, 10000);
+    it("positions stops by distanzM against the given totalDistanceM", () => {
+      const samples = [sample(0, 90), sample(9000, 50)];
+      const expr = buildSocGradientExpression(samples, 10000);
       const stops = expr.slice(3);
       expect(stops[0]).toBe(0);
       expect(stops[2]).toBe(0.9);
     });
 
-    it("dedupes frames at an identical distanz_m (e.g. a charging pause)", () => {
-      const frames = [
-        frame([52.5, 13.4], 80, 0),
-        frame([52.6, 13.5], 50, 5000),
-        frame([52.6, 13.5], 50, 5000), // Ladehalt: identische Distanz
-        frame([52.6, 13.5], 80, 5000), // Ladehalt: identische Distanz
-        frame([52.7, 13.6], 80, 10000),
+    it("dedupes samples at an identical distanzM (e.g. a charging pause)", () => {
+      const samples = [
+        sample(0, 80),
+        sample(5000, 50),
+        sample(5000, 50), // Ladehalt: identische Distanz
+        sample(5000, 80), // Ladehalt: identische Distanz
+        sample(10000, 80),
       ];
-      const expr = buildSocGradientExpression(frames, 10000);
+      const expr = buildSocGradientExpression(samples, 10000);
       const stops = expr.slice(3);
       const progressValues = stops.filter((_, i) => i % 2 === 0) as number[];
       // Duplikate mit gleichem Progress-Wert wurden entfernt (sonst waere
@@ -148,11 +131,30 @@ describe("MapVisualization utilities", () => {
       expect(new Set(progressValues).size).toBe(progressValues.length);
     });
 
-    it("downsamples long frame lists to at most maxStops points", () => {
-      const frames = Array.from({ length: 5000 }, (_, i) =>
-        frame([50 + i * 0.001, 10 + i * 0.001], 100 - (i / 5000) * 100, i * 10),
+    it("never downsamples away critical (charging arrival/departure) samples", () => {
+      // Viele reguläre Fahr-Stützpunkte um zwei nah beieinanderliegende
+      // kritische Ladehalt-Stützpunkte herum - der SoC-Sprung an der
+      // Ladestation muss trotz `maxStops`-Downsampling sichtbar bleiben.
+      const regular = Array.from({ length: 1000 }, (_, i) =>
+        sample(i * 10, 70),
       );
-      const expr = buildSocGradientExpression(frames, 4999 * 10, 32);
+      const samples = [
+        ...regular,
+        sample(5005, 15, true),
+        sample(5006, 85, true),
+      ];
+      const expr = buildSocGradientExpression(samples, 9990, 16);
+      const stops = expr.slice(3);
+      const colors = stops.filter((_, i) => i % 2 === 1) as string[];
+      expect(colors).toContain(socToColor(15));
+      expect(colors).toContain(socToColor(85));
+    });
+
+    it("downsamples long sample lists to at most maxStops points", () => {
+      const samples = Array.from({ length: 5000 }, (_, i) =>
+        sample(i * 10, 100 - (i / 5000) * 100),
+      );
+      const expr = buildSocGradientExpression(samples, 4999 * 10, 32);
       const stops = expr.slice(3);
       expect(stops.length / 2).toBeLessThanOrEqual(32);
     });

@@ -919,6 +919,99 @@ async def test_create_trip_simulation_ladedauer_vorgabe_wirkt_auf_ladeplan(
     assert result.charging_stops[0].ladedauer_s == vorgabe_s
 
 
+async def test_create_trip_simulation_populates_charging_stop_distanz_m_and_detour_geometrie(
+    valid_trip_request: dict,
+    fake_routing_provider: FakeRoutingProvider,
+    fake_weather_provider: FakeWeatherProvider,
+) -> None:
+    """`ChargingStopSummary.distanz_m`/`detour_geometrie` werden befuellt - deckt
+    den Bug ab, bei dem die Karte den Ladehalt nie zeigte, weil die Routenlinie
+    die Autobahn nie verliess (siehe `_step_lade_detours_routen`)."""
+    single_station_provider = FakeChargingStationProvider(
+        test_stations=[
+            ChargingStation(
+                station_id="einzige-station",
+                name="Tesla Supercharger - Nuernberg",
+                coordinate=(49.45, 11.08),  # ~mittig auf der Berlin-Muenchen-Route
+                stalls={StallType.V3: 8},
+                max_ladeleistung_kw=2500.0,
+                connector_types=[ConnectorType.CCS2],
+                country="DE",
+                letzte_datenAktualisierung=datetime.now(UTC),
+            ),
+        ]
+    )
+
+    result = await create_trip_simulation(
+        valid_trip_request,
+        routing_provider=fake_routing_provider,
+        weather_provider=fake_weather_provider,
+        charging_provider=single_station_provider,
+        start_soc_pct=80.0,
+        ziel_soc_pct=20.0,
+    )
+
+    assert len(result.charging_stops) == 1
+    stop = result.charging_stops[0]
+    assert stop.distanz_m > 0
+    assert stop.distanz_m < result.gesamt_distanz_km * 1000
+    # Echte, ueber `FakeRoutingProvider` geroutete Hin-und-zurueck-Geometrie
+    # (mindestens Start-, Stations- und Endpunkt) statt einer leeren Liste.
+    assert len(stop.detour_geometrie) >= 2
+    assert stop.detour_geometrie[0] == stop.detour_geometrie[-1]
+
+
+async def test_create_trip_simulation_handles_unreachable_charging_detour_gracefully(
+    valid_trip_request: dict,
+    fake_routing_provider: FakeRoutingProvider,
+    fake_weather_provider: FakeWeatherProvider,
+) -> None:
+    """Ein nicht routbarer Ladehalt-Abstecher (`httpx.HTTPError` beim Detour-
+    Routing) darf die gesamte Reise-Simulation nicht zum Absturz bringen -
+    `detour_geometrie` bleibt fuer diesen Halt leer, der Ladehalt selbst und
+    die restliche Simulation bleiben gueltig (siehe `_step_lade_detours_routen`).
+    """
+
+    class _DetourFailingRoutingProvider:
+        """Routet die Hauptstrecke normal, verweigert aber jede Detour-Anfrage
+        (Start == Ziel, wie sie `_step_lade_detours_routen` fuer Ladehalt-
+        Abstecher stellt)."""
+
+        async def berechne_route(self, anfrage: TripRequest) -> Route:
+            if anfrage.start == anfrage.ziel:
+                raise httpx.HTTPError("Ladestation nicht erreichbar")
+            return await fake_routing_provider.berechne_route(anfrage)
+
+    single_station_provider = FakeChargingStationProvider(
+        test_stations=[
+            ChargingStation(
+                station_id="einzige-station",
+                name="Tesla Supercharger - Nuernberg",
+                coordinate=(49.45, 11.08),
+                stalls={StallType.V3: 8},
+                max_ladeleistung_kw=2500.0,
+                connector_types=[ConnectorType.CCS2],
+                country="DE",
+                letzte_datenAktualisierung=datetime.now(UTC),
+            ),
+        ]
+    )
+
+    result = await create_trip_simulation(
+        valid_trip_request,
+        routing_provider=_DetourFailingRoutingProvider(),  # type: ignore[arg-type]
+        weather_provider=fake_weather_provider,
+        charging_provider=single_station_provider,
+        start_soc_pct=80.0,
+        ziel_soc_pct=20.0,
+    )
+
+    assert len(result.charging_stops) == 1
+    stop = result.charging_stops[0]
+    assert stop.distanz_m > 0
+    assert stop.detour_geometrie == []
+
+
 def test_fastapi_endpoint_akzeptiert_faehr_zeitfenster_und_ladedauer_vorgaben(
     client: TestClient,
 ) -> None:
