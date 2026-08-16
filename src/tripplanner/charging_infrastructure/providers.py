@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import UTC, datetime
-from math import cos, pi, sqrt
+from math import ceil, cos, pi, sqrt
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -38,6 +38,69 @@ _DEFAULT_DB_PATH: Path = (
 )
 
 
+_LAT_BAND_KM = 5.0
+"""Breite der Breitengrad-Bänder für den räumlichen Stations-Index (siehe
+`_build_lat_bands`/`_stations_in_radius`). Klein genug, um bei den in der
+Praxis verwendeten Suchradien (1-15 km, siehe `get_stations_along_route`)
+die pro Abfrage zu prüfende Kandidatenzahl massiv zu reduzieren - unabhängig
+vom tatsächlichen `radius_km` einer konkreten Abfrage korrekt, da
+`_stations_in_radius` die Anzahl der zu scannenden Bänder passend zu
+`radius_km` berechnet."""
+
+_KM_PER_LAT_DEG = 111.0
+"""Näherung: 1 Breitengrad ≈ 111 km (global nahezu konstant - anders als 1
+Längengrad, der mit `cos(lat)` schrumpft). Deshalb Bucketing NUR nach
+Breitengrad, nicht 2D nach Breiten-/Längengrad - einfach und ohne
+breitengradabhängiges Verzerrungsrisiko."""
+
+
+def _build_lat_bands(
+    stations: list[ChargingStation], band_km: float = _LAT_BAND_KM
+) -> dict[int, list[ChargingStation]]:
+    """Bucketiert Stationen nach Breitengrad-Band für schnelle Radius-Suchen.
+
+    Ersetzt den linearen Voll-Scan über ALLE Stationen in
+    `get_stations_in_radius()`: `get_stations_along_route()` ruft diese pro
+    Roh-Segment auf (bei feingranularen Routen, z. B. ein Segment pro
+    GraphHopper-Polyline-Punktpaar, oft tausende Aufrufe) - ohne Index ein
+    O(Segmente x Stationen)-Kostenfaktor (siehe docs/plans/07-optimization.md).
+    """
+    band_deg = band_km / _KM_PER_LAT_DEG
+    bands: dict[int, list[ChargingStation]] = {}
+    for station in stations:
+        lat, _lon = station.coordinate
+        bands.setdefault(int(lat // band_deg), []).append(station)
+    return bands
+
+
+def _stations_in_radius(
+    lat_bands: dict[int, list[ChargingStation]],
+    coordinate: Coordinate,
+    radius_km: float,
+    band_km: float = _LAT_BAND_KM,
+) -> list[ChargingStation]:
+    """Liefert alle Stationen aus `lat_bands` innerhalb `radius_km` um `coordinate`.
+
+    Exakt äquivalent zu einem Voll-Scan mit `haversine_distance_m` + Filter
+    (siehe `_build_lat_bands`), prüft aber nur Stationen aus den
+    Breitengrad-Bändern, die `coordinate` innerhalb `radius_km` überhaupt
+    erreichen können - kein Genauigkeitsverlust, nur weniger Kandidaten.
+    Ergebnis unsortiert und ohne Länderfilter (Aufrufer wendet beides bei
+    Bedarf selbst an, wie beim bisherigen Voll-Scan).
+    """
+    lat, _lon = coordinate
+    band_deg = band_km / _KM_PER_LAT_DEG
+    center_band = int(lat // band_deg)
+    band_span = max(1, ceil(radius_km / band_km))
+
+    result: list[ChargingStation] = []
+    for band in range(center_band - band_span, center_band + band_span + 1):
+        for station in lat_bands.get(band, ()):
+            if haversine_distance_m(coordinate, station.coordinate) / 1000.0 <= radius_km:
+                result.append(station)
+    return result
+
+
 class LocalFileChargingStationProvider(ChargingStationProvider):
     """Implementierung, die Ladedaten aus einer lokalen JSON-Datei liest.
 
@@ -52,6 +115,10 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
         """
         self.data_path = data_path
         self._stations: list[ChargingStation] | None = None
+        # Räumlicher Index über `self._stations`, siehe
+        # `TeslaChargingStationProvider._lat_bands` für die Begründung.
+        self._lat_bands: dict[int, list[ChargingStation]] | None = None
+        self._lat_bands_source: list[ChargingStation] | None = None
 
     def _load_stations(self) -> list[ChargingStation]:
         """Lädt und parst die JSON-Datei (lazy)."""
@@ -128,32 +195,19 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
         Returns:
             Liste von ChargingStation, sortiert nach Distanz (aufsteigend)
         """
-        lat, lon = coordinate
         stations = self._load_stations()
-        # Länderfilter anwenden
+        if self._lat_bands is None or self._lat_bands_source is not stations:
+            self._lat_bands = _build_lat_bands(stations)
+            self._lat_bands_source = stations
+
+        candidates = _stations_in_radius(self._lat_bands, coordinate, radius_km)
         if country_filter:
-            stations = [s for s in stations if s.country == country_filter]
-
-        # Distanzberechnung und Filterung
-        result: list[ChargingStation] = []
-        distances: list[float] = []
-
-        for station in stations:
-            slat, slon = station.coordinate
-            distance_m = haversine_distance_m((lat, lon), (slat, slon))
-            distance_km = distance_m / 1000.0
-
-            if distance_km <= radius_km:
-                result.append(station)
-                distances.append(distance_km)
+            candidates = [s for s in candidates if s.country == country_filter]
 
         # Sortieren nach Distanz (aufsteigend)
-        # Zip distances with stations, sort, unzip
-        paired = list(zip(distances, result, strict=True))
+        paired = [(haversine_distance_m(coordinate, s.coordinate) / 1000.0, s) for s in candidates]
         paired.sort(key=lambda x: x[0])
-        result = [station for _, station in paired]
-
-        return result
+        return [station for _, station in paired]
 
     async def get_stations_along_route(
         self,
@@ -366,6 +420,15 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         self._client = client
         self._debug_log = debug_log
         self._stations: list[ChargingStation] | None = None
+        # Räumlicher Index über `self._stations` (siehe `_build_lat_bands`).
+        # `_lat_bands_source` hält die Identität der Stationsliste, aus der
+        # `_lat_bands` gebaut wurde - ändert sich `self._stations` (Reload
+        # nach `refresh()`/`update_station()` o.ä., die den Cache auf `None`
+        # setzen), erkennt `get_stations_in_radius()` das automatisch über
+        # den Identitätsvergleich und baut den Index neu, ohne dass jede
+        # Cache-Invalidierungsstelle den Index separat zurücksetzen müsste.
+        self._lat_bands: dict[int, list[ChargingStation]] | None = None
+        self._lat_bands_source: list[ChargingStation] | None = None
 
     def close(self) -> None:
         """Schließt die zugrunde liegende SQLite-Verbindung.
@@ -773,30 +836,22 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         """
         if self._stations is None:
             self._stations = self._load_stations_from_db()
-        stations = self._stations
+        # Breitengrad-Index neu aufbauen, falls `self._stations` seit dem
+        # letzten Aufbau neu geladen wurde (Identitätsvergleich statt
+        # Invalidierung an jeder `self._stations = None`-Stelle, siehe
+        # `__init__`).
+        if self._lat_bands is None or self._lat_bands_source is not self._stations:
+            self._lat_bands = _build_lat_bands(self._stations)
+            self._lat_bands_source = self._stations
 
-        lat, lon = coordinate
+        candidates = _stations_in_radius(self._lat_bands, coordinate, radius_km)
         if country_filter:
-            stations = [s for s in stations if s.country == country_filter]
-
-        result: list[ChargingStation] = []
-        distances: list[float] = []
-
-        for station in stations:
-            slat, slon = station.coordinate
-            distance_m = haversine_distance_m((lat, lon), (slat, slon))
-            distance_km = distance_m / 1000.0
-
-            if distance_km <= radius_km:
-                result.append(station)
-                distances.append(distance_km)
+            candidates = [s for s in candidates if s.country == country_filter]
 
         # Sortieren nach Distanz (aufsteigend)
-        paired = list(zip(distances, result, strict=True))
+        paired = [(haversine_distance_m(coordinate, s.coordinate) / 1000.0, s) for s in candidates]
         paired.sort(key=lambda x: x[0])
-        result = [station for _, station in paired]
-
-        return result
+        return [station for _, station in paired]
 
     async def get_stations_along_route(
         self,
