@@ -27,3 +27,5 @@ frontend/.vite/
 
 # Agent worktrees
 .worktrees/
+
+.code-translate/
