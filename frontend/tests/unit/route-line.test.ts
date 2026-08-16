@@ -514,6 +514,65 @@ describe("projectDistanceAlongLineM", () => {
     expect(dHalf).toBeLessThan(dFull);
     expect(Math.abs(dHalf - dFull / 2) / dFull).toBeLessThan(0.01);
   });
+
+  it("stays accurate for a point far along a route spanning many degrees of latitude", () => {
+    // Regression: die Distanz-entlang-der-Linie wurde zuvor mit einer am
+    // ABFRAGEPUNKT verankerten cos(lat)-Naeherung fuer JEDES Segment
+    // akkumuliert - bei einer langen, viele Breitengrade umspannenden Route
+    // (hier ueber 10 Grad, ca. 1.100 km) drifteten diese Fehler bis zum
+    // fernen Ende um mehrere Kilometer auseinander, obwohl die lokale
+    // Segment-Projektion selbst korrekt war.
+    const coords: [number, number][] = [];
+    const steps = 200;
+    for (let i = 0; i <= steps; i++) {
+      coords.push([10, 50 + (10 * i) / steps]);
+    }
+    let expected = 0;
+    for (let i = 1; i < coords.length; i++) {
+      expected += haversineDistanceM(
+        [coords[i - 1][1], coords[i - 1][0]],
+        [coords[i][1], coords[i][0]],
+      );
+    }
+    const farPoint = coords[coords.length - 1];
+    const distAlongM = projectDistanceAlongLineM(coords, farPoint);
+    expect(Math.abs(distAlongM - expected) / expected).toBeLessThan(0.001);
+  });
+
+  it("prefers the later-occurring segment when two segments coincide exactly (overlapping detour legs)", () => {
+    // Ein Ladehalt-Abstecher routet Hin- und Rueckweg oft als zwei separat
+    // geroutete Beine ueber dieselbe (einzige) Zufahrtsstrasse - auf diesem
+    // gemeinsamen Stueck sind Hin- und Rueckweg-Koordinaten pixelgenau
+    // identisch. Ein Hover auf diesem Stueck muss den SPAETER in
+    // `coordinates` liegenden (Rueckweg-)Punkt liefern, nicht den ersten
+    // gefundenen (Hinweg-) Treffer.
+    const shared: [number, number][] = [
+      [10, 50],
+      [10.01, 50.01],
+    ];
+    const coords: [number, number][] = [
+      [9.9, 49.9],
+      ...shared, // Hinweg-Anteil
+      [10.1, 50.05], // Station
+      ...shared, // Rueckweg-Anteil, identisch zum Hinweg
+      [10.2, 50.1],
+    ];
+    const distAlongM = projectDistanceAlongLineM(coords, shared[1]);
+    // Muss der SPAETEREN (Rueckweg-)Position entsprechen, nicht der
+    // frueheren (Hinweg-)Position mit kleinerer kumulierter Distanz.
+    const earlyMatchIdx = 2; // shared[1] beim Hinweg
+    const lateMatchIdx = 5; // shared[1] beim Rueckweg
+    const early = projectDistanceAlongLineM(
+      coords.slice(0, earlyMatchIdx + 1),
+      shared[1],
+    );
+    const late = projectDistanceAlongLineM(
+      coords.slice(0, lateMatchIdx + 1),
+      shared[1],
+    );
+    expect(distAlongM).toBeCloseTo(late, 3);
+    expect(distAlongM).toBeGreaterThan(early);
+  });
 });
 
 describe("findNearestRouteSample", () => {
@@ -615,5 +674,98 @@ describe("route-hover regression: post-charging SoC/time near a charging stop", 
     expect(sample).toBeDefined();
     expect(sample!.socPct).toBe(20);
     expect(sample!.zeitpunkt).toBe("2026-08-16T19:17:00");
+  });
+});
+
+describe("buildSplicedRoute: FAHREN-Frames innerhalb des margin_m-Puffers", () => {
+  // Backend-Klammerpunkte (`_finde_klammerpunkte`, `margin_m = 3000`) liegen
+  // bis zu 3 km VOR/NACH dem tatsaechlichen Ladehalt - ein zeitdiskretisierter
+  // FAHREN-Frame kurz vor ODER kurz NACH dem Ladehalt kann also durchaus
+  // innerhalb von [routeIndexVor, routeIndexNach] liegen. Eine einzige
+  // Interpolation ueber den GESAMTEN Puffer (ignoriert, ob der Frame vor
+  // oder nach dem Ladehalt liegt) konnte einen Nach-Ladehalt-Frame VOR den
+  // SoC-Sprung projizieren - der genau gemeldete Bug (Routen-Hover zeigt
+  // Vor-Lade-SoC einige Kilometer nach dem Ladehalt).
+  const route: [number, number][] = [
+    [50.0, 8.0], // 0
+    [50.5, 8.0], // 1 - routeIndexVor
+    [50.75, 8.0], // 2 - ersetzt, tatsaechlicher Abzweigpunkt liegt hier in der Naehe
+    [51.0, 8.0], // 3 - routeIndexNach
+    [51.5, 8.0], // 4
+  ];
+  const station: [number, number] = [50.76, 8.05];
+  const detourGeometrie: [number, number][] = [
+    route[1],
+    [50.7, 8.02],
+    station,
+    [50.8, 8.02],
+    route[3],
+  ];
+  const routeCum1 = haversineDistanceM(route[0], route[1]);
+  const routeCum3 =
+    routeCum1 +
+    haversineDistanceM(route[1], route[2]) +
+    haversineDistanceM(route[2], route[3]);
+  // Tatsaechlicher Abzweigpunkt: mittig im Puffer, wie bei `margin_m=3000`
+  // symmetrisch um den echten Ladehalt.
+  const chargeDistanzM = (routeCum1 + routeCum3) / 2;
+
+  const result = buildSplicedRoute(
+    route,
+    [
+      {
+        position: station,
+        distanzM: chargeDistanzM,
+        detourGeometrie,
+        stationIndex: 2,
+        routeIndexVor: 1,
+        routeIndexNach: 3,
+        ankunftsSocPct: 20,
+        zielSocPct: 80,
+        ankunftszeit: "2026-08-16T19:17:00",
+        abfahrtszeit: "2026-08-16T19:30:00",
+      },
+    ],
+    [
+      // Kurz VOR dem tatsaechlichen Ladehalt, aber noch innerhalb des
+      // Puffers [routeIndexVor, routeIndexNach].
+      {
+        distanzM: chargeDistanzM - 200,
+        socPct: 21,
+        zeitpunkt: "2026-08-16T19:15:00",
+      },
+      // Kurz NACH dem Ladehalt, ebenfalls noch innerhalb des Puffers.
+      {
+        distanzM: chargeDistanzM + 200,
+        socPct: 79,
+        zeitpunkt: "2026-08-16T19:32:00",
+      },
+    ],
+  );
+
+  it("keeps all samples sorted ascending by distanzM", () => {
+    for (let i = 1; i < result.samples.length; i++) {
+      expect(result.samples[i].distanzM).toBeGreaterThanOrEqual(
+        result.samples[i - 1].distanzM,
+      );
+    }
+  });
+
+  it("positions the pre-charge frame before the arrival jump and the post-charge frame after the departure jump", () => {
+    const preFrame = result.samples.find((s) => s.socPct === 21)!;
+    const postFrame = result.samples.find((s) => s.socPct === 79)!;
+    const arrival = result.samples.find((s) => s.critical && s.socPct === 20)!;
+    const departure = result.samples.find(
+      (s) => s.critical && s.socPct === 80,
+    )!;
+
+    expect(preFrame).toBeDefined();
+    expect(postFrame).toBeDefined();
+    expect(arrival).toBeDefined();
+    expect(departure).toBeDefined();
+
+    expect(preFrame.distanzM).toBeLessThan(arrival.distanzM);
+    expect(arrival.distanzM).toBeLessThan(departure.distanzM);
+    expect(departure.distanzM).toBeLessThan(postFrame.distanzM);
   });
 });

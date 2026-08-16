@@ -138,6 +138,14 @@ interface ResolvedDetour {
    *  zurueckzufallen (siehe `buildSplicedRoute`) */
   stationIndex: number | null;
   stationPosition: [number, number];
+  /** Kumulierte Distanz entlang der (ungespliceten) Hauptroute, an der
+   *  tatsaechlich abgebogen/geladen wird (`ChargingDetourInput.distanzM`) -
+   *  NICHT identisch mit `startIdx`/`endIdx`, die per `margin_m`-Puffer
+   *  (siehe `_finde_klammerpunkte`) bis zu 3 km VOR/NACH diesem Punkt
+   *  liegen. Trennt beim Einspleissen Vor-Ladehalt- von Nach-Ladehalt-
+   *  Fahr-Frames, die beide noch innerhalb dieses Puffers liegen koennen -
+   *  siehe `buildSplicedRoute`. */
+  chargeDistanzM: number;
   ankunftsSocPct: number;
   zielSocPct: number;
   ankunftszeit?: string;
@@ -162,6 +170,7 @@ function resolveDetours(
         detour: stop.detourGeometrie,
         stationIndex: stop.stationIndex,
         stationPosition: stop.position,
+        chargeDistanzM: stop.distanzM,
         ankunftsSocPct: stop.ankunftsSocPct,
         zielSocPct: stop.zielSocPct,
         ankunftszeit: stop.ankunftszeit,
@@ -178,6 +187,7 @@ function resolveDetours(
       // Der mittlere Punkt IST die Station - hier bekannt, keine Suche noetig.
       stationIndex: 1,
       stationPosition: stop.position,
+      chargeDistanzM: stop.distanzM,
       ankunftsSocPct: stop.ankunftsSocPct,
       zielSocPct: stop.zielSocPct,
       ankunftszeit: stop.ankunftszeit,
@@ -239,37 +249,15 @@ export function buildSplicedRoute(
       const detourCum = cumulativeDistancesM(detour.detour);
       const detourLen = detourCum[detourCum.length - 1];
 
-      // Frames, die (durch die Zeit-Diskretisierung der Simulation) noch VOR
-      // dem tatsaechlichen Abzweigpunkt, aber bereits innerhalb des ersetzten
-      // Bereichs liegen, anteilig auf die Detour-Laenge legen statt sie
-      // fallen zu lassen.
-      while (
-        frameIdx < sortedFrames.length &&
-        sortedFrames[frameIdx].distanzM <= rangeEndOriginal
-      ) {
-        const frame = sortedFrames[frameIdx];
-        if (frame.distanzM < rangeStartOriginal) {
-          emitPlainFrame(frame.distanzM, frame.socPct, frame.zeitpunkt);
-        } else {
-          const span = rangeEndOriginal - rangeStartOriginal;
-          const frac =
-            span > 0 ? (frame.distanzM - rangeStartOriginal) / span : 0;
-          samples.push({
-            distanzM: rangeStartOriginal + offset + frac * detourLen,
-            socPct: frame.socPct,
-            zeitpunkt: frame.zeitpunkt,
-          });
-        }
-        frameIdx++;
-      }
-
       // Index innerhalb der Detour-Geometrie, an dem die Ladestation
       // tatsaechlich erreicht wird - dort erfolgt der SoC-Farbsprung
       // (Ankunft -> Ziel). Bevorzugt der vom Backend exakt gelieferte Index
       // (siehe `ResolvedDetour.stationIndex`/`_step_lade_detours_routen`);
       // eine Naechster-Punkt-Suche waere bei Autobahnkreuzen mit nah
       // beieinander liegenden Rampen unzuverlaessig (findet ggf. eine andere,
-      // geometrisch nahe aber tatsaechlich andere Rampe).
+      // geometrisch nahe aber tatsaechlich andere Rampe). Wird VOR der
+      // Frame-Interpolation unten gebraucht, um Vor-/Nach-Ladehalt-Frames
+      // richtig zu trennen.
       let splitIdx =
         detour.stationIndex !== null &&
         detour.stationIndex >= 0 &&
@@ -290,9 +278,62 @@ export function buildSplicedRoute(
           }
         }
       }
+      const stationDetourDistanzM = detourCum[splitIdx];
+
+      // Frames, die (durch die Zeit-Diskretisierung der Simulation) noch VOR
+      // dem tatsaechlichen Abzweigpunkt, aber bereits innerhalb des per
+      // `margin_m`-Puffer ersetzten Bereichs liegen (siehe
+      // `_finde_klammerpunkte`, bis zu 3 km VOR/NACH dem eigentlichen
+      // Ladehalt), anteilig auf die Detour-Laenge legen statt sie fallen zu
+      // lassen. WICHTIG: getrennt nach Vor-/Nach-Ladehalt anhand
+      // `chargeDistanzM` (dem tatsaechlichen Abzweigpunkt) interpolieren -
+      // eine einzige Interpolation ueber den GESAMTEN (bis zu 6 km breiten)
+      // Puffer wuerde Vor-Ladehalt-Frames mit niedrigem SoC teils HINTER den
+      // SoC-Sprung an der Station projizieren (sichtbar als falsche SoC-
+      // Werte im Routen-Hover-Tooltip einige Kilometer nach dem Ladehalt).
+      while (
+        frameIdx < sortedFrames.length &&
+        sortedFrames[frameIdx].distanzM <= rangeEndOriginal
+      ) {
+        const frame = sortedFrames[frameIdx];
+        if (frame.distanzM < rangeStartOriginal) {
+          emitPlainFrame(frame.distanzM, frame.socPct, frame.zeitpunkt);
+        } else if (frame.distanzM <= detour.chargeDistanzM) {
+          // Hinweg: [rangeStartOriginal, chargeDistanzM] -> [0, stationDetourDistanzM]
+          const outboundSpan = detour.chargeDistanzM - rangeStartOriginal;
+          const frac =
+            outboundSpan > 0
+              ? (frame.distanzM - rangeStartOriginal) / outboundSpan
+              : 0;
+          samples.push({
+            distanzM:
+              rangeStartOriginal + offset + frac * stationDetourDistanzM,
+            socPct: frame.socPct,
+            zeitpunkt: frame.zeitpunkt,
+          });
+        } else {
+          // Rueckweg: [chargeDistanzM, rangeEndOriginal] -> [stationDetourDistanzM, detourLen]
+          const inboundSpan = rangeEndOriginal - detour.chargeDistanzM;
+          const frac =
+            inboundSpan > 0
+              ? (frame.distanzM - detour.chargeDistanzM) / inboundSpan
+              : 0;
+          samples.push({
+            distanzM:
+              rangeStartOriginal +
+              offset +
+              stationDetourDistanzM +
+              frac * (detourLen - stationDetourDistanzM),
+            socPct: frame.socPct,
+            zeitpunkt: frame.zeitpunkt,
+          });
+        }
+        frameIdx++;
+      }
 
       coordinates.push(toLngLat(detour.detour[0]));
-      const arrivalDistanzM = rangeStartOriginal + offset + detourCum[splitIdx];
+      const arrivalDistanzM =
+        rangeStartOriginal + offset + stationDetourDistanzM;
       const emitChargeJump = (coordinateIndex: number) => {
         samples.push({
           distanzM: arrivalDistanzM,
@@ -349,6 +390,14 @@ export function buildSplicedRoute(
     );
     frameIdx++;
   }
+
+  // `samples` wird NICHT zwangslaeufig in aufsteigender `distanzM`-Reihenfolge
+  // befuellt: die Ankunfts-/Abfahrts-Stuetzpunkte eines Ladehalts (siehe
+  // `emitChargeJump` oben) werden erst NACH den innerhalb des margin_m-
+  // Puffers interpolierten Vor-/Nach-Ladehalt-Frames gepusht, liegen
+  // distanzM-maessig aber DAZWISCHEN. Ohne diese Sortierung waere jede
+  // binaere Suche ueber `samples` (siehe `findNearestRouteSample`) undefiniert.
+  samples.sort((a, b) => a.distanzM - b.distanzM);
 
   return {
     coordinates,
@@ -454,36 +503,70 @@ const METERS_PER_DEGREE_LAT = 111_320;
  * Hover-Tooltip einige Kilometer hinter einem Ladehalt noch die Vor-Lade-
  * Werte (Uhrzeit/SoC) anzeigte, weil der naechstgelegene `SimulationFrame`
  * raeumlich (nicht streckenmaessig) bestimmt wurde.
+ *
+ * Ein Ladehalt-Abstecher routet Hin- und Rueckweg oft als zwei SEPARAT
+ * geroutete Beine ueber dieselbe (einzige) Zufahrtsstrasse zur Station
+ * (siehe `_step_lade_detours_routen`) - Hin- und Rueckweg-Koordinaten sind
+ * auf diesem gemeinsamen Stueck dann PIXELGENAU identisch. Bei einem
+ * echten Gleichstand (Abstandsunterschied unterhalb `TIE_EPSILON_SQ_M2`)
+ * gewinnt daher bewusst das SPAETER in `coordinates` liegende Segment: es
+ * entspricht dem Rueckweg (nach dem Ladehalt), der beim Rendern zuletzt
+ * gezeichnet wird und auf der Karte sichtbar obenauf liegt (siehe
+ * `line-gradient`/`socToColor` - visuell die gruen eingefaerbte Haelfte).
  */
 export function projectDistanceAlongLineM(
   coordinates: [number, number][],
   point: [number, number],
 ): number {
   if (coordinates.length === 0) return 0;
-  const cosLat = Math.cos((point[1] * Math.PI) / 180);
-  const toLocalMeters = (p: [number, number]): [number, number] => [
-    (p[0] - point[0]) * METERS_PER_DEGREE_LAT * cosLat,
-    (p[1] - point[1]) * METERS_PER_DEGREE_LAT,
-  ];
+  // Zwei Kandidaten mit einem Abstandsunterschied unterhalb dieser Schwelle
+  // (~5 m) gelten als raeumlicher Gleichstand.
+  const TIE_EPSILON_SQ_M2 = 25;
 
   let cumulative = 0;
   let bestDistSq = Infinity;
   let bestCumulative = 0;
   for (let i = 0; i < coordinates.length - 1; i++) {
-    const [ax, ay] = toLocalMeters(coordinates[i]);
-    const [bx, by] = toLocalMeters(coordinates[i + 1]);
-    const abx = bx - ax;
-    const aby = by - ay;
-    const segLenSq = abx * abx + aby * aby;
-    const segLen = Math.sqrt(segLenSq);
-    let t = segLenSq > 0 ? (-ax * abx - ay * aby) / segLenSq : 0;
+    const a = coordinates[i];
+    const b = coordinates[i + 1];
+    // Grosskreis-Laenge DIESES Segments (haversine, unabhaengig vom
+    // Abfragepunkt) - damit sich Rundungsfehler ueber eine lange, viele
+    // Breitengrade umspannende Route NICHT aufsummieren. Ein `cumulative`,
+    // das stattdessen mit einer am Abfragepunkt verankerten cos(lat)-
+    // Naeherung fuer JEDES Segment (auch weit entfernte) akkumuliert wurde,
+    // driftete bei einer ~1500 km-Reise um mehrere Kilometer ab -
+    // Ursache eines gemeldeten Bugs, bei dem der Routen-Hover-Tooltip nach
+    // manchen Ladehalten weiterhin die Vor-Lade-Werte zeigte.
+    const segLen = haversineDistanceM([a[1], a[0]], [b[1], b[0]]);
+
+    // Lokale ebene Projektion NUR zur Bestimmung des naechstgelegenen
+    // Segments und der Position `t` darauf - verankert an Segmentpunkt `a`
+    // (nicht am Abfragepunkt), daher fuer diesen kurzen Abstand ausreichend
+    // genau, unabhaengig davon, wie weit `point` selbst entfernt liegt.
+    const cosLat = Math.cos((((a[1] + b[1]) / 2) * Math.PI) / 180);
+    const toLocal = (p: [number, number]): [number, number] => [
+      (p[0] - a[0]) * METERS_PER_DEGREE_LAT * cosLat,
+      (p[1] - a[1]) * METERS_PER_DEGREE_LAT,
+    ];
+    const [bx, by] = toLocal(b);
+    const [px, py] = toLocal(point);
+    const segLenSq = bx * bx + by * by;
+    let t = segLenSq > 0 ? (px * bx + py * by) / segLenSq : 0;
     t = Math.max(0, Math.min(1, t));
-    const projX = ax + t * abx;
-    const projY = ay + t * aby;
-    const distSq = projX * projX + projY * projY;
-    if (distSq < bestDistSq) {
-      bestDistSq = distSq;
-      bestCumulative = cumulative + t * segLen;
+    const projX = t * bx;
+    const projY = t * by;
+    const dx = px - projX;
+    const dy = py - projY;
+    const distSq = dx * dx + dy * dy;
+    const candidateCumulative = cumulative + t * segLen;
+
+    if (
+      distSq < bestDistSq - TIE_EPSILON_SQ_M2 ||
+      (distSq <= bestDistSq + TIE_EPSILON_SQ_M2 &&
+        candidateCumulative > bestCumulative)
+    ) {
+      bestDistSq = Math.min(bestDistSq, distSq);
+      bestCumulative = candidateCumulative;
     }
     cumulative += segLen;
   }
