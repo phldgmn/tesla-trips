@@ -4,6 +4,7 @@ import {
   estimatePositionTiming,
   cumulativeDistancesKm,
   findNearestFrameIndex,
+  berechneFahrsegment,
   type WaypointTiming,
 } from "@/utils/timing-utils";
 import type { TripSimulationResult } from "@/types";
@@ -335,5 +336,50 @@ describe("findNearestFrameIndex", () => {
 
   it("liefert null bei leerem frames-Array", () => {
     expect(findNearestFrameIndex("2025-06-01T08:00:00", [])).toBeNull();
+  });
+});
+
+describe("berechneFahrsegment", () => {
+  const frames = [
+    makeFrame("2025-06-01T08:00:00", 52.0, 13.0),
+    makeFrame("2025-06-01T08:30:00", 52.0, 13.1),
+    makeFrame("2025-06-01T09:00:00", 52.0, 13.2),
+  ];
+  const cumulativeKm = cumulativeDistancesKm(frames);
+
+  it("berechnet Distanz (aus cumulativeKm) und Dauer (aus den ISO-Zeitpunkten)", () => {
+    const segment = berechneFahrsegment(
+      "2025-06-01T08:00:00",
+      "2025-06-01T09:00:00",
+      frames,
+      cumulativeKm,
+    );
+    expect(segment).not.toBeNull();
+    expect(segment?.dauerMin).toBe(60);
+    expect(segment?.distanzKm).toBeCloseTo(cumulativeKm[2], 5);
+  });
+
+  it("berechnet ein Teilsegment zwischen zwei mittleren Zeitpunkten", () => {
+    const segment = berechneFahrsegment(
+      "2025-06-01T08:30:00",
+      "2025-06-01T09:00:00",
+      frames,
+      cumulativeKm,
+    );
+    expect(segment?.dauerMin).toBe(30);
+    expect(segment?.distanzKm).toBeCloseTo(
+      cumulativeKm[2] - cumulativeKm[1],
+      5,
+    );
+  });
+
+  it("liefert null, wenn frames leer ist", () => {
+    const segment = berechneFahrsegment(
+      "2025-06-01T08:00:00",
+      "2025-06-01T09:00:00",
+      [],
+      [],
+    );
+    expect(segment).toBeNull();
   });
 });

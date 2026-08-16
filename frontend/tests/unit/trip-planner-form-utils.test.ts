@@ -9,6 +9,8 @@ import {
   setLadedauerVorgabeFuer,
   unterscheidetSichAlsUhrzeit,
   formatLadestationName,
+  formatFahrsegmentStrecke,
+  formatFahrsegmentDauer,
 } from "@/components/TripPlannerForm";
 import type { Stop } from "@/types/trip-request";
 
@@ -528,6 +530,31 @@ describe("TripPlannerForm pure helpers", () => {
       expect(formatLadestationName("Nahe Tesla Supercharger - Berlin")).toBe(
         "Nahe Tesla Supercharger - Berlin",
       );
+    });
+  });
+
+  // =========================================================================
+  // formatFahrsegmentStrecke / formatFahrsegmentDauer
+  // =========================================================================
+
+  describe("formatFahrsegmentStrecke", () => {
+    it("formatiert km mit einer Nachkommastelle und deutschem Komma", () => {
+      expect(formatFahrsegmentStrecke(42.05)).toBe("42,1 km");
+      expect(formatFahrsegmentStrecke(0)).toBe("0,0 km");
+    });
+  });
+
+  describe("formatFahrsegmentDauer", () => {
+    it("formatiert unter einer Stunde nur in Minuten", () => {
+      expect(formatFahrsegmentDauer(35)).toBe("35min");
+    });
+
+    it("formatiert ab einer Stunde als 'Xh Ymin'", () => {
+      expect(formatFahrsegmentDauer(90)).toBe("1h 30min");
+    });
+
+    it("rundet auf ganze Minuten", () => {
+      expect(formatFahrsegmentDauer(59.6)).toBe("1h 0min");
     });
   });
 });

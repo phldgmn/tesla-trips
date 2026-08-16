@@ -1,13 +1,16 @@
 /** Buildet eine chronologisch sortierte Liste von Route-Einträgen (Stopp,
- *  Ladehalt, Fähre) aus den Simulationsdaten. Wird für das vereinheitlichte
- *  Route-Feldset in TripPlannerForm.tsx verwendet.
+ *  Ladehalt, Fähre, Fahrsegment) aus den Simulationsdaten. Wird für das
+ *  vereinheitlichte Route-Feldset in TripPlannerForm.tsx verwendet.
  *
  *  Jeder Route-Eintrag hat ein `sortKey`-Feld, das zur sortierung herangezogen
  *  wird (null-Werte werden ans Ende sortiert, stabile Sortierung erhält
- *  ursprüngliche Reihenfolge bei gleichen/null Keys), sowie ein `timing`-Feld
- *  (Ankunft/Abfahrt einzeln, `sortKey` ist `timing.arrival ?? timing.departure`),
- *  aus dem TripPlannerForm.tsx die überhängenden Zeit-Badges und den
- *  Tageswechsel-Trenner ableitet.
+ *  ursprüngliche Reihenfolge bei gleichen/null Keys). Stopp/Ladehalt/Fähre
+ *  tragen zusätzlich ein `timing`-Feld (Ankunft/Abfahrt einzeln, `sortKey`
+ *  ist `timing.arrival ?? timing.departure`), aus dem TripPlannerForm.tsx
+ *  die überhängenden Zeit-Badges und den Tageswechsel-Trenner ableitet.
+ *  Zwischen je zwei chronologisch aufeinanderfolgenden Stopp/Ladehalt/Fähre-
+ *  Einträgen wird - sofern zeitlich/räumlich sinnvoll ermittelbar - ein
+ *  `Fahrsegment`-Eintrag eingefügt (gefahrene Strecke/Zeit dazwischen).
  */
 
 import type { Stop } from "../types/trip-request";
@@ -17,6 +20,8 @@ import type { PositionTiming } from "./timing-utils";
 import {
   estimateWaypointTimings,
   estimatePositionTiming,
+  cumulativeDistancesKm,
+  berechneFahrsegment,
 } from "./timing-utils";
 
 /**
@@ -32,7 +37,15 @@ function sameFerryExclusion(a: FerryExclusion, b: FerryExclusion): boolean {
   );
 }
 
-export type RouteEintrag =
+/** Mindestdauer (Minuten), ab der ein Fahrsegment eingefügt wird - unterhalb
+ *  davon liegen zwei Einträge praktisch am selben Ort/Zeitpunkt (z. B. eine
+ *  Ladestation direkt an einem Zwischenstopp), ein "0 min · 0,0 km"-Eintrag
+ *  wäre nur Rauschen in der Timeline. */
+const MIN_FAHRSEGMENT_DAUER_MIN = 1;
+
+/** Route-Eintrag mit Zeitpunkt-Bezug (Stopp, Ladehalt oder Fähre) - alles
+ *  außer den verbindenden `Fahrsegment`-Einträgen. */
+export type PunktEintrag =
   | {
       art: "Stopp";
       sortKey: string | null;
@@ -52,6 +65,33 @@ export type RouteEintrag =
       timing: PositionTiming;
       faehre: FaehrSegment;
     };
+
+/** Verbindender Eintrag zwischen zwei `PunktEintrag`en: gefahrene Strecke/
+ *  Zeit zwischen deren `verbindungsZeitpunkt`en. */
+export interface FahrsegmentEintrag {
+  art: "Fahrsegment";
+  sortKey: string | null;
+  vonIso: string;
+  bisIso: string;
+  distanzKm: number;
+  dauerMin: number;
+}
+
+export type RouteEintrag = PunktEintrag | FahrsegmentEintrag;
+
+/** Zeitpunkt, an dem ein `PunktEintrag` mit einem angrenzenden Fahrsegment
+ *  verbunden wird: "anfang" bevorzugt die Ankunft (Fahrsegment endet hier),
+ *  "ende" bevorzugt die Abfahrt (Fahrsegment beginnt hier) - mit Fallback
+ *  auf den jeweils anderen Zeitpunkt, falls nicht vorhanden (z. B. Start
+ *  ohne Ankunft, Ziel ohne Abfahrt). */
+function verbindungsZeitpunkt(
+  eintrag: PunktEintrag,
+  seite: "anfang" | "ende",
+): string | null {
+  return seite === "anfang"
+    ? (eintrag.timing.arrival ?? eintrag.timing.departure)
+    : (eintrag.timing.departure ?? eintrag.timing.arrival);
+}
 
 /** Baut eine chronologisch sortierte Liste von Route-Einträgen.
  *
@@ -94,7 +134,7 @@ export function buildRouteEintraege(args: {
 
   // Stops: sortKey = Ankunftszeit (falls vorhanden, sonst Abfahrt)
   const waypointTimings = estimateWaypointTimings(frames, stops);
-  const stopEintraege: RouteEintrag[] = stops.map((stop, idx) => {
+  const stopEintraege: PunktEintrag[] = stops.map((stop, idx) => {
     const { arrival, departure, arrivalSocPct, departureSocPct } =
       waypointTimings[idx];
     const sortKey = arrival ?? departure ?? null;
@@ -108,7 +148,7 @@ export function buildRouteEintraege(args: {
   });
 
   // Ladehalte: sortKey = ankunftszeit
-  const ladehaltEintraege: RouteEintrag[] = (chargingStops ?? []).map(
+  const ladehaltEintraege: PunktEintrag[] = (chargingStops ?? []).map(
     (chargingStop) => ({
       art: "Ladehalt" as const,
       sortKey: chargingStop.ankunftszeit,
@@ -134,7 +174,7 @@ export function buildRouteEintraege(args: {
       ),
   );
 
-  const faehreEintraege: RouteEintrag[] = (
+  const faehreEintraege: PunktEintrag[] = (
     recognizedFerriesWithoutAvoided ?? []
   ).map((faehre) => {
     // BBox-Mitte berechnen
@@ -155,7 +195,7 @@ export function buildRouteEintraege(args: {
   });
 
   // Alle Einträge kombinieren und sortieren
-  const alleEintraege = [
+  const alleEintraege: PunktEintrag[] = [
     ...stopEintraege,
     ...ladehaltEintraege,
     ...faehreEintraege,
@@ -169,5 +209,32 @@ export function buildRouteEintraege(args: {
     return a.sortKey.localeCompare(b.sortKey);
   });
 
-  return alleEintraege;
+  // Fahrsegmente zwischen je zwei aufeinanderfolgenden Einträgen einfügen
+  // (gefahrene Strecke/Zeit dazwischen) - siehe `verbindungsZeitpunkt`/
+  // `berechneFahrsegment`. `cumulativeKm` einmalig für die gesamte Route
+  // gebildet statt pro Segment neu (siehe `berechneFahrsegment`-Docstring).
+  const cumulativeKm = cumulativeDistancesKm(frames);
+  const ergebnis: RouteEintrag[] = [];
+  alleEintraege.forEach((eintrag, idx) => {
+    ergebnis.push(eintrag);
+    const naechster = alleEintraege[idx + 1];
+    if (!naechster) return;
+
+    const von = verbindungsZeitpunkt(eintrag, "ende");
+    const bis = verbindungsZeitpunkt(naechster, "anfang");
+    if (von === null || bis === null || von === bis) return;
+
+    const segment = berechneFahrsegment(von, bis, frames, cumulativeKm);
+    if (!segment || segment.dauerMin < MIN_FAHRSEGMENT_DAUER_MIN) return;
+
+    ergebnis.push({
+      art: "Fahrsegment" as const,
+      sortKey: von,
+      vonIso: von,
+      bisIso: bis,
+      ...segment,
+    });
+  });
+
+  return ergebnis;
 }

@@ -204,3 +204,36 @@ export function findNearestFrameIndex(
   }
   return bestIdx;
 }
+
+/** Fahrzeit und -distanz zwischen zwei Zeitpunkten. */
+export interface Fahrsegment {
+  distanzKm: number;
+  dauerMin: number;
+}
+
+/** Berechnet Fahrzeit und -distanz zwischen zwei Zeitpunkten anhand der
+ *  ihnen nächstgelegenen Simulationsframes - gleiches Vorgehen wie in
+ *  `TripSummary.tsx` für "Strecke/Dauer seit letztem" (siehe
+ *  `buildTimePlan`). `cumulativeKm` MUSS `cumulativeDistancesKm(frames)`
+ *  sein - als Parameter statt intern neu berechnet, damit Aufrufer mit
+ *  vielen Segmenten (siehe `route-eintraege.ts`) die Distanzsumme nur
+ *  einmal für die gesamte Route bilden statt einmal pro Segment.
+ *  Liefert `null`, wenn sich einer der beiden Zeitpunkte keinem Frame
+ *  zuordnen lässt (z. B. leeres `frames`-Array). */
+export function berechneFahrsegment(
+  vonIso: string,
+  bisIso: string,
+  frames: SimulationFrame[],
+  cumulativeKm: number[],
+): Fahrsegment | null {
+  const vonIdx = findNearestFrameIndex(vonIso, frames);
+  const bisIdx = findNearestFrameIndex(bisIso, frames);
+  if (vonIdx === null || bisIdx === null) return null;
+  return {
+    distanzKm: Math.max(0, cumulativeKm[bisIdx] - cumulativeKm[vonIdx]),
+    dauerMin: Math.max(
+      0,
+      (new Date(bisIso).getTime() - new Date(vonIso).getTime()) / 60000,
+    ),
+  };
+}

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildRouteEintraege } from "@/utils/route-eintraege";
+import { cumulativeDistancesKm } from "@/utils/timing-utils";
 import type { Stop } from "@/types/trip-request";
 import type { TripSimulationResult, ChargingStop, FaehrSegment } from "@/types";
 
@@ -177,9 +178,11 @@ describe("buildRouteEintraege", () => {
         vermiedeneFaehren,
       });
 
-      // Nur 2 Stops (keine Fähre!)
-      expect(result).toHaveLength(2);
-      expect(result.every((e) => e.art === "Stopp")).toBe(true);
+      // 2 Stops + 1 Fahrsegment dazwischen (1h Fahrzeit), keine Fähre!
+      expect(result).toHaveLength(3);
+      expect(result[0].art).toBe("Stopp");
+      expect(result[1].art).toBe("Fahrsegment");
+      expect(result[2].art).toBe("Stopp");
     });
 
     it("inkludiert Fähren, die NICHT in vermiedeneFaehren sind", () => {
@@ -316,6 +319,105 @@ describe("buildRouteEintraege", () => {
       expect(faehre?.timing.arrival ?? faehre?.timing.departure).toBe(
         faehre?.sortKey,
       );
+    });
+  });
+
+  describe("Fahrsegmente zwischen Einträgen", () => {
+    it("fügt zwischen zwei Einträgen mit unterschiedlichen Verbindungszeitpunkten ein Fahrsegment ein", () => {
+      const frames = [
+        makeFrame("2025-01-01T08:00:00", 52.0, 13.0),
+        makeFrame("2025-01-01T08:30:00", 52.0, 13.1),
+        makeFrame("2025-01-01T09:00:00", 52.0, 13.2),
+      ];
+      const stops = [
+        makeStop("1", "Start", [52.0, 13.0]),
+        makeStop("2", "Ziel", [52.0, 13.2]),
+      ];
+
+      const result = buildRouteEintraege({
+        stops,
+        frames,
+        chargingStops: undefined,
+        erkannteFaehren: undefined,
+        vermiedeneFaehren: [],
+      });
+
+      expect(result).toHaveLength(3);
+      expect(result[0].art).toBe("Stopp");
+      expect(result[1].art).toBe("Fahrsegment");
+      expect(result[2].art).toBe("Stopp");
+
+      const fahrsegment = result[1];
+      if (fahrsegment.art !== "Fahrsegment") throw new Error("unreachable");
+      expect(fahrsegment.vonIso).toBe("2025-01-01T08:00:00");
+      expect(fahrsegment.bisIso).toBe("2025-01-01T09:00:00");
+      expect(fahrsegment.sortKey).toBe("2025-01-01T08:00:00");
+      expect(fahrsegment.dauerMin).toBe(60);
+      const erwarteteDistanzKm = cumulativeDistancesKm(frames)[2];
+      expect(fahrsegment.distanzKm).toBeCloseTo(erwarteteDistanzKm, 5);
+    });
+
+    it("überspringt ein Fahrsegment, wenn beide Verbindungszeitpunkte identisch sind", () => {
+      const frames = [
+        makeFrame("2025-01-01T08:00:00", 52.0, 13.0),
+        makeFrame("2025-01-01T08:30:00", 52.0, 13.1),
+        makeFrame("2025-01-01T09:00:00", 52.0, 13.2),
+      ];
+      const stops = [
+        makeStop("1", "Start", [52.0, 13.0]),
+        makeStop("2", "Ziel", [52.0, 13.2]),
+      ];
+      // Ankunft exakt gleich der Start-Abfahrt -> zwischen Start und Ladehalt
+      // liegt kein Fahrsegment (von === bis).
+      const chargingStops = [
+        makeChargingStop({
+          ankunftszeit: "2025-01-01T08:00:00",
+          abfahrtszeit: "2025-01-01T08:05:00",
+        }),
+      ];
+
+      const result = buildRouteEintraege({
+        stops,
+        frames,
+        chargingStops,
+        erkannteFaehren: undefined,
+        vermiedeneFaehren: [],
+      });
+
+      // Start, Ladehalt (kein Fahrsegment davor), Fahrsegment, Ziel
+      expect(result).toHaveLength(4);
+      expect(result.map((e) => e.art)).toEqual([
+        "Stopp",
+        "Ladehalt",
+        "Fahrsegment",
+        "Stopp",
+      ]);
+      const fahrsegment = result[2];
+      if (fahrsegment.art !== "Fahrsegment") throw new Error("unreachable");
+      expect(fahrsegment.vonIso).toBe("2025-01-01T08:05:00");
+      expect(fahrsegment.bisIso).toBe("2025-01-01T09:00:00");
+    });
+
+    it("unterdrückt Fahrsegmente unterhalb der Mindestdauer", () => {
+      const frames = [
+        makeFrame("2025-01-01T08:00:00", 52.0, 13.0),
+        makeFrame("2025-01-01T08:00:30", 52.0, 13.0005),
+      ];
+      const stops = [
+        makeStop("1", "Start", [52.0, 13.0]),
+        makeStop("2", "Ziel", [52.0, 13.0005]),
+      ];
+
+      const result = buildRouteEintraege({
+        stops,
+        frames,
+        chargingStops: undefined,
+        erkannteFaehren: undefined,
+        vermiedeneFaehren: [],
+      });
+
+      expect(result).toHaveLength(2);
+      expect(result.every((e) => e.art === "Stopp")).toBe(true);
     });
   });
 });

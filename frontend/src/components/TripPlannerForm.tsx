@@ -48,6 +48,7 @@ import {
   Crosshair,
   BatteryCharging,
   CalendarDays,
+  Car,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -276,6 +277,24 @@ export function formatLadestationName(name: string): string {
     : name;
 }
 
+/** Formatiert eine Fahrsegment-Distanz in km, eine Nachkommastelle,
+ *  deutsches Zahlenformat (Komma statt Punkt). */
+export function formatFahrsegmentStrecke(distanzKm: number): string {
+  return `${distanzKm.toLocaleString("de-DE", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} km`;
+}
+
+/** Formatiert eine Fahrsegment-Dauer in Minuten als "Xh Ymin" bzw. "Ymin"
+ *  (gleiches Format wie `formatChargingDuration` in `Map.tsx`). */
+export function formatFahrsegmentDauer(dauerMin: number): string {
+  const gesamtMinuten = Math.round(dauerMin);
+  const stunden = Math.floor(gesamtMinuten / 60);
+  const minuten = gesamtMinuten % 60;
+  return stunden > 0 ? `${stunden}h ${minuten}min` : `${minuten}min`;
+}
+
 /** Ein Eintrag der vertikalen Routen-Timeline: Icon-Marker links (auf der
  *  durchgehenden Linie, analog gängiger "Tracking-Timeline"-Komponenten) +
  *  beliebiger Inhalt (Stopp-/Ladehalt-/Fähren-Karte) rechts. */
@@ -336,14 +355,13 @@ function Zeitbadge({
 }) {
   const kantenStyle =
     kante === "oben"
-      ? { top: 0, transform: "translateY(-50%)" }
-      : { bottom: 0, transform: "translateY(50%)" };
+      ? { top: 0, left: "0.75rem", transform: "translateY(-50%)" }
+      : { bottom: 0, right: "0.75rem", transform: "translateY(50%)" };
   return (
     <span
       style={{
         position: "absolute",
         ...kantenStyle,
-        right: "0.75rem",
         background: "white",
         border: "1px solid #d1d5db",
         borderRadius: "999px",
@@ -419,6 +437,51 @@ function Tagestrenner({
           {formatDatumKurz(aktuelleIso)}
         </span>
       </div>
+    </li>
+  );
+}
+
+/** Kompakte "Fahrt dazwischen"-Zeile in der Routen-Timeline: gefahrene
+ *  Strecke und Zeit zwischen zwei Stopp-/Ladehalt-/Fähren-Karten (siehe
+ *  `Fahrsegment` in `route-eintraege.ts`). Bewusst deutlich unauffälliger
+ *  als ein "echter" Halt - kein Kartenrahmen, kein farbiger Icon-Kreis
+ *  (nur das blasse Icon direkt auf der Timeline-Linie), einzeilig statt
+ *  mehrzeilig - repräsentiert schließlich nur die Verbindung dazwischen,
+ *  nicht einen eigenen Stopp. */
+function FahrsegmentZeile({
+  distanzKm,
+  dauerMin,
+}: {
+  distanzKm: number;
+  dauerMin: number;
+}) {
+  return (
+    <li
+      style={{
+        position: "relative",
+        listStyle: "none",
+        marginLeft: "1.5rem",
+        padding: "0.25rem 0",
+      }}
+    >
+      <span
+        style={{
+          position: "absolute",
+          left: "-1.63rem",
+          top: "50%",
+          transform: "translateY(-50%)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 1,
+        }}
+      >
+        <Car size={13} strokeWidth={2} color="#b0b5bd" />
+      </span>
+      <span style={{ fontSize: "0.7rem", color: "#9ca3af" }}>
+        {formatFahrsegmentStrecke(distanzKm)} ·{" "}
+        {formatFahrsegmentDauer(dauerMin)}
+      </span>
     </li>
   );
 }
@@ -1662,6 +1725,18 @@ export function TripPlannerForm({
                     </label>
                   </div>
                 </TimelineRow>
+              </Fragment>
+            );
+          }
+
+          if (eintrag.art === "Fahrsegment") {
+            return (
+              <Fragment key={`fahrsegment-${entryIdx}`}>
+                {tagestrenner}
+                <FahrsegmentZeile
+                  distanzKm={eintrag.distanzKm}
+                  dauerMin={eintrag.dauerMin}
+                />
               </Fragment>
             );
           }
