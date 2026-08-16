@@ -16,6 +16,8 @@ export interface SimulationFrame {
   zeitpunkt: string;
   /** Position als [lat, lon] Tuple in WGS84 */
   position: [number, number];
+  /** Kumulierte Distanz vom Reisebeginn entlang der Route in Metern */
+  distanz_m: number;
   /** Ladestand in Prozent */
   soc_pct: number;
   /** Zustand des Fahrzeugs */
@@ -40,6 +42,10 @@ export interface TripSimulationResult {
   ziel_soc_pct: number;
   /** Ladehalte (ein Eintrag pro tatsächlichem Halt, nicht pro Frame) */
   charging_stops: ChargingStop[];
+  /** Vollstaendige Streckengeometrie der Route als Liste von [lat, lon]-Punkten
+   *  (dichte GraphHopper-Polyline, nicht auf `frames` reduziert - fuer eine
+   *  winkeltreue Kartendarstellung, siehe geo-utils.ts::routeToGeoJsonCoordinates()) */
+  route_geometrie: [number, number][];
   /** In der berechneten Route erkannte Fährverbindungen */
   erkannte_faehren: FaehrSegment[];
 }

@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 
 import httpx
 import polyline
@@ -1285,6 +1286,102 @@ def test_fastapi_endpoint_preserves_curved_graphhopper_geometry() -> None:
         "Route-Frames liegen auf einer Luftlinie statt der gekrümmten "
         f"GraphHopper-Geometrie zu folgen (max. Abweichung: {max_offset_km:.2f} km)"
     )
+
+
+def test_fastapi_endpoint_exposes_full_resolution_route_geometrie() -> None:
+    """Regressionstest: `/trips` liefert die volle GraphHopper-Polyline in
+    `route_geometrie` - unabhaengig von der (zeitbasiert grob gerasterten)
+    Anzahl an `frames`. Deckt den Bug ab, bei dem die Karte statt der
+    Strassengeometrie nur die linear zwischen Simulationsframes
+    interpolierte, deutlich kuerzere Luftlinie zeichnete (Frames liegen bei
+    60s-Aufloesung auf Autobahntempo mehrere hundert Meter auseinander,
+    die GraphHopper-Polyline aber typischerweise alle ~20-50m einen Punkt).
+    """
+    # Dichte, sinusfoermig geschwungene Polyline mit deutlich mehr Punkten
+    # als die kurze (~9 km / ~15 min) Strecke an 60s-Simulationsframes
+    # erzeugen kann.
+    detour_points: list[tuple[float, float]] = [
+        (52.5200 + 0.001 * math.sin(i / 3.0), 13.4050 + i * 0.0015) for i in range(60)
+    ]
+    encoded = polyline.encode(detour_points)
+    gh_response = {
+        "paths": [
+            {
+                "distance": 9_100.0,
+                "time": 900_000,
+                "points_encoded": True,
+                "points": encoded,
+                "details": {
+                    "road_class": [[0, len(detour_points) - 1, "PRIMARY"]],
+                    "max_speed": [[0, len(detour_points) - 1, 100]],
+                    "average_slope": [[0, len(detour_points) - 1, 0.0]],
+                    "surface": [[0, len(detour_points) - 1, "asphalt"]],
+                },
+                "instructions": [],
+            }
+        ],
+        "info": {"copyrights": ["GraphHopper"], "hints": [], "took": 5},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/route"
+        return httpx.Response(200, json=gh_response)
+
+    provider = _make_graphhopper_provider(handler)
+    app.dependency_overrides[get_routing_provider] = lambda: provider
+    try:
+        with TestClient(app) as test_client:
+            api_request = {
+                "start": detour_points[0],
+                "ziel": detour_points[-1],
+                "zwischenstopps": [],
+                "abfahrtszeit": "2026-08-15T08:30:00",
+                "fahrzeugprofil": _make_fahrzeugprofil_dict(),
+                "praeferenzen": {},
+            }
+            response = test_client.post("/trips", json=api_request)
+    finally:
+        app.dependency_overrides.pop(get_routing_provider, None)
+
+    assert response.status_code == 201
+    data = response.json()
+
+    # Die volle, unreduzierte GraphHopper-Geometrie muss uebertragen werden -
+    # nicht auf die (viel groebere) Frame-Anzahl reduziert.
+    assert len(data["route_geometrie"]) == len(detour_points)
+    assert len(data["route_geometrie"]) > len(data["frames"])
+    assert tuple(data["route_geometrie"][0]) == pytest.approx(detour_points[0])
+    assert tuple(data["route_geometrie"][-1]) == pytest.approx(detour_points[-1])
+
+
+def test_fastapi_endpoint_frame_distanz_m_ist_monoton_und_erreicht_gesamtstrecke(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """`FrameAPI.distanz_m` waechst monoton mit der zurueckgelegten Strecke und
+    erreicht am letzten Frame die Gesamtdistanz - Grundlage dafuer, dass das
+    Frontend den SoC-Gradienten korrekt entlang der (von `frames` entkoppelten)
+    `route_geometrie` positionieren kann (`line-progress` = `distanz_m /
+    gesamtdistanz`).
+    """
+    api_request = {
+        "start": valid_trip_request["start"],
+        "ziel": valid_trip_request["ziel"],
+        "zwischenstopps": [],
+        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "praeferenzen": {},
+    }
+
+    response = client.post("/trips", json=api_request)
+
+    assert response.status_code == 201
+    data = response.json()
+    distanzen = [f["distanz_m"] for f in data["frames"]]
+
+    assert distanzen[0] == pytest.approx(0.0, abs=1.0)
+    for a, b in pairwise(distanzen):
+        assert b >= a - 1e-6, "distanz_m muss monoton nicht-fallend sein"
+    assert distanzen[-1] == pytest.approx(data["gesamt_distanz_km"] * 1000.0, rel=0.01)
 
 
 def test_fastapi_endpoint_graphhopper_unreachable_returns_502() -> None:

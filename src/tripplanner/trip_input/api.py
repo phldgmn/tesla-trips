@@ -369,7 +369,6 @@ async def _step_8_ladeplan_optimieren(  # noqa: PLR0913, PLR0917
 
 
 def _step_9_eta_aktualisieren(
-    route: Route,
     segment_eta_liste: list[tuple[RouteSegment, timedelta]],
     charging_plan: ChargingPlan,
 ) -> list[tuple[RouteSegment, timedelta]]:
@@ -387,8 +386,17 @@ def _step_9_eta_aktualisieren(
         ladezeit = timedelta(seconds=stop.geschaetzte_ladedauer_s)
         ladezeiten_pro_segment[segment_idx] = ladezeit
 
-    for segment, urspruengliche_dauer in segment_eta_liste:
-        segment_idx = route.segments.index(segment)
+    # `segment_idx` per `enumerate()` statt `route.segments.index(segment)`:
+    # `segment_eta_liste` wird in `_step_4_initiale_eta_schaetzen()` durch
+    # Iteration über `route.segments` IN DERSELBEN REIHENFOLGE aufgebaut (ein
+    # Tupel pro Segment, keine Filterung/Umsortierung) - der Listenindex
+    # entspricht also bereits exakt dem Segment-Index. `.index()` würde
+    # stattdessen für JEDES Segment eine LINEARE Suche mit tiefer Pydantic-
+    # Objektgleichheit über ALLE Segmente durchführen (O(n²) mit teurem
+    # Vergleich statt O(n)) - bei feingranularen Routen (tausende Segmente,
+    # z. B. ein Segment pro GraphHopper-Polyline-Punktpaar) ein spürbarer,
+    # zudem komplett unnötiger Kostenfaktor.
+    for segment_idx, (segment, urspruengliche_dauer) in enumerate(segment_eta_liste):
         ladezeit = ladezeiten_pro_segment.get(segment_idx, timedelta())
         neue_dauer = urspruengliche_dauer + ladezeit
         neue_eta_liste.append((segment, neue_dauer))
@@ -594,7 +602,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
     )
 
     # 10. Step 9: ETA aktualisieren
-    _ = _step_9_eta_aktualisieren(route, segment_eta_liste, ladeplan)
+    _ = _step_9_eta_aktualisieren(segment_eta_liste, ladeplan)
 
     # 11. Step 10: Simulation aufrufen
     simulationsergebnis = simulate_trip(
@@ -912,6 +920,9 @@ class FrameAPI(BaseModel):
     position: tuple[float, float] = Field(
         ..., description="(lat, lon), konsistent mit Domänenmodell"
     )
+    distanz_m: float = Field(
+        ..., ge=0.0, description="Kumulierte Distanz vom Reisebeginn entlang der Route in Metern"
+    )
     soc_pct: float = Field(..., ge=0.0, le=100.0)
     zustand: str = Field(..., description="'FAHREN', 'LADEN' oder 'PAUSE'")
     geschwindigkeit_kmh: float = Field(..., ge=0.0)
@@ -963,6 +974,14 @@ class TripSimulationResultAPI(BaseModel):
     frames: list[FrameAPI] = Field(..., description="Liste von Simulationsframes")
     charging_stops: list[ChargingStopAPI] = Field(
         default_factory=list, description="Ein Eintrag pro Ladehalt, fuer die Kartendarstellung"
+    )
+    route_geometrie: list[Coordinate] = Field(
+        ...,
+        description=(
+            "Vollstaendige Streckengeometrie der berechneten Route (dichte GraphHopper-"
+            "Polyline, nicht auf Simulationsframes reduziert) fuer eine winkeltreue "
+            "Kartendarstellung."
+        ),
     )
     erkannte_faehren: list[FaehrSegmentAPI] = Field(
         default_factory=list,
@@ -1030,6 +1049,12 @@ async def create_trip_endpoint(
         nonlocal erkannte_faehren
         erkannte_faehren = faehren
 
+    route_geometrie: list[Coordinate] = []
+
+    def _route_erfassen(route: Route) -> None:
+        nonlocal route_geometrie
+        route_geometrie = route.geometrie
+
     try:
         ergebnis = await create_trip_simulation(
             anfrage_dict,
@@ -1038,6 +1063,7 @@ async def create_trip_endpoint(
             start_soc_pct=request.start_soc_pct,
             ziel_soc_pct=request.ziel_soc_pct,
             faehren_observer=_faehren_erfassen,
+            route_observer=_route_erfassen,
         )
 
         return TripSimulationResultAPI(
@@ -1050,6 +1076,7 @@ async def create_trip_endpoint(
                 FrameAPI(
                     zeitpunkt=f.zeitpunkt.isoformat(),
                     position=f.position,
+                    distanz_m=f.distanz_m,
                     soc_pct=f.soc_pct,
                     zustand=f.zustand.value,
                     geschwindigkeit_kmh=f.geschwindigkeit_kmh,
@@ -1070,6 +1097,7 @@ async def create_trip_endpoint(
                 )
                 for stop in ergebnis.charging_stops
             ],
+            route_geometrie=route_geometrie,
             erkannte_faehren=[
                 FaehrSegmentAPI(
                     name=f.name,

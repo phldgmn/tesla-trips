@@ -285,6 +285,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         frame = SimulationFrame(
             zeitpunkt=abfahrtszeit + timedelta(seconds=current_time_s),
             position=position,
+            distanz_m=current_distance_m,
             soc_pct=current_soc_pct,
             zustand=zustand,
             geschwindigkeit_kmh=geschwindigkeit_kmh,

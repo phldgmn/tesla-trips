@@ -22,6 +22,7 @@ class TestSimulationFrame:
         frame = SimulationFrame(
             zeitpunkt=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
             position=(52.5200, 13.4050),
+            distanz_m=0.0,
             soc_pct=80.0,
             zustand=TripState.FAHREN,
             geschwindigkeit_kmh=100.0,
@@ -35,6 +36,7 @@ class TestSimulationFrame:
         frame = SimulationFrame(
             zeitpunkt=datetime(2026, 8, 15, 8, 30, 0, tzinfo=UTC),
             position=(52.5200, 13.4050),
+            distanz_m=1000.0,
             soc_pct=40.0,
             zustand=TripState.LADEN,
             geschwindigkeit_kmh=0.0,
@@ -47,6 +49,7 @@ class TestSimulationFrame:
         frame = SimulationFrame(
             zeitpunkt=datetime(2026, 8, 15, 8, 15, 0, tzinfo=UTC),
             position=(52.5200, 13.4050),
+            distanz_m=500.0,
             soc_pct=60.0,
             zustand=TripState.PAUSE,
             geschwindigkeit_kmh=2.0,
@@ -60,6 +63,7 @@ class TestSimulationFrame:
             SimulationFrame(
                 zeitpunkt=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
                 position=(52.5200, 13.4050),
+                distanz_m=0.0,
                 soc_pct=50.0,
                 zustand=TripState.LADEN,
                 geschwindigkeit_kmh=10.0,
@@ -71,6 +75,7 @@ class TestSimulationFrame:
             SimulationFrame(
                 zeitpunkt=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
                 position=(52.5200, 13.4050),
+                distanz_m=0.0,
                 soc_pct=50.0,
                 zustand=TripState.PAUSE,
                 geschwindigkeit_kmh=20.0,
@@ -82,6 +87,7 @@ class TestSimulationFrame:
             SimulationFrame(
                 zeitpunkt=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
                 position=(52.5200, 13.4050),
+                distanz_m=0.0,
                 soc_pct=101.0,
                 zustand=TripState.FAHREN,
                 geschwindigkeit_kmh=100.0,
@@ -93,6 +99,7 @@ class TestSimulationFrame:
             SimulationFrame(
                 zeitpunkt=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
                 position=(52.5200, 13.4050),
+                distanz_m=0.0,
                 soc_pct=-1.0,
                 zustand=TripState.FAHREN,
                 geschwindigkeit_kmh=100.0,
@@ -103,6 +110,7 @@ class TestSimulationFrame:
         frame = SimulationFrame(
             zeitpunkt=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
             position=(52.5200, 13.4050),
+            distanz_m=0.0,
             soc_pct=80.0,
             zustand=TripState.FAHREN,
             geschwindigkeit_kmh=100.0,

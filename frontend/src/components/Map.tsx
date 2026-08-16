@@ -23,7 +23,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // `setWorkerUrl()` überschreibt MapLibres eigene (kaputte) Berechnung damit.
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 
-import { toLngLat, haversineDistanceM } from "../utils/geo-utils";
+import { toLngLat, routeToGeoJsonCoordinates } from "../utils/geo-utils";
 import { formatZeitpunkt } from "../utils/datetime-utils";
 import { usePersistentState } from "../utils/persistent-state";
 import { ChargingStop, TripSimulationResult, SimulationFrame } from "../types";
@@ -84,19 +84,24 @@ export function socToColor(soc: number): string {
 /** Baut die MapLibre `line-gradient`-Expression für den SoC-Farbverlauf
  * entlang der gesamten Route aus einer einzigen Linie (statt vieler
  * einzelner Segment-Layer – siehe `MapVisualization`). Die Stop-Position
- * jedes Frames wird als kumulierte Distanz relativ zur Gesamtstrecke
- * berechnet (`line-progress` ist ebenfalls distanzbasiert), auf maximal
- * `maxStops` gleichmässig über den Frame-Index verteilte Stützpunkte
- * heruntergesampelt (vermeidet riesige Expressions bei langen Trips mit
- * tausenden Frames) und um Frames mit identischer Position (z. B.
- * während eines Ladehalts) bereinigt, da `interpolate`-Stops strikt
- * aufsteigend sein müssen.
+ * jedes Frames wird ueber sein vom Backend geliefertes `distanz_m`
+ * (kumulierte Distanz entlang der Route) relativ zu `totalDistanceM`
+ * bestimmt - NICHT über die Kettenlänge zwischen Frame-Positionen, da die
+ * Linie inzwischen aus `route_geometrie` (voller GraphHopper-Polyline)
+ * statt aus den zeitbasiert groben Frame-Positionen aufgebaut wird und
+ * `line-progress` sich auf deren (längere) tatsächliche Streckenlänge
+ * bezieht. Auf maximal `maxStops` gleichmässig über den Frame-Index
+ * verteilte Stützpunkte heruntergesampelt (vermeidet riesige Expressions
+ * bei langen Trips mit tausenden Frames) und um Frames mit identischer
+ * Distanz (z. B. während eines Ladehalts) bereinigt, da `interpolate`-Stops
+ * strikt aufsteigend sein müssen.
  */
 export function buildSocGradientExpression(
   frames: SimulationFrame[],
+  totalDistanceM: number,
   maxStops = 64,
 ): unknown[] {
-  if (frames.length === 0) {
+  if (frames.length === 0 || totalDistanceM <= 0) {
     return [
       "interpolate",
       ["linear"],
@@ -108,15 +113,6 @@ export function buildSocGradientExpression(
     ];
   }
 
-  const cumulative = [0];
-  for (let i = 1; i < frames.length; i++) {
-    cumulative.push(
-      cumulative[i - 1] +
-        haversineDistanceM(frames[i - 1].position, frames[i].position),
-    );
-  }
-  const total = cumulative[cumulative.length - 1];
-
   const stride = Math.max(1, Math.ceil((frames.length - 1) / (maxStops - 1)));
   const sampledIndices: number[] = [];
   for (let i = 0; i < frames.length - 1; i += stride) {
@@ -127,8 +123,7 @@ export function buildSocGradientExpression(
   const stops: (number | string)[] = [];
   let lastProgress = -1;
   for (const idx of sampledIndices) {
-    const progress =
-      total > 0 ? cumulative[idx] / total : idx / (frames.length - 1 || 1);
+    const progress = Math.min(1, frames[idx].distanz_m / totalDistanceM);
     if (progress <= lastProgress) continue;
     stops.push(progress, socToColor(frames[idx].soc_pct));
     lastProgress = progress;
@@ -599,9 +594,12 @@ export function MapVisualization({
       return;
     }
 
-    // Route in GeoJSON konvertieren (Koordinaten: (lat, lon) → [lng, lat])
-    const routeCoordinates = simulationResult.frames.map((frame) =>
-      toLngLat(frame.position),
+    // Route in GeoJSON konvertieren: volle GraphHopper-Geometrie (nicht die
+    // zeitbasiert groben Simulationsframes) fuer eine winkeltreue Linie, die
+    // dem tatsaechlichen Strassenverlauf folgt (siehe `buildSocGradientExpression`
+    // fuer die davon entkoppelte SoC-Farbverlauf-Positionierung ueber `distanz_m`).
+    const routeCoordinates = routeToGeoJsonCoordinates(
+      simulationResult.route_geometrie,
     );
 
     const routeGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
@@ -660,7 +658,10 @@ export function MapVisualization({
       paint: {
         "line-width": 4,
         "line-opacity": 0.9,
-        "line-gradient": buildSocGradientExpression(frames),
+        "line-gradient": buildSocGradientExpression(
+          frames,
+          simulationResult.gesamt_distanz_km * 1000,
+        ),
       },
     } as unknown as LayerSpecification);
 

@@ -56,10 +56,12 @@ describe("MapVisualization utilities", () => {
     function frame(
       position: [number, number],
       soc_pct: number,
+      distanz_m: number,
     ): SimulationFrame {
       return {
         zeitpunkt: "2026-01-01T00:00:00Z",
         position,
+        distanz_m,
         soc_pct,
         zustand: "FAHREN",
         geschwindigkeit_kmh: 100,
@@ -67,7 +69,20 @@ describe("MapVisualization utilities", () => {
     }
 
     it("returns a flat fallback expression for an empty frame list", () => {
-      expect(buildSocGradientExpression([])).toEqual([
+      expect(buildSocGradientExpression([], 1000)).toEqual([
+        "interpolate",
+        ["linear"],
+        ["line-progress"],
+        0,
+        "#3b82f6",
+        1,
+        "#3b82f6",
+      ]);
+    });
+
+    it("returns a flat fallback expression for a zero/negative total distance", () => {
+      const frames = [frame([52.5, 13.4], 80, 0)];
+      expect(buildSocGradientExpression(frames, 0)).toEqual([
         "interpolate",
         ["linear"],
         ["line-progress"],
@@ -80,11 +95,11 @@ describe("MapVisualization utilities", () => {
 
     it("builds strictly increasing line-progress stops from start (0) to end (1)", () => {
       const frames = [
-        frame([52.5, 13.4], 100),
-        frame([52.6, 13.5], 60),
-        frame([52.7, 13.6], 20),
+        frame([52.5, 13.4], 100, 0),
+        frame([52.6, 13.5], 60, 5000),
+        frame([52.7, 13.6], 20, 10000),
       ];
-      const expr = buildSocGradientExpression(frames);
+      const expr = buildSocGradientExpression(frames, 10000);
       expect(expr[0]).toBe("interpolate");
       expect(expr[1]).toEqual(["linear"]);
       expect(expr[2]).toEqual(["line-progress"]);
@@ -102,15 +117,30 @@ describe("MapVisualization utilities", () => {
       }
     });
 
-    it("dedupes frames at an identical position (e.g. a charging pause)", () => {
+    it("positions stops by distanz_m, decoupled from the frame-to-frame chord length", () => {
+      // Ein einzelner Frame "springt" ueber eine grosse Kurve (z. B. 60s bei
+      // Autobahntempo) - die Linie folgt der vollen `route_geometrie`, daher
+      // muss der Stop bei der tatsaechlichen Streckendistanz liegen, nicht
+      // bei der (kuerzeren) Luftlinien-Distanz zum vorherigen Frame.
       const frames = [
-        frame([52.5, 13.4], 80),
-        frame([52.6, 13.5], 50),
-        frame([52.6, 13.5], 50), // Ladehalt: identische Position
-        frame([52.6, 13.5], 80), // Ladehalt: identische Position
-        frame([52.7, 13.6], 80),
+        frame([52.5, 13.4], 90, 0),
+        frame([53.0, 14.0], 50, 9000),
       ];
-      const expr = buildSocGradientExpression(frames);
+      const expr = buildSocGradientExpression(frames, 10000);
+      const stops = expr.slice(3);
+      expect(stops[0]).toBe(0);
+      expect(stops[2]).toBe(0.9);
+    });
+
+    it("dedupes frames at an identical distanz_m (e.g. a charging pause)", () => {
+      const frames = [
+        frame([52.5, 13.4], 80, 0),
+        frame([52.6, 13.5], 50, 5000),
+        frame([52.6, 13.5], 50, 5000), // Ladehalt: identische Distanz
+        frame([52.6, 13.5], 80, 5000), // Ladehalt: identische Distanz
+        frame([52.7, 13.6], 80, 10000),
+      ];
+      const expr = buildSocGradientExpression(frames, 10000);
       const stops = expr.slice(3);
       const progressValues = stops.filter((_, i) => i % 2 === 0) as number[];
       // Duplikate mit gleichem Progress-Wert wurden entfernt (sonst waere
@@ -120,9 +150,9 @@ describe("MapVisualization utilities", () => {
 
     it("downsamples long frame lists to at most maxStops points", () => {
       const frames = Array.from({ length: 5000 }, (_, i) =>
-        frame([50 + i * 0.001, 10 + i * 0.001], 100 - (i / 5000) * 100),
+        frame([50 + i * 0.001, 10 + i * 0.001], 100 - (i / 5000) * 100, i * 10),
       );
-      const expr = buildSocGradientExpression(frames, 32);
+      const expr = buildSocGradientExpression(frames, 4999 * 10, 32);
       const stops = expr.slice(3);
       expect(stops.length / 2).toBeLessThanOrEqual(32);
     });

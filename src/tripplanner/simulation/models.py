@@ -28,6 +28,9 @@ class SimulationFrame(BaseModel):
 
     zeitpunkt: datetime
     position: tuple[float, float] = Field(..., description="Position als (lat, lon) Tuple in WGS84")
+    distanz_m: float = Field(
+        ..., ge=0.0, description="Kumulierte Distanz vom Reisebeginn entlang der Route in Metern"
+    )
     soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ladestand in Prozent")
     zustand: TripState
     geschwindigkeit_kmh: float = Field(..., ge=0.0, description="Geschwindigkeit in km/h")
