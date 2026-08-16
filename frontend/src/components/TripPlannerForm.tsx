@@ -3,7 +3,6 @@ import {
   useEffect,
   useRef,
   useCallback,
-  Fragment,
   type ReactNode,
 } from "react";
 import { usePersistentState } from "../utils/persistent-state";
@@ -34,6 +33,7 @@ import {
   splitIsoToDateTime,
   formatUhrzeit,
   formatDatumKurz,
+  formatTagMonat,
   istTageswechsel,
 } from "../utils/datetime-utils";
 import type { ChargingStop, FaehrSegment } from "../types";
@@ -295,6 +295,13 @@ export function formatFahrsegmentDauer(dauerMin: number): string {
   return stunden > 0 ? `${stunden}h ${minuten}min` : `${minuten}min`;
 }
 
+/** Einheitlicher vertikaler Abstand NACH jedem Timeline-Eintrag (Stopp-/
+ *  Ladehalt-/Fähren-Karte, Tagestrenner, Fahrsegment-Zeile) - ausschließlich
+ *  über `paddingBottom` (nie `paddingTop`/`margin`), damit der Abstand
+ *  zwischen zwei beliebigen aufeinanderfolgenden Einträgen unabhängig von
+ *  deren Typ immer exakt gleich groß ist. */
+const ZEILEN_ABSTAND = "0.85rem";
+
 /** Ein Eintrag der vertikalen Routen-Timeline: Icon-Marker links (auf der
  *  durchgehenden Linie, analog gängiger "Tracking-Timeline"-Komponenten) +
  *  beliebiger Inhalt (Stopp-/Ladehalt-/Fähren-Karte) rechts. */
@@ -312,7 +319,7 @@ function TimelineRow({
       style={{
         position: "relative",
         marginLeft: "1.5rem",
-        paddingBottom: "0.85rem",
+        paddingBottom: ZEILEN_ABSTAND,
       }}
     >
       <span
@@ -343,15 +350,20 @@ function TimelineRow({
  *  statt zusätzlichen vertikalen Platz im Karten-Layout zu beanspruchen
  *  (`position: absolute`, kein Einfluss auf die Kartenhöhe). Der umgebende
  *  Karten-Container braucht dafür `position: relative`. Wird nur gerendert,
- *  wenn eine Zeit bekannt ist ("wo anwendbar", siehe Aufrufer). */
+ *  wenn eine Zeit bekannt ist ("wo anwendbar", siehe Aufrufer). `datumKurz`
+ *  ergänzt bei Bedarf das Datum (z. B. wenn Ankunft und Abfahrt DESSELBEN
+ *  Eintrags auf unterschiedliche Kalendertage fallen, siehe
+ *  `istTageswechsel`-Aufrufe in den Aufrufern). */
 function Zeitbadge({
   kante,
   iso,
   socPct,
+  datumKurz,
 }: {
   kante: "oben" | "unten";
   iso: string;
   socPct?: number;
+  datumKurz?: string;
 }) {
   const kantenStyle =
     kante === "oben"
@@ -375,6 +387,7 @@ function Zeitbadge({
     >
       {formatUhrzeit(iso)}
       {socPct !== undefined ? ` · ${Math.round(socPct)}%` : ""}
+      {datumKurz !== undefined ? ` · ${datumKurz}` : ""}
     </span>
   );
 }
@@ -385,7 +398,10 @@ function Zeitbadge({
  *  zusätzlichen vertikalen Platz zu beanspruchen (siehe `istTageswechsel`).
  *  Trägt wie `TimelineRow` einen eigenen Icon-Marker auf der Timeline-Linie,
  *  damit der Tageswechsel dort selbst sofort erkennbar ist statt nur an der
- *  kleinen Schrift. */
+ *  kleinen Schrift. Wird nur zwischen zwei Einträgen OHNE Fahrsegment
+ *  dazwischen gerendert (siehe `TagestrennerEintrag`-Docstring in
+ *  `route-eintraege.ts` - mit Fahrsegment wird der Tageswechsel stattdessen
+ *  in dessen Zeile kombiniert, siehe `FahrsegmentZeile`). */
 function Tagestrenner({
   vorherigeIso,
   aktuelleIso,
@@ -399,15 +415,14 @@ function Tagestrenner({
         position: "relative",
         listStyle: "none",
         marginLeft: "1.5rem",
-        padding: "0.35rem 0",
+        paddingBottom: ZEILEN_ABSTAND,
       }}
     >
       <span
         style={{
           position: "absolute",
           left: "-1.9rem",
-          top: "50%",
-          transform: "translateY(-50%)",
+          top: 0,
           width: "1.8rem",
           height: "1.8rem",
           borderRadius: "9999px",
@@ -426,7 +441,9 @@ function Tagestrenner({
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
+          justifyContent: "center",
           gap: "0.1rem",
+          minHeight: "1.8rem",
         }}
       >
         <span style={{ fontSize: "0.65rem", lineHeight: 1, color: "#9ca3af" }}>
@@ -447,13 +464,18 @@ function Tagestrenner({
  *  als ein "echter" Halt - kein Kartenrahmen, kein farbiger Icon-Kreis
  *  (nur das blasse Icon direkt auf der Timeline-Linie), einzeilig statt
  *  mehrzeilig - repräsentiert schließlich nur die Verbindung dazwischen,
- *  nicht einen eigenen Stopp. */
+ *  nicht einen eigenen Stopp. Überspannt das Fahrsegment einen Tageswechsel
+ *  (`tageswechsel` gesetzt), werden Strecke, Zeit UND beide Kalendertage in
+ *  dieser einen Zeile kombiniert, statt zusätzlich einen separaten
+ *  `Tagestrenner` zu rendern. */
 function FahrsegmentZeile({
   distanzKm,
   dauerMin,
+  tageswechsel,
 }: {
   distanzKm: number;
   dauerMin: number;
+  tageswechsel?: { vonIso: string; bisIso: string };
 }) {
   return (
     <li
@@ -461,7 +483,7 @@ function FahrsegmentZeile({
         position: "relative",
         listStyle: "none",
         marginLeft: "1.5rem",
-        padding: "0.25rem 0",
+        paddingBottom: ZEILEN_ABSTAND,
       }}
     >
       <span
@@ -481,6 +503,13 @@ function FahrsegmentZeile({
       <span style={{ fontSize: "0.7rem", color: "#9ca3af" }}>
         {formatFahrsegmentStrecke(distanzKm)} ·{" "}
         {formatFahrsegmentDauer(dauerMin)}
+        {tageswechsel && (
+          <>
+            {" · "}
+            {formatDatumKurz(tageswechsel.vonIso)} →{" "}
+            {formatDatumKurz(tageswechsel.bisIso)}
+          </>
+        )}
       </span>
     </li>
   );
@@ -1215,22 +1244,6 @@ export function TripPlannerForm({
         }}
       >
         {routeEintraege.map((eintrag, entryIdx) => {
-          // Tageswechsel-Trenner: vergleicht den sortKey (Ankunft ?? Abfahrt)
-          // dieses Eintrags mit dem des chronologisch vorherigen Eintrags
-          // (siehe `istTageswechsel`/`route-eintraege.ts`).
-          const vorherigeIso = routeEintraege[entryIdx - 1]?.sortKey ?? null;
-          const aktuelleIso = eintrag.sortKey;
-          const tagestrenner =
-            istTageswechsel(vorherigeIso, aktuelleIso) &&
-            vorherigeIso !== null &&
-            aktuelleIso !== null ? (
-              <Tagestrenner
-                key={`trenner-${entryIdx}`}
-                vorherigeIso={vorherigeIso}
-                aktuelleIso={aktuelleIso}
-              />
-            ) : null;
-
           if (eintrag.art === "Stopp") {
             const { stop, stopIndex: idx } = eintrag;
             const role = getStopRole(stops, idx);
@@ -1246,412 +1259,413 @@ export function TripPlannerForm({
 
             const { Icon, background } = getStopTimelineIcon(stops, idx);
 
+            // Tageswechsel INNERHALB dieses Eintrags (Ankunft und Abfahrt an
+            // unterschiedlichen Kalendertagen, z. B. ein Zwischenstopp über
+            // Mitternacht) - Abfahrts-Badge bekommt dann zusätzlich das
+            // Datum (siehe `TagestrennerEintrag`-Docstring in
+            // `route-eintraege.ts`).
+            const abfahrtDatumKurz =
+              eintrag.timing.departure !== null &&
+              istTageswechsel(eintrag.timing.arrival, eintrag.timing.departure)
+                ? formatTagMonat(eintrag.timing.departure)
+                : undefined;
+
             return (
-              <Fragment key={stop.id}>
-                {tagestrenner}
-                <TimelineRow icon={Icon} background={background}>
+              <TimelineRow key={stop.id} icon={Icon} background={background}>
+                <div
+                  style={{
+                    position: "relative",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: "6px",
+                    padding: "0.75rem",
+                    background: "white",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "0.5rem",
+                  }}
+                >
+                  {eintrag.timing.arrival !== null && (
+                    <Zeitbadge
+                      kante="oben"
+                      iso={eintrag.timing.arrival}
+                      socPct={eintrag.timing.arrivalSocPct ?? undefined}
+                    />
+                  )}
+                  {eintrag.timing.departure !== null &&
+                    unterscheidetSichAlsUhrzeit(
+                      eintrag.timing.arrival,
+                      eintrag.timing.departure,
+                    ) && (
+                      <Zeitbadge
+                        kante="unten"
+                        iso={eintrag.timing.departure}
+                        socPct={eintrag.timing.departureSocPct ?? undefined}
+                        datumKurz={abfahrtDatumKurz}
+                      />
+                    )}
+                  {/* Header: Role Badge + Move/Remove */}
                   <div
                     style={{
-                      position: "relative",
-                      border: "1px solid #e5e7eb",
-                      borderRadius: "6px",
-                      padding: "0.75rem",
-                      background: "white",
                       display: "flex",
-                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "space-between",
                       gap: "0.5rem",
                     }}
                   >
-                    {eintrag.timing.arrival !== null && (
-                      <Zeitbadge
-                        kante="oben"
-                        iso={eintrag.timing.arrival}
-                        socPct={eintrag.timing.arrivalSocPct ?? undefined}
-                      />
-                    )}
-                    {eintrag.timing.departure !== null &&
-                      unterscheidetSichAlsUhrzeit(
-                        eintrag.timing.arrival,
-                        eintrag.timing.departure,
-                      ) && (
-                        <Zeitbadge
-                          kante="unten"
-                          iso={eintrag.timing.departure}
-                          socPct={eintrag.timing.departureSocPct ?? undefined}
-                        />
-                      )}
-                    {/* Header: Role Badge + Move/Remove */}
-                    <div
+                    <span
                       style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: "0.5rem",
+                        padding: "0.15rem 0.5rem",
+                        borderRadius: "999px",
+                        fontSize: "0.7rem",
+                        fontWeight: 600,
+                        background:
+                          idx === 0
+                            ? "#e0e7ff"
+                            : isLast
+                              ? "#fef3c7"
+                              : "#f3f4f6",
+                        color:
+                          idx === 0
+                            ? "#3730a3"
+                            : isLast
+                              ? "#92400e"
+                              : "#4b5563",
                       }}
                     >
-                      <span
-                        style={{
-                          padding: "0.15rem 0.5rem",
-                          borderRadius: "999px",
-                          fontSize: "0.7rem",
-                          fontWeight: 600,
-                          background:
-                            idx === 0
-                              ? "#e0e7ff"
-                              : isLast
-                                ? "#fef3c7"
-                                : "#f3f4f6",
-                          color:
-                            idx === 0
-                              ? "#3730a3"
-                              : isLast
-                                ? "#92400e"
-                                : "#4b5563",
-                        }}
-                      >
-                        {role}
-                      </span>
-                      <div style={{ display: "flex", gap: "0.25rem" }}>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onRequestPick(
-                              pickingStopId === stop.id ? null : stop.id,
-                            )
-                          }
-                          disabled={isSubmitting}
-                          style={{
-                            display: "flex",
-                            padding: "0.2rem",
-                            background:
-                              pickingStopId === stop.id ? "#2563eb" : "#eff6ff",
-                            border: `1px solid ${pickingStopId === stop.id ? "#2563eb" : "#93c5fd"}`,
-                            borderRadius: "4px",
-                            color:
-                              pickingStopId === stop.id ? "white" : "#1d4ed8",
-                            cursor: isSubmitting ? "not-allowed" : "pointer",
-                            opacity: isSubmitting ? 0.5 : 1,
-                          }}
-                          title={
-                            pickingStopId === stop.id
-                              ? "Kartenauswahl abbrechen"
-                              : "Auf Karte wählen"
-                          }
-                          aria-label={
-                            pickingStopId === stop.id
-                              ? "Kartenauswahl abbrechen"
-                              : "Auf Karte wählen"
-                          }
-                        >
-                          {pickingStopId === stop.id ? (
-                            <X size={14} />
-                          ) : (
-                            <Crosshair size={14} />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setPickerTargetId(
-                              pickerTargetId === stop.id ? null : stop.id,
-                            )
-                          }
-                          disabled={isSubmitting}
-                          style={{
-                            display: "flex",
-                            padding: "0.2rem",
-                            background:
-                              pickerTargetId === stop.id
-                                ? "#166534"
-                                : "#dcfce7",
-                            border: `1px solid ${pickerTargetId === stop.id ? "#166534" : "#86efac"}`,
-                            borderRadius: "4px",
-                            color:
-                              pickerTargetId === stop.id ? "white" : "#166534",
-                            cursor: isSubmitting ? "not-allowed" : "pointer",
-                            opacity: isSubmitting ? 0.5 : 1,
-                          }}
-                          title={
-                            pickerTargetId === stop.id
-                              ? "Ladestationsauswahl abbrechen"
-                              : "Ladestation statt Adresse wählen"
-                          }
-                          aria-label={
-                            pickerTargetId === stop.id
-                              ? "Ladestationsauswahl abbrechen"
-                              : "Ladestation statt Adresse wählen"
-                          }
-                        >
-                          {pickerTargetId === stop.id ? (
-                            <X size={14} />
-                          ) : (
-                            <BatteryCharging size={14} />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleMoveUp(idx)}
-                          disabled={idx === 0 || isSubmitting}
-                          style={{
-                            padding: "0.2rem 0.5rem",
-                            fontSize: "0.75rem",
-                            background: "#f3f4f6",
-                            border: "1px solid #d1d5db",
-                            borderRadius: "4px",
-                            cursor:
-                              idx === 0 || isSubmitting
-                                ? "not-allowed"
-                                : "pointer",
-                            opacity: idx === 0 || isSubmitting ? 0.5 : 1,
-                          }}
-                          aria-label="Nach oben verschieben"
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleMoveDown(idx)}
-                          disabled={isLast || isSubmitting}
-                          style={{
-                            padding: "0.2rem 0.5rem",
-                            fontSize: "0.75rem",
-                            background: "#f3f4f6",
-                            border: "1px solid #d1d5db",
-                            borderRadius: "4px",
-                            cursor:
-                              isLast || isSubmitting
-                                ? "not-allowed"
-                                : "pointer",
-                            opacity: isLast || isSubmitting ? 0.5 : 1,
-                          }}
-                          aria-label="Nach unten verschieben"
-                        >
-                          ↓
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveStop(stop.id)}
-                          disabled={stops.length <= 2 || isSubmitting}
-                          style={{
-                            padding: "0.2rem 0.5rem",
-                            fontSize: "0.75rem",
-                            background: "#fef2f2",
-                            border: "1px solid #fecaca",
-                            borderRadius: "4px",
-                            color: "#991b1b",
-                            cursor:
-                              stops.length <= 2 || isSubmitting
-                                ? "not-allowed"
-                                : "pointer",
-                            opacity:
-                              stops.length <= 2 || isSubmitting ? 0.5 : 1,
-                          }}
-                          aria-label="Entfernen"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Address Input + Geocoding */}
-                    <div style={{ position: "relative" }}>
-                      <input
-                        type="text"
-                        placeholder="Adresse eingeben…"
-                        value={stop.address}
-                        onChange={(e) =>
-                          handleAddressInput(stop.id, e.target.value)
+                      {role}
+                    </span>
+                    <div style={{ display: "flex", gap: "0.25rem" }}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onRequestPick(
+                            pickingStopId === stop.id ? null : stop.id,
+                          )
                         }
-                        onBlur={() => {
-                          // Beim Verlassen die Vorschläge erst nach kurzer Verzögerung schließen,
-                          // damit der Klick auf einen Vorschlag noch registriert wird
-                          setTimeout(
-                            () => handleCloseSuggestions(stop.id),
-                            200,
-                          );
-                        }}
-                        onFocus={(e) => {
-                          // Bei Fokus und genug Text: Suche neu starten
-                          if (
-                            e.target.value.trim().length >=
-                            GEOCODING_MIN_QUERY_LENGTH
-                          ) {
-                            handleAddressInput(stop.id, e.target.value);
-                          }
-                        }}
                         disabled={isSubmitting}
                         style={{
-                          width: "100%",
-                          padding: "0.5rem",
+                          display: "flex",
+                          padding: "0.2rem",
+                          background:
+                            pickingStopId === stop.id ? "#2563eb" : "#eff6ff",
+                          border: `1px solid ${pickingStopId === stop.id ? "#2563eb" : "#93c5fd"}`,
+                          borderRadius: "4px",
+                          color:
+                            pickingStopId === stop.id ? "white" : "#1d4ed8",
+                          cursor: isSubmitting ? "not-allowed" : "pointer",
+                          opacity: isSubmitting ? 0.5 : 1,
+                        }}
+                        title={
+                          pickingStopId === stop.id
+                            ? "Kartenauswahl abbrechen"
+                            : "Auf Karte wählen"
+                        }
+                        aria-label={
+                          pickingStopId === stop.id
+                            ? "Kartenauswahl abbrechen"
+                            : "Auf Karte wählen"
+                        }
+                      >
+                        {pickingStopId === stop.id ? (
+                          <X size={14} />
+                        ) : (
+                          <Crosshair size={14} />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPickerTargetId(
+                            pickerTargetId === stop.id ? null : stop.id,
+                          )
+                        }
+                        disabled={isSubmitting}
+                        style={{
+                          display: "flex",
+                          padding: "0.2rem",
+                          background:
+                            pickerTargetId === stop.id ? "#166534" : "#dcfce7",
+                          border: `1px solid ${pickerTargetId === stop.id ? "#166534" : "#86efac"}`,
+                          borderRadius: "4px",
+                          color:
+                            pickerTargetId === stop.id ? "white" : "#166534",
+                          cursor: isSubmitting ? "not-allowed" : "pointer",
+                          opacity: isSubmitting ? 0.5 : 1,
+                        }}
+                        title={
+                          pickerTargetId === stop.id
+                            ? "Ladestationsauswahl abbrechen"
+                            : "Ladestation statt Adresse wählen"
+                        }
+                        aria-label={
+                          pickerTargetId === stop.id
+                            ? "Ladestationsauswahl abbrechen"
+                            : "Ladestation statt Adresse wählen"
+                        }
+                      >
+                        {pickerTargetId === stop.id ? (
+                          <X size={14} />
+                        ) : (
+                          <BatteryCharging size={14} />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleMoveUp(idx)}
+                        disabled={idx === 0 || isSubmitting}
+                        style={{
+                          padding: "0.2rem 0.5rem",
+                          fontSize: "0.75rem",
+                          background: "#f3f4f6",
                           border: "1px solid #d1d5db",
                           borderRadius: "4px",
-                          fontSize: "0.85rem",
-                          boxSizing: "border-box",
+                          cursor:
+                            idx === 0 || isSubmitting
+                              ? "not-allowed"
+                              : "pointer",
+                          opacity: idx === 0 || isSubmitting ? 0.5 : 1,
                         }}
-                      />
-                      {geoState?.loading && (
-                        <span
-                          style={{
-                            position: "absolute",
-                            right: "0.5rem",
-                            top: "0.6rem",
-                            fontSize: "0.75rem",
-                            color: "#6b7280",
-                          }}
-                        >
-                          Suche…
-                        </span>
-                      )}
-                      {showSuggestions && (
-                        <ul
-                          style={{
-                            position: "absolute",
-                            top: "100%",
-                            left: 0,
-                            right: 0,
-                            zIndex: 10,
-                            background: "white",
-                            border: "1px solid #d1d5db",
-                            borderTop: "none",
-                            borderRadius: "0 0 4px 4px",
-                            listStyle: "none",
-                            margin: 0,
-                            padding: 0,
-                            maxHeight: "200px",
-                            overflowY: "auto",
-                            boxShadow: "0 2px 6px rgba(0,0,0,0.1)",
-                          }}
-                        >
-                          {geoState.suggestions.map((sugg, sIdx) => (
-                            <li
-                              key={sIdx}
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                handleSuggestionSelect(stop.id, sugg);
-                              }}
-                              style={{
-                                padding: "0.5rem",
-                                cursor: "pointer",
-                                fontSize: "0.85rem",
-                                borderBottom:
-                                  sIdx < geoState.suggestions.length - 1
-                                    ? "1px solid #f3f4f6"
-                                    : "none",
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.background = "#f3f4f6";
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.background = "white";
-                              }}
-                            >
-                              {sugg.label}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-
-                    {pickingStopId === stop.id && (
-                      <p
+                        aria-label="Nach oben verschieben"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleMoveDown(idx)}
+                        disabled={isLast || isSubmitting}
                         style={{
-                          margin: 0,
-                          fontSize: "0.8rem",
-                          color: "#2563eb",
+                          padding: "0.2rem 0.5rem",
+                          fontSize: "0.75rem",
+                          background: "#f3f4f6",
+                          border: "1px solid #d1d5db",
+                          borderRadius: "4px",
+                          cursor:
+                            isLast || isSubmitting ? "not-allowed" : "pointer",
+                          opacity: isLast || isSubmitting ? 0.5 : 1,
+                        }}
+                        aria-label="Nach unten verschieben"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveStop(stop.id)}
+                        disabled={stops.length <= 2 || isSubmitting}
+                        style={{
+                          padding: "0.2rem 0.5rem",
+                          fontSize: "0.75rem",
+                          background: "#fef2f2",
+                          border: "1px solid #fecaca",
+                          borderRadius: "4px",
+                          color: "#991b1b",
+                          cursor:
+                            stops.length <= 2 || isSubmitting
+                              ? "not-allowed"
+                              : "pointer",
+                          opacity: stops.length <= 2 || isSubmitting ? 0.5 : 1,
+                        }}
+                        aria-label="Entfernen"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Address Input + Geocoding */}
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type="text"
+                      placeholder="Adresse eingeben…"
+                      value={stop.address}
+                      onChange={(e) =>
+                        handleAddressInput(stop.id, e.target.value)
+                      }
+                      onBlur={() => {
+                        // Beim Verlassen die Vorschläge erst nach kurzer Verzögerung schließen,
+                        // damit der Klick auf einen Vorschlag noch registriert wird
+                        setTimeout(() => handleCloseSuggestions(stop.id), 200);
+                      }}
+                      onFocus={(e) => {
+                        // Bei Fokus und genug Text: Suche neu starten
+                        if (
+                          e.target.value.trim().length >=
+                          GEOCODING_MIN_QUERY_LENGTH
+                        ) {
+                          handleAddressInput(stop.id, e.target.value);
+                        }
+                      }}
+                      disabled={isSubmitting}
+                      style={{
+                        width: "100%",
+                        padding: "0.5rem",
+                        border: "1px solid #d1d5db",
+                        borderRadius: "4px",
+                        fontSize: "0.85rem",
+                        boxSizing: "border-box",
+                      }}
+                    />
+                    {geoState?.loading && (
+                      <span
+                        style={{
+                          position: "absolute",
+                          right: "0.5rem",
+                          top: "0.6rem",
+                          fontSize: "0.75rem",
+                          color: "#6b7280",
                         }}
                       >
-                        Klicken Sie auf die Karte, um den Punkt zu platzieren.
-                      </p>
+                        Suche…
+                      </span>
                     )}
-
-                    {/* Charging Station Picker (inline, nur für dieses Ziel) */}
-                    {pickerTargetId === stop.id && (
-                      <ChargingStationPicker
-                        onSelect={handleChargingStationSelect}
-                        onCancel={handleChargingStationCancel}
-                      />
-                    )}
-
-                    {/* Abfahrt hier (nur für nicht-letzte Stopps) */}
-                    {showLeaveAt && (
-                      <div>
-                        <label
-                          style={{
-                            display: "block",
-                            fontSize: "0.8rem",
-                            marginBottom: "0.25rem",
-                            fontWeight: 500,
-                          }}
-                        >
-                          Abfahrt hier
-                        </label>
-                        <div style={{ display: "flex", gap: "0.4rem" }}>
-                          <input
-                            type="date"
-                            value={leaveAtParts?.date ?? ""}
-                            onChange={(e) => {
-                              const newTime = leaveAtParts?.time ?? "12:00";
-                              if (e.target.value) {
-                                handleLeaveAtChange(
-                                  stop.id,
-                                  e.target.value,
-                                  newTime,
-                                );
-                              } else {
-                                handleLeaveAtClear(stop.id);
-                              }
+                    {showSuggestions && (
+                      <ul
+                        style={{
+                          position: "absolute",
+                          top: "100%",
+                          left: 0,
+                          right: 0,
+                          zIndex: 10,
+                          background: "white",
+                          border: "1px solid #d1d5db",
+                          borderTop: "none",
+                          borderRadius: "0 0 4px 4px",
+                          listStyle: "none",
+                          margin: 0,
+                          padding: 0,
+                          maxHeight: "200px",
+                          overflowY: "auto",
+                          boxShadow: "0 2px 6px rgba(0,0,0,0.1)",
+                        }}
+                      >
+                        {geoState.suggestions.map((sugg, sIdx) => (
+                          <li
+                            key={sIdx}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              handleSuggestionSelect(stop.id, sugg);
                             }}
                             style={{
-                              flex: 1,
-                              padding: "0.4rem",
-                              fontSize: "0.85rem",
-                            }}
-                          />
-                          <input
-                            type="time"
-                            value={leaveAtParts?.time ?? ""}
-                            onChange={(e) => {
-                              const newDate = leaveAtParts?.date ?? "";
-                              if (e.target.value) {
-                                handleLeaveAtChange(
-                                  stop.id,
-                                  newDate,
-                                  e.target.value,
-                                );
-                              } else {
-                                handleLeaveAtClear(stop.id);
-                              }
-                            }}
-                            style={{
-                              flex: 1,
-                              padding: "0.4rem",
-                              fontSize: "0.85rem",
-                            }}
-                          />
-                        </div>
-                        {stop.leaveAt && (
-                          <button
-                            type="button"
-                            onClick={() => handleLeaveAtClear(stop.id)}
-                            style={{
-                              marginTop: "0.25rem",
-                              padding: "0.2rem 0.4rem",
-                              fontSize: "0.75rem",
-                              background: "none",
-                              border: "none",
-                              color: "#991b1b",
+                              padding: "0.5rem",
                               cursor: "pointer",
-                              textDecoration: "underline",
+                              fontSize: "0.85rem",
+                              borderBottom:
+                                sIdx < geoState.suggestions.length - 1
+                                  ? "1px solid #f3f4f6"
+                                  : "none",
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = "#f3f4f6";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = "white";
                             }}
                           >
-                            Abfahrtszeit löschen
-                          </button>
-                        )}
-                      </div>
+                            {sugg.label}
+                          </li>
+                        ))}
+                      </ul>
                     )}
                   </div>
-                </TimelineRow>
-              </Fragment>
+
+                  {pickingStopId === stop.id && (
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: "0.8rem",
+                        color: "#2563eb",
+                      }}
+                    >
+                      Klicken Sie auf die Karte, um den Punkt zu platzieren.
+                    </p>
+                  )}
+
+                  {/* Charging Station Picker (inline, nur für dieses Ziel) */}
+                  {pickerTargetId === stop.id && (
+                    <ChargingStationPicker
+                      onSelect={handleChargingStationSelect}
+                      onCancel={handleChargingStationCancel}
+                    />
+                  )}
+
+                  {/* Abfahrt hier (nur für nicht-letzte Stopps) */}
+                  {showLeaveAt && (
+                    <div>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: "0.8rem",
+                          marginBottom: "0.25rem",
+                          fontWeight: 500,
+                        }}
+                      >
+                        Abfahrt hier
+                      </label>
+                      <div style={{ display: "flex", gap: "0.4rem" }}>
+                        <input
+                          type="date"
+                          value={leaveAtParts?.date ?? ""}
+                          onChange={(e) => {
+                            const newTime = leaveAtParts?.time ?? "12:00";
+                            if (e.target.value) {
+                              handleLeaveAtChange(
+                                stop.id,
+                                e.target.value,
+                                newTime,
+                              );
+                            } else {
+                              handleLeaveAtClear(stop.id);
+                            }
+                          }}
+                          style={{
+                            flex: 1,
+                            padding: "0.4rem",
+                            fontSize: "0.85rem",
+                          }}
+                        />
+                        <input
+                          type="time"
+                          value={leaveAtParts?.time ?? ""}
+                          onChange={(e) => {
+                            const newDate = leaveAtParts?.date ?? "";
+                            if (e.target.value) {
+                              handleLeaveAtChange(
+                                stop.id,
+                                newDate,
+                                e.target.value,
+                              );
+                            } else {
+                              handleLeaveAtClear(stop.id);
+                            }
+                          }}
+                          style={{
+                            flex: 1,
+                            padding: "0.4rem",
+                            fontSize: "0.85rem",
+                          }}
+                        />
+                      </div>
+                      {stop.leaveAt && (
+                        <button
+                          type="button"
+                          onClick={() => handleLeaveAtClear(stop.id)}
+                          style={{
+                            marginTop: "0.25rem",
+                            padding: "0.2rem 0.4rem",
+                            fontSize: "0.75rem",
+                            background: "none",
+                            border: "none",
+                            color: "#991b1b",
+                            cursor: "pointer",
+                            textDecoration: "underline",
+                          }}
+                        >
+                          Abfahrtszeit löschen
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </TimelineRow>
             );
           }
 
@@ -1663,81 +1677,106 @@ export function TripPlannerForm({
             const ladedauerMin = Math.round(
               (vorgabe?.ladedauer_s ?? stop.ladedauer_s) / 60,
             );
+            const abfahrtDatumKurz = istTageswechsel(
+              stop.ankunftszeit,
+              stop.abfahrtszeit,
+            )
+              ? formatTagMonat(stop.abfahrtszeit)
+              : undefined;
+
             return (
-              <Fragment key={stop.station_id}>
-                {tagestrenner}
-                <TimelineRow icon={Zap} background="#dcfce7">
-                  <div
+              <TimelineRow
+                key={stop.station_id}
+                icon={Zap}
+                background="#dcfce7"
+              >
+                <div
+                  style={{
+                    position: "relative",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: "6px",
+                    padding: "0.5rem 0.75rem",
+                    background: "white",
+                    fontSize: "0.8rem",
+                    display: "grid",
+                    gap: "0.3rem",
+                  }}
+                >
+                  <Zeitbadge
+                    kante="oben"
+                    iso={stop.ankunftszeit}
+                    socPct={stop.ankunfts_soc_pct}
+                  />
+                  <Zeitbadge
+                    kante="unten"
+                    iso={stop.abfahrtszeit}
+                    socPct={stop.ziel_soc_pct}
+                    datumKurz={abfahrtDatumKurz}
+                  />
+                  <strong>{formatLadestationName(stop.name)}</strong>
+                  <label
                     style={{
-                      position: "relative",
-                      border: "1px solid #e5e7eb",
-                      borderRadius: "6px",
-                      padding: "0.5rem 0.75rem",
-                      background: "white",
-                      fontSize: "0.8rem",
-                      display: "grid",
-                      gap: "0.3rem",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.4rem",
                     }}
                   >
-                    <Zeitbadge
-                      kante="oben"
-                      iso={stop.ankunftszeit}
-                      socPct={stop.ankunfts_soc_pct}
-                    />
-                    <Zeitbadge
-                      kante="unten"
-                      iso={stop.abfahrtszeit}
-                      socPct={stop.ziel_soc_pct}
-                    />
-                    <strong>{formatLadestationName(stop.name)}</strong>
-                    <label
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "0.4rem",
+                    Ladedauer (min)
+                    <input
+                      type="number"
+                      min="0"
+                      step="5"
+                      value={ladedauerMin}
+                      disabled={isSubmitting}
+                      onChange={(e) => {
+                        const next = setLadedauerVorgabeFuer(
+                          ladedauerVorgaben,
+                          stop.station_id,
+                          parseFloat(e.target.value) || 0,
+                        );
+                        setLadedauerVorgaben(next);
                       }}
-                    >
-                      Ladedauer (min)
-                      <input
-                        type="number"
-                        min="0"
-                        step="5"
-                        value={ladedauerMin}
-                        disabled={isSubmitting}
-                        onChange={(e) => {
-                          const next = setLadedauerVorgabeFuer(
-                            ladedauerVorgaben,
-                            stop.station_id,
-                            parseFloat(e.target.value) || 0,
-                          );
-                          setLadedauerVorgaben(next);
-                        }}
-                        onBlur={() =>
-                          buildAndSubmit(
-                            alleFaehrenVermeiden,
-                            vermiedeneFaehren,
-                            faehrZeitfenster,
-                            ladedauerVorgaben,
-                          )
-                        }
-                        style={{ width: "5rem", padding: "0.3rem" }}
-                      />
-                    </label>
-                  </div>
-                </TimelineRow>
-              </Fragment>
+                      onBlur={() =>
+                        buildAndSubmit(
+                          alleFaehrenVermeiden,
+                          vermiedeneFaehren,
+                          faehrZeitfenster,
+                          ladedauerVorgaben,
+                        )
+                      }
+                      style={{ width: "5rem", padding: "0.3rem" }}
+                    />
+                  </label>
+                </div>
+              </TimelineRow>
+            );
+          }
+
+          if (eintrag.art === "Tagestrenner") {
+            return (
+              <Tagestrenner
+                key={`trenner-${entryIdx}`}
+                vorherigeIso={eintrag.vonIso}
+                aktuelleIso={eintrag.bisIso}
+              />
             );
           }
 
           if (eintrag.art === "Fahrsegment") {
+            // Fahrsegment quer über Mitternacht: Strecke/Zeit/beide Daten
+            // in EINER Zeile statt zusätzlich einen separaten
+            // Tagestrenner zu rendern (siehe `FahrsegmentEintrag`-
+            // Docstring in `route-eintraege.ts`).
+            const tageswechsel = istTageswechsel(eintrag.vonIso, eintrag.bisIso)
+              ? { vonIso: eintrag.vonIso, bisIso: eintrag.bisIso }
+              : undefined;
             return (
-              <Fragment key={`fahrsegment-${entryIdx}`}>
-                {tagestrenner}
-                <FahrsegmentZeile
-                  distanzKm={eintrag.distanzKm}
-                  dauerMin={eintrag.dauerMin}
-                />
-              </Fragment>
+              <FahrsegmentZeile
+                key={`fahrsegment-${entryIdx}`}
+                distanzKm={eintrag.distanzKm}
+                dauerMin={eintrag.dauerMin}
+                tageswechsel={tageswechsel}
+              />
             );
           }
 
@@ -1806,136 +1845,140 @@ export function TripPlannerForm({
             );
           };
 
+          const abfahrtDatumKurz =
+            eintrag.timing.departure !== null &&
+            istTageswechsel(eintrag.timing.arrival, eintrag.timing.departure)
+              ? formatTagMonat(eintrag.timing.departure)
+              : undefined;
+
           return (
-            <Fragment key={key}>
-              {tagestrenner}
-              <TimelineRow icon={Ship} background="#dbeafe">
-                <div
-                  style={{
-                    position: "relative",
-                    border: "1px solid #bfdbfe",
-                    borderRadius: "6px",
-                    padding: "0.5rem 0.75rem",
-                    background: "#eff6ff",
-                    display: "grid",
-                    gap: "0.4rem",
-                  }}
-                >
-                  {eintrag.timing.arrival !== null && (
+            <TimelineRow key={key} icon={Ship} background="#dbeafe">
+              <div
+                style={{
+                  position: "relative",
+                  border: "1px solid #bfdbfe",
+                  borderRadius: "6px",
+                  padding: "0.5rem 0.75rem",
+                  background: "#eff6ff",
+                  display: "grid",
+                  gap: "0.4rem",
+                }}
+              >
+                {eintrag.timing.arrival !== null && (
+                  <Zeitbadge
+                    kante="oben"
+                    iso={eintrag.timing.arrival}
+                    socPct={eintrag.timing.arrivalSocPct ?? undefined}
+                  />
+                )}
+                {eintrag.timing.departure !== null &&
+                  unterscheidetSichAlsUhrzeit(
+                    eintrag.timing.arrival,
+                    eintrag.timing.departure,
+                  ) && (
                     <Zeitbadge
-                      kante="oben"
-                      iso={eintrag.timing.arrival}
-                      socPct={eintrag.timing.arrivalSocPct ?? undefined}
+                      kante="unten"
+                      iso={eintrag.timing.departure}
+                      socPct={eintrag.timing.departureSocPct ?? undefined}
+                      datumKurz={abfahrtDatumKurz}
                     />
                   )}
-                  {eintrag.timing.departure !== null &&
-                    unterscheidetSichAlsUhrzeit(
-                      eintrag.timing.arrival,
-                      eintrag.timing.departure,
-                    ) && (
-                      <Zeitbadge
-                        kante="unten"
-                        iso={eintrag.timing.departure}
-                        socPct={eintrag.timing.departureSocPct ?? undefined}
-                      />
-                    )}
-                  <div
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "0.5rem",
+                  }}
+                >
+                  <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>
+                    ⛴ {faehre.name} ({(faehre.laenge_m / 1000).toFixed(1)} km)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleIgnorieren}
+                    disabled={isSubmitting}
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: "0.5rem",
+                      padding: "0.2rem 0.5rem",
+                      fontSize: "0.75rem",
+                      background: "#fef2f2",
+                      border: "1px solid #fecaca",
+                      borderRadius: "4px",
+                      color: "#991b1b",
+                      cursor: isSubmitting ? "not-allowed" : "pointer",
                     }}
                   >
-                    <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                      ⛴ {faehre.name} ({(faehre.laenge_m / 1000).toFixed(1)} km)
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleIgnorieren}
+                    Ignorieren
+                  </button>
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gap: "0.25rem",
+                    fontSize: "0.8rem",
+                  }}
+                >
+                  <span>Fährfahrplan (optional, für die Planung):</span>
+                  <div style={{ display: "flex", gap: "0.4rem" }}>
+                    <input
+                      type="date"
+                      value={abfahrtParts?.date ?? ""}
                       disabled={isSubmitting}
-                      style={{
-                        padding: "0.2rem 0.5rem",
-                        fontSize: "0.75rem",
-                        background: "#fef2f2",
-                        border: "1px solid #fecaca",
-                        borderRadius: "4px",
-                        color: "#991b1b",
-                        cursor: isSubmitting ? "not-allowed" : "pointer",
-                      }}
-                    >
-                      Ignorieren
-                    </button>
+                      onChange={(e) =>
+                        handleZeitfensterChange(
+                          "abfahrt",
+                          e.target.value,
+                          abfahrtParts?.time ?? "12:00",
+                        )
+                      }
+                      style={{ flex: 1, padding: "0.3rem" }}
+                    />
+                    <input
+                      type="time"
+                      value={abfahrtParts?.time ?? ""}
+                      disabled={isSubmitting}
+                      onChange={(e) =>
+                        handleZeitfensterChange(
+                          "abfahrt",
+                          abfahrtParts?.date ?? "",
+                          e.target.value,
+                        )
+                      }
+                      style={{ flex: 1, padding: "0.3rem" }}
+                    />
                   </div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gap: "0.25rem",
-                      fontSize: "0.8rem",
-                    }}
-                  >
-                    <span>Fährfahrplan (optional, für die Planung):</span>
-                    <div style={{ display: "flex", gap: "0.4rem" }}>
-                      <input
-                        type="date"
-                        value={abfahrtParts?.date ?? ""}
-                        disabled={isSubmitting}
-                        onChange={(e) =>
-                          handleZeitfensterChange(
-                            "abfahrt",
-                            e.target.value,
-                            abfahrtParts?.time ?? "12:00",
-                          )
-                        }
-                        style={{ flex: 1, padding: "0.3rem" }}
-                      />
-                      <input
-                        type="time"
-                        value={abfahrtParts?.time ?? ""}
-                        disabled={isSubmitting}
-                        onChange={(e) =>
-                          handleZeitfensterChange(
-                            "abfahrt",
-                            abfahrtParts?.date ?? "",
-                            e.target.value,
-                          )
-                        }
-                        style={{ flex: 1, padding: "0.3rem" }}
-                      />
-                    </div>
-                    <span>Ankunft:</span>
-                    <div style={{ display: "flex", gap: "0.4rem" }}>
-                      <input
-                        type="date"
-                        value={ankunftParts?.date ?? ""}
-                        disabled={isSubmitting}
-                        onChange={(e) =>
-                          handleZeitfensterChange(
-                            "ankunft",
-                            e.target.value,
-                            ankunftParts?.time ?? "12:00",
-                          )
-                        }
-                        style={{ flex: 1, padding: "0.3rem" }}
-                      />
-                      <input
-                        type="time"
-                        value={ankunftParts?.time ?? ""}
-                        disabled={isSubmitting}
-                        onChange={(e) =>
-                          handleZeitfensterChange(
-                            "ankunft",
-                            ankunftParts?.date ?? "",
-                            e.target.value,
-                          )
-                        }
-                        style={{ flex: 1, padding: "0.3rem" }}
-                      />
-                    </div>
+                  <span>Ankunft:</span>
+                  <div style={{ display: "flex", gap: "0.4rem" }}>
+                    <input
+                      type="date"
+                      value={ankunftParts?.date ?? ""}
+                      disabled={isSubmitting}
+                      onChange={(e) =>
+                        handleZeitfensterChange(
+                          "ankunft",
+                          e.target.value,
+                          ankunftParts?.time ?? "12:00",
+                        )
+                      }
+                      style={{ flex: 1, padding: "0.3rem" }}
+                    />
+                    <input
+                      type="time"
+                      value={ankunftParts?.time ?? ""}
+                      disabled={isSubmitting}
+                      onChange={(e) =>
+                        handleZeitfensterChange(
+                          "ankunft",
+                          ankunftParts?.date ?? "",
+                          e.target.value,
+                        )
+                      }
+                      style={{ flex: 1, padding: "0.3rem" }}
+                    />
                   </div>
                 </div>
-              </TimelineRow>
-            </Fragment>
+              </div>
+            </TimelineRow>
           );
         })}
       </ol>

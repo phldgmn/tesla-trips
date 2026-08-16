@@ -420,4 +420,109 @@ describe("buildRouteEintraege", () => {
       expect(result.every((e) => e.art === "Stopp")).toBe(true);
     });
   });
+
+  describe("Tageswechsel-Handling", () => {
+    it("fügt einen Tagestrenner ein, wenn der Zeitpunkt-Sprung zu kurz für ein Fahrsegment ist, aber der Tag wechselt", () => {
+      const frames = [
+        makeFrame("2025-01-01T23:59:50", 52.0, 13.0),
+        makeFrame("2025-01-02T00:00:10", 52.0, 13.0002),
+      ];
+      const stops = [
+        makeStop("1", "Start", [52.0, 13.0]),
+        makeStop("2", "Ziel", [52.0, 13.0002]),
+      ];
+
+      const result = buildRouteEintraege({
+        stops,
+        frames,
+        chargingStops: undefined,
+        erkannteFaehren: undefined,
+        vermiedeneFaehren: [],
+      });
+
+      expect(result.map((e) => e.art)).toEqual([
+        "Stopp",
+        "Tagestrenner",
+        "Stopp",
+      ]);
+      const trenner = result[1];
+      if (trenner.art !== "Tagestrenner") throw new Error("unreachable");
+      expect(trenner.vonIso).toBe("2025-01-01T23:59:50");
+      expect(trenner.bisIso).toBe("2025-01-02T00:00:10");
+    });
+
+    it("erzeugt KEINEN separaten Tagestrenner, wenn ein Fahrsegment selbst den Tag wechselt", () => {
+      const frames = [
+        makeFrame("2025-01-01T23:00:00", 52.0, 13.0),
+        makeFrame("2025-01-01T23:30:00", 52.0, 13.1),
+        makeFrame("2025-01-02T00:00:00", 52.0, 13.2),
+      ];
+      const stops = [
+        makeStop("1", "Start", [52.0, 13.0]),
+        makeStop("2", "Ziel", [52.0, 13.2]),
+      ];
+
+      const result = buildRouteEintraege({
+        stops,
+        frames,
+        chargingStops: undefined,
+        erkannteFaehren: undefined,
+        vermiedeneFaehren: [],
+      });
+
+      // Nur EIN verbindender Eintrag (Fahrsegment) trägt den Tageswechsel -
+      // kein zusätzlicher Tagestrenner daneben.
+      expect(result.map((e) => e.art)).toEqual([
+        "Stopp",
+        "Fahrsegment",
+        "Stopp",
+      ]);
+      const fahrsegment = result[1];
+      if (fahrsegment.art !== "Fahrsegment") throw new Error("unreachable");
+      expect(fahrsegment.vonIso).toBe("2025-01-01T23:00:00");
+      expect(fahrsegment.bisIso).toBe("2025-01-02T00:00:00");
+    });
+
+    it("erzeugt keinen Connector-Eintrag für einen Tageswechsel INNERHALB eines Ladehalts", () => {
+      // Ladehalt beginnt 23:50 und endet 00:10 (nächster Tag) - der
+      // Tageswechsel liegt hier INNERHALB des Ladehalts selbst, nicht
+      // zwischen zwei verschiedenen Einträgen. route-eintraege.ts vergleicht
+      // für Connectoren nur `verbindungsZeitpunkt`e VERSCHIEDENER Einträge,
+      // nie Ankunft/Abfahrt DESSELBEN Eintrags - hier darf also kein
+      // Tagestrenner/Fahrsegment entstehen (die Zeit-Badges des Ladehalts
+      // selbst zeigen das Datum an, siehe TripPlannerForm.tsx).
+      const frames = [
+        makeFrame("2025-01-01T23:00:00", 52.0, 13.0),
+        makeFrame("2025-01-02T01:00:00", 52.0, 13.2),
+      ];
+      const stops = [
+        makeStop("1", "Start", [52.0, 13.0]),
+        makeStop("2", "Ziel", [52.0, 13.2]),
+      ];
+      const chargingStops = [
+        makeChargingStop({
+          ankunftszeit: "2025-01-01T23:50:00",
+          abfahrtszeit: "2025-01-02T00:10:00",
+        }),
+      ];
+
+      const result = buildRouteEintraege({
+        stops,
+        frames,
+        chargingStops,
+        erkannteFaehren: undefined,
+        vermiedeneFaehren: [],
+      });
+
+      // Start -[Fahrsegment]-> Ladehalt -[Fahrsegment]-> Ziel, kein
+      // zusätzlicher Tagestrenner rund um den Ladehalt selbst.
+      expect(result.map((e) => e.art)).toEqual([
+        "Stopp",
+        "Fahrsegment",
+        "Ladehalt",
+        "Fahrsegment",
+        "Stopp",
+      ]);
+    });
+  });
 });

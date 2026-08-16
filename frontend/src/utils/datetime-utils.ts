@@ -77,6 +77,22 @@ export function formatDatumKurz(iso: string): string {
   }
 }
 
+/** Formatiert einen ISO-Zeitstempel als knappes Datum OHNE Wochentag (z. B.
+ *  "18.08.") - kompakter als `formatDatumKurz`, für die Datums-Ergänzung an
+ *  einem Zeit-Badge, wenn Ankunft und Abfahrt DESSELBEN Eintrags auf
+ *  unterschiedliche Kalendertage fallen (siehe `istTageswechsel`). Steht
+ *  dort inline neben Uhrzeit und SoC, ein voller Wochentag wäre zu lang. */
+export function formatTagMonat(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString("de-DE", {
+      day: "2-digit",
+      month: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
+
 /** Extrahiert den Kalendertag-Schlüssel (YYYY-MM-DD) aus einem naiven,
  *  zeitzonenlosen ISO-Zeitstempel. Reines String-Slicing statt
  *  `Date`-Parsing, um Zeitzonen-Verschiebungen bei der Tagesgrenze

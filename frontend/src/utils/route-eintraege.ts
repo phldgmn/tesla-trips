@@ -23,6 +23,7 @@ import {
   cumulativeDistancesKm,
   berechneFahrsegment,
 } from "./timing-utils";
+import { istTageswechsel } from "./datetime-utils";
 
 /**
  * Vergleicht zwei FaehrAusschluss-Einträge auf inhaltliche Gleichheit.
@@ -67,7 +68,11 @@ export type PunktEintrag =
     };
 
 /** Verbindender Eintrag zwischen zwei `PunktEintrag`en: gefahrene Strecke/
- *  Zeit zwischen deren `verbindungsZeitpunkt`en. */
+ *  Zeit zwischen deren `verbindungsZeitpunkt`en. Trägt KEIN eigenes
+ *  Tageswechsel-Flag - Aufrufer prüfen `istTageswechsel(vonIso, bisIso)`
+ *  direkt, um Strecke/Zeit/beide Daten in einer Zeile zu kombinieren (siehe
+ *  `FahrsegmentZeile` in `TripPlannerForm.tsx`), statt separat einen
+ *  `Tagestrenner` zu rendern. */
 export interface FahrsegmentEintrag {
   art: "Fahrsegment";
   sortKey: string | null;
@@ -77,7 +82,24 @@ export interface FahrsegmentEintrag {
   dauerMin: number;
 }
 
-export type RouteEintrag = PunktEintrag | FahrsegmentEintrag;
+/** Tageswechsel-Trenner zwischen zwei `PunktEintrag`en OHNE Fahrsegment
+ *  dazwischen (z. B. Verbindung unterhalb der Mindestdauer) - mit
+ *  Fahrsegment wird der Tageswechsel stattdessen in dessen Zeile
+ *  kombiniert (siehe `FahrsegmentEintrag`-Docstring). Bewusst NICHT anhand
+ *  von Ankunft/Abfahrt DESSELBEN Eintrags gebildet (das wäre ein
+ *  Tageswechsel INNERHALB eines Aufenthalts, z. B. ein Ladehalt über
+ *  Mitternacht - dafür zeigen die Zeit-Badges des jeweiligen Eintrags
+ *  selbst das Datum an, siehe `Zeitbadge`/`istTageswechsel`-Aufruf in
+ *  `TripPlannerForm.tsx`). */
+export interface TagestrennerEintrag {
+  art: "Tagestrenner";
+  sortKey: string | null;
+  vonIso: string;
+  bisIso: string;
+}
+
+export type RouteEintrag =
+  PunktEintrag | FahrsegmentEintrag | TagestrennerEintrag;
 
 /** Zeitpunkt, an dem ein `PunktEintrag` mit einem angrenzenden Fahrsegment
  *  verbunden wird: "anfang" bevorzugt die Ankunft (Fahrsegment endet hier),
@@ -225,15 +247,28 @@ export function buildRouteEintraege(args: {
     if (von === null || bis === null || von === bis) return;
 
     const segment = berechneFahrsegment(von, bis, frames, cumulativeKm);
-    if (!segment || segment.dauerMin < MIN_FAHRSEGMENT_DAUER_MIN) return;
+    const hatFahrsegment =
+      segment !== null && segment.dauerMin >= MIN_FAHRSEGMENT_DAUER_MIN;
 
-    ergebnis.push({
-      art: "Fahrsegment" as const,
-      sortKey: von,
-      vonIso: von,
-      bisIso: bis,
-      ...segment,
-    });
+    if (hatFahrsegment) {
+      ergebnis.push({
+        art: "Fahrsegment" as const,
+        sortKey: von,
+        vonIso: von,
+        bisIso: bis,
+        ...segment,
+      });
+      return;
+    }
+
+    if (istTageswechsel(von, bis)) {
+      ergebnis.push({
+        art: "Tagestrenner" as const,
+        sortKey: von,
+        vonIso: von,
+        bisIso: bis,
+      });
+    }
   });
 
   return ergebnis;
