@@ -6,6 +6,7 @@ ORToolsOptimizer: Platzhalter für zukünftige CP-SAT Implementierung.
 
 from __future__ import annotations
 
+import bisect
 import math
 from collections import deque
 from datetime import datetime, timedelta
@@ -21,7 +22,6 @@ from tripplanner.energy.models import SegmentEnergyResult
 from tripplanner.optimization.discretizer import (
     SOC_STEP_PCT_DEFAULT,
     TIME_STEP_MIN_DEFAULT,
-    bucket_to_soc,
     soc_to_bucket,
     zeit_to_bucket,
 )
@@ -66,6 +66,7 @@ class NetworkXOptimizer(OptimizerInterface):
         self.soc_step_pct = soc_step_pct
         self.time_step_min = time_step_min
         self._base_time: datetime
+        self._cum_len_m: list[float]
 
     def optimize(  # noqa: PLR0913, PLR0917 -- vollständiger Zustand des Optimierungsproblems, siehe docs/plans/07-optimization.md Abschnitt 4
         self,
@@ -153,12 +154,27 @@ class NetworkXOptimizer(OptimizerInterface):
         # Setze Basiszeit für Zeit-Bucket Berechnungen
         self._base_time = abfahrtszeit
 
+        # Kumulative Distanz-/Energie-Präfixsummen über die Roh-Segmente.
+        # Ermöglichen O(1)-Aggregation einer ganzen Teilstrecke zwischen zwei
+        # Entscheidungspunkten (`_add_drive_edge`) sowie eine O(1)-Restdistanz
+        # für die A*-Heuristik (`_heuristik`) statt O(n) Neuberechnung pro
+        # Kante/Heuristik-Aufruf - kritisch bei feingranularen Routen mit
+        # tausenden Roh-Segmenten (ein Segment pro GraphHopper-Polyline-
+        # Punktpaar), siehe docs/plans/07-optimization.md, Risiko
+        # "Skalierbarkeit der NetworkX-Lösung".
+        cum_len_m = [0.0] * (len(segments) + 1)
+        cum_energy_kwh = [0.0] * (len(segments) + 1)
+        for i, (seg, er) in enumerate(zip(segments, energy_results, strict=True)):
+            cum_len_m[i + 1] = cum_len_m[i] + seg.laenge_m
+            cum_energy_kwh[i + 1] = cum_energy_kwh[i] + er.energiebedarf_kwh
+        self._cum_len_m = cum_len_m
+
         # Generiere Knoten und Kanten
         self._generate_graph(
             G=G,
             segments=segments,
-            energy_results=energy_results,
-            charging_stations=charging_stations,
+            cum_len_m=cum_len_m,
+            cum_energy_kwh=cum_energy_kwh,
             waypoint_map=waypoint_map,
             station_segments=station_segments,
             vehicle_profile=vehicle_profile,
@@ -169,7 +185,7 @@ class NetworkXOptimizer(OptimizerInterface):
             ziel_soc_target=ziel_soc_target,
             max_time_buckets=self._estimate_max_time_buckets(
                 segments,
-                total_energy_kwh=sum(e.energiebedarf_kwh for e in energy_results),
+                total_energy_kwh=cum_energy_kwh[-1],
                 vehicle_profile=vehicle_profile,
                 constraints=constraints,
             ),
@@ -343,8 +359,8 @@ class NetworkXOptimizer(OptimizerInterface):
         self,
         G: DiGraph,
         segments: list[RouteSegment],
-        energy_results: list[SegmentEnergyResult],
-        charging_stations: list[ChargingStation],
+        cum_len_m: list[float],
+        cum_energy_kwh: list[float],
         waypoint_map: dict[int, list[Waypoint]],
         station_segments: dict[int, list[ChargingStation]],
         vehicle_profile: VehicleProfile,
@@ -368,6 +384,18 @@ class NetworkXOptimizer(OptimizerInterface):
         G.nodes[start_node]["total_cost"] = 0.0
         G.nodes[start_node]["parent"] = None
 
+        # Sortierte Liste aller Entscheidungspunkte (Ladestation, Zwischenstopp
+        # oder Fähr-Einstieg). Zwischen zwei Entscheidungspunkten gibt es im
+        # Zustandsgraphen keine Verzweigung - eine Fahrtkante darf die
+        # dazwischenliegenden Roh-Segmente daher in EINEM Sprung überspringen
+        # (siehe `_add_drive_edge`) statt pro Roh-Segment einen eigenen
+        # Zustandsknoten zu erzeugen. Das reduziert die Knotenzahl von
+        # O(Roh-Segmente x SoC-Buckets x Zeit-Buckets) auf
+        # O(Entscheidungspunkte x SoC-Buckets x Zeit-Buckets) - bei
+        # feingranularen Routen (tausende Roh-Segmente, wenige Dutzend
+        # Ladestationen) der entscheidende Faktor (docs/plans/07-optimization.md).
+        checkpoints: list[int] = sorted(set(waypoint_map) | set(station_segments) | set(ferry_pins))
+
         while queue:
             current = queue.popleft()
             if current in visited:
@@ -380,15 +408,13 @@ class NetworkXOptimizer(OptimizerInterface):
             if seg_idx == len(segments) and soc_bucket >= ziel_soc_bucket:
                 continue  # Ziel erreicht, nicht weiter erweitern
 
-            # 1. Fahrtkante: naechstes noch zu befahrendes Segment fahren -
+            # 1. Fahrtkante: bis zum naechsten Entscheidungspunkt (oder bis
+            # zum Ziel, falls keiner mehr folgt) in einem Sprung fahren -
             # ausser der Nutzer hat fuer diese Position einen festen
             # Fährfahrplan vorgegeben (`ferry_pins`), dann wird die gesamte
-            # Fähr-Ueberfahrt in einem Sprung modelliert (siehe
-            # `_add_ferry_edge`) statt sie Segment fuer Segment als normale
-            # Fahrt zu behandeln. seg_idx zaehlt bereits abgefahrene
-            # Segmente (0 = Start, len(segments) = Ziel erreicht);
-            # segments[seg_idx] ist also das naechste Segment, das noch
-            # gefahren werden muss.
+            # Fähr-Ueberfahrt separat modelliert (siehe `_add_ferry_edge`).
+            # seg_idx zaehlt bereits abgefahrene Segmente (0 = Start,
+            # len(segments) = Ziel erreicht).
             if seg_idx < len(segments):
                 if seg_idx in ferry_pins:
                     self._add_ferry_edge(
@@ -399,18 +425,18 @@ class NetworkXOptimizer(OptimizerInterface):
                         queue=queue,
                     )
                 else:
+                    idx = bisect.bisect_right(checkpoints, seg_idx)
+                    target_seg_idx = checkpoints[idx] if idx < len(checkpoints) else len(segments)
                     self._add_drive_edge(
                         G=G,
                         current=current,
-                        drive_seg_idx=seg_idx,
-                        segments=segments,
-                        energy_results=energy_results,
-                        soc_bucket=soc_bucket,
-                        time_bucket=time_bucket,
+                        seg_idx=seg_idx,
+                        target_seg_idx=target_seg_idx,
+                        cum_len_m=cum_len_m,
+                        cum_energy_kwh=cum_energy_kwh,
                         max_time_buckets=max_time_buckets,
                         constraints=constraints,
                         vehicle_profile=vehicle_profile,
-                        ladekurve=ladekurve,
                         queue=queue,
                     )
 
@@ -450,37 +476,41 @@ class NetworkXOptimizer(OptimizerInterface):
         self,
         G: DiGraph,
         current: tuple[int, int, int],
-        drive_seg_idx: int,
-        segments: list[RouteSegment],
-        energy_results: list[SegmentEnergyResult],
-        soc_bucket: int,
-        time_bucket: int,
+        seg_idx: int,
+        target_seg_idx: int,
+        cum_len_m: list[float],
+        cum_energy_kwh: list[float],
         max_time_buckets: int,
         constraints: OptimizationConstraints,
         vehicle_profile: VehicleProfile,
-        ladekurve: ChargingCurve,
         queue: deque[tuple[int, int, int]],
     ) -> None:
-        """Füge eine Fahrtkante für segments[drive_seg_idx] hinzu (naechstes Segment)."""
-        next_seg = segments[drive_seg_idx]
-        energy_result = energy_results[drive_seg_idx]
+        """Füge eine aggregierte Fahrtkante von `seg_idx` bis `target_seg_idx` hinzu.
 
-        # SoC-Verbrauch für dieses Segment
+        `target_seg_idx` ist der naechste Entscheidungspunkt (Ladestation,
+        Zwischenstopp oder Fähr-Einstieg) nach `seg_idx`, oder `len(segments)`
+        falls keiner mehr folgt (siehe `_generate_graph`). Zwischen zwei
+        Entscheidungspunkten verzweigt der Zustandsgraph nicht - eine einzelne
+        Fahrtkante über ALLE dazwischenliegenden Roh-Segmente liefert exakt
+        dasselbe Ergebnis wie eine Kante pro Roh-Segment (Energie/Zeit sind
+        linear additiv, siehe `cum_len_m`/`cum_energy_kwh` in `optimize()`),
+        vermeidet aber die sonst bei feingranularen Routen (ein Segment pro
+        GraphHopper-Polyline-Punktpaar) explodierende Anzahl an
+        Zustandsknoten (docs/plans/07-optimization.md, Risiko "Skalierbarkeit
+        der NetworkX-Lösung").
+        """
+        # SoC-Verbrauch für die gesamte Teilstrecke (aggregierte Energie über
+        # cum_energy_kwh, siehe optimize()).
+        energie_kwh = cum_energy_kwh[target_seg_idx] - cum_energy_kwh[seg_idx]
         verbrauch_pct = self._calc_soc_verbrauch_pct(
-            energy_result=energy_result,
+            energie_kwh=energie_kwh,
             vehicle_profile=vehicle_profile,
         )
 
         # Verbrauch wird vom KONTINUIERLICHEN SoC des Vorgaengerknotens
         # abgezogen (nicht vom gerundeten Bucket) und erst danach fuer den
-        # neuen Knoten wieder gebuckt. Wuerde man stattdessen bei jeder
-        # Kante `round(verbrauch_pct / soc_step_pct)` vom Bucket abziehen,
-        # ginge bei feingranularen Routen (z. B. ein Segment pro GraphHopper-
-        # Polyline-Punktpaar, oft <200 m) der Grossteil des Verbrauchs pro
-        # Kante unter der halben Bucket-Schrittweite (Default 1%) verloren -
-        # bei tausenden Segmenten summiert sich das zu praktisch null
-        # Gesamtverbrauch und der Optimierer haelt faelschlich gar kein
-        # Laden fuer noetig (siehe docs/plans/07-optimization.md).
+        # neuen Knoten wieder gebuckt - siehe docs/plans/07-optimization.md
+        # (Regressionstest: SoC-Quantisierung bei feingranularen Segmenten).
         current_soc_pct = G.nodes[current]["soc_pct"]
         new_soc_pct = current_soc_pct - verbrauch_pct
 
@@ -490,13 +520,13 @@ class NetworkXOptimizer(OptimizerInterface):
             return  # Unzulässig
         new_soc_bucket = soc_to_bucket(new_soc_pct, self.soc_step_pct)
 
-        # Fahrzeit berechnen. Der neue Zeit-Bucket wird aus der TATSAECHLICHEN
-        # kumulierten Zeit des Vorgaengerknotens abgeleitet (nicht inkrementell
-        # aus dem bereits gerundeten Bucket) -- sonst wuerde bei feingranularen
-        # Segmenten (z. B. Fake-Provider-Segmente von wenigen km, jeweils
-        # deutlich kuerzer als ein Zeit-Bucket) jede einzelne Fahrtkante auf 0
-        # Minuten abgerundet und die gesamte Fahrzeit ginge verloren.
-        fahrzeit_s = next_seg.laenge_m / (DEFAULT_SPEED_KMH * 1000 / 3600)
+        # Fahrzeit für die gesamte Teilstrecke (aggregierte Distanz über
+        # cum_len_m). Der neue Zeit-Bucket wird aus der TATSAECHLICHEN
+        # kumulierten Zeit des Vorgaengerknotens abgeleitet (nicht
+        # inkrementell aus dem bereits gerundeten Bucket), sonst ginge bei
+        # kurzen Teilstrecken Fahrzeit durch Rundung verloren.
+        distanz_m = cum_len_m[target_seg_idx] - cum_len_m[seg_idx]
+        fahrzeit_s = distanz_m / (DEFAULT_SPEED_KMH * 1000 / 3600)
         neuer_zeitpunkt = G.nodes[current]["zeitpunkt"] + timedelta(seconds=fahrzeit_s)
         new_time_bucket = zeit_to_bucket(neuer_zeitpunkt, self._base_time, self.time_step_min)
 
@@ -506,10 +536,7 @@ class NetworkXOptimizer(OptimizerInterface):
         # Kosten berechnen
         kosten = fahrzeit_s  # Nur Fahrzeit, keine Ladezeit
 
-        # Nach dem Durchfahren von segments[drive_seg_idx] ist ein weiteres
-        # Segment abgefahren -> Landeknoten zaehlt eins mehr.
-        next_seg_idx = drive_seg_idx + 1
-        next_node = (next_seg_idx, new_soc_bucket, new_time_bucket)
+        next_node = (target_seg_idx, new_soc_bucket, new_time_bucket)
 
         if next_node not in G.nodes:
             G.add_node(
@@ -517,7 +544,7 @@ class NetworkXOptimizer(OptimizerInterface):
                 type="drive",
                 soc_pct=new_soc_pct,
                 zeitpunkt=neuer_zeitpunkt,
-                segment_index=next_seg_idx,
+                segment_index=target_seg_idx,
                 total_cost=COST_INF,
                 parent=None,
             )
@@ -665,10 +692,11 @@ class NetworkXOptimizer(OptimizerInterface):
                 if Ziel_soc <= current_soc_pct:
                     continue  # Bereits höher als Ziel
 
-                # Ladezeit berechnen
-                delta_soc_pct = Ziel_soc - current_soc_pct
+                # Ladezeit berechnen (echtes Start-/End-SoC-Fenster, siehe
+                # `_calc_ladezeit_s`)
                 ladezeit_s = self._calc_ladezeit_s(
-                    delta_soc_pct=delta_soc_pct,
+                    start_soc_pct=current_soc_pct,
+                    end_soc_pct=Ziel_soc,
                     ladekurve=ladekurve,
                     batteriekapazitaet_kwh=vehicle_profile.batteriekapazitaet_kwh,
                 )
@@ -758,7 +786,8 @@ class NetworkXOptimizer(OptimizerInterface):
             return start_soc_pct
 
         ladezeit_bei_max = self._calc_ladezeit_s(
-            delta_soc_pct=max_delta,
+            start_soc_pct=start_soc_pct,
+            end_soc_pct=MAX_SOC_PCT,
             ladekurve=ladekurve,
             batteriekapazitaet_kwh=batteriekapazitaet_kwh,
         )
@@ -769,7 +798,8 @@ class NetworkXOptimizer(OptimizerInterface):
         for _ in range(40):  # 40 Iterationen: Präzision weit unter 1e-9 %-Punkte
             mid = (lo + hi) / 2.0
             dauer = self._calc_ladezeit_s(
-                delta_soc_pct=mid,
+                start_soc_pct=start_soc_pct,
+                end_soc_pct=start_soc_pct + mid,
                 ladekurve=ladekurve,
                 batteriekapazitaet_kwh=batteriekapazitaet_kwh,
             )
@@ -829,50 +859,56 @@ class NetworkXOptimizer(OptimizerInterface):
 
     def _calc_soc_verbrauch_pct(
         self,
-        energy_result: SegmentEnergyResult,
+        energie_kwh: float,
         vehicle_profile: VehicleProfile,
     ) -> float:
-        """Berechne SoC-Verbrauch in Prozent für ein Segment."""
-        batteriekapazitaet_kwh = vehicle_profile.batteriekapazitaet_kwh
+        """Berechne SoC-Verbrauch in Prozent für einen gegebenen Energiebedarf.
 
-        # Energiedifferenz (Verbrauch positiv, Rekuperation negativ)
-        energie_kwh = energy_result.energiebedarf_kwh
-
-        # In Prozent umrechnen
-        return (energie_kwh / batteriekapazitaet_kwh) * MAX_SOC_PCT
+        Args:
+            energie_kwh: Energiebedarf in kWh (Verbrauch positiv, Rekuperation
+                negativ) - typischerweise über eine Teilstrecke aggregiert
+                (siehe `_add_drive_edge`).
+            vehicle_profile: Fahrzeugprofil (liefert die Batteriekapazität).
+        """
+        return (energie_kwh / vehicle_profile.batteriekapazitaet_kwh) * MAX_SOC_PCT
 
     def _calc_ladezeit_s(
         self,
-        delta_soc_pct: float,
+        start_soc_pct: float,
+        end_soc_pct: float,
         ladekurve: ChargingCurve,
         batteriekapazitaet_kwh: float,
     ) -> float:
-        """Berechne Ladezeit in Sekunden für eine SoC-Differenz."""
-        if delta_soc_pct <= 0:
+        """Berechne Ladezeit in Sekunden für den Ladevorgang `start_soc_pct` → `end_soc_pct`.
+
+        Die mittlere Ladeleistung MUSS über das TATSAECHLICHE Start-/End-
+        SoC-Fenster gemittelt werden (`_mittlere_ladeleistung_kw(start_soc_pct,
+        end_soc_pct, ...)`) - eine frühere Fassung leitete das Fenster
+        stattdessen ausschließlich aus der SoC-Differenz ab (angenommenes
+        Fenster `[100-delta, 100]`, so als würde JEDER Ladevorgang bei 100%
+        enden). Das ergab für Teilladungen von niedrigem SoC (z. B. 20% → 80%,
+        real größtenteils im schnellen unteren Kurvenbereich) fälschlich die
+        LANGSAME Taper-Region nahe 100% als Referenz, wodurch Teilladungen
+        gegenüber einer Volladung auf 100% (dort stimmte das angenommene
+        Fenster zufällig, da `end_soc_pct` ohnehin 100% ist) systematisch zu
+        teuer geschätzt wurden. Der A*-Kostenoptimierer bevorzugte dadurch
+        Volladungen auf 100% und vermied es, den SoC vor einem Ladehalt weit
+        absinken zu lassen (siehe Nutzer-Report: Ladehalte mit ~20% Rest-SoC
+        statt der eingestellten Sicherheitsreserve, sowie Volladungen auf
+        100% statt der gewünschten 60-80%).
+        """
+        if end_soc_pct <= start_soc_pct:
             return 0.0
 
-        # Mittlere Ladeleistung über den SoC-Bereich
-        soc_start = bucket_to_soc(
-            soc_to_bucket(
-                bucket_to_soc(
-                    soc_to_bucket(MAX_SOC_PCT - delta_soc_pct, self.soc_step_pct),
-                    self.soc_step_pct,
-                ),
-                self.soc_step_pct,
-            ),
-            self.soc_step_pct,
-        )
-        soc_end = MAX_SOC_PCT
-
-        # Vereinfachung: mittlere Ladeleistung aus Kurve
         mittlere_leistung_kw = self._mittlere_ladeleistung_kw(
-            start_soc_pct=soc_start, end_soc_pct=soc_end, ladekurve=ladekurve
+            start_soc_pct=start_soc_pct, end_soc_pct=end_soc_pct, ladekurve=ladekurve
         )
 
         if mittlere_leistung_kw <= 0:
             return COST_INF  # Unendlich (nicht ladbar)
 
         # Energiebedarf in kWh
+        delta_soc_pct = end_soc_pct - start_soc_pct
         energie_kwh = (delta_soc_pct / MAX_SOC_PCT) * batteriekapazitaet_kwh
 
         # Zeit in Sekunden
@@ -914,8 +950,13 @@ class NetworkXOptimizer(OptimizerInterface):
         """
         u_seg, _, _ = u
 
-        # Distanz von u_seg bis zum Ende
-        rest_distanz_m = sum(seg.laenge_m for seg in segments[u_seg:])
+        # Restdistanz per O(1)-Lookup aus der in `optimize()` vorberechneten
+        # Präfixsumme statt `sum(seg.laenge_m for seg in segments[u_seg:])` -
+        # A* ruft die Heuristik pro expandiertem Knoten auf; bei
+        # feingranularen Routen mit tausenden Segmenten wäre die O(n)-Summe
+        # sonst selbst nach der Aggregation der Fahrtkanten
+        # (`_add_drive_edge`) noch ein spürbarer Kostenfaktor.
+        rest_distanz_m = self._cum_len_m[len(segments)] - self._cum_len_m[u_seg]
 
         # Idealgeschwindigkeit (Autobahn, 110 km/h)
         v_ideal_mps = DEFAULT_SPEED_KMH * 1000 / 3600
