@@ -489,7 +489,7 @@ function FahrsegmentZeile({
       <span
         style={{
           position: "absolute",
-          left: "-1.63rem",
+          left: "-1.40625rem",
           top: "50%",
           transform: "translateY(-50%)",
           display: "flex",
@@ -500,17 +500,19 @@ function FahrsegmentZeile({
       >
         <Car size={13} strokeWidth={2} color="#b0b5bd" />
       </span>
-      <span style={{ fontSize: "0.7rem", color: "#9ca3af" }}>
-        {formatFahrsegmentStrecke(distanzKm)} ·{" "}
-        {formatFahrsegmentDauer(dauerMin)}
-        {tageswechsel && (
-          <>
-            {" · "}
-            {formatDatumKurz(tageswechsel.vonIso)} →{" "}
-            {formatDatumKurz(tageswechsel.bisIso)}
-          </>
-        )}
-      </span>
+      <div style={{ lineHeight: 1 }}>
+        <span style={{ fontSize: "0.7rem", color: "#9ca3af" }}>
+          {formatFahrsegmentStrecke(distanzKm)} ·{" "}
+          {formatFahrsegmentDauer(dauerMin)}
+          {tageswechsel && (
+            <>
+              {" · "}
+              {formatDatumKurz(tageswechsel.vonIso)} →{" "}
+              {formatDatumKurz(tageswechsel.bisIso)}
+            </>
+          )}
+        </span>
+      </div>
     </li>
   );
 }
