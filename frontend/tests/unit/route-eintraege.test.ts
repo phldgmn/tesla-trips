@@ -93,8 +93,18 @@ describe("buildRouteEintraege", () => {
       expect(result[1].stop.id).toBe("2");
       expect(result[0].sortKey).toBeNull();
       expect(result[1].sortKey).toBeNull();
-      expect(result[0].timing).toEqual({ arrival: null, departure: null });
-      expect(result[1].timing).toEqual({ arrival: null, departure: null });
+      expect(result[0].timing).toEqual({
+        arrival: null,
+        departure: null,
+        arrivalSocPct: null,
+        departureSocPct: null,
+      });
+      expect(result[1].timing).toEqual({
+        arrival: null,
+        departure: null,
+        arrivalSocPct: null,
+        departureSocPct: null,
+      });
     });
   });
 
@@ -231,11 +241,15 @@ describe("buildRouteEintraege", () => {
       expect(start?.timing).toEqual({
         arrival: null,
         departure: "2025-01-01T08:00:00",
+        arrivalSocPct: null,
+        departureSocPct: 80,
       });
       // Ziel hat keine Abfahrt (letzter Frame ist die Ankunft)
       expect(ziel?.timing).toEqual({
         arrival: "2025-01-01T09:00:00",
         departure: null,
+        arrivalSocPct: 80,
+        departureSocPct: null,
       });
     });
 
@@ -267,6 +281,8 @@ describe("buildRouteEintraege", () => {
       expect(ladehalt?.timing).toEqual({
         arrival: "2025-01-01T08:30:00",
         departure: "2025-01-01T08:50:00",
+        arrivalSocPct: 60,
+        departureSocPct: 80,
       });
     });
 

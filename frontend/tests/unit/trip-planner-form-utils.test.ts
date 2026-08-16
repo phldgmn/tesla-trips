@@ -8,6 +8,7 @@ import {
   setFaehrZeitfensterFuer,
   setLadedauerVorgabeFuer,
   unterscheidetSichAlsUhrzeit,
+  formatLadestationName,
 } from "@/components/TripPlannerForm";
 import type { Stop } from "@/types/trip-request";
 
@@ -503,6 +504,30 @@ describe("TripPlannerForm pure helpers", () => {
         true,
       );
       expect(unterscheidetSichAlsUhrzeit(null, null)).toBe(true);
+    });
+  });
+
+  // =========================================================================
+  // formatLadestationName
+  // =========================================================================
+
+  describe("formatLadestationName", () => {
+    it("entfernt den 'Tesla Supercharger - '-Präfix", () => {
+      expect(
+        formatLadestationName("Tesla Supercharger - Berlin Alexanderplatz"),
+      ).toBe("Berlin Alexanderplatz");
+    });
+
+    it("lässt Namen ohne diesen Präfix unverändert", () => {
+      expect(formatLadestationName("Ionity Rasthof Rhön")).toBe(
+        "Ionity Rasthof Rhön",
+      );
+    });
+
+    it("entfernt den Präfix nicht, wenn er nicht am Anfang steht", () => {
+      expect(formatLadestationName("Nahe Tesla Supercharger - Berlin")).toBe(
+        "Nahe Tesla Supercharger - Berlin",
+      );
     });
   });
 });

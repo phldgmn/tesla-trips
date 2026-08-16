@@ -81,7 +81,12 @@ export function buildRouteEintraege(args: {
     return stops.map((stop, idx) => ({
       art: "Stopp" as const,
       sortKey: null,
-      timing: { arrival: null, departure: null },
+      timing: {
+        arrival: null,
+        departure: null,
+        arrivalSocPct: null,
+        departureSocPct: null,
+      },
       stop,
       stopIndex: idx,
     }));
@@ -90,12 +95,13 @@ export function buildRouteEintraege(args: {
   // Stops: sortKey = Ankunftszeit (falls vorhanden, sonst Abfahrt)
   const waypointTimings = estimateWaypointTimings(frames, stops);
   const stopEintraege: RouteEintrag[] = stops.map((stop, idx) => {
-    const { arrival, departure } = waypointTimings[idx];
+    const { arrival, departure, arrivalSocPct, departureSocPct } =
+      waypointTimings[idx];
     const sortKey = arrival ?? departure ?? null;
     return {
       art: "Stopp" as const,
       sortKey,
-      timing: { arrival, departure },
+      timing: { arrival, departure, arrivalSocPct, departureSocPct },
       stop,
       stopIndex: idx,
     };
@@ -109,6 +115,8 @@ export function buildRouteEintraege(args: {
       timing: {
         arrival: chargingStop.ankunftszeit,
         departure: chargingStop.abfahrtszeit,
+        arrivalSocPct: chargingStop.ankunfts_soc_pct,
+        departureSocPct: chargingStop.ziel_soc_pct,
       },
       chargingStop,
     }),

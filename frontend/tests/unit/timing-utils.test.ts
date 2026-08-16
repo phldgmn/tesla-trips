@@ -13,11 +13,12 @@ function makeFrame(
   zeitpunkt: string,
   lat: number,
   lon: number,
+  socPct = 80,
 ): TripSimulationResult["frames"][number] {
   return {
     zeitpunkt,
     position: [lat, lon],
-    soc_pct: 80,
+    soc_pct: socPct,
     zustand: "FAHREN",
     geschwindigkeit_kmh: 100,
   };
@@ -85,6 +86,8 @@ describe("estimateWaypointTimings", () => {
       expect(timings[0].stopId).toBe("start");
       expect(timings[0].arrival).toBeNull();
       expect(timings[0].departure).toBe("2025-06-01T08:00:00");
+      expect(timings[0].arrivalSocPct).toBeNull();
+      expect(timings[0].departureSocPct).toBe(80);
     });
 
     it("soll am Zwischenstopp nicht-null arrival/departure liefern", () => {
@@ -100,6 +103,8 @@ describe("estimateWaypointTimings", () => {
       expect(timings[2].stopId).toBe("end");
       expect(timings[2].arrival).toBe("2025-06-01T11:30:00");
       expect(timings[2].departure).toBeNull();
+      expect(timings[2].arrivalSocPct).toBe(80);
+      expect(timings[2].departureSocPct).toBeNull();
     });
   });
 
@@ -268,6 +273,19 @@ describe("estimatePositionTiming", () => {
     expect(timing.departure).toBe("2025-06-01T09:00:00");
   });
 
+  it("übernimmt arrivalSocPct/departureSocPct aus den Grenz-Frames des Clusters", () => {
+    const socFrames = [
+      makeFrame("2025-06-01T08:00:00", 52.52, 13.405, 90),
+      makeFrame("2025-06-01T08:30:00", 53.0, 11.001, 70), // linker Cluster-Rand
+      makeFrame("2025-06-01T08:35:00", 53.0, 11.0, 68),
+      makeFrame("2025-06-01T08:40:00", 53.0, 10.999, 65), // rechter Cluster-Rand
+      makeFrame("2025-06-01T09:30:00", 53.55, 10.0, 40),
+    ];
+    const timing = estimatePositionTiming([53.0, 11.0], socFrames);
+    expect(timing.arrivalSocPct).toBe(70);
+    expect(timing.departureSocPct).toBe(65);
+  });
+
   it("liefert null/null für eine Position weit abseits der Route", () => {
     const timing = estimatePositionTiming([10.0, 10.0], frames);
     expect(timing.arrival).toBeNull();
@@ -278,6 +296,8 @@ describe("estimatePositionTiming", () => {
     const timing = estimatePositionTiming([53.0, 11.0], []);
     expect(timing.arrival).toBeNull();
     expect(timing.departure).toBeNull();
+    expect(timing.arrivalSocPct).toBeNull();
+    expect(timing.departureSocPct).toBeNull();
   });
 });
 

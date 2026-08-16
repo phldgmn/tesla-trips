@@ -47,6 +47,7 @@ import {
   Ship,
   Crosshair,
   BatteryCharging,
+  CalendarDays,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -260,6 +261,21 @@ export function unterscheidetSichAlsUhrzeit(
   return formatUhrzeit(a) !== formatUhrzeit(b);
 }
 
+/** Präfix, unter dem alle Tesla-Supercharger-Stationen in `data/superchargers.ts`
+ *  benannt sind (z. B. "Tesla Supercharger - Berlin Alexanderplatz"). In der
+ *  kompakten Routen-Timeline redundant, da das Zap-Icon des Ladehalts bereits
+ *  eindeutig als Ladestopp erkennbar ist. */
+const SUPERCHARGER_NAME_PRAEFIX = "Tesla Supercharger - ";
+
+/** Kürzt den Anzeigenamen einer Ladestation um den redundanten
+ *  "Tesla Supercharger - "-Präfix (siehe `SUPERCHARGER_NAME_PRAEFIX`). Namen
+ *  ohne diesen Präfix (z. B. andere Anbieter) bleiben unverändert. */
+export function formatLadestationName(name: string): string {
+  return name.startsWith(SUPERCHARGER_NAME_PRAEFIX)
+    ? name.slice(SUPERCHARGER_NAME_PRAEFIX.length)
+    : name;
+}
+
 /** Ein Eintrag der vertikalen Routen-Timeline: Icon-Marker links (auf der
  *  durchgehenden Linie, analog gängiger "Tracking-Timeline"-Komponenten) +
  *  beliebiger Inhalt (Stopp-/Ladehalt-/Fähren-Karte) rechts. */
@@ -348,7 +364,10 @@ function Zeitbadge({
 /** Kompakter Tageswechsel-Trenner in der Routen-Timeline: dünne Linie mit
  *  den beiden angrenzenden Kalendertagen (vorheriger Tag oben, neuer Tag
  *  unten) in kleiner Schrift - bewusst knapp gehalten, um in der Liste kaum
- *  zusätzlichen vertikalen Platz zu beanspruchen (siehe `istTageswechsel`). */
+ *  zusätzlichen vertikalen Platz zu beanspruchen (siehe `istTageswechsel`).
+ *  Trägt wie `TimelineRow` einen eigenen Icon-Marker auf der Timeline-Linie,
+ *  damit der Tageswechsel dort selbst sofort erkennbar ist statt nur an der
+ *  kleinen Schrift. */
 function Tagestrenner({
   vorherigeIso,
   aktuelleIso,
@@ -359,11 +378,31 @@ function Tagestrenner({
   return (
     <li
       style={{
+        position: "relative",
         listStyle: "none",
         marginLeft: "1.5rem",
-        padding: "0.15rem 0",
+        padding: "0.35rem 0",
       }}
     >
+      <span
+        style={{
+          position: "absolute",
+          left: "-1.9rem",
+          top: "50%",
+          transform: "translateY(-50%)",
+          width: "1.8rem",
+          height: "1.8rem",
+          borderRadius: "9999px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#e5e7eb",
+          boxShadow: "0 0 0 4px #fafafa",
+          zIndex: 1,
+        }}
+      >
+        <CalendarDays size={13} strokeWidth={2} color="#4b5563" />
+      </span>
       <div
         style={{
           display: "flex",
@@ -1161,7 +1200,11 @@ export function TripPlannerForm({
                     }}
                   >
                     {eintrag.timing.arrival !== null && (
-                      <Zeitbadge kante="oben" iso={eintrag.timing.arrival} />
+                      <Zeitbadge
+                        kante="oben"
+                        iso={eintrag.timing.arrival}
+                        socPct={eintrag.timing.arrivalSocPct ?? undefined}
+                      />
                     )}
                     {eintrag.timing.departure !== null &&
                       unterscheidetSichAlsUhrzeit(
@@ -1171,6 +1214,7 @@ export function TripPlannerForm({
                         <Zeitbadge
                           kante="unten"
                           iso={eintrag.timing.departure}
+                          socPct={eintrag.timing.departureSocPct ?? undefined}
                         />
                       )}
                     {/* Header: Role Badge + Move/Remove */}
@@ -1582,7 +1626,7 @@ export function TripPlannerForm({
                       iso={stop.abfahrtszeit}
                       socPct={stop.ziel_soc_pct}
                     />
-                    <strong>{stop.name}</strong>
+                    <strong>{formatLadestationName(stop.name)}</strong>
                     <label
                       style={{
                         display: "flex",
@@ -1703,14 +1747,22 @@ export function TripPlannerForm({
                   }}
                 >
                   {eintrag.timing.arrival !== null && (
-                    <Zeitbadge kante="oben" iso={eintrag.timing.arrival} />
+                    <Zeitbadge
+                      kante="oben"
+                      iso={eintrag.timing.arrival}
+                      socPct={eintrag.timing.arrivalSocPct ?? undefined}
+                    />
                   )}
                   {eintrag.timing.departure !== null &&
                     unterscheidetSichAlsUhrzeit(
                       eintrag.timing.arrival,
                       eintrag.timing.departure,
                     ) && (
-                      <Zeitbadge kante="unten" iso={eintrag.timing.departure} />
+                      <Zeitbadge
+                        kante="unten"
+                        iso={eintrag.timing.departure}
+                        socPct={eintrag.timing.departureSocPct ?? undefined}
+                      />
                     )}
                   <div
                     style={{

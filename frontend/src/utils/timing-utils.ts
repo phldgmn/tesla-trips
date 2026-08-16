@@ -15,12 +15,19 @@ import type { SimulationFrame } from "../types";
 import type { Stop } from "../types/trip-request";
 import { haversineDistanceM } from "./geo-utils";
 
-/** Zeitinformationen für eine Position (Ankunfts-/Abfahrts-Cluster). */
+/** Zeit- und Ladestand-Informationen für eine Position (Ankunfts-/Abfahrts-
+ *  Cluster). SoC wird direkt aus dem jeweiligen Grenz-Frame übernommen (kein
+ *  eigenständiger Wert), damit Anzeige-Zeitpunkt und -SoC immer konsistent
+ *  zum selben Simulationsframe gehören. */
 export interface PositionTiming {
   /** ISO-Zeitstempel der Ankunft, oder null falls nicht ermittelbar. */
   arrival: string | null;
   /** ISO-Zeitstempel der Abfahrt, oder null falls nicht ermittelbar. */
   departure: string | null;
+  /** Ladestand in % bei Ankunft, oder null falls nicht ermittelbar. */
+  arrivalSocPct: number | null;
+  /** Ladestand in % bei Abfahrt, oder null falls nicht ermittelbar. */
+  departureSocPct: number | null;
 }
 
 /** Zeitinformationen für einen einzelnen Stopp. */
@@ -50,6 +57,8 @@ export function estimateWaypointTimings(
       stopId: s.id,
       arrival: null,
       departure: null,
+      arrivalSocPct: null,
+      departureSocPct: null,
     }));
   }
 
@@ -60,21 +69,32 @@ export function estimateWaypointTimings(
         stopId: stop.id,
         arrival: null,
         departure: frames[0].zeitpunkt,
+        arrivalSocPct: null,
+        departureSocPct: frames[0].soc_pct,
       };
     }
 
     // Ziel (letzter Index): Ankunft = letzter Frame, Abfahrt null
     if (idx === stops.length - 1) {
+      const letzterFrame = frames[frames.length - 1];
       return {
         stopId: stop.id,
-        arrival: frames[frames.length - 1].zeitpunkt,
+        arrival: letzterFrame.zeitpunkt,
         departure: null,
+        arrivalSocPct: letzterFrame.soc_pct,
+        departureSocPct: null,
       };
     }
 
     // Zwischenstopp: Falls keine Position aufgelöst, null / null zurück
     if (stop.position === null) {
-      return { stopId: stop.id, arrival: null, departure: null };
+      return {
+        stopId: stop.id,
+        arrival: null,
+        departure: null,
+        arrivalSocPct: null,
+        departureSocPct: null,
+      };
     }
 
     return {
@@ -93,7 +113,14 @@ export function estimatePositionTiming(
   position: [number, number],
   frames: SimulationFrame[],
 ): PositionTiming {
-  if (frames.length === 0) return { arrival: null, departure: null };
+  if (frames.length === 0) {
+    return {
+      arrival: null,
+      departure: null,
+      arrivalSocPct: null,
+      departureSocPct: null,
+    };
+  }
 
   let minDist = Infinity;
   let closestIdx = -1;
@@ -107,7 +134,12 @@ export function estimatePositionTiming(
   }
 
   if (minDist > CLUSTER_RADIUS_M) {
-    return { arrival: null, departure: null };
+    return {
+      arrival: null,
+      departure: null,
+      arrivalSocPct: null,
+      departureSocPct: null,
+    };
   }
 
   // Expandiere nach links und rechts, solange Frames innerhalb CLUSTER_RADIUS_M bleiben
@@ -134,6 +166,8 @@ export function estimatePositionTiming(
   return {
     arrival: frames[leftIdx].zeitpunkt,
     departure: frames[rightIdx].zeitpunkt,
+    arrivalSocPct: frames[leftIdx].soc_pct,
+    departureSocPct: frames[rightIdx].soc_pct,
   };
 }
 
