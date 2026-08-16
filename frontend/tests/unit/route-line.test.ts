@@ -54,32 +54,37 @@ describe("buildSplicedRoute", () => {
     expect(result.samples.every((s) => !s.critical)).toBe(true);
   });
 
-  it("splices a real routed detour into the line and lengthens the total distance", () => {
+  it("replaces the range [routeIndexVor, routeIndexNach] with the real routed detour geometry", () => {
     const route: [number, number][] = [
-      [52.5, 13.4],
-      [52.6, 13.5],
-      [52.7, 13.6],
+      [52.5, 13.4], // 0
+      [52.6, 13.5], // 1 <- routeIndexVor
+      [52.65, 13.55], // 2 - replaced, must NOT appear in output
+      [52.7, 13.6], // 3 <- routeIndexNach
+      [52.8, 13.7], // 4
     ];
-    const station: [number, number] = [52.61, 13.55];
-    // Ein echter (grob simulierter) Hin-und-zurueck-Pfad ueber die Station.
+    const station: [number, number] = [52.63, 13.52];
     const detourGeometrie: [number, number][] = [
-      [52.6, 13.5],
-      [52.605, 13.52],
+      [52.6, 13.5], // == route[1] (routeIndexVor)
+      [52.615, 13.51],
       station,
-      [52.605, 13.52],
-      [52.6, 13.5],
+      [52.625, 13.53],
+      [52.7, 13.6], // == route[3] (routeIndexNach)
     ];
     const rawRouteLength =
       haversineDistanceM(route[0], route[1]) +
-      haversineDistanceM(route[1], route[2]);
+      haversineDistanceM(route[1], route[2]) +
+      haversineDistanceM(route[2], route[3]) +
+      haversineDistanceM(route[3], route[4]);
 
     const result = buildSplicedRoute(
       route,
       [
         {
           position: station,
-          distanzM: haversineDistanceM(route[0], route[1]),
+          distanzM: 1000,
           detourGeometrie,
+          routeIndexVor: 1,
+          routeIndexNach: 3,
           ankunftsSocPct: 25,
           zielSocPct: 80,
         },
@@ -87,24 +92,20 @@ describe("buildSplicedRoute", () => {
       [],
     );
 
-    // Die Detour-Punkte (minus dem Startpunkt, der bereits der Routenpunkt
-    // ist) muessen zwischen den beiden Routenpunkten eingefuegt sein.
     expect(result.coordinates).toEqual([
       [13.4, 52.5],
       [13.5, 52.6],
-      [13.52, 52.605],
-      [13.55, 52.61],
-      [13.52, 52.605],
-      [13.5, 52.6],
+      [13.51, 52.615],
+      [13.52, 52.63],
+      [13.53, 52.625],
       [13.6, 52.7],
+      [13.7, 52.8],
     ]);
 
     // Der Abstecher verlaengert die gesplicete Linie ueber die reine
-    // Routenlaenge hinaus.
+    // Routenlaenge hinaus (Umweg zur Station statt der direkten route[1]->route[3]-Strecke).
     expect(result.totalDistanceM).toBeGreaterThan(rawRouteLength);
 
-    // Zwei kritische SoC-Stuetzpunkte (Ankunft -> Ziel) mit strikt
-    // aufsteigender Distanz und den richtigen Werten.
     const critical = result.samples.filter((s) => s.critical);
     expect(critical).toHaveLength(2);
     expect(critical[0].socPct).toBe(25);
@@ -112,20 +113,24 @@ describe("buildSplicedRoute", () => {
     expect(critical[1].distanzM).toBeGreaterThan(critical[0].distanzM);
   });
 
-  it("falls back to a straight there-and-back detour when detourGeometrie is empty", () => {
+  it("falls back to a straight there-and-back detour when routeIndexVor/Nach are null", () => {
     const route: [number, number][] = [
       [52.5, 13.4],
       [52.6, 13.5],
+      [52.7, 13.6],
     ];
     const station: [number, number] = [52.65, 13.7];
+    const distanzM = haversineDistanceM(route[0], route[1]);
 
     const result = buildSplicedRoute(
       route,
       [
         {
           position: station,
-          distanzM: 0,
+          distanzM,
           detourGeometrie: [],
+          routeIndexVor: null,
+          routeIndexNach: null,
           ankunftsSocPct: 30,
           zielSocPct: 90,
         },
@@ -133,13 +138,14 @@ describe("buildSplicedRoute", () => {
       [],
     );
 
-    // Fallback: Routenpunkt -> Station -> Routenpunkt, bevor die Route
-    // fortgesetzt wird.
+    // Fallback: naechstliegender Routenpunkt (per distanzM) -> Station ->
+    // derselbe Routenpunkt, bevor die Route fortgesetzt wird.
     expect(result.coordinates).toEqual([
       [13.4, 52.5],
-      [13.7, 52.65],
-      [13.4, 52.5],
       [13.5, 52.6],
+      [13.7, 52.65],
+      [13.5, 52.6],
+      [13.6, 52.7],
     ]);
     const critical = result.samples.filter((s) => s.critical);
     expect(critical.map((s) => s.socPct)).toEqual([30, 90]);
@@ -147,24 +153,23 @@ describe("buildSplicedRoute", () => {
 
   it("sorts charging stops by distanzM regardless of input order", () => {
     const route: [number, number][] = [
-      [52.0, 13.0],
-      [52.1, 13.1],
-      [52.2, 13.2],
-      [52.3, 13.3],
+      [52.0, 13.0], // 0
+      [52.1, 13.1], // 1
+      [52.2, 13.2], // 2
+      [52.3, 13.3], // 3
     ];
     const d1 = haversineDistanceM(route[0], route[1]);
-    const d3 =
-      d1 +
-      haversineDistanceM(route[1], route[2]) +
-      haversineDistanceM(route[2], route[3]);
+    const d2 = d1 + haversineDistanceM(route[1], route[2]);
 
     const result = buildSplicedRoute(
       route,
       [
         {
           position: [52.31, 13.31],
-          distanzM: d3,
+          distanzM: d2,
           detourGeometrie: [],
+          routeIndexVor: null,
+          routeIndexNach: null,
           ankunftsSocPct: 15,
           zielSocPct: 85,
         },
@@ -172,6 +177,8 @@ describe("buildSplicedRoute", () => {
           position: [52.11, 13.11],
           distanzM: d1,
           detourGeometrie: [],
+          routeIndexVor: null,
+          routeIndexNach: null,
           ankunftsSocPct: 40,
           zielSocPct: 95,
         },
@@ -180,35 +187,58 @@ describe("buildSplicedRoute", () => {
     );
 
     const critical = result.samples.filter((s) => s.critical);
-    // Erster Ladehalt (bei d1) zuerst, zweiter (bei d3) danach.
+    // Erster Ladehalt (distanzM=d1, nahe route[1]) zuerst, zweiter (distanzM=d2, nahe route[2]) danach.
     expect(critical.map((s) => s.socPct)).toEqual([40, 95, 15, 85]);
   });
 
-  it("appends a charging stop whose distanzM exceeds the last route vertex (safety net)", () => {
+  it("skips an overlapping detour instead of corrupting the spliced line", () => {
     const route: [number, number][] = [
-      [52.0, 13.0],
-      [52.1, 13.1],
+      [52.0, 13.0], // 0
+      [52.1, 13.1], // 1
+      [52.2, 13.2], // 2
+      [52.3, 13.3], // 3
+      [52.4, 13.4], // 4
     ];
-    const totalRouteLength = haversineDistanceM(route[0], route[1]);
+    const stationA: [number, number] = [52.15, 13.16];
+    const stationB: [number, number] = [52.18, 13.19];
 
     const result = buildSplicedRoute(
       route,
       [
         {
-          position: [52.11, 13.11],
-          distanzM: totalRouteLength + 10_000, // jenseits des letzten Punkts
-          detourGeometrie: [],
-          ankunftsSocPct: 20,
-          zielSocPct: 90,
+          // Ueberlappt mit dem ersten Abstecher (Bereich [1,3] vs [0,2]).
+          position: stationB,
+          distanzM: 2,
+          detourGeometrie: [route[1], stationB, route[3]],
+          routeIndexVor: 1,
+          routeIndexNach: 3,
+          ankunftsSocPct: 50,
+          zielSocPct: 60,
+        },
+        {
+          position: stationA,
+          distanzM: 1,
+          detourGeometrie: [route[0], stationA, route[2]],
+          routeIndexVor: 0,
+          routeIndexNach: 2,
+          ankunftsSocPct: 10,
+          zielSocPct: 20,
         },
       ],
       [],
     );
 
-    const critical = result.samples.filter((s) => s.critical);
-    expect(critical).toHaveLength(2);
-    expect(result.coordinates[result.coordinates.length - 1]).toEqual([
-      13.1, 52.1,
+    // Nur der erste (per distanzM sortierte) Abstecher wird gespleisst; der
+    // ueberlappende zweite wird sicher uebersprungen statt die Linie zu
+    // beschaedigen oder eine Endlosschleife zu erzeugen.
+    expect(result.coordinates).toEqual([
+      [13.0, 52.0],
+      [13.16, 52.15],
+      [13.2, 52.2],
+      [13.3, 52.3],
+      [13.4, 52.4],
     ]);
+    const critical = result.samples.filter((s) => s.critical);
+    expect(critical.map((s) => s.socPct)).toEqual([10, 20]);
   });
 });

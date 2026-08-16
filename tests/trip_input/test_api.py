@@ -919,6 +919,56 @@ async def test_create_trip_simulation_ladedauer_vorgabe_wirkt_auf_ladeplan(
     assert result.charging_stops[0].ladedauer_s == vorgabe_s
 
 
+def test_finde_klammerpunkte_walkt_mindestens_margin_in_beide_richtungen() -> None:
+    """`_finde_klammerpunkte` liefert zwei Punkte, die zusammen mindestens
+    `margin_m` vor UND nach dem Abzweigpunkt liegen - fixiert die
+    Fahrtrichtung fuer das Detour-Routing (siehe `_step_lade_detours_routen`).
+    """
+    # 10 gleich lange 100m-Segmente entlang eines Meridians (11 Punkte).
+    geometrie = [(52.0 + i * 0.0009, 13.0) for i in range(11)]
+    segments = [
+        RouteSegment(
+            segment_index=i,
+            geometrie=[geometrie[i], geometrie[i + 1]],
+            laenge_m=100.0,
+            strassenklasse="MOTORWAY",
+            bearing_deg=0.0,
+        )
+        for i in range(10)
+    ]
+    route = Route(segments=segments, gesamtlaenge_m=1000.0, geometrie=geometrie)
+
+    vor_index, nach_index = trip_api._finde_klammerpunkte(route, segment_index=5, margin_m=250.0)
+
+    assert vor_index < 5 < nach_index
+    distanz_zurueck = sum(seg.laenge_m for seg in segments[vor_index:5])
+    distanz_vor = sum(seg.laenge_m for seg in segments[5:nach_index])
+    assert distanz_zurueck >= 250.0
+    assert distanz_vor >= 250.0
+
+
+def test_finde_klammerpunkte_clamped_an_routenraendern() -> None:
+    """Nahe am Start/Ende der Route werden die Klammerpunkte an den
+    tatsaechlichen Rand geklemmt statt einen Index-Fehler zu werfen."""
+    geometrie = [(52.0 + i * 0.0009, 13.0) for i in range(5)]
+    segments = [
+        RouteSegment(
+            segment_index=i,
+            geometrie=[geometrie[i], geometrie[i + 1]],
+            laenge_m=100.0,
+            strassenklasse="MOTORWAY",
+            bearing_deg=0.0,
+        )
+        for i in range(4)
+    ]
+    route = Route(segments=segments, gesamtlaenge_m=400.0, geometrie=geometrie)
+
+    vor_index, nach_index = trip_api._finde_klammerpunkte(route, segment_index=1, margin_m=10_000.0)
+
+    assert vor_index == 0
+    assert nach_index == len(geometrie) - 1
+
+
 async def test_create_trip_simulation_populates_charging_stop_distanz_m_and_detour_geometrie(
     valid_trip_request: dict,
     fake_routing_provider: FakeRoutingProvider,
@@ -955,10 +1005,13 @@ async def test_create_trip_simulation_populates_charging_stop_distanz_m_and_deto
     stop = result.charging_stops[0]
     assert stop.distanz_m > 0
     assert stop.distanz_m < result.gesamt_distanz_km * 1000
-    # Echte, ueber `FakeRoutingProvider` geroutete Hin-und-zurueck-Geometrie
-    # (mindestens Start-, Stations- und Endpunkt) statt einer leeren Liste.
+    # Echte, ueber `FakeRoutingProvider` geroutete Geometrie von einem
+    # Klammerpunkt VOR bis einem Klammerpunkt NACH dem Abzweigpunkt (siehe
+    # `_finde_klammerpunkte`) statt einer leeren Liste.
     assert len(stop.detour_geometrie) >= 2
-    assert stop.detour_geometrie[0] == stop.detour_geometrie[-1]
+    assert stop.route_index_vor is not None
+    assert stop.route_index_nach is not None
+    assert stop.route_index_vor < stop.route_index_nach
 
 
 async def test_create_trip_simulation_handles_unreachable_charging_detour_gracefully(
@@ -974,11 +1027,11 @@ async def test_create_trip_simulation_handles_unreachable_charging_detour_gracef
 
     class _DetourFailingRoutingProvider:
         """Routet die Hauptstrecke normal, verweigert aber jede Detour-Anfrage
-        (Start == Ziel, wie sie `_step_lade_detours_routen` fuer Ladehalt-
-        Abstecher stellt)."""
+        (identifiziert an genau einem Zwischenstopp - nur `_step_lade_detours_routen`
+        stellt Anfragen mit einem einzelnen Zwischenstopp, siehe `Waypoint`)."""
 
         async def berechne_route(self, anfrage: TripRequest) -> Route:
-            if anfrage.start == anfrage.ziel:
+            if len(anfrage.zwischenstopps) == 1:
                 raise httpx.HTTPError("Ladestation nicht erreichbar")
             return await fake_routing_provider.berechne_route(anfrage)
 
@@ -1010,6 +1063,8 @@ async def test_create_trip_simulation_handles_unreachable_charging_detour_gracef
     stop = result.charging_stops[0]
     assert stop.distanz_m > 0
     assert stop.detour_geometrie == []
+    assert stop.route_index_vor is None
+    assert stop.route_index_nach is None
 
 
 def test_fastapi_endpoint_akzeptiert_faehr_zeitfenster_und_ladedauer_vorgaben(

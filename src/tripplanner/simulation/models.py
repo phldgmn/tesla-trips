@@ -10,6 +10,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, model_validator
 
+from tripplanner.routing.models import Coordinate
+
 # Konstanten für Geschwindigkeitsschwellen
 _MAX_LADE_GESCHWINDIGKIT_KMH = 0.5
 _MAX_PAUSE_GESCHWINDIGKIT_KMH = 5.0
@@ -76,8 +78,24 @@ class ChargingStopSummary(BaseModel):
     detour_geometrie: list[tuple[float, float]] = Field(
         default_factory=list,
         description=(
-            "Echte, ueber GraphHopper geroutete Hin-und-zurueck-Geometrie von der Route zur "
-            "Ladestation (leer, falls die Detour-Route nicht ermittelt werden konnte)"
+            "Echte, ueber GraphHopper geroutete Geometrie von der Route zur Ladestation und "
+            "zurueck (leer, falls die Detour-Route nicht ermittelt werden konnte)"
+        ),
+    )
+    route_index_vor: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Index in `Route.geometrie`/`route_geometrie`, ab dem `detour_geometrie` die "
+            "Hauptroute ersetzt (None, falls `detour_geometrie` leer ist)"
+        ),
+    )
+    route_index_nach: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Index in `Route.geometrie`/`route_geometrie`, bis zu dem (inklusive) "
+            "`detour_geometrie` die Hauptroute ersetzt (None, falls `detour_geometrie` leer ist)"
         ),
     )
     ankunfts_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
@@ -104,4 +122,40 @@ class TripSimulationResult(BaseModel):
     charging_stops: list[ChargingStopSummary] = Field(
         default_factory=list,
         description="Ein Eintrag pro Ladehalt (chronologisch), fuer die Kartendarstellung",
+    )
+
+
+class LadehaltDetour(BaseModel):
+    """Ergebnis des Detour-Routings zu einem Ladehalt.
+
+    Input fuer `simulate_trip()`, produziert von
+    `tripplanner.trip_input.api._step_lade_detours_routen`.
+
+    Die beiden Klammerpunkte (`route_index_vor`/`route_index_nach`, indices in
+    `Route.geometrie`) liegen bewusst deutlich VOR/NACH dem eigentlichen
+    Abzweigpunkt auf der Route - ein Detour-Request mit `start == ziel`
+    (derselbe Punkt) ist fuer GraphHopper richtungsmehrdeutig und fuehrt zu
+    unnoetigen Umwegen (an der falschen Ausfahrt vorbei, an der naechsten
+    wenden). Mit zwei UNTERSCHIEDLICHEN, bereits auf der Hauptroute in
+    korrekter Fahrtrichtung liegenden Punkten ist die Fahrtrichtung dagegen
+    von vornherein eindeutig.
+    """
+
+    geometrie: list[Coordinate] = Field(
+        ...,
+        min_length=2,
+        description="Geroutete Geometrie von `route_index_vor` ueber die Station zum Ziel",
+    )
+    route_index_vor: int = Field(
+        ...,
+        ge=0,
+        description="Index in `Route.geometrie`, ab dem diese Geometrie die Hauptroute ersetzt",
+    )
+    route_index_nach: int = Field(
+        ...,
+        ge=0,
+        description=(
+            "Index in `Route.geometrie`, bis zu dem (inklusive) diese Geometrie die Hauptroute "
+            "ersetzt"
+        ),
     )

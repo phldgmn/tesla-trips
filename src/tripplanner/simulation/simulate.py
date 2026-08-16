@@ -13,6 +13,7 @@ from tripplanner.optimization.models import ChargingPlan
 from tripplanner.routing.models import Route, RouteSegment
 from tripplanner.simulation.models import (
     ChargingStopSummary,
+    LadehaltDetour,
     SimulationFrame,
     TripSimulationResult,
     TripState,
@@ -106,7 +107,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     convergence_threshold_minutes: float = 30.0,
     output_resolution_seconds: int = 60,
     battery_capacity_kwh: float = 62.5,
-    ladehalt_detour_geometrie: dict[int, list[tuple[float, float]]] | None = None,
+    ladehalt_detouren: dict[int, LadehaltDetour] | None = None,
 ) -> TripSimulationResult:
     """Simuliert die komplette Reise entlang der Route unter Beruecksichtigung des Ladeplans.
 
@@ -121,10 +122,10 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         output_resolution_seconds: Zeitauflösung der Ausgabe (default: 60s)
         abfahrtszeit: Abfahrtszeitpunkt der Reise (timezone-aware datetime)
         battery_capacity_kwh: Nutzbare Batteriekapazitaet in kWh (default: 62.5 kWh)
-        ladehalt_detour_geometrie: Optionale, ueber GraphHopper geroutete Hin-und-
-            zurueck-Geometrie je Ladehalt (Schluessel: `id()` des `ChargingStop`-
-            Objekts aus `charging_plan.ladehalte`), fuer eine strassengetreue
-            Kartendarstellung des Abstechers zur Ladestation (siehe
+        ladehalt_detouren: Optionales, ueber GraphHopper geroutetes Detour-Ergebnis
+            je Ladehalt (Schluessel: `id()` des `ChargingStop`-Objekts aus
+            `charging_plan.ladehalte`), fuer eine strassengetreue Kartendarstellung
+            des Abstechers zur Ladestation (siehe
             `tripplanner.trip_input.api._step_lade_detours_routen`). Fehlt ein
             Eintrag, bleibt `ChargingStopSummary.detour_geometrie` leer.
 
@@ -308,34 +309,41 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
 
         current_time_s += output_resolution_seconds
 
-    detour_geometrie_by_id = ladehalt_detour_geometrie or {}
-    charging_stops = [
-        ChargingStopSummary(
-            name=ladehalt.station.name,
-            station_id=ladehalt.station.station_id,
-            position=ladehalt.station.coordinate,
-            # Fallback (kein LADEN-Frame erfasst, z. B. sehr kurze Ladedauer
-            # unterhalb der Frame-Aufloesung `output_resolution_seconds`):
-            # Distanz am Beginn des Ladehalt-Segments.
-            distanz_m=distanz_bei_ladehalt.get(
-                id(ladehalt),
-                cumulative_distances[ladehalt.segment_index - 1]
-                if ladehalt.segment_index > 0
-                else 0.0,
-            ),
-            detour_geometrie=detour_geometrie_by_id.get(id(ladehalt), []),
-            ankunfts_soc_pct=ladehalt.ankunfts_soc_pct,
-            ziel_soc_pct=ladehalt.ziel_soc_pct,
-            ladedauer_s=ladehalt.geschaetzte_ladedauer_s,
-            energie_geladen_kwh=max(
-                0.0,
-                (ladehalt.ziel_soc_pct - ladehalt.ankunfts_soc_pct) / 100.0 * battery_capacity_kwh,
-            ),
-            ankunftszeit=ladehalt.ankunftszeit,
-            abfahrtszeit=ladehalt.abfahrtszeit,
+    detouren = ladehalt_detouren or {}
+    charging_stops: list[ChargingStopSummary] = []
+    for ladehalt in ladehalte_sortiert:
+        detour = detouren.get(id(ladehalt))
+        charging_stops.append(
+            ChargingStopSummary(
+                name=ladehalt.station.name,
+                station_id=ladehalt.station.station_id,
+                position=ladehalt.station.coordinate,
+                # Fallback (kein LADEN-Frame erfasst, z. B. sehr kurze
+                # Ladedauer unterhalb der Frame-Aufloesung
+                # `output_resolution_seconds`): Distanz am Beginn des
+                # Ladehalt-Segments.
+                distanz_m=distanz_bei_ladehalt.get(
+                    id(ladehalt),
+                    cumulative_distances[ladehalt.segment_index - 1]
+                    if ladehalt.segment_index > 0
+                    else 0.0,
+                ),
+                detour_geometrie=detour.geometrie if detour else [],
+                route_index_vor=detour.route_index_vor if detour else None,
+                route_index_nach=detour.route_index_nach if detour else None,
+                ankunfts_soc_pct=ladehalt.ankunfts_soc_pct,
+                ziel_soc_pct=ladehalt.ziel_soc_pct,
+                ladedauer_s=ladehalt.geschaetzte_ladedauer_s,
+                energie_geladen_kwh=max(
+                    0.0,
+                    (ladehalt.ziel_soc_pct - ladehalt.ankunfts_soc_pct)
+                    / 100.0
+                    * battery_capacity_kwh,
+                ),
+                ankunftszeit=ladehalt.ankunftszeit,
+                abfahrtszeit=ladehalt.abfahrtszeit,
+            )
         )
-        for ladehalt in ladehalte_sortiert
-    ]
 
     gesamt_ladezeit_min = 0.0
     for ladehalt in charging_plan.ladehalte:

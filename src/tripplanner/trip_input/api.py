@@ -49,7 +49,7 @@ from tripplanner.routing import (
 )
 from tripplanner.routing.models import Coordinate, FaehrSegment, Route, RouteSegment
 from tripplanner.simulation import simulate_trip
-from tripplanner.simulation.models import TripSimulationResult
+from tripplanner.simulation.models import LadehaltDetour, TripSimulationResult
 from tripplanner.trip_input.models import (
     FaehrZeitfenster,
     TripRequest,
@@ -404,13 +404,57 @@ def _step_9_eta_aktualisieren(
     return neue_eta_liste
 
 
+def _finde_klammerpunkte(
+    route: Route, segment_index: int, margin_m: float = 3000.0
+) -> tuple[int, int]:
+    """Findet zwei Punkte auf `route.geometrie` deutlich VOR/NACH `segment_index`.
+
+    Ein Detour-Request mit `start == ziel` (derselbe Punkt) ist fuer
+    GraphHopper richtungsmehrdeutig: der Router snappt den Punkt auf die
+    naeheliegende Fahrbahn OHNE zu wissen, in welche Richtung die Reise
+    eigentlich verlaeuft, und kann dadurch an der richtigen Ausfahrt vorbei
+    bis zur naechsten fahren muessen, nur um zu wenden. Zwei
+    UNTERSCHIEDLICHE, bereits auf der Hauptroute in korrekter Fahrtrichtung
+    liegende Punkte (mindestens `margin_m` vor bzw. nach dem eigentlichen
+    Abzweigpunkt) legen die Fahrtrichtung dagegen von vornherein eindeutig
+    fest - kein Heading-Parameter noetig. `margin_m` muss dabei grosszuegig
+    genug sein, um eine tatsaechlich nutzbare Autobahn-Ausfahrt in beide
+    Richtungen einzuschliessen: bei zu knappem Rand (empirisch getestet mit
+    500 m) landen beide Klammerpunkte oft VOR der naechsten echten Ausfahrt,
+    wodurch GraphHopper einen Umweg von mehreren Kilometern ueber die
+    naechstgelegene Ausfahrt UND wieder zurueck einschlagen muss, statt der
+    kurzen, direkten Anbindung zur Ladestation - live gegen den Projekt-
+    GraphHopper-Server verifiziert (Detour/Luftlinie-Verhaeltnis sank von bis
+    zu 20x bei 500 m auf ca. 1.2-2x bei 3000 m).
+
+    Returns:
+        (vor_index, nach_index): Indizes in `route.geometrie`.
+    """
+    letzter_index = len(route.geometrie) - 1
+    segment_index = min(segment_index, len(route.segments) - 1)
+
+    vor_index = segment_index
+    distanz_zurueck = 0.0
+    while vor_index > 0 and distanz_zurueck < margin_m:
+        vor_index -= 1
+        distanz_zurueck += route.segments[vor_index].laenge_m
+
+    nach_index = segment_index
+    distanz_vor = 0.0
+    while nach_index < letzter_index and distanz_vor < margin_m:
+        distanz_vor += route.segments[nach_index].laenge_m
+        nach_index += 1
+
+    return vor_index, nach_index
+
+
 async def _step_lade_detours_routen(
     routing_provider: RoutingProvider | None,
     route: Route,
     charging_plan: ChargingPlan,
     abfahrtszeit: datetime,
     fahrzeugprofil: VehicleProfile,
-) -> dict[int, list[Coordinate]]:
+) -> dict[int, LadehaltDetour]:
     """Schritt 8b: Routet fuer jeden Ladehalt eine echte Hin-und-zurueck-Verbindung.
 
     GraphHopper kennt Ladestationen nicht als Wegpunkte der Hauptroute - die
@@ -419,22 +463,25 @@ async def _step_lade_detours_routen(
     Aufruf pro Ladehalt (typischerweise 0-3 pro Reise) statt eines
     gemeinsamen Multi-Waypoint-Aufrufs, der die Segmentierung/Energie-
     berechnung der bereits abgeschlossenen Schritte 2-7 invalidieren wuerde.
+    Start-/Zielpunkt sind bewusst zwei unterschiedliche, auf der Hauptroute
+    liegende Klammerpunkte statt desselben Abzweigpunkts (siehe
+    `_finde_klammerpunkte`), um Richtungsmehrdeutigkeit bei GraphHopper zu
+    vermeiden.
 
     Returns:
-        dict von `id()` des `ChargingStop`-Objekts (Ladehalt) -> dichte
-        Streckengeometrie der Hin-und-zurueck-Fahrt. Ein Ladehalt fehlt im
-        Ergebnis, wenn GraphHopper keine Route zur Station liefern konnte
-        (`ChargingStopSummary.detour_geometrie` bleibt dann leer - der
-        Ladehalt selbst bleibt gueltig, nur ohne Kartengeometrie fuer den
-        Abstecher).
+        dict von `id()` des `ChargingStop`-Objekts (Ladehalt) -> `LadehaltDetour`.
+        Ein Ladehalt fehlt im Ergebnis, wenn GraphHopper keine Route zur
+        Station liefern konnte (`ChargingStopSummary.detour_geometrie` bleibt
+        dann leer - der Ladehalt selbst bleibt gueltig, nur ohne
+        Kartengeometrie fuer den Abstecher).
     """
     provider = routing_provider or FakeRoutingProvider()
-    detouren: dict[int, list[Coordinate]] = {}
+    detouren: dict[int, LadehaltDetour] = {}
     for ladehalt in charging_plan.ladehalte:
-        abzweigpunkt = route.geometrie[min(ladehalt.segment_index, len(route.geometrie) - 1)]
+        vor_index, nach_index = _finde_klammerpunkte(route, ladehalt.segment_index)
         detour_anfrage = TripRequest(
-            start=abzweigpunkt,
-            ziel=abzweigpunkt,
+            start=route.geometrie[vor_index],
+            ziel=route.geometrie[nach_index],
             zwischenstopps=[Waypoint(koordinate=ladehalt.station.coordinate)],
             abfahrtszeit=abfahrtszeit,
             fahrzeugprofil=fahrzeugprofil,
@@ -443,7 +490,11 @@ async def _step_lade_detours_routen(
             detour_route = await provider.berechne_route(detour_anfrage)
         except httpx.HTTPError:
             continue
-        detouren[id(ladehalt)] = detour_route.geometrie
+        detouren[id(ladehalt)] = LadehaltDetour(
+            geometrie=detour_route.geometrie,
+            route_index_vor=vor_index,
+            route_index_nach=nach_index,
+        )
     return detouren
 
 
@@ -670,7 +721,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
         output_resolution_seconds=60,
         abfahrtszeit=anfrage.abfahrtszeit,
         battery_capacity_kwh=anfrage.fahrzeugprofil.batteriekapazitaet_kwh,
-        ladehalt_detour_geometrie=ladehalt_detouren,
+        ladehalt_detouren=ladehalt_detouren,
     )
 
     # 12. Step 11: Ergebnis zurückgeben
@@ -995,8 +1046,24 @@ class ChargingStopAPI(BaseModel):
     detour_geometrie: list[Coordinate] = Field(
         default_factory=list,
         description=(
-            "Echte, ueber GraphHopper geroutete Hin-und-zurueck-Geometrie von der Route zur "
-            "Ladestation (leer, falls die Detour-Route nicht ermittelt werden konnte)"
+            "Echte, ueber GraphHopper geroutete Geometrie von der Route zur Ladestation und "
+            "zurueck (leer, falls die Detour-Route nicht ermittelt werden konnte)"
+        ),
+    )
+    route_index_vor: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Index in `route_geometrie`, ab dem `detour_geometrie` die Hauptroute ersetzt "
+            "(None, falls `detour_geometrie` leer ist)"
+        ),
+    )
+    route_index_nach: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Index in `route_geometrie`, bis zu dem (inklusive) `detour_geometrie` die "
+            "Hauptroute ersetzt (None, falls `detour_geometrie` leer ist)"
         ),
     )
     ankunfts_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
@@ -1155,6 +1222,8 @@ async def create_trip_endpoint(
                     position=stop.position,
                     distanz_m=stop.distanz_m,
                     detour_geometrie=stop.detour_geometrie,
+                    route_index_vor=stop.route_index_vor,
+                    route_index_nach=stop.route_index_nach,
                     ankunfts_soc_pct=stop.ankunfts_soc_pct,
                     ziel_soc_pct=stop.ziel_soc_pct,
                     ladedauer_s=stop.ladedauer_s,

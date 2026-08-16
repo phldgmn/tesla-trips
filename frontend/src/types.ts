@@ -60,10 +60,16 @@ export interface ChargingStop {
   position: [number, number];
   /** Kumulierte Distanz entlang der Route, an der zur Ladestation abgebogen wird */
   distanz_m: number;
-  /** Echte, ueber GraphHopper geroutete Hin-und-zurueck-Geometrie von der Route
-   *  zur Ladestation als Liste von [lat, lon]-Punkten (leer, falls nicht
-   *  ermittelbar - siehe route-line.ts::buildSplicedRoute()) */
+  /** Echte, ueber GraphHopper geroutete Geometrie von der Route zur Ladestation
+   *  und zurueck als Liste von [lat, lon]-Punkten (leer, falls nicht ermittelbar
+   *  - siehe route-line.ts::buildSplicedRoute()) */
   detour_geometrie: [number, number][];
+  /** Index in `route_geometrie`, ab dem `detour_geometrie` die Hauptroute ersetzt
+   *  (null, falls `detour_geometrie` leer ist) */
+  route_index_vor: number | null;
+  /** Index in `route_geometrie`, bis zu dem (inklusive) `detour_geometrie` die
+   *  Hauptroute ersetzt (null, falls `detour_geometrie` leer ist) */
+  route_index_nach: number | null;
   /** Ankunfts-SoC in % */
   ankunfts_soc_pct: number;
   /** Ziel-SoC in % */

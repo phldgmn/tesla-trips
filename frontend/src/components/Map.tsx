@@ -619,6 +619,8 @@ export function MapVisualization({
         position: stop.position,
         distanzM: stop.distanz_m,
         detourGeometrie: stop.detour_geometrie,
+        routeIndexVor: stop.route_index_vor,
+        routeIndexNach: stop.route_index_nach,
         ankunftsSocPct: stop.ankunfts_soc_pct,
         zielSocPct: stop.ziel_soc_pct,
       })),
