@@ -31,3 +31,4 @@ frontend/.vite/
 .code-translate/
 
 *.local
+*.local.*
