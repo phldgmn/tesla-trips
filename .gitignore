@@ -29,3 +29,5 @@ frontend/.vite/
 .worktrees/
 
 .code-translate/
+
+*.local
