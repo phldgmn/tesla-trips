@@ -15,11 +15,20 @@ from typing import Annotated
 import typer
 from pydantic import ValidationError
 
+# Konstanten für CLI
 from tripplanner.charging_infrastructure.client import TeslaLocationsClient
 from tripplanner.charging_infrastructure.providers import (
+    FakeChargingStationProvider,
     TeslaChargingStationProvider,
 )
+from tripplanner.construction.providers import FakeConstructionProvider
+from tripplanner.elevation import ElevationProvider
+from tripplanner.elevation.providers import FakeDataSource
+from tripplanner.routing.providers import FakeRoutingProvider
+from tripplanner.simulation.models import TripSimulationResult
 from tripplanner.trip_input.api import create_trip_simulation
+from tripplanner.trip_input.providers_factory import build_production_providers
+from tripplanner.weather.providers import FakeWeatherProvider
 
 # Konstanten für CLI
 _EXPECTED_PARTS_COUNT = 2
@@ -61,18 +70,18 @@ def parse_waypoint(s: str) -> tuple[tuple[float, float], timedelta | None]:
 @app.command()
 def trips(  # noqa: PLR0913, PLR0917
     start: Annotated[str, typer.Option(help="Start-Koordinate als lat,lon")],
-    ziel: Annotated[str, typer.Option(help="Ziel-Koordinate als lat,lon")],
-    abfahrtszeit: Annotated[
+    destination: Annotated[str, typer.Option(help="Ziel-Koordinate als lat,lon")],
+    departure_time: Annotated[
         str, typer.Option(help="Abfahrtszeit im ISO-Format z. B. 2026-08-15T08:30:00")
     ],
-    zwischenstopps: Annotated[
+    waypoints: Annotated[
         list[str] | None,
         typer.Option(help="Zwischenstopps als lat,lon oder lat,lon:duration_min"),
     ] = None,
     start_soc_pct: Annotated[
         float, typer.Option(min=0.0, max=100.0, help="Start-SoC in Prozent")
     ] = 80.0,
-    ziel_soc_pct: Annotated[
+    destination_soc_pct: Annotated[
         float, typer.Option(min=0.0, max=100.0, help="Ziel-SoC in Prozent")
     ] = 20.0,
     vehicle_profile: Annotated[
@@ -82,6 +91,7 @@ def trips(  # noqa: PLR0913, PLR0917
     output_json: Annotated[
         Path | None, typer.Option(help="Pfad zur JSON-Ausgabe default stdout")
     ] = None,
+    offline: Annotated[bool, typer.Option(help="Offline-Modus ohne Produktionsserver")] = False,
 ) -> None:
     """Berechnet eine Reise und simuliert sie vollständig (inkl. Ladeplanung).
 
@@ -100,21 +110,21 @@ def trips(  # noqa: PLR0913, PLR0917
     """
     try:
         start_coord = parse_coord(start)
-        ziel_coord = parse_coord(ziel)
+        destination_coord = parse_coord(destination)
 
-        between = []
-        if zwischenstopps:
-            for wp in zwischenstopps:
-                coord, dur = parse_waypoint(wp)
-                between.append({"koordinate": coord, "aufenthaltsdauer": dur})
+        waypoints_list = []
+        if waypoints:
+            for wp in waypoints:
+                coord, duration = parse_waypoint(wp)
+                waypoints_list.append({"koordinate": coord, "aufenthaltsdauer": duration})
 
-        departuretime_dt = datetime.fromisoformat(abfahrtszeit)
+        departure_time_dt = datetime.fromisoformat(departure_time)
 
         request = {
             "start": start_coord,
-            "ziel": ziel_coord,
-            "zwischenstopps": between,
-            "abfahrtszeit": departuretime_dt,
+            "ziel": destination_coord,
+            "zwischenstopps": waypoints_list,
+            "abfahrtszeit": departure_time_dt,
             "fahrzeugprofil": {
                 "masse_kg": 1800.0,
                 "cw_wert": 0.23,
@@ -128,9 +138,31 @@ def trips(  # noqa: PLR0913, PLR0917
             "praeferenzen": {},
         }
 
-        result = asyncio.run(
-            create_trip_simulation(request, start_soc_pct=start_soc_pct, ziel_soc_pct=ziel_soc_pct)
-        )
+        async def _run_trip() -> TripSimulationResult:
+            if offline:
+                return await create_trip_simulation(
+                    request,
+                    routing_provider=FakeRoutingProvider(),
+                    elevation_provider=ElevationProvider(data_source=FakeDataSource()),
+                    weather_provider=FakeWeatherProvider(),
+                    construction_provider=FakeConstructionProvider(),
+                    charging_provider=FakeChargingStationProvider(),
+                    start_soc_pct=start_soc_pct,
+                    destination_soc_pct=destination_soc_pct,
+                )
+            providers = await build_production_providers()
+            return await create_trip_simulation(
+                request,
+                routing_provider=providers.routing,
+                elevation_provider=providers.elevation_provider,
+                weather_provider=providers.weather,
+                construction_provider=providers.construction,
+                charging_provider=providers.charging,
+                start_soc_pct=start_soc_pct,
+                destination_soc_pct=destination_soc_pct,
+            )
+
+        result = asyncio.run(_run_trip())
 
         output = {
             "gesamt_distanz_km": result.gesamt_distanz_km,

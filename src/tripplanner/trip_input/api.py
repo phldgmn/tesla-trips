@@ -8,12 +8,11 @@ Diese Modul implementiert:
 from __future__ import annotations
 
 import logging
-import os
 import traceback
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -30,8 +29,7 @@ from tripplanner.charging_infrastructure.client import TeslaLocationsClient
 from tripplanner.charging_infrastructure.providers import (
     TeslaChargingStationProvider,
 )
-from tripplanner.construction.models import ConstructionZone, Land
-from tripplanner.construction.providers import FakeConstructionProvider
+from tripplanner.construction.models import ConstructionProvider, ConstructionZone, Land
 from tripplanner.elevation import ElevationProvider
 from tripplanner.elevation.models import ElevationPoint, SegmentGradient
 from tripplanner.elevation.providers import FakeDataSource
@@ -42,8 +40,6 @@ from tripplanner.optimization import create_networkx_optimizer
 from tripplanner.optimization.models import ChargingPlan, OptimizationConstraints
 from tripplanner.routing import (
     FakeRoutingProvider,
-    GraphHopperClient,
-    GraphHopperRoutingProvider,
     RoutingProvider,
     erkenne_faehren,
 )
@@ -56,8 +52,14 @@ from tripplanner.trip_input.models import (
     VehicleProfile,
     Waypoint,
 )
+from tripplanner.trip_input.providers_factory import (
+    ProductionProviders,
+    build_production_providers,
+    close_production_providers,
+)
 from tripplanner.weather import FakeWeatherProvider
 from tripplanner.weather.models import WeatherQuery, WeatherSample
+from tripplanner.weather.providers import WeatherProvider
 from tripplanner.wind import compute_wind_components_for_route
 from tripplanner.wind.models import WindComponents
 
@@ -81,7 +83,7 @@ DEFAULT_GRAPHHOPPER_BASE_URL = "http://localhost:8989"
 
 
 async def _step_1_route_calculate(
-    anfrage: TripRequest,
+    request: TripRequest,
     routing_provider: RoutingProvider | None = None,
 ) -> Route:
     """Schritt 1: OSM-Routing berechnen (inkl. Zwischenstopps als Pflicht-Waypoints).
@@ -89,28 +91,29 @@ async def _step_1_route_calculate(
     Als Default-Provider wird `FakeRoutingProvider` verwendet, damit die Pipeline
     ohne echten GraphHopper-Server läuft. Für Produktion kann ein echter Provider
     wie `GraphHopperRoutingProvider` übergeben werden. Ruft `berechne_route()`
-    (nicht `berechne_route_mit_waypoints()`) auf, damit Präferenzen aus `anfrage`
+    (nicht `berechne_route_mit_waypoints()`) auf, damit Präferenzen aus `request`
     (z. B. Fährvermeidung) den Provider erreichen.
     """
     provider = routing_provider or FakeRoutingProvider()
-    return await provider.berechne_route(anfrage)
+    return await provider.berechne_route(request)
 
 
-def _step_2_hoehenprofil_extractieren(route: Route) -> list[ElevationPoint]:
-    """Schritt 2: Höhenprofil extrahieren.
+def _step_2_extract_elevation_profile(
+    route: Route, elevation_provider: ElevationProvider
+) -> list[ElevationPoint]:
+    """Step 2: Extract elevation profile along the route.
 
-    Als Default-Provider wird eine Fake-Implementierung genutzt, da keine
-    echten DEM-Kacheln verfügbar sind. Dies ist eine bewusste Design-Entscheidung
-    für die lokale Orchestrierung ohne externe Abhängigkeiten.
+    Args:
+        route: The route to extract elevation from.
+        elevation_provider: The elevation provider with data source.
 
-    Für Produktion kann ein echter `ElevationProvider` mit DEM-Daten
-    (z. B. Copernicus DEM oder SRTM) eingebunden werden.
+    Returns:
+        List of ElevationPoint for all sampling points.
     """
-    elevation_provider = ElevationProvider(data_source=FakeDataSource())
     return elevation_provider.get_elevation_profile(route)
 
 
-def _step_3_segmentierung(route: Route) -> list[RouteSegment]:
+def _step_3_segment_route(route: Route) -> list[RouteSegment]:
     """Schritt 3: Route in Segmente unterteilen.
 
     Diese Information ist bereits in `route.segments` enthalten.
@@ -118,7 +121,7 @@ def _step_3_segmentierung(route: Route) -> list[RouteSegment]:
     return route.segments
 
 
-def _step_4_initiale_eta_schaetzen(
+def _step_4_estimate_initial_eta(
     route: Route,
     abfahrtszeit: datetime,
 ) -> list[tuple[RouteSegment, timedelta]]:
@@ -127,7 +130,7 @@ def _step_4_initiale_eta_schaetzen(
     Grobe Schätzung basierend auf durchschnittlicher Geschwindigkeit
     (Default: 110 km/h auf Autobahnen, 60 km/h sonst).
     """
-    segment_eta_liste: list[tuple[RouteSegment, timedelta]] = []
+    segment_eta_list: list[tuple[RouteSegment, timedelta]] = []
 
     for segment in route.segments:
         laenge_km = segment.laenge_m / 1000.0
@@ -142,15 +145,15 @@ def _step_4_initiale_eta_schaetzen(
         duration_h = laenge_km / durchschnittsgeschwindigkeit_kmh
         dauer = timedelta(hours=duration_h)
 
-        segment_eta_liste.append((segment, dauer))
+        segment_eta_list.append((segment, dauer))
 
-    return segment_eta_liste
+    return segment_eta_list
 
 
-async def _step_5_wetterabfrage(
-    provider: FakeWeatherProvider | None,
+async def _step_5_fetch_weather(
+    provider: WeatherProvider | None,
     route: Route,
-    segment_eta_liste: list[tuple[RouteSegment, timedelta]],
+    segment_eta_list: list[tuple[RouteSegment, timedelta]],
     abfahrtszeit: datetime,
 ) -> list[WeatherSample]:
     """Schritt 5: Wetterdaten entlang der Route zu den initialen ETAs abrufen.
@@ -164,7 +167,7 @@ async def _step_5_wetterabfrage(
     queries: list[WeatherQuery] = []
     current_time = abfahrtszeit
 
-    for segment, dauer in segment_eta_liste:
+    for segment, dauer in segment_eta_list:
         # Mittelpunkt des Segments als Abfragepunkt
         mitte_idx = len(segment.geometrie) // 2
         koordinate = segment.geometrie[mitte_idx]
@@ -175,9 +178,9 @@ async def _step_5_wetterabfrage(
 
 
 async def _step_6_construction_sites(
-    construction_provider: FakeConstructionProvider | None,
+    construction_provider: ConstructionProvider | None,
     route: Route,
-    laender: list[str] | None = None,
+    countries: list[str] | None = None,
 ) -> list[ConstructionZone]:
     """Schritt 6: Baustellen entlang der Route einbeziehen.
 
@@ -188,13 +191,13 @@ async def _step_6_construction_sites(
     if construction_provider is None:
         return []
 
-    laender_enum = [Land[land_code] for land_code in laender or []]
-    return await construction_provider.fetch_construction_zones(route, laender_enum or [])
+    countries_enum = [Land[land_code] for land_code in countries or []]
+    return await construction_provider.fetch_construction_zones(route, countries_enum or [])
 
 
-async def _step_7_energieverbrauch_segment(  # noqa: PLR0913, PLR0917
+async def _step_7_calculate_segment_energy(  # noqa: PLR0913, PLR0917
     route_segments: list[RouteSegment],
-    segment_eta_liste: list[tuple[RouteSegment, timedelta]],
+    segment_eta_list: list[tuple[RouteSegment, timedelta]],
     weather_samples: list[WeatherSample],
     vehicle_profile: VehicleProfile,
     construction_zones: list[ConstructionZone],
@@ -257,8 +260,8 @@ async def _step_7_energieverbrauch_segment(  # noqa: PLR0913, PLR0917
         if wetter is None:
             wetter = WeatherSample(
                 koordinate=segment.geometrie[0],
-                zeitpunkt=abfahrtszeit + segment_eta_liste[idx][1]
-                if idx < len(segment_eta_liste)
+                zeitpunkt=abfahrtszeit + segment_eta_list[idx][1]
+                if idx < len(segment_eta_list)
                 else abfahrtszeit,
                 temperatur_c=20.0,
                 windgeschwindigkeit_ms=5.0,
@@ -285,7 +288,7 @@ async def _step_7_energieverbrauch_segment(  # noqa: PLR0913, PLR0917
     return ergebnisse
 
 
-async def _step_8_ladeplan_optimieren(  # noqa: PLR0913, PLR0917
+async def _step_8_optimize_charging_plan(  # noqa: PLR0913, PLR0917
     route: Route,
     segment_energy: list[SegmentEnergyResult],
     vehicle_profile: VehicleProfile,
@@ -368,8 +371,8 @@ async def _step_8_ladeplan_optimieren(  # noqa: PLR0913, PLR0917
     )
 
 
-def _step_9_eta_aktualisieren(
-    segment_eta_liste: list[tuple[RouteSegment, timedelta]],
+def _step_9_update_eta(
+    segment_eta_list: list[tuple[RouteSegment, timedelta]],
     charging_plan: ChargingPlan,
 ) -> list[tuple[RouteSegment, timedelta]]:
     """Schritt 9: ETA je Segment mit tatsächlicher Fahr-/Ladezeit aktualisieren.
@@ -387,7 +390,7 @@ def _step_9_eta_aktualisieren(
         ladezeiten_pro_segment[segment_idx] = ladezeit
 
     # `segment_idx` per `enumerate()` statt `route.segments.index(segment)`:
-    # `segment_eta_liste` wird in `_step_4_initiale_eta_schaetzen()` durch
+    # `segment_eta_list` wird in `_step_4_estimate_initial_eta()` durch
     # Iteration über `route.segments` IN DERSELBEN REIHENFOLGE aufgebaut (ein
     # Tupel pro Segment, keine Filterung/Umsortierung) - der Listenindex
     # entspricht also bereits exakt dem Segment-Index. `.index()` würde
@@ -396,7 +399,7 @@ def _step_9_eta_aktualisieren(
     # Vergleich statt O(n)) - bei feingranularen Routen (tausende Segmente,
     # z. B. ein Segment pro GraphHopper-Polyline-Punktpaar) ein spürbarer,
     # zudem komplett unnötiger Kostenfaktor.
-    for segment_idx, (segment, urspruengliche_dauer) in enumerate(segment_eta_liste):
+    for segment_idx, (segment, urspruengliche_dauer) in enumerate(segment_eta_list):
         ladezeit = ladezeiten_pro_segment.get(segment_idx, timedelta())
         new_duration = urspruengliche_dauer + ladezeit
         neue_eta_liste.append((segment, new_duration))
@@ -404,7 +407,7 @@ def _step_9_eta_aktualisieren(
     return neue_eta_liste
 
 
-def _finde_klammerpunkte(
+def _find_bracket_points(
     route: Route, segment_index: int, margin_m: float = 3000.0
 ) -> tuple[int, int]:
     """Findet zwei Punkte auf `route.geometrie` deutlich VOR/NACH `segment_index`.
@@ -448,7 +451,7 @@ def _finde_klammerpunkte(
     return vor_index, after_index
 
 
-async def _step_lade_detours_routen(
+async def _step_route_charging_detours(
     routing_provider: RoutingProvider | None,
     route: Route,
     charging_plan: ChargingPlan,
@@ -459,7 +462,7 @@ async def _step_lade_detours_routen(
 
     GraphHopper kennt Ladestationen nicht als Wegpunkte der Hauptroute - die
     Stationswahl erfolgt erst NACH der Routenberechnung durch den Optimierer
-    (`_step_8_ladeplan_optimieren`). Deshalb zwei separate, kleine Routing-
+    (`_step_8_optimize_charging_plan`). Deshalb zwei separate, kleine Routing-
     Aufrufe pro Ladehalt (typischerweise 0-3 pro Reise, siehe `LadehaltDetour`)
     statt eines gemeinsamen Multi-Waypoint-Aufrufs, der die Segmentierung/
     Energieberechnung der bereits abgeschlossenen Schritte 2-7 invalidieren
@@ -474,7 +477,7 @@ async def _step_lade_detours_routen(
     (oder ueber die gesamte Rueckfahrt verschmiert) gezeigt. Start-/Zielpunkt
     der beiden Beine sind bewusst zwei unterschiedliche, auf der Hauptroute
     liegende Klammerpunkte statt desselben Abzweigpunkts (siehe
-    `_finde_klammerpunkte`), um Richtungsmehrdeutigkeit bei GraphHopper zu
+    `_find_bracket_points`), um Richtungsmehrdeutigkeit bei GraphHopper zu
     vermeiden.
 
     Returns:
@@ -487,7 +490,7 @@ async def _step_lade_detours_routen(
     provider = routing_provider or FakeRoutingProvider()
     detouren: dict[int, LadehaltDetour] = {}
     for ladehalt in charging_plan.ladehalte:
-        vor_index, after_index = _finde_klammerpunkte(route, ladehalt.segment_index)
+        vor_index, after_index = _find_bracket_points(route, ladehalt.segment_index)
         hinweg_anfrage = TripRequest(
             start=route.geometrie[vor_index],
             ziel=ladehalt.station.coordinate,
@@ -515,7 +518,7 @@ async def _step_lade_detours_routen(
     return detouren
 
 
-def _segment_index_fuer_koordinate(koordinate: Coordinate, segments: list[RouteSegment]) -> int:
+def _segment_index_for_coordinate(koordinate: Coordinate, segments: list[RouteSegment]) -> int:
     """Segment, dessen Ende der gegebenen Koordinate am nächsten liegt (haversine)."""
     best_idx, best_dist = 0, float("inf")
     for idx, seg in enumerate(segments):
@@ -525,9 +528,9 @@ def _segment_index_fuer_koordinate(koordinate: Coordinate, segments: list[RouteS
     return best_idx
 
 
-def _mit_abgeleiteter_wartezeit(
+def _with_derived_wait_time(
     zwischenstopps: list[Waypoint],
-    segment_eta_liste: list[tuple[RouteSegment, timedelta]],
+    segment_eta_list: list[tuple[RouteSegment, timedelta]],
     abfahrtszeit: datetime,
 ) -> list[Waypoint]:
     """Leitet aus einem optionalen `geplante_abfahrt` je Wegpunkt eine effektive Wartezeit ab.
@@ -536,10 +539,10 @@ def _mit_abgeleiteter_wartezeit(
     iterative Konvergenz — konsistent mit dem bestehenden Ansatz der iterativen
     ETA/Wetter-Schätzung an anderer Stelle im Modul, hier aber bewusst einstufig.
     """
-    segments = [seg for seg, _ in segment_eta_liste]
+    segments = [seg for seg, _ in segment_eta_list]
     kumuliert: list[timedelta] = []
     laufend = timedelta()
-    for _, dauer in segment_eta_liste:
+    for _, dauer in segment_eta_list:
         laufend += dauer
         kumuliert.append(laufend)
     ergebnis: list[Waypoint] = []
@@ -547,7 +550,7 @@ def _mit_abgeleiteter_wartezeit(
         if wp.geplante_abfahrt is None:
             ergebnis.append(wp)
             continue
-        seg_idx = _segment_index_fuer_koordinate(wp.koordinate, segments)
+        seg_idx = _segment_index_for_coordinate(wp.koordinate, segments)
         geschaetzte_ankunft = abfahrtszeit + kumuliert[seg_idx]
         abgeleitete_wartezeit = max(timedelta(), wp.geplante_abfahrt - geschaetzte_ankunft)
         bestehende = wp.aufenthaltsdauer or timedelta()
@@ -557,13 +560,13 @@ def _mit_abgeleiteter_wartezeit(
     return ergebnis
 
 
-def _bbox_mitte(sw: Coordinate, no: Coordinate) -> Coordinate:
+def _bbox_center(sw: Coordinate, no: Coordinate) -> Coordinate:
     """Mittelpunkt einer (lat, lon)-Bounding-Box."""
     return ((sw[0] + no[0]) / 2.0, (sw[1] + no[1]) / 2.0)
 
 
-def _matche_faehr_zeitfenster(
-    erkannte_faehren: list[FaehrSegment],
+def _match_ferry_time_window(
+    detected_ferries: list[FaehrSegment],
     faehr_zeitfenster: list[FaehrZeitfenster],
 ) -> list[FaehrSegment]:
     """Reichert erkannte Fährverbindungen um Nutzer-Zeitfenster an.
@@ -576,15 +579,15 @@ def _matche_faehr_zeitfenster(
     docs/superpowers/specs/2026-08-15-ferry-avoidance-design.md).
     """
     ergebnis: list[FaehrSegment] = []
-    for faehre in erkannte_faehren:
+    for faehre in detected_ferries:
         kandidaten = [fz for fz in faehr_zeitfenster if fz.name == faehre.name]
         if not kandidaten:
             ergebnis.append(faehre)
             continue
-        faehre_mitte = _bbox_mitte(faehre.bbox_sw, faehre.bbox_no)
+        faehre_mitte = _bbox_center(faehre.bbox_sw, faehre.bbox_no)
         beste = min(
             kandidaten,
-            key=lambda fz: haversine_distance_m(faehre_mitte, _bbox_mitte(fz.bbox_sw, fz.bbox_no)),
+            key=lambda fz: haversine_distance_m(faehre_mitte, _bbox_center(fz.bbox_sw, fz.bbox_no)),
         )
         ergebnis.append(
             faehre.model_copy(update={"abfahrt": beste.abfahrt, "ankunft": beste.ankunft})
@@ -598,151 +601,147 @@ def _matche_faehr_zeitfenster(
 
 
 async def create_trip_simulation(  # noqa: PLR0913, PLR0917
-    anfrage_dict: dict[str, object],
+    request_dict: dict[str, object],
     routing_provider: RoutingProvider | None = None,
     elevation_provider: ElevationProvider | None = None,
-    weather_provider: FakeWeatherProvider | None = None,
-    construction_provider: FakeConstructionProvider | None = None,
+    weather_provider: WeatherProvider | None = None,
+    construction_provider: ConstructionProvider | None = None,
     charging_provider: ChargingStationProvider | None = None,
     start_soc_pct: float = 80.0,
-    ziel_soc_pct: float = 20.0,
+    destination_soc_pct: float = 20.0,
     route_observer: Callable[[Route], None] | None = None,
-    faehren_observer: Callable[[list[FaehrSegment]], None] | None = None,
+    ferry_observer: Callable[[list[FaehrSegment]], None] | None = None,
 ) -> TripSimulationResult:
-    """Orchestriert die 11 Datenfluss-Schritte für die Reiseplanung.
+    """Orchestrates the 11 data flow steps for trip planning.
 
     Args:
-        anfrage_dict: Dictionary mit TripRequest-Daten (aus API/CLI geparst).
-        routing_provider: Optionaler RoutingProvider (Default: FakeRoutingProvider).
-        elevation_provider: Optionaler ElevationProvider (Default: FakeDataSource).
-        weather_provider: Optionaler WeatherProvider (Default: FakeWeatherProvider).
-        construction_provider: Optionaler ConstructionProvider (Default: FakeConstructionProvider).
-        charging_provider: Optionaler ChargingStationProvider
+        request_dict: Dictionary with TripRequest data (parsed from API/CLI).
+        routing_provider: Optional RoutingProvider (Default: FakeRoutingProvider).
+        elevation_provider: Optional ElevationProvider (Default: FakeDataSource).
+        weather_provider: Optional WeatherProvider (Default: FakeWeatherProvider).
+        construction_provider: Optional ConstructionProvider (Default: FakeConstructionProvider).
+        charging_provider: Optional ChargingStationProvider
             (Default: FakeChargingStationProvider).
-        start_soc_pct: Start-SoC in Prozent (Default: 80%).
-        ziel_soc_pct: Ziel-SoC in Prozent (Default: 20%).
-        route_observer: Optionaler Callback, der unmittelbar nach Schritt 1 (Routing)
-            mit der berechneten Route aufgerufen wird (siehe `create_trip_endpoint`).
-        faehren_observer: Optionaler Callback, der unmittelbar nach Schritt 1 mit den
-            erkannten, um `anfrage.faehr_zeitfenster` angereicherten Fährverbindungen
-            aufgerufen wird - dieselbe Liste, die auch zum Bau der Fährfahrplan-Vorgabe
-            für `optimizer.optimize()` genutzt wird (siehe `create_trip_endpoint`).
+        start_soc_pct: Starting state of charge in percent (Default: 80%).
+        destination_soc_pct: Target state of charge in percent (Default: 20%).
+        route_observer: Optional callback called immediately after step 1 (routing)
+            with the computed route (see `create_trip_endpoint`).
+        ferry_observer: Optional callback called immediately after step 1 with the
+            detected ferries enriched with `request.faehr_zeitfenster` - same list
+            used for optimizer input (see `create_trip_endpoint`).
 
     Returns:
-        TripSimulationResult: Vollständige Simulations-Ergebnis.
+        TripSimulationResult: Complete simulation result.
 
-    Hinweis zu Fake-Providern:
-        Alle Provider haben Fake-Implementierungen als Default, damit die Pipeline
-        ohne externe APIs (GraphHopper, Open-Meteo, DEM-Server) läuft. Für Produktion
-        werden die echten Provider-Klassen verwendet.
+    Note on Fake Providers:
+        All providers have Fake implementations as defaults, so the pipeline
+        runs without external APIs (GraphHopper, Open-Meteo, DEM server).
+        For production, the actual provider classes are used.
     """
-    # 1. TripRequest erzeugen
-    anfrage = TripRequest.model_validate(anfrage_dict)
+    # 1. Create TripRequest
+    request = TripRequest.model_validate(request_dict)
 
-    # 2. Step 1: Route berechnen
-    route = await _step_1_route_calculate(anfrage, routing_provider)
+    # 2. Step 1: Calculate route
+    route = await _step_1_route_calculate(request, routing_provider)
     if route_observer is not None:
         route_observer(route)
 
-    # Vom Nutzer vorgegebene Fährfahrpläne gegen die frisch erkannten
-    # Fährverbindungen matchen (siehe `_matche_faehr_zeitfenster`) - wird
-    # sowohl fuer den Optimizer-Input unten als auch (ueber `faehren_observer`)
-    # fuer die API-Antwort (`erkannte_faehren`) benoetigt.
-    erkannte_faehren = _matche_faehr_zeitfenster(erkenne_faehren(route), anfrage.faehr_zeitfenster)
-    if faehren_observer is not None:
-        faehren_observer(erkannte_faehren)
+    # Match user-specified ferry time windows against detected ferries
+    detected_ferries = _match_ferry_time_window(erkenne_faehren(route), request.faehr_zeitfenster)
+    if ferry_observer is not None:
+        ferry_observer(detected_ferries)
 
-    # 3. Step 2: Höhenprofil extrahieren
-    _ = _step_2_hoehenprofil_extractieren(route)
+    # 3. Step 2: Extract elevation profile
+    if elevation_provider is None:
+        elevation_provider = ElevationProvider(data_source=FakeDataSource())
+    _ = _step_2_extract_elevation_profile(route, elevation_provider)
 
-    # 4. Step 3: Segmentierung (bereits in route.segments enthalten)
-    segmente = _step_3_segmentierung(route)
+    # 4. Step 3: Segment routing (already in route.segments)
+    segments = _step_3_segment_route(route)
 
-    # 5. Step 4: Initiale ETA-Schätzung
-    segment_eta_liste = _step_4_initiale_eta_schaetzen(route, anfrage.abfahrtszeit)
-    # Hinweis: Die abgeleitete Wartezeit ist ein Kostenfaktor im Optimierer, keine
-    # erzwungene Mindestaufenthaltsdauer - der A*-Pfad kann sie umgehen, wenn kein
-    # SoC-/Ladebedarf sie erfordert (Prototyp-Optimizer, siehe docs).
-    zwischenstopps_mit_wartezeit = _mit_abgeleiteter_wartezeit(
-        anfrage.zwischenstopps, segment_eta_liste, anfrage.abfahrtszeit
+    # 5. Step 4: Initial ETA estimate
+    segment_eta_list = _step_4_estimate_initial_eta(route, request.abfahrtszeit)
+    # Note: Derived waiting time is a cost factor for the optimizer, not a required
+    # minimum stop duration - the A* path can bypass it if no SoC/charging need arises.
+    waypoints_with_wait_time = _with_derived_wait_time(
+        request.zwischenstopps, segment_eta_list, request.abfahrtszeit
     )
 
-    # 6. Step 5: Wetterabfrage
-    wetter_samples = await _step_5_wetterabfrage(
+    # 6. Step 5: Fetch weather
+    weather_samples = await _step_5_fetch_weather(
         weather_provider,
         route,
-        segment_eta_liste,
-        anfrage.abfahrtszeit,
+        segment_eta_list,
+        request.abfahrtszeit,
     )
 
-    # 7. Step 6: Baustellen (optional)
-    baustellen = await _step_6_construction_sites(construction_provider, route, ["DE", "DK", "SE"])
-
-    # 8. Step 7: Energieverbrauch berechnen
-    energie_ergebnisse = await _step_7_energieverbrauch_segment(
-        segmente,
-        segment_eta_liste,
-        wetter_samples,
-        anfrage.fahrzeugprofil,
-        baustellen,
-        anfrage.abfahrtszeit,
+    # 7. Step 6: Construction sites (optional)
+    construction_zones = await _step_6_construction_sites(
+        construction_provider, route, ["DE", "DK", "SE"]
     )
 
-    # Vom Nutzer vorgegebene, gematchte Fährfahrpläne als Optimizer-Input
-    # aufbereiten (nur Fähren mit tatsaechlich zugeordneter Zeit).
-    faehr_pins = {
+    # 8. Step 7: Calculate energy consumption
+    energy_results = await _step_7_calculate_segment_energy(
+        segments,
+        segment_eta_list,
+        weather_samples,
+        request.fahrzeugprofil,
+        construction_zones,
+        request.abfahrtszeit,
+    )
+
+    # Prepare ferry time windows as optimizer input
+    ferry_pins = {
         f.segment_index_start: (f.segment_index_end, f.abfahrt, f.ankunft)
-        for f in erkannte_faehren
+        for f in detected_ferries
         if f.abfahrt is not None and f.ankunft is not None
     }
-    ladedauer_map = {v.station_id: v.ladedauer_s for v in anfrage.ladedauer_vorgaben}
+    charging_duration_map = {v.station_id: v.ladedauer_s for v in request.ladedauer_vorgaben}
 
-    # 9. Step 8: Ladeplan optimieren
-    ladeplan = await _step_8_ladeplan_optimieren(
+    # 9. Step 8: Optimize charging plan
+    charging_plan = await _step_8_optimize_charging_plan(
         route,
-        energie_ergebnisse,
-        anfrage.fahrzeugprofil,
+        energy_results,
+        request.fahrzeugprofil,
         start_soc_pct,
-        ziel_soc_pct,
-        baustellen,
-        anfrage.abfahrtszeit,
-        zwischenstopps=zwischenstopps_mit_wartezeit,
+        destination_soc_pct,
+        construction_zones,
+        request.abfahrtszeit,
+        zwischenstopps=waypoints_with_wait_time,
         charging_provider=charging_provider,
-        ladedauer_vorgaben=ladedauer_map,
-        faehr_zeitfenster=faehr_pins,
+        ladedauer_vorgaben=charging_duration_map,
+        faehr_zeitfenster=ferry_pins,
     )
 
-    # 9b. Fuer jeden Ladehalt eine echte Hin-und-zurueck-Verbindung zur
-    # Ladestation routen (siehe `_step_lade_detours_routen`), damit die Karte
-    # den Abstecher strassengetreu statt als Luftlinie zeigt.
-    ladehalt_detouren = await _step_lade_detours_routen(
+    # 9b. For each charging stop, route a real round-trip connection
+    charging_stop_detours = await _step_route_charging_detours(
         routing_provider,
         route,
-        ladeplan,
-        anfrage.abfahrtszeit,
-        anfrage.fahrzeugprofil,
+        charging_plan,
+        request.abfahrtszeit,
+        request.fahrzeugprofil,
     )
 
-    # 10. Step 9: ETA aktualisieren
-    _ = _step_9_eta_aktualisieren(segment_eta_liste, ladeplan)
+    # 10. Step 9: Update ETA
+    _ = _step_9_update_eta(segment_eta_list, charging_plan)
 
-    # 11. Step 10: Simulation aufrufen
-    simulationsergebnis = simulate_trip(
+    # 11. Step 10: Run simulation
+    simulation_result = simulate_trip(
         route=route,
-        charging_plan=ladeplan,
-        segment_energy=energie_ergebnisse,
-        weather_samples=wetter_samples,
+        charging_plan=charging_plan,
+        segment_energy=energy_results,
+        weather_samples=weather_samples,
         start_soc_pct=start_soc_pct,
         max_iterations=3,
         convergence_threshold_minutes=30.0,
         output_resolution_seconds=60,
-        abfahrtszeit=anfrage.abfahrtszeit,
-        battery_capacity_kwh=anfrage.fahrzeugprofil.batteriekapazitaet_kwh,
-        ladehalt_detouren=ladehalt_detouren,
+        abfahrtszeit=request.abfahrtszeit,
+        battery_capacity_kwh=request.fahrzeugprofil.batteriekapazitaet_kwh,
+        ladehalt_detouren=charging_stop_detours,
     )
 
-    # 12. Step 11: Ergebnis zurückgeben
-    return simulationsergebnis
+    # 12. Step 11: Return result
+    return simulation_result
 
 
 # =============================================================================
@@ -763,18 +762,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     GraphHopper-Basis-URL ist über die Umgebungsvariable `GRAPHHOPPER_URL`
     konfigurierbar (Default: `http://localhost:8989`, siehe README.md).
     """
-    base_url = os.environ.get(GRAPHHOPPER_URL_ENV_VAR, DEFAULT_GRAPHHOPPER_BASE_URL)
-    app.state.graphhopper_client = GraphHopperClient(base_url=base_url)
-    # TeslaChargingStationProvider öffnet beim Konstruieren eine SQLite-Verbindung
-    # zu data/tesla_superchargers.db (siehe README.md) und cached die geladenen
-    # Stationen prozessweit - einmalig hier erzeugen statt pro Request neu zu
-    # öffnen/laden.
-    app.state.charging_provider = TeslaChargingStationProvider()
+    providers = await build_production_providers()
+    app.state.providers = providers
     try:
         yield
     finally:
-        await app.state.graphhopper_client.close()
-        app.state.charging_provider.close()
+        await close_production_providers(providers)
 
 
 app = FastAPI(title="Tesla Trip Planner API", version="0.1.0", lifespan=_lifespan)
@@ -789,7 +782,8 @@ def get_routing_provider(request: Request) -> RoutingProvider:
     ersetzbar (siehe AGENTS.md: keine Live-Calls externer Datenquellen in
     Unit-Tests).
     """
-    return GraphHopperRoutingProvider(request.app.state.graphhopper_client)
+    providers: ProductionProviders = request.app.state.providers
+    return providers.routing
 
 
 def get_charging_provider(request: Request) -> ChargingStationProvider:
@@ -802,11 +796,43 @@ def get_charging_provider(request: Request) -> ChargingStationProvider:
     `FakeChargingStationProvider`-Instanz mit angepassten Stationen ersetzbar
     (siehe AGENTS.md: keine Live-Calls externer Datenquellen in Unit-Tests).
     """
-    # `app.state` ist bei Starlette/FastAPI dynamisch typisiert (Any) - der
-    # explizite cast dokumentiert die durch `_lifespan` garantierte Invariante
-    # (dort wird `charging_provider` als `TeslaChargingStationProvider`
-    # gesetzt, die das `ChargingStationProvider`-Protocol erfüllt).
-    return cast("ChargingStationProvider", request.app.state.charging_provider)
+    providers: ProductionProviders = request.app.state.providers
+    return providers.charging
+
+
+def get_elevation_provider(request: Request) -> ElevationProvider:
+    """FastAPI-Dependency: returns the production ElevationProvider for `/trips`.
+
+    Uses the `ElevationProvider` created in `_lifespan` for elevation data.
+    In tests, can be replaced via `app.dependency_overrides[get_elevation_provider]`
+    with `FakeDataSource`.
+    """
+    providers: ProductionProviders = request.app.state.providers
+    return providers.elevation_provider
+
+
+def get_weather_provider(request: Request) -> WeatherProvider:
+    """FastAPI-Dependency: returns the production WeatherProvider for `/trips`.
+
+    Uses the `OpenMeteoProvider` created in `_lifespan` for weather data.
+    In tests, can be replaced via `app.dependency_overrides[get_weather_provider]`
+    with `FakeWeatherProvider` (see AGENTS.md: no live calls to external data sources
+    in unit tests).
+    """
+    providers: ProductionProviders = request.app.state.providers
+    return providers.weather
+
+
+def get_construction_provider(request: Request) -> ConstructionProvider:
+    """FastAPI-Dependency: liefert den produktiven ConstructionProvider für `/trips`.
+
+    Nutzt den in `_lifespan` erzeugten, prozessweit wiederverwendeten
+    `ConstructionProvider` für Baustellendaten. In Tests via
+    `app.dependency_overrides[get_construction_provider]` durch
+    `FakeConstructionProvider` ersetzbar.
+    """
+    providers: ProductionProviders = request.app.state.providers
+    return providers.construction
 
 
 @app.get("/health")
@@ -1161,7 +1187,7 @@ async def create_trip_endpoint(
     ohne laufenden Server (siehe README.md) schlägt der Request mit 502 fehl.
     """
     # TripRequestAPI nach TripRequest konvertieren
-    anfrage_dict: dict[str, object] = {
+    request_dict: dict[str, object] = {
         "start": request.start,
         "ziel": request.ziel,
         "zwischenstopps": [
@@ -1200,11 +1226,11 @@ async def create_trip_endpoint(
         ],
     }
 
-    erkannte_faehren: list[FaehrSegment] = []
+    detected_ferries: list[FaehrSegment] = []
 
     def _faehren_erfassen(faehren: list[FaehrSegment]) -> None:
-        nonlocal erkannte_faehren
-        erkannte_faehren = faehren
+        nonlocal detected_ferries
+        detected_ferries = faehren
 
     route_geometrie: list[Coordinate] = []
 
@@ -1214,12 +1240,12 @@ async def create_trip_endpoint(
 
     try:
         ergebnis = await create_trip_simulation(
-            anfrage_dict,
+            request_dict,
             routing_provider=routing_provider,
             charging_provider=charging_provider,
             start_soc_pct=request.start_soc_pct,
-            ziel_soc_pct=request.ziel_soc_pct,
-            faehren_observer=_faehren_erfassen,
+            destination_soc_pct=request.ziel_soc_pct,
+            ferry_observer=_faehren_erfassen,
             route_observer=_route_erfassen,
         )
 
@@ -1269,7 +1295,7 @@ async def create_trip_endpoint(
                     abfahrt=f.abfahrt.isoformat() if f.abfahrt else None,
                     ankunft=f.ankunft.isoformat() if f.ankunft else None,
                 )
-                for f in erkannte_faehren
+                for f in detected_ferries
             ],
         )
     except ValueError as e:

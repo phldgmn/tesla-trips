@@ -24,13 +24,18 @@ from tripplanner.charging_infrastructure.client import TeslaLocationsClient
 from tripplanner.charging_infrastructure.models import ChargingStation, ConnectorType, StallType
 from tripplanner.charging_infrastructure.providers import TeslaChargingStationProvider
 from tripplanner.construction.providers import FakeConstructionProvider
+from tripplanner.elevation import ElevationProvider
+from tripplanner.elevation.providers import FakeDataSource
 from tripplanner.routing import FakeRoutingProvider, GraphHopperClient, GraphHopperRoutingProvider
 from tripplanner.routing.models import FaehrSegment, Route, RouteSegment
 from tripplanner.trip_input.api import (
     app,
     create_trip_simulation,
     get_charging_provider,
+    get_construction_provider,
+    get_elevation_provider,
     get_routing_provider,
+    get_weather_provider,
 )
 from tripplanner.trip_input.cli import parse_coord, parse_waypoint
 from tripplanner.trip_input.models import (
@@ -82,10 +87,18 @@ def client(
 
     app.dependency_overrides[get_routing_provider] = FakeRoutingProvider
     app.dependency_overrides[get_charging_provider] = lambda: fake_charging_provider_berlin_munich
+    app.dependency_overrides[get_elevation_provider] = lambda: ElevationProvider(
+        data_source=FakeDataSource()
+    )
+    app.dependency_overrides[get_weather_provider] = FakeWeatherProvider
+    app.dependency_overrides[get_construction_provider] = FakeConstructionProvider
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.pop(get_routing_provider, None)
     app.dependency_overrides.pop(get_charging_provider, None)
+    app.dependency_overrides.pop(get_elevation_provider, None)
+    app.dependency_overrides.pop(get_weather_provider, None)
+    app.dependency_overrides.pop(get_construction_provider, None)
 
 
 @pytest.fixture
@@ -239,7 +252,7 @@ async def test_create_trip_simulation_complete_run(
         construction_provider=fake_construction_provider,
         charging_provider=fake_charging_provider_berlin_munich,
         start_soc_pct=80.0,
-        ziel_soc_pct=20.0,
+        destination_soc_pct=20.0,
     )
 
     # Prüfe grundlegende Struktur
@@ -284,7 +297,7 @@ async def test_create_trip_simulation_e2e_regression_departure_time_and_soc(
         construction_provider=fake_construction_provider,
         charging_provider=fake_charging_provider_berlin_munich,
         start_soc_pct=80.0,
-        ziel_soc_pct=20.0,
+        destination_soc_pct=20.0,
     )
 
     abfahrtszeit = valid_trip_request["abfahrtszeit"]
@@ -378,7 +391,7 @@ async def test_create_trip_simulation_with_stop(
         weather_provider=fake_weather_provider,
         charging_provider=charging_provider,
         start_soc_pct=80.0,
-        ziel_soc_pct=20.0,
+        destination_soc_pct=20.0,
     )
 
     assert result.gesamt_distanz_km > 0
@@ -416,7 +429,7 @@ async def test_create_trip_simulation_different_vehicle_profiles(
         weather_provider=fake_weather_provider,
         charging_provider=fake_charging_provider_berlin_munich,
         start_soc_pct=90.0,
-        ziel_soc_pct=30.0,
+        destination_soc_pct=30.0,
     )
 
     assert result.gesamt_distanz_km > 0
@@ -439,7 +452,7 @@ async def test_create_trip_simulation_without_construction_provider(
         charging_provider=fake_charging_provider_berlin_munich,
         construction_provider=None,  # Kein ConstructionProvider
         start_soc_pct=80.0,
-        ziel_soc_pct=20.0,
+        destination_soc_pct=20.0,
     )
 
     assert result.gesamt_distanz_km > 0
@@ -458,7 +471,7 @@ async def test_create_trip_simulation_without_weather_provider(
         charging_provider=fake_charging_provider_berlin_munich,
         weather_provider=None,  # Kein WeatherProvider, Fake wird verwendet
         start_soc_pct=80.0,
-        ziel_soc_pct=20.0,
+        destination_soc_pct=20.0,
     )
 
     assert result.gesamt_distanz_km > 0
@@ -479,7 +492,7 @@ async def test_create_trip_simulation_start_soc_100(
         weather_provider=fake_weather_provider,
         charging_provider=fake_charging_provider_berlin_munich,
         start_soc_pct=100.0,
-        ziel_soc_pct=10.0,
+        destination_soc_pct=10.0,
     )
 
     assert result.start_soc_pct == 100.0
@@ -515,7 +528,7 @@ async def test_create_trip_simulation_kurze_reise(
         routing_provider=fake_routing_provider,
         weather_provider=fake_weather_provider,
         start_soc_pct=80.0,
-        ziel_soc_pct=20.0,
+        destination_soc_pct=20.0,
     )
 
     assert result.gesamt_distanz_km > 0  # Kurze Strecke
@@ -631,7 +644,7 @@ def test_with_derived_waiting_time_requires_waiting_time_with_later_planned_depa
         geplante_abfahrt=abfahrtszeit + timedelta(minutes=57),
     )
 
-    ergebnis = trip_api._mit_abgeleiteter_wartezeit([wp], segment_eta_liste, abfahrtszeit)
+    ergebnis = trip_api._with_derived_wait_time([wp], segment_eta_liste, abfahrtszeit)
 
     assert len(ergebnis) == 1
     assert ergebnis[0].aufenthaltsdauer is not None
@@ -659,7 +672,7 @@ def test_with_derived_waiting_time_no_waiting_time_when_already_delayed_departur
         geplante_abfahrt=abfahrtszeit + timedelta(minutes=5),
     )
 
-    ergebnis = trip_api._mit_abgeleiteter_wartezeit([wp], segment_eta_liste, abfahrtszeit)
+    ergebnis = trip_api._with_derived_wait_time([wp], segment_eta_liste, abfahrtszeit)
 
     assert ergebnis[0].aufenthaltsdauer == timedelta(0)
 
@@ -680,13 +693,13 @@ def test_with_derived_waiting_time_unchanged_without_planned_departure() -> None
     segment_eta_liste = [(segment, timedelta(minutes=27))]
     wp = Waypoint(koordinate=(52.1, 13.1), aufenthaltsdauer=timedelta(minutes=10))
 
-    ergebnis = trip_api._mit_abgeleiteter_wartezeit([wp], segment_eta_liste, abfahrtszeit)
+    ergebnis = trip_api._with_derived_wait_time([wp], segment_eta_liste, abfahrtszeit)
 
     assert ergebnis[0] is wp
 
 
 # =============================================================================
-# Testfälle für _matche_faehr_zeitfenster, faehren_observer, ladedauer_vorgaben
+# Testfälle für _match_ferry_time_window, faehren_observer, ladedauer_vorgaben
 # =============================================================================
 
 
@@ -711,7 +724,7 @@ def test_match_ferry_time_window_expanded_when_same_name() -> None:
         ankunft=ankunft,
     )
 
-    ergebnis = trip_api._matche_faehr_zeitfenster([faehre], [zeitfenster])
+    ergebnis = trip_api._match_ferry_time_window([faehre], [zeitfenster])
 
     assert len(ergebnis) == 1
     assert ergebnis[0].abfahrt == abfahrt
@@ -740,7 +753,7 @@ def test_match_ferry_time_window_ignore_not_matching_names() -> None:
         ankunft=datetime(2026, 8, 15, 11, 0, 0),
     )
 
-    ergebnis = trip_api._matche_faehr_zeitfenster([faehre], [zeitfenster])
+    ergebnis = trip_api._match_ferry_time_window([faehre], [zeitfenster])
 
     assert len(ergebnis) == 1
     assert ergebnis[0].abfahrt is None
@@ -772,7 +785,7 @@ def test_match_ferry_time_window_select_next_bbox_for_multiple_matching_names() 
         ankunft=datetime(2026, 8, 15, 21, 0, 0),
     )
 
-    ergebnis = trip_api._matche_faehr_zeitfenster([faehre], [fern, nah])
+    ergebnis = trip_api._match_ferry_time_window([faehre], [fern, nah])
 
     assert ergebnis[0].abfahrt == nah.abfahrt
 
@@ -845,7 +858,7 @@ async def test_create_trip_simulation_ferry_observer_receives_pinned_times(
         routing_provider=_FerryRoutingProvider(),
         weather_provider=fake_weather_provider,
         charging_provider=fake_charging_provider_berlin_munich,
-        faehren_observer=erfasste_faehren.extend,
+        ferry_observer=erfasste_faehren.extend,
     )
 
     assert len(erfasste_faehren) == 1
@@ -894,7 +907,7 @@ async def test_create_trip_simulation_charge_duration_specification_applies_to_c
         weather_provider=fake_weather_provider,
         charging_provider=single_station_provider,
         start_soc_pct=80.0,
-        ziel_soc_pct=20.0,
+        destination_soc_pct=20.0,
     )
     assert len(baseline.charging_stops) == 1
     assert baseline.charging_stops[0].station_id == "einzige-station"
@@ -911,7 +924,7 @@ async def test_create_trip_simulation_charge_duration_specification_applies_to_c
         weather_provider=fake_weather_provider,
         charging_provider=single_station_provider,
         start_soc_pct=80.0,
-        ziel_soc_pct=20.0,
+        destination_soc_pct=20.0,
     )
 
     assert len(result.charging_stops) == 1
@@ -920,9 +933,9 @@ async def test_create_trip_simulation_charge_duration_specification_applies_to_c
 
 
 def test_find_edges_walk_at_least_margin_in_both_directions() -> None:
-    """`_finde_klammerpunkte` liefert zwei Punkte, die zusammen mindestens
+    """`_find_bracket_points` liefert zwei Punkte, die zusammen mindestens
     `margin_m` vor UND nach dem Abzweigpunkt liegen - fixiert die
-    Fahrtrichtung fuer das Detour-Routing (siehe `_step_lade_detours_routen`).
+    Fahrtrichtung fuer das Detour-Routing (siehe `_step_route_charging_detours`).
     """
     # 10 gleich lange 100m-Segmente entlang eines Meridians (11 Punkte).
     geometrie = [(52.0 + i * 0.0009, 13.0) for i in range(11)]
@@ -938,7 +951,7 @@ def test_find_edges_walk_at_least_margin_in_both_directions() -> None:
     ]
     route = Route(segments=segments, gesamtlaenge_m=1000.0, geometrie=geometrie)
 
-    vor_index, nach_index = trip_api._finde_klammerpunkte(route, segment_index=5, margin_m=250.0)
+    vor_index, nach_index = trip_api._find_bracket_points(route, segment_index=5, margin_m=250.0)
 
     assert vor_index < 5 < nach_index
     distanz_zurueck = sum(seg.laenge_m for seg in segments[vor_index:5])
@@ -963,7 +976,7 @@ def test_finde_klammerpunkte_clamped_an_routenraendern() -> None:
     ]
     route = Route(segments=segments, gesamtlaenge_m=400.0, geometrie=geometrie)
 
-    vor_index, nach_index = trip_api._finde_klammerpunkte(route, segment_index=1, margin_m=10_000.0)
+    vor_index, nach_index = trip_api._find_bracket_points(route, segment_index=1, margin_m=10_000.0)
 
     assert vor_index == 0
     assert nach_index == len(geometrie) - 1
@@ -976,7 +989,7 @@ async def test_create_trip_simulation_populates_charging_stop_distanz_m_and_deto
 ) -> None:
     """`ChargingStopSummary.distanz_m`/`detour_geometrie` werden befuellt - deckt
     den Bug ab, bei dem die Karte den Ladehalt nie zeigte, weil die Routenlinie
-    die Autobahn nie verliess (siehe `_step_lade_detours_routen`)."""
+    die Autobahn nie verliess (siehe `_step_route_charging_detours`)."""
     single_station_provider = FakeChargingStationProvider(
         test_stations=[
             ChargingStation(
@@ -998,7 +1011,7 @@ async def test_create_trip_simulation_populates_charging_stop_distanz_m_and_deto
         weather_provider=fake_weather_provider,
         charging_provider=single_station_provider,
         start_soc_pct=80.0,
-        ziel_soc_pct=20.0,
+        destination_soc_pct=20.0,
     )
 
     assert len(result.charging_stops) == 1
@@ -1007,12 +1020,12 @@ async def test_create_trip_simulation_populates_charging_stop_distanz_m_and_deto
     assert stop.distanz_m < result.gesamt_distanz_km * 1000
     # Echte, ueber `FakeRoutingProvider` geroutete Geometrie von einem
     # Klammerpunkt VOR bis einem Klammerpunkt NACH dem Abzweigpunkt (siehe
-    # `_finde_klammerpunkte`) statt einer leeren Liste.
+    # `_find_bracket_points`) statt einer leeren Liste.
     assert len(stop.detour_geometrie) >= 2
     assert stop.route_index_vor is not None
     assert stop.route_index_nach is not None
     assert stop.route_index_vor < stop.route_index_nach
-    # Exakter Split-Index (Hinweg->Station, siehe `_step_lade_detours_routen`),
+    # Exakter Split-Index (Hinweg->Station, siehe `_step_route_charging_detours`),
     # nicht per Naechster-Punkt-Heuristik geschaetzt - muss innerhalb der
     # Geometrie liegen, mit mindestens einem Punkt auf jeder Seite.
     assert stop.detour_station_index is not None
@@ -1027,13 +1040,13 @@ async def test_create_trip_simulation_handles_unreachable_charging_detour_gracef
     """Ein nicht routbarer Ladehalt-Abstecher (`httpx.HTTPError` beim Detour-
     Routing) darf die gesamte Reise-Simulation nicht zum Absturz bringen -
     `detour_geometrie` bleibt fuer diesen Halt leer, der Ladehalt selbst und
-    die restliche Simulation bleiben gueltig (siehe `_step_lade_detours_routen`).
+    die restliche Simulation bleiben gueltig (siehe `_step_route_charging_detours`).
     """
 
     class _DetourFailingRoutingProvider:
         """Routet die Hauptstrecke normal, verweigert aber jede Detour-Anfrage
         (identifiziert daran, dass Start- oder Zielkoordinate exakt die
-        Ladestation ist - nur `_step_lade_detours_routen` routet Hin-/Rueckweg-
+        Ladestation ist - nur `_step_route_charging_detours` routet Hin-/Rueckweg-
         Beine mit der Stationskoordinate als Start bzw. Ziel)."""
 
         _STATION_KOORDINATE = (49.45, 11.08)
@@ -1064,7 +1077,7 @@ async def test_create_trip_simulation_handles_unreachable_charging_detour_gracef
         weather_provider=fake_weather_provider,
         charging_provider=single_station_provider,
         start_soc_pct=80.0,
-        ziel_soc_pct=20.0,
+        destination_soc_pct=20.0,
     )
 
     assert len(result.charging_stops) == 1
@@ -1121,7 +1134,7 @@ def test_fastapi_endpoint_mit_geplanter_abfahrt_gibt_201(client: TestClient) -> 
     nicht als erzwungene Mindestaufenthaltsdauer -- der A*-Pfad kann die Wartekante
     umgehen, wenn kein SoC-/Ladebedarf sie erfordert. Dieser Test prueft daher nur die
     fehlerfreie Verarbeitung (Datenfluss bis in das Domaenenmodell), nicht eine
-    konkrete Zeitverschiebung in der Antwort -- siehe `_mit_abgeleiteter_wartezeit`-Tests
+    konkrete Zeitverschiebung in der Antwort -- siehe `_with_derived_wait_time`-Tests
     oben fuer die Verifikation der eigentlichen Ableitungslogik.
     """
     api_request = {
@@ -1304,7 +1317,7 @@ def test_lifespan_uses_default_graphhopper_url(monkeypatch: pytest.MonkeyPatch) 
     """
     monkeypatch.delenv("GRAPHHOPPER_URL", raising=False)
     with TestClient(app):
-        gh_client = app.state.graphhopper_client
+        gh_client = app.state.providers.routing.client
         assert gh_client.base_url == "http://localhost:8989"
 
 
@@ -1312,7 +1325,7 @@ def test_lifespan_respects_graphhopper_url_env_var(monkeypatch: pytest.MonkeyPat
     """`GRAPHHOPPER_URL` überschreibt die Default-Basis-URL des GraphHopper-Clients."""
     monkeypatch.setenv("GRAPHHOPPER_URL", "http://gh.internal:9999")
     with TestClient(app):
-        gh_client = app.state.graphhopper_client
+        gh_client = app.state.providers.routing.client
         assert gh_client.base_url == "http://gh.internal:9999"
 
 
@@ -1773,7 +1786,7 @@ async def test_create_trip_simulation_selbe_start_ziel_position(
         routing_provider=fake_routing_provider,
         weather_provider=fake_weather_provider,
         start_soc_pct=80.0,
-        ziel_soc_pct=20.0,
+        destination_soc_pct=20.0,
     )
 
     # FakeRoutingProvider sollte hier eine minimale Route zurückgeben
@@ -1797,7 +1810,7 @@ async def test_create_trip_simulation_alle_schritte_sind_aufgerufen(
         construction_provider=fake_construction_provider,
         charging_provider=fake_charging_provider_berlin_munich,
         start_soc_pct=80.0,
-        ziel_soc_pct=20.0,
+        destination_soc_pct=20.0,
     )
 
     # Wenn wir hier ankommen, wurden alle Schritte durchlaufen
