@@ -1,6 +1,7 @@
 """Unit- und Integrationstests für elevation.py: ElevationProvider."""
 
 import asyncio
+import time
 from collections import OrderedDict
 
 import pytest
@@ -245,20 +246,22 @@ class TestAsyncGatherCallsToThreadPerTile:
         source._datasets = OrderedDict()
 
         to_thread_calls: list[tuple] = []
+        real_to_thread = asyncio.to_thread
 
-        async def fake_to_thread(fn, *args, **kwargs):  # type: ignore[no-untyped-def]
+        async def tracking_to_thread(fn, *args, **kwargs):  # type: ignore[no-untyped-def]
             to_thread_calls.append((fn, args, kwargs))
+            return await real_to_thread(fn, *args, **kwargs)
 
-        async def patch_to_thread():
-            orig = asyncio.to_thread
-            asyncio.to_thread = fake_to_thread
+        async def patch_and_run():
+            asyncio.to_thread = tracking_to_thread  # type: ignore[assignment]
             try:
                 await source.get_elevations_batch(coords)
             finally:
-                asyncio.to_thread = orig
+                asyncio.to_thread = real_to_thread
 
-        await patch_to_thread()
-        assert len(to_thread_calls) == 2
+        await patch_and_run()
+        # 2 tiles x 2 phases (open + read) = 4 calls
+        assert len(to_thread_calls) == 4
 
     @pytest.mark.asyncio
     async def test_tile_opening_is_concurrent_via_to_thread(self) -> None:
@@ -274,27 +277,39 @@ class TestAsyncGatherCallsToThreadPerTile:
         source._datasets = OrderedDict()
 
         call_count = [0]
+        open_delays: list[float] = []
+        read_delays: list[float] = []
+        real_to_thread = asyncio.to_thread
 
         async def slow_to_thread(fn, *args, **kwargs):  # type: ignore[no-untyped-def]
             call_count[0] += 1
-            await asyncio.sleep(0.02)
+            is_open_phase = "_dataset_for_tile" in str(fn)
+            delay = 0.02 if is_open_phase else 0.001
+            if is_open_phase:
+                open_delays.append(delay)
+            else:
+                read_delays.append(delay)
+            await asyncio.sleep(delay)
+            return await real_to_thread(fn, *args, **kwargs)
 
         async def patch_and_measure():
-            orig = asyncio.to_thread
-            asyncio.to_thread = slow_to_thread
+            asyncio.to_thread = slow_to_thread  # type: ignore[assignment]
             try:
                 start = asyncio.get_event_loop().time()
                 await source.get_elevations_batch(coords)
                 elapsed = asyncio.get_event_loop().time() - start
-                return call_count[0], elapsed
+                return call_count[0], elapsed, len(open_delays), len(read_delays)
             finally:
-                asyncio.to_thread = orig
+                asyncio.to_thread = real_to_thread
 
-        count, elapsed = await patch_and_measure()
+        _count, elapsed, n_opens, n_reads = await patch_and_measure()
 
-        assert count == 2  # 2 distinct 1 degree tiles
-        # Concurrent: total ~0.02s, not 0.04s (sequential)
-        assert elapsed < 0.04, f"Expected concurrent (~0.02s), got {elapsed:.3f}s"
+        # 2 distinct tiles, open phase calls to_thread concurrently
+        assert n_opens == 2
+        # Read phase also calls to_thread (bulk read per tile)
+        assert n_reads == 2
+        # Concurrent opens: total ~0.02s, not 0.04s (sequential)
+        assert elapsed < 0.06, f"Expected concurrent (~0.02s opens), got {elapsed:.3f}s"
 
     @pytest.mark.asyncio
     async def test_results_preserve_original_order(self) -> None:
@@ -449,3 +464,194 @@ class TestElevationTileEviction:
             assert results == [100.0, 200.0]
         finally:
             rasterio.open = orig_open  # type: ignore[assignment]
+
+
+# =============================================================================
+# Read-call-count bound test (Fix 1 regression guard)
+# =============================================================================
+
+
+class TestReadCallCountBound:
+    """Ensure bulk read makes O(tiles) calls, not O(coords)."""
+
+    @pytest.mark.asyncio
+    async def test_bulk_read_calls_at_most_once_per_tile(self) -> None:
+        """50 coordinates across 2 tiles must trigger at most 2 dataset.read() calls,
+        not 50.  This is the core regression guard for Fix 1.
+
+        The old per-point path did one read() per coordinate; the new path
+        does one bulk read() per tile.  This test would fail on the old code.
+        """
+        source = CopernicusDEMDataSource(base_url="file:///nonexistent")
+        source._max_open_tiles = 16
+        source._datasets = OrderedDict()
+
+        tile_uris = [
+            "file:///nonexistent/Copernicus_DSM_COG_10_N47_00_E008_00_DEM/Copernicus_DSM_COG_10_N47_00_E008_00_DEM.tif",
+            "file:///nonexistent/Copernicus_DSM_COG_10_N47_00_E009_00_DEM/Copernicus_DSM_COG_10_N47_00_E009_00_DEM.tif",
+        ]
+        tile_values: dict[str, float] = dict(zip(tile_uris, [100.0, 200.0], strict=True))
+
+        read_count = [0]
+
+        class _CountingReadResult:
+            def __init__(self, value: float) -> None:
+                self.value = value
+
+            def __getitem__(self, key: tuple[int, int]) -> float:
+                return self.value
+
+        class _CountingDataset(_MockDataset):
+            def read(self, band: int, window=None) -> _CountingReadResult:  # type: ignore[override]
+                read_count[0] += 1
+                return _CountingReadResult(self.value)  # type: ignore[arg-type]
+
+        def patched_open(path: str) -> _CountingDataset:  # type: ignore[return]
+            return _CountingDataset(tile_values[path])  # type: ignore[arg-type]
+
+        orig_open = rasterio.open
+        rasterio.open = patched_open  # type: ignore[assignment]
+
+        try:
+            coords: list[tuple[float, float]] = []
+            for i in range(25):
+                coords.append((47.0, 8.0 + i * 0.000001))
+            for i in range(25):
+                coords.append((47.0, 9.0 + i * 0.000001))
+
+            results = await source.get_elevations_batch(coords)
+            assert len(results) == 50
+            assert read_count[0] <= 2, (
+                f"Expected <=2 read() calls (one per tile), got {read_count[0]}."
+            )
+        finally:
+            rasterio.open = orig_open
+
+    @pytest.mark.asyncio
+    async def test_bulk_read_with_single_tile_many_coords(self) -> None:
+        """200 coordinates in a single tile should trigger exactly 1 read()."""
+        source = CopernicusDEMDataSource(base_url="file:///nonexistent")
+        source._max_open_tiles = 16
+        source._datasets = OrderedDict()
+
+        tile_uri = (
+            "file:///nonexistent/Copernicus_DSM_COG_10_N47_00_E008_00_DEM/"
+            "Copernicus_DSM_COG_10_N47_00_E008_00_DEM.tif"
+        )
+        tile_values: dict[str, float] = {tile_uri: 42.0}
+
+        read_count = [0]
+
+        class _SR(_MockReadResult):
+            pass
+
+        class _SD(_MockDataset):
+            def read(self, band: int, window=None) -> _SR:  # type: ignore[return]
+                read_count[0] += 1
+                return _SR(self.value)
+
+            def __init__(self, value: float) -> None:
+                super().__init__(value)
+
+        def patched_open(path: str) -> _SD:
+            return _SD(tile_values[path])
+
+        orig_open = rasterio.open
+        rasterio.open = patched_open  # type: ignore[assignment]
+
+        try:
+            coords = [(47.0 + i * 0.000001, 8.0) for i in range(200)]
+            results = await source.get_elevations_batch(coords)
+            assert len(results) == 200
+            assert read_count[0] == 1
+        finally:
+            rasterio.open = orig_open
+
+
+# =============================================================================
+# Read concurrency test (asyncio.gather on bulk reads)
+# =============================================================================
+
+
+class TestReadConcurrency:
+    """Verify that bulk reads for multiple tiles run concurrently."""
+
+    @pytest.mark.asyncio
+    async def test_bulk_reads_run_concurrently(self) -> None:
+        """4 coordinates across 4 distinct tiles with artificial delay should
+        complete in ~1x delay, not 4x delay.  This proves the asyncio.gather
+        concurrency claim for the read phase.
+        """
+        source = CopernicusDEMDataSource(base_url="file:///nonexistent")
+        source._max_open_tiles = 16
+        source._datasets = OrderedDict()
+
+        tile_uris = [
+            "file:///nonexistent/Copernicus_DSM_COG_10_N47_00_E008_00_DEM/Copernicus_DSM_COG_10_N47_00_E008_00_DEM.tif",
+            "file:///nonexistent/Copernicus_DSM_COG_10_N48_00_E009_00_DEM/Copernicus_DSM_COG_10_N48_00_E009_00_DEM.tif",
+            "file:///nonexistent/Copernicus_DSM_COG_10_N49_00_E010_00_DEM/Copernicus_DSM_COG_10_N49_00_E010_00_DEM.tif",
+            "file:///nonexistent/Copernicus_DSM_COG_10_N50_00_E011_00_DEM/Copernicus_DSM_COG_10_N50_00_E011_00_DEM.tif",
+        ]
+        tile_values: dict[str, float] = dict(
+            zip(tile_uris, [10.0, 20.0, 30.0, 40.0], strict=True),
+        )
+
+        read_count = [0]
+
+        class _DelayReadResult:
+            def __init__(self, value: float) -> None:
+                self.value = value
+
+            def __getitem__(self, key: tuple[int, int]) -> float:
+                return self.value
+
+        class _DelayDataset(_MockDataset):
+            def __init__(self, value: float) -> None:
+                super().__init__(value)
+
+            def read(self, band: int, window=None) -> _DelayReadResult:  # type: ignore[return]
+                read_count[0] += 1
+                return _DelayReadResult(self.value)
+
+        def patched_open(path: str) -> _DelayDataset:
+            return _DelayDataset(tile_values[path])
+
+        orig_open = rasterio.open
+        rasterio.open = patched_open  # type: ignore[assignment]
+
+        try:
+            delay = 0.15  # seconds per read
+            original_read_tile_bulk = CopernicusDEMDataSource._read_tile_bulk
+
+            def delayed_read_tile_bulk(
+                self: CopernicusDEMDataSource,
+                uri: str,
+                points: list[tuple[int, float, float]],
+                nodata: float | None,
+            ) -> list[float]:
+                time.sleep(delay)
+                return original_read_tile_bulk(self, uri, points, nodata)
+
+            CopernicusDEMDataSource._read_tile_bulk = delayed_read_tile_bulk  # type: ignore[assignment]
+
+            try:
+                coords = [
+                    (47.0, 8.0),
+                    (48.0, 9.0),
+                    (49.0, 10.0),
+                    (50.0, 11.0),
+                ]
+
+                start = asyncio.get_event_loop().time()
+                results = await source.get_elevations_batch(coords)
+                elapsed = asyncio.get_event_loop().time() - start
+
+                assert results == [10.0, 20.0, 30.0, 40.0]
+                # Sequential: ~0.6s (4 x 0.15).  Concurrent: ~0.15s.
+                assert elapsed < 2 * delay, (
+                    f"Expected concurrent (~{delay:.2f}s), got {elapsed:.3f}s."
+                )
+            finally:
+                CopernicusDEMDataSource._read_tile_bulk = original_read_tile_bulk
+        finally:
+            rasterio.open = orig_open

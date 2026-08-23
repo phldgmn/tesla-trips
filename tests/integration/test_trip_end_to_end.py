@@ -16,6 +16,7 @@ Credentials werden stillschweigend übersprungen (Phase D Design).
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 
 import pytest
@@ -211,6 +212,9 @@ async def test_elevation_real_data(client: TestClient) -> None:
     Energieverbräuche sehr homogen sein. Echte Daten führen zu
     variablerem SoC-Verbrauch.
     """
+    # Guard against the 118-second regression that originally motivated this test (Issue #13).
+    # 15 s is generous for real-world network + elevation lookups.
+    t0 = time.perf_counter()
     payload = _build_payload(start=_MUNCHEN, ziel=_GARMISCH)
 
     response = client.post("/trips", json=payload)
@@ -230,6 +234,12 @@ async def test_elevation_real_data(client: TestClient) -> None:
     soc_range = max(soc_values) - min(soc_values)
     assert soc_range > 1.0, (
         f"Echte Elevation sollte variablen Verbrauch erzeugen. Range: {soc_range}"
+    )
+
+    elapsed = time.perf_counter() - t0
+    assert elapsed < 15, (
+        f"Elevation lookup took {elapsed:.1f}s — expected < 15s "
+        "(was 118s before bulk per-tile reads, see Issue #13)"
     )
 
 

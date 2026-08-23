@@ -7,8 +7,10 @@ feste Abhängigkeit von rasterio.
 import asyncio
 import logging
 import math
+import os
 import struct
 from collections import OrderedDict
+from pathlib import Path
 from typing import Protocol, cast
 
 import rasterio
@@ -214,24 +216,71 @@ class CopernicusDEMDataSource:
 
     _BUCKET_BASE = "https://copernicus-dem-30m.s3.amazonaws.com"
 
-    def __init__(self, *, base_url: str | None = None, max_open_tiles: int = 16) -> None:
+    def __init__(
+        self,
+        *,
+        base_url: str | None = None,
+        max_open_tiles: int = 16,
+        cache_dir: Path | None = None,
+    ) -> None:
         """Initialisiere CopernicusDEMDataSource.
 
         Args:
             base_url: Override für die Bucket-Basis-URL. Werte, die mit
-                `http://`/`https://` beginnen, werden über GDALs
-                `/vsicurl/`-Dateisystem gelesen (Range-Requests, kein
+                ``http://``/``https://`` beginnen, werden über GDALs
+                ``/vsicurl/``-Dateisystem gelesen (Range-Requests, kein
                 Download). Jeder andere Wert wird als lokaler Basispfad
                 behandelt (für Tests gegen eine lokale Test-Kachel). Default:
-                der öffentliche `copernicus-dem-30m`-Bucket.
+                der öffentliche ``copernicus-dem-30m``-Bucket.
             max_open_tiles: Maximale Anzahl offener rasterio-Datasets im
                 LRU-Cache (begrenzt Speicher-/Dateihandle-Verbrauch bei
                 langlaufenden Prozessen, die viele Routen bedienen).
+            cache_dir: Optional path to a local disk cache directory for
+                downloaded DEM tiles.  When set and a tile exists locally,
+                the local file is opened directly (no ``/vsicurl/``).  On
+                a cache miss the tile is written to disk after the first
+                fetch so subsequent calls (same or new process) hit disk
+                instead of the network.
         """
-        self._base_url = (base_url or self._BUCKET_BASE).rstrip("/")
+        # ── Fix 2: GDAL / vsicurl tuning ──────────────────────────────
+        # Set once at construction so every GDAL worker thread picks them
+        # up.  Using os.environ.setdefault lets tests / callers override.
+        if base_url is None:
+            base_url = self._BUCKET_BASE
+        self._base_url = base_url.rstrip("/")
         self._remote = self._base_url.startswith(("http://", "https://"))
+        if self._remote:
+            os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
+            os.environ.setdefault("CPL_VSIL_CURL_USE_HEAD", "NO")
+            os.environ.setdefault("VSI_CACHE", "TRUE")
+            os.environ.setdefault("VSI_CACHE_SIZE", "67108864")  # 64 MB
+            os.environ.setdefault("GDAL_HTTP_VERSION", "2")
+            os.environ.setdefault("CPL_VSIL_CURL_ALLOWED_EXTENSIONS", ".tif")
+
         self._max_open_tiles = max_open_tiles
         self._datasets: OrderedDict[str, rasterio.io.DatasetReader | None] = OrderedDict()
+
+        # ── Fix 3: local-disk tile cache ──────────────────────────────
+        self._cache_dir: Path | None = None
+        self._cache: dict[str, str] = {}  # tile_name → local_path
+        if cache_dir is not None:
+            self._cache_dir = Path(cache_dir)
+            self._cache_dir.mkdir(parents=True, exist_ok=True)
+            self._cache = self._find_cached_tiles(self._cache_dir)
+
+    def _find_cached_tiles(self, cache_dir: Path) -> dict[str, str]:
+        """Scan *cache_dir* for existing GeoTIFF tiles (called once).
+
+        Args:
+            cache_dir: Local cache directory to scan.
+
+        Returns:
+            Mapping from Copernicus tile name to local file path.
+        """
+        try:
+            return {p.stem: str(p) for p in cache_dir.rglob("*.tif") if p.is_file()}
+        except OSError:
+            return {}
 
     def _tile_name(self, lat: float, lon: float) -> str:
         """Berechne den Copernicus-DEM-Kachelnamen für die 1x1-Grad-Zelle einer Koordinate."""
@@ -242,10 +291,55 @@ class CopernicusDEMDataSource:
         return f"Copernicus_DSM_COG_10_{ns}{abs(lat_band):02d}_00_{ew}{abs(lon_band):03d}_00_DEM"
 
     def _tile_uri(self, lat: float, lon: float) -> str:
-        """Baue die GDAL-lesbare URI (vsicurl oder lokaler Pfad) für eine Kachel."""
+        """Baue die GDAL-lesbare URI (vsicurl oder lokaler Pfad) für eine Kachel.
+
+        Fix 3 — when *cache_dir* is set and a local copy exists, returns the
+        local path directly so no ``/vsicurl/`` network call is made.
+        """
         name = self._tile_name(lat, lon)
+        # Fix 3 — local cache hit → open local file directly
+        if self._cache_dir is not None and name in self._cache:
+            return self._cache[name]
+        # Remote vsicurl or local base
         path = f"{self._base_url}/{name}/{name}.tif"
         return f"/vsicurl/{path}" if self._remote else path
+
+    def _write_to_cache(
+        self, uri: str, dataset: rasterio.io.DatasetReader, lat: float, lon: float
+    ) -> None:
+        """Write a freshly-fetched tile to the local disk cache.
+
+        Called *after* the bulk read succeeds so that one successful
+        remote fetch serves both the immediate result and future calls.
+        Failure to write is silently logged — it must never affect
+        the elevation values returned to the caller.
+
+        Args:
+            uri: GDAL-readable tile URI.
+            dataset: The already-open dataset (remote tile) to copy.
+            lat: Latitude for tile name resolution.
+            lon: Longitude for tile name resolution.
+        """
+        if self._cache_dir is None:
+            return
+        # Only write remote tiles to cache (local tiles are already on disk).
+        if not uri.startswith("/vsicurl/"):
+            return
+        name = self._tile_name(lat, lon)
+        local_path = self._cache_dir / f"{name}.tif"
+        try:
+            rasterio.shutil.copy(
+                dataset,
+                str(local_path),
+                driver="GTiff",
+            )
+            self._cache[name] = str(local_path)
+        except Exception:
+            logger.warning(
+                "DEM-Tile %s konnte nicht zwischengespeichert werden",
+                name,
+                exc_info=True,
+            )
 
     def _dataset_for(self, lat: float, lon: float) -> rasterio.io.DatasetReader | None:
         """Liefere ein offenes Dataset für die Kachel an (lat, lon), oder None.
@@ -279,6 +373,12 @@ class CopernicusDEMDataSource:
 
         Same LRU caching logic as `_dataset_for` but takes a URI directly
         to avoid constructing one in the thread per call.
+
+        Args:
+            uri: Tile URI to open or look up in the LRU cache.
+
+        Returns:
+            An open ``DatasetReader`` or ``None`` if opening failed.
         """
         if uri in self._datasets:
             dataset = self._datasets.pop(uri)
@@ -297,6 +397,100 @@ class CopernicusDEMDataSource:
             if evicted is not None:
                 evicted.close()
         return dataset
+
+    # ── Fix 1: private bulk-read helper ──────────────────────────────
+
+    def _read_tile_bulk(
+        self,
+        uri: str,
+        points: list[tuple[int, float, float]],
+        nodata: float | None,
+    ) -> list[float]:
+        """Read elevation values for *points* via one bulk ``dataset.read(1)``.
+
+        This is the heart of Fix 1.  It runs *inside* ``asyncio.to_thread``
+        from ``get_elevations_batch`` and is responsible for:
+
+        1. Opening (or reusing from the LRU) the tile dataset.
+        2. Reading the **entire band** in a single ``read(1)`` call.
+        3. Indexing every point with pure numpy array lookup — zero further
+           I/O.
+        4. **Eviction self-heal**: if the LRU dataset was evicted (closed)
+           between step 1 and the bulk read, open a temporary dataset
+           directly (bypassing the LRU), do one bulk ``read(1)`` on it,
+           use it for all points in this tile, then ``close()`` it.
+        5. Writing the tile to disk cache (Fix 3) after success.
+
+        Args:
+            uri: GDAL-readable tile URI (``/vsicurl/...`` or local path).
+            points: ``[(result_index, lat, lon), ...]`` per coordinate
+                that falls into this tile.
+            nodata: The dataset's nodata sentinel value, or ``None``.
+
+        Returns:
+            List of elevation floats — one per entry in *points*.
+            Nodata pixels are returned as ``0.0``, as are out-of-bounds
+            and failed reads.
+        """
+        if not points:
+            return []
+
+        results: list[float] = [0.0] * len(points)
+        dataset: rasterio.io.DatasetReader | None = None
+        temp_dataset: rasterio.io.DatasetReader | None = None
+
+        # ── Step A: Open or reuse from LRU ────────────────────────────
+        try:
+            dataset = self._dataset_for_tile(uri)
+        except Exception:
+            # LRU itself is broken — fall through to temp open.
+            dataset = None
+
+        if dataset is None or getattr(dataset, "closed", False):
+            # ── Eviction self-heal (Fix 1): open temp, bypass LRU ────
+            try:
+                temp_dataset = rasterio.open(uri)
+                dataset = temp_dataset
+            except Exception:
+                logger.warning(
+                    "DEM-Tile %s konnte nicht geöffnet werden - Fallback 0.0m",
+                    uri,
+                )
+                return results
+
+        # ── Step B: Single bulk read of the whole band (Fix 1) ───────
+        try:
+            band = dataset.read(1)
+        except Exception:
+            logger.warning(
+                "DEM-Tile %s konnte nicht gelesen werden - Fallback 0.0m",
+                uri,
+            )
+            return results
+
+        # ── Step C: Per-point indexing — pure numpy, zero I/O ────────
+        for local_idx, (_global_idx, lat, lon) in enumerate(points):
+            try:
+                row, col = dataset.index(lon, lat)
+                if not (0 <= row < dataset.height and 0 <= col < dataset.width):
+                    continue
+                value = band[row, col]
+                value_f = float(value)
+                if nodata is not None and value_f == nodata:
+                    continue
+                results[local_idx] = value_f
+            except Exception:
+                # Out-of-bounds index, etc. → leave 0.0.
+                pass
+
+        # ── Fix 3: Write to disk cache after successful fetch ────────
+        self._write_to_cache(uri, dataset, points[0][1], points[0][2])
+
+        # ── Close temporary dataset (not the LRU one) ────────────────
+        if temp_dataset is not None and dataset is temp_dataset:
+            temp_dataset.close()
+
+        return results
 
     def get_elevation(self, lat: float, lon: float) -> float:
         """Höhenwert an einer Koordinate abfragen.
@@ -327,14 +521,18 @@ class CopernicusDEMDataSource:
             return 0.0
         return value_f
 
-    async def get_elevations_batch(  # noqa: PLR0912
-        self, coordinates: list[tuple[float, float]]
-    ) -> list[float]:
+    async def get_elevations_batch(self, coordinates: list[tuple[float, float]]) -> list[float]:
         """Höhenwerte für mehrere Koordinaten abfragen (optimiert für Batch-Lookup).
 
         Gruppiert Koordinaten nach 1°-DEM-Kachel, öffnet die benötigten Kacheln
-        concurrent via ``asyncio.to_thread`` (GDAL/rasterio ist blockierend) und
-        liest die Pixelwerte aus den gecachten Datasets.
+        concurrent via ``asyncio.to_thread`` (GDAL/rasterio ist blockierend),
+        liest pro Kachel **genau einen** Bulk-``read(1)`` und indexiert
+        danach alle Pixelwerte mit reinem Numpy-Zugriff — null weitere I/O.
+
+        Fix 1 — der alte Pfad machte ``dataset.read(window=Window(...))``
+        für *jeden* einzelnen Punkt (118 s).  Jetzt macht jede Kachel
+        genau **einen** Bulk-``read(1)`` (ca. 3600x3600 int16-Pixel),
+        gestartet parallel über ``asyncio.gather``.
 
         Args:
             coordinates: Liste von (lat, lon)-Tupeln
@@ -362,50 +560,30 @@ class CopernicusDEMDataSource:
             *[_load_dataset(uri) for uri in tile_coords],
         )
 
-        # 3. Read pixel values and reconstruct in original order
+        # 3. For each tile, do ONE bulk read inside a worker thread,
+        #    all tiles' bulk reads running concurrently via asyncio.gather.
+        async def _read_tile_and_collect(
+            uri: str,
+            points: list[tuple[int, float, float]],
+            dataset: rasterio.io.DatasetReader | None,
+        ) -> list[float]:
+            """Run bulk read for one tile and return per-point results."""
+            nodata = dataset.nodata if dataset is not None else None
+            return await asyncio.to_thread(self._read_tile_bulk, uri, points, nodata)
+
+        gathered = await asyncio.gather(
+            *[
+                _read_tile_and_collect(uri, pts, ds)
+                for (uri, pts), ds in zip(tile_coords.items(), datasets, strict=True)
+            ],
+        )
+
+        # Scatter per-tile result lists back into flat coordinate order.
         results: list[float] = [0.0] * len(coordinates)
-        for uri, dataset in zip(tile_coords, datasets, strict=True):
-            if dataset is None:
-                continue
-            for idx, lat, lon in tile_coords[uri]:
-                try:
-                    row, col = dataset.index(lon, lat)
-                    if not (0 <= row < dataset.height and 0 <= col < dataset.width):
-                        continue
-                    value = dataset.read(1, window=Window(col, row, 1, 1))[0, 0]
-                    value_f = float(value)
-                    if dataset.nodata is not None and value_f == dataset.nodata:
-                        continue
-                    results[idx] = value_f
-                except Exception:
-                    # Dataset may have been evicted (closed) during the
-                    # concurrent open phase (step 2).  Re-open directly
-                    # (bypassing the LRU cache) to avoid eviction cascades,
-                    # matching the old sequential path's self-healing
-                    # behaviour.  Only fall back to 0.0m when the re-read
-                    # also fails.
-                    if dataset is not None and getattr(dataset, "closed", False):
-                        try:
-                            re = await asyncio.to_thread(rasterio.open, uri)
-                            try:
-                                row, col = re.index(lon, lat)
-                                if 0 <= row < re.height and 0 <= col < re.width:
-                                    value = re.read(1, window=Window(col, row, 1, 1))[0, 0]
-                                    value_f = float(value)
-                                    if re.nodata is not None and value_f == re.nodata:
-                                        pass  # fall through to 0.0
-                                    else:
-                                        results[idx] = value_f
-                                        continue
-                            finally:
-                                re.close()
-                        except Exception:
-                            pass  # fall through to warning
-                    logger.warning(
-                        "DEM-Range-Request für (%s, %s) fehlgeschlagen - Fallback 0.0m",
-                        lat,
-                        lon,
-                    )
+        for tile_results, pts in zip(gathered, tile_coords.values(), strict=True):
+            for local_idx, (global_idx, _lat, _lon) in enumerate(pts):
+                results[global_idx] = tile_results[local_idx]
+
         return results
 
     def get_tile_at(self, lat: float, lon: float) -> DEMTile | None:

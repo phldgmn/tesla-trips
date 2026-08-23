@@ -15,6 +15,7 @@ später einzubinden, ohne diesen Code erneut ändern zu müssen.
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -90,7 +91,10 @@ async def build_production_providers(
 
     # Elevation: CopernicusDEMDataSource (echte Copernicus-DEM-GLO-30-Kacheln)
     if elevation_data_source is None:
-        elevation_data_source = CopernicusDEMDataSource()
+        default_dem_cache = str(Path(tempfile.gettempdir()) / "tesla-trips" / "dem-cache")
+        elevation_data_source = CopernicusDEMDataSource(
+            cache_dir=Path(os.environ.get("DEM_CACHE_DIR", default_dem_cache)),
+        )
     elevation = ElevationProvider(data_source=elevation_data_source)
 
     local_credentials = _load_local_credentials()

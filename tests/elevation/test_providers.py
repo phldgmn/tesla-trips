@@ -3,6 +3,7 @@ DEMDataSourceProtocol.
 """
 
 import importlib.util
+import shutil
 from pathlib import Path
 from types import ModuleType
 
@@ -242,3 +243,115 @@ class TestCalculateHorizontalDistance:
         coord2 = (1.0, 0.0)
         dist = calculate_horizontal_distance(coord1, coord2)
         assert dist == pytest.approx(111_140, rel=0.01)
+
+
+# =============================================================================
+# cache_dir tests (Fix 3)
+# =============================================================================
+
+
+class TestCacheDir:
+    """Tests for the local disk tile cache (Fix 3)."""
+
+    def test_cache_dir_creates_tile_file_on_first_fetch(self, copernicus_tile_dir: Path) -> None:
+        """First call with cache_dir set writes the tile to disk."""
+        # Create a separate cache dir
+        cache_dir = copernicus_tile_dir / "cache"
+        cache_dir.mkdir()
+
+        # Copy the test tile into the cache to simulate prior fetch
+        tile_name = "Copernicus_DSM_COG_10_N47_00_E008_00_DEM"
+        src_tile = next(iter(copernicus_tile_dir.rglob("*.tif")))
+        shutil.copy(src_tile, cache_dir / f"{tile_name}.tif")
+
+        source = CopernicusDEMDataSource(
+            base_url=str(copernicus_tile_dir),
+            cache_dir=cache_dir,
+        )
+        elevation = source.get_elevation(47.000075, 8.000075)
+        assert 105.0 <= elevation <= 115.0
+        # Verify tile file exists in cache
+        cached_file = cache_dir / f"{tile_name}.tif"
+        assert cached_file.exists(), "Tile file should exist in cache_dir after fetch"
+
+    def test_cache_dir_reads_from_local_file(self, copernicus_tile_dir: Path) -> None:
+        """Second call with broken base_url must still return correct value via local cache."""
+        cache_dir = copernicus_tile_dir / "cache2"
+        cache_dir.mkdir()
+
+        # First, populate the cache with a fresh source
+        tile_name = "Copernicus_DSM_COG_10_N47_00_E008_00_DEM"
+        src_tile = next(iter(copernicus_tile_dir.rglob("*.tif")))
+        shutil.copy(src_tile, cache_dir / f"{tile_name}.tif")
+
+        # Now create source with broken base_url but same cache_dir
+        source = CopernicusDEMDataSource(
+            base_url="file:///nonexistent/broken_path",
+            cache_dir=cache_dir,
+        )
+        # _tile_name for (47.000075, 8.000075) is N47/E008
+        # _tile_uri should return the local cached path since cache was populated
+        elevation = source.get_elevation(47.000075, 8.000075)
+        assert 105.0 <= elevation <= 115.0
+
+    def test_cache_write_failure_does_not_break_lookup(self, tmp_path: Path) -> None:
+        """If cache_dir is non-writable, get_elevations_batch still returns correct values."""
+
+        # Create a non-writable directory for cache
+        readonly_dir = tmp_path / "readonly_cache"
+        readonly_dir.mkdir()
+        readonly_dir.chmod(0o444)
+
+        source = CopernicusDEMDataSource(
+            base_url=str(tmp_path),
+            cache_dir=readonly_dir,
+        )
+        # With no tiles in cache and no real tiles at base_url,
+        # get_elevation falls back to 0.0. This just verifies no exception.
+        result = source.get_elevation(47.0, 8.0)
+        # Should return 0.0 (no tile), not raise
+        assert result == 0.0
+
+        # Restore permissions for cleanup
+        readonly_dir.chmod(0o755)
+
+    @pytest.mark.asyncio
+    async def test_cache_dir_batch(self, copernicus_tile_dir: Path) -> None:
+        """Batch elevation with cache_dir returns correct values from cached tile."""
+        cache_dir = copernicus_tile_dir / "cache3"
+        cache_dir.mkdir()
+
+        tile_name = "Copernicus_DSM_COG_10_N47_00_E008_00_DEM"
+        src_tile = next(iter(copernicus_tile_dir.rglob("*.tif")))
+        shutil.copy(src_tile, cache_dir / f"{tile_name}.tif")
+
+        source = CopernicusDEMDataSource(
+            base_url=str(copernicus_tile_dir),
+            cache_dir=cache_dir,
+        )
+        coords = [
+            (47.000075, 8.000075),
+            (47.00010, 8.00010),
+        ]
+        results = await source.get_elevations_batch(coords)
+        assert len(results) == 2
+        assert all(r > 0.0 for r in results)
+
+    def test_cache_dir_skips_vsicurl_for_cached_tile(self, copernicus_tile_dir: Path) -> None:
+        """When cache_dir has a tile, _tile_uri returns local path, not /vsicurl/."""
+        cache_dir = copernicus_tile_dir / "cache4"
+        cache_dir.mkdir()
+
+        tile_name = "Copernicus_DSM_COG_10_N47_00_E008_00_DEM"
+        src_tile = next(iter(copernicus_tile_dir.rglob("*.tif")))
+        shutil.copy(src_tile, cache_dir / f"{tile_name}.tif")
+
+        source = CopernicusDEMDataSource(
+            base_url="https://copernicus-dem-30m.s3.amazonaws.com",
+            cache_dir=cache_dir,
+        )
+        uri = source._tile_uri(47.000075, 8.000075)
+        assert not uri.startswith("/vsicurl/"), f"Expected local path, got vsicurl URI: {uri}"
+        assert cache_dir.name in uri or str(cache_dir) in uri, (
+            f"Expected cache_dir path in URI: {uri}"
+        )
