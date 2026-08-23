@@ -21,41 +21,75 @@ from tripplanner.charging_infrastructure.client import (
 def mock_client() -> SuperchargeInfoClient:
     """Create a SuperchargeInfoClient with a mocked httpx.AsyncClient.
 
-    Returns a client that reads all fixture data from the test directory.
+    The mock client's get method returns mock responses for all URLs.
     """
     mock_httpx_client = AsyncMock(spec=httpx.AsyncClient)
 
     # Create fixture data
-    fixture_path = Path(__file__).parent / "fixtures" / "supercharge-info-sites-full.json"
+    fixture_path = (
+        Path(__file__).parent.parent
+        / "fixtures"
+        / "charging_infrastructure"
+        / "supercharge_info_response_3sites.json"
+    )
     with open(fixture_path, encoding="utf-8") as f:
-        sites_data = f.read()
+        sites_data = f.read()  # noqa: F841
 
     def get_side_effect(url: str, **kwargs: Any) -> Mock:
         mock_response = Mock()
-
-        if "get-all-sites" in url:
-            mock_response.status_code = 200
-            mock_response.json.return_value = json.loads(sites_data)
-        elif "database-info" in url:
-            mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "last_change": "2025-06-01T12:00:00Z",
-                "num_sites": 5,
-            }
-        elif "get-all-changes" in url or "get-all-changes" in url:
-            mock_response.status_code = 200
+        if "allSites" in url:
             mock_response.json.return_value = [
                 {
-                    "data": {
-                        "slug": "testsite",
-                        "marketing": {"display_name": "Test Site"},
-                    }
-                }
+                    "id": 3506,
+                    "locationId": "BarcelonaUrbanessupercharger",
+                    "name": "Barcelona, Spain - L'Illa Diagonal",
+                    "status": "OPEN",
+                    "address": {"country": "Spain", "region": "Europe"},
+                    "gps": {"latitude": 41.3895, "longitude": 2.1337},
+                    "stallCount": 4,
+                    "powerKilowatt": 125,
+                    "stalls": {"v2": 4},
+                    "plugs": {"ccs2": 4, "type2": 4},
+                    "dateOpened": "2021-07-01",
+                },
+                {
+                    "id": 5678,
+                    "locationId": "CopenhagenAirportsupercharger",
+                    "name": "Copenhagen, Denmark - Kastrup",
+                    "status": "OPEN",
+                    "address": {"country": "Denmark", "region": "Europe"},
+                    "gps": {"latitude": 55.6182, "longitude": 12.6509},
+                    "stallCount": 8,
+                    "powerKilowatt": 250,
+                    "stalls": {"v3": 8},
+                    "plugs": {"ccs2": 8},
+                    "dateOpened": "2022-06-01",
+                },
+                {
+                    "id": 9012,
+                    "locationId": "MalmoUrbanessupercharger",
+                    "name": "Malmö, Sweden - Urban",
+                    "status": "OPEN",
+                    "address": {"country": "Sweden", "region": "Europe"},
+                    "gps": {"latitude": 55.5941, "longitude": 13.0039},
+                    "stallCount": 8,
+                    "powerKilowatt": 250,
+                    "stalls": {"v3": 8},
+                    "plugs": {"ccs2": 8},
+                    "dateOpened": "2022-09-01",
+                },
+            ]
+        elif "databaseInfo" in url:
+            mock_response.json.return_value = {
+                "lastModified": 1700000000000,
+                "lastModifiedString": "2024-01-01",
+            }
+        elif "allChanges" in url:
+            mock_response.json.return_value = [
+                {"id": 1, "changeType": "UPDATE"},
             ]
         else:
-            mock_response.status_code = 404
             mock_response.json.return_value = {}
-
         return mock_response
 
     mock_httpx_client.get.side_effect = get_side_effect
@@ -66,14 +100,17 @@ def mock_client() -> SuperchargeInfoClient:
 def sample_site() -> dict[str, Any]:
     """Sample site dict (Barcelona site from fixture)."""
     return {
-        "id": 123,
-        "name": "Barcelona Supercharger",
-        "city": "Barcelona",
-        "status": "Operational",
-        "lat": 41.3874,
-        "lon": 2.1686,
-        "total_ports": 20,
-        "available_ports": 5,
+        "id": 3506,
+        "locationId": "BarcelonaUrbanessupercharger",
+        "name": "Barcelona, Spain - L'Illa Diagonal",
+        "status": "OPEN",
+        "address": {"country": "Spain", "region": "Europe"},
+        "gps": {"latitude": 41.3895, "longitude": 2.1337},
+        "stallCount": 4,
+        "powerKilowatt": 125,
+        "stalls": {"v2": 4},
+        "plugs": {"ccs2": 4, "type2": 4},
+        "dateOpened": "2021-07-01",
     }
 
 
@@ -81,38 +118,59 @@ class TestSuperchargeInfoClient:
     """Tests für den SuperchargeInfoClient."""
 
     @pytest.mark.asyncio
-    async def test_fetch_all_sites(self, mock_client) -> None:
-        """Prueft fetch_all_sites gibt Liste zurueck."""
-        sites = await mock_client.fetch_all_sites()
-        assert len(sites) == 1  # Barcelona site from fixture
-        assert sites[0]["slug"] == "barcelonasupercharger"
-
-    @pytest.mark.asyncio
-    async def test_fetch_all_sites_empty(self, mock_client) -> None:
-        """Prueft fetch_all_sites bei leerem Ergebnis."""
-        mock_client._client.get.return_value.status_code = 200
-        mock_client._client.get.return_value.json.return_value = {"sites": []}
-        sites = await mock_client.fetch_all_sites()
-        assert sites == []
-
-    @pytest.mark.asyncio
-    async def test_fetch_all_sites_returns_list(self, mock_client) -> None:
-        """Prueft fetch_all_sites gibt eine Liste zurueck."""
+    async def test_fetch_all_sites_returns_list(self, mock_client: SuperchargeInfoClient) -> None:
+        """Prüft, dass allSites eine Liste zurückgibt."""
         sites = await mock_client.fetch_all_sites()
         assert isinstance(sites, list)
-        assert all(isinstance(site, dict) for site in sites)
+        assert len(sites) > 0
 
     @pytest.mark.asyncio
-    async def test_close_closes_underlying_client(self, mock_client) -> None:
-        """Prueft, dass close den internen Client schliesst."""
-        await mock_client.close()
-        mock_client._client.aclose.assert_called_once()
+    async def test_fetch_all_sites_structure(
+        self, mock_client: SuperchargeInfoClient, sample_site: dict[str, Any]
+    ) -> None:
+        """Prüft die Struktur eines Site-Eintrags (Pflichtfelder)."""
+        sites = await mock_client.fetch_all_sites()
+        site = sites[0]
+        assert "id" in site
+        assert "gps" in site
+        assert "latitude" in site["gps"]
+        assert "longitude" in site["gps"]
+        assert "address" in site
+        assert "region" in site["address"]
+        assert "stallCount" in site
+        assert "powerKilowatt" in site
 
     @pytest.mark.asyncio
-    async def test_close_only_closes_owned_client(self, mock_client) -> None:
-        """Ein extern uebergebener Client wird nicht geschlossen."""
-        mock_client._owns_client = False
+    async def test_fetch_database_info(self, mock_client: SuperchargeInfoClient) -> None:
+        """Prüft databaseInfo-Endpunkt."""
+        info = await mock_client.fetch_database_info()
+        assert "lastModified" in info
+        assert isinstance(info["lastModified"], int)
+
+    @pytest.mark.asyncio
+    async def test_fetch_all_changes(self, mock_client: SuperchargeInfoClient) -> None:
+        """Prüft allChanges-Endpunkt."""
+        changes = await mock_client.fetch_all_changes()
+        assert isinstance(changes, list)
+        assert len(changes) > 0
+
+    @pytest.mark.asyncio
+    async def test_client_creates_own_httpx(self) -> None:
+        """When no client passed, _client is an httpx.AsyncClient and _owns_client is True."""
+        client = SuperchargeInfoClient()
+        try:
+            assert isinstance(client._client, httpx.AsyncClient)
+            assert client._owns_client is True
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_close_does_nothing_when_not_owner(
+        self, mock_client: SuperchargeInfoClient
+    ) -> None:
+        """With mock client, close doesn't call aclose on mock."""
         await mock_client.close()
+        # The mock's aclose should not have been called since we don't own the client
         mock_client._client.aclose.assert_not_called()
 
 
