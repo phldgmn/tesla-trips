@@ -1,20 +1,20 @@
-# Repo-Struktur und Tooling-Setup
+# Repository Structure and Tooling Setup
 
-Ziel dieses Dokuments: KI-Coding-Agenten sollen von Anfang an sauberen, konsistenten Code erzeugen. Das wird nicht durch Bitten im Prompt erreicht, sondern durch **automatisierte, verpflichtende Gates**: Linting/Formatting mit Auto-Fix, Type-Checking und Tests, die vor jedem Commit und in der CI laufen und einen Commit/Merge bei Verstößen blockieren.
+The goal of this document is to ensure that AI coding agents produce clean, consistent code from the outset. This is not achieved by asking for it in prompts, but through **automated, mandatory gates**: linting/formatting with auto-fix, type checking, and tests that run before every commit and in CI and block commits/merges when violations are detected.
 
-## Repo-Struktur
+## Repository Structure
 
-```
+```text
 tesla-tripplanner/
-├── mise.toml                  # Tooling-Provider: pinnt Python/uv/node/hk/Linter-Versionen
-├── hk.pkl                     # Git-Hook- und Lint-Konfiguration
-├── pyproject.toml             # uv/Python-Projektdefinition
+├── mise.toml                  # Tooling provider: pins Python/uv/node/hk/linter versions
+├── hk.pkl                     # Git hook and lint configuration
+├── pyproject.toml             # uv/Python project definition
 ├── uv.lock
-├── AGENTS.md                  # siehe 05-agent-guidelines.md
+├── AGENTS.md                  # see 05-agent-guidelines.md
 ├── docs/
-│   ├── 01-projektspezifikation.md
-│   ├── 02-architektur.md
-│   └── 03-modulspezifikationen.md
+│   ├── 01-project-specification.md
+│   ├── 02-architecture.md
+│   └── 03-module-specifications.md
 ├── src/
 │   └── tripplanner/
 │       ├── routing/
@@ -27,28 +27,28 @@ tesla-tripplanner/
 │       ├── charging_infrastructure/
 │       ├── optimization/
 │       ├── simulation/
-│       └── api/                # CLI/FastAPI-Einstiegspunkt
+│       └── api/                # CLI/FastAPI entry point
 ├── tests/
 │   ├── routing/
 │   ├── elevation/
 │   ├── weather/
-│   ├── ...                     # Spiegelt src/-Struktur 1:1
-│   └── fixtures/                # aufgezeichnete API-Antworten, Beispiel-DEM-Kacheln, DATEX-II-Beispiele
+│   ├── ...                     # Mirrors src/ structure 1:1
+│   └── fixtures/               # Recorded API responses, example DEM tiles, DATEX II examples
 ├── frontend/
 │   ├── package.json
 │   ├── src/
-│   └── ...                      # TypeScript/MapLibre GL JS
+│   └── ...                     # TypeScript/MapLibre GL JS
 └── .github/workflows/ci.yml
 ```
 
-Jedes Modul aus `03-modulspezifikationen.md` entspricht genau einem Unterpaket unter `src/tripplanner/` mit gespiegeltem Testordner. Modul-übergreifende Importe erfolgen ausschließlich über die `models.py`-Schnittstellen der jeweiligen Module — kein Zugriff auf interne Implementierungsdetails eines fremden Moduls.
+Each module from `03-module-specifications.md` corresponds exactly to a subpackage under `src/tripplanner/`, with a mirrored test directory. Cross-module imports are made exclusively through the respective module's `models.py` interfaces — no access to another module's internal implementation details.
 
-## Tooling-Provider (mise)
+## Tooling Provider (mise)
 
-`mise.toml` im Repo-Root ist die einzige Quelle für Tool-Versionen: Python-Interpreter, `uv`, `node`, `hk` sowie die von `hk.pkl` aufgerufenen externen Linter/Formatter (`shellcheck`, `shfmt`, `yamllint`, `markdownlint`). Damit installiert und pinnt ein einziger Befehl (`mise install`) alles, was lokal und in CI (`jdx/mise-action`, siehe unten) für konsistente Toolversionen nötig ist — statt verstreuter `brew install …`-Anweisungen oder mehrerer GitHub-Actions-Setup-Schritte.
+`mise.toml` in the repository root is the single source of truth for tool versions: the Python interpreter, `uv`, `node`, `hk`, and the external linters/formatters invoked by `hk.pkl` (`shellcheck`, `shfmt`, `yamllint`, `markdownlint`). This means a single command (`mise install`) installs and pins everything required locally and in CI (`jdx/mise-action`, see below) for consistent tool versions, instead of scattered `brew install …` instructions or multiple GitHub Actions setup steps.
 
 ```toml
-# mise.toml (Auszug)
+# mise.toml (excerpt)
 [tools]
 uv = "0.11"
 python = "3.12"
@@ -60,16 +60,16 @@ yamllint = "latest"
 "npm:markdownlint-cli" = "latest"
 ```
 
-- `mise install` installiert/pinnt alle in `mise.toml` gelisteten Tools in den angegebenen Versionen.
-- `uv` selbst bleibt der Python-Paket-/Venv-Manager (`uv sync`, `uv run …`, `uv.lock`) — mise liefert nur die Binaries. `UV_PYTHON_DOWNLOADS = "never"` (siehe `[env]` in `mise.toml`) zwingt `uv`, den von mise gepinnten Python-Interpreter zu verwenden, statt sich selbst einen herunterzuladen.
-- `mise run lint` / `mise run test` / `mise run install` sind Kurzformen der Standard-Aufrufe (`uv run hk check --all`, `uv run pytest -m 'not integration'`, `uv sync && npm --prefix frontend ci`) — optional, ersetzen aber nicht die in `AGENTS.md` verpflichtenden Befehle.
-- `hk.pkl` prüft `mise.toml` selbst mit dem `mise`-Builtin (`mise fmt --check`) als Teil von `hk check --all`.
-- **Ausnahme (bewusst):** Backend/Frontend-Serverprozesse werden weiterhin ausschließlich über `./run.sh` gestartet/gestoppt (siehe `AGENTS.md`) — `mise.toml` definiert dafür keine Tasks, um diese Regel nicht zu unterlaufen.
+* `mise install` installs/pins all tools listed in `mise.toml` at the specified versions.
+* `uv` remains the Python package/virtual-environment manager (`uv sync`, `uv run …`, `uv.lock`) — mise only provides the binaries. `UV_PYTHON_DOWNLOADS = "never"` (see `[env]` in `mise.toml`) forces `uv` to use the Python interpreter pinned by mise instead of downloading its own.
+* `mise run lint` / `mise run test` / `mise run install` are shorthand forms of the standard commands (`uv run hk check --all`, `uv run pytest -m 'not integration'`, `uv sync && npm --prefix frontend ci`) — optional, but they do not replace the commands mandated by `AGENTS.md`.
+* `hk.pkl` also checks `mise.toml` itself using the `mise` builtin (`mise fmt --check`) as part of `hk check --all`.
+* **Intentional exception:** Backend/frontend server processes continue to be started/stopped exclusively through `./run.sh` (see `AGENTS.md`) — `mise.toml` defines no tasks for this purpose, so as not to undermine that rule.
 
-## Python-Setup (uv)
+## Python Setup (uv)
 
 ```toml
-# pyproject.toml (Auszug)
+# pyproject.toml (excerpt)
 [project]
 name = "tripplanner"
 requires-python = ">=3.12"
@@ -91,12 +91,12 @@ dev = [
 ]
 ```
 
-- `uv sync` installiert alle Abhängigkeiten inkl. Dev-Gruppe.
-- `uv run pytest`, `uv run ruff check`, `uv run mypy src` als Standard-Aufrufe — auch aus `hk.pkl` heraus.
+* `uv sync` installs all dependencies, including the dev group.
+* `uv run pytest`, `uv run ruff check`, and `uv run mypy src` are the standard commands — including when invoked from `hk.pkl`.
 
-## Git-Hooks mit hk
+## Git Hooks with hk
 
-`hk.pkl` im Repo-Root, verpflichtend für jeden Commit (lokal) und zusätzlich in CI erzwungen (siehe unten):
+`hk.pkl` in the repository root is mandatory for every commit (locally) and is additionally enforced in CI (see below):
 
 ```pkl
 amends "package://github.com/jdx/hk/releases/download/v1.53.0/hk@1.53.0#/Config.pkl"
@@ -116,8 +116,8 @@ local linters = new Mapping<String, Step> {
     ["mypy"] {
         glob = List("*.py")
         check = "uv run mypy {{files}}"
-        // kein fix — Type-Fehler werden nicht automatisch behoben,
-        // sondern blockieren den Commit bewusst
+        // no fix — type errors are not fixed automatically,
+        // but deliberately block the commit
     }
     ["prettier"] = (Builtins.prettier) {
         glob = List("frontend/**/*.ts", "frontend/**/*.tsx", "frontend/**/*.json")
@@ -128,7 +128,7 @@ local linters = new Mapping<String, Step> {
         fix = "npm --prefix frontend run lint:fix"
     }
     ["shellcheck"] = Builtins.shellcheck
-    ["shfmt"] = (Builtins.shfmt) { /* -i 2, siehe hk.pkl: Repo-Konvention 2-Space-Einrückung */ }
+    ["shfmt"] = (Builtins.shfmt) { /* -i 2, see hk.pkl: repository convention is 2-space indentation */ }
     ["yamllint"] = Builtins.yamllint
     ["markdown-lint"] = Builtins.markdown_lint
     ["mise"] = Builtins.mise
@@ -136,8 +136,8 @@ local linters = new Mapping<String, Step> {
 
 hooks {
     ["pre-commit"] {
-        fix = true       // Auto-Fix läuft direkt beim Commit
-        stash = "git"    // unstaged Änderungen werden währenddessen weggesichert
+        fix = true       // Auto-fix runs directly during the commit
+        stash = "git"    // unstaged changes are stashed while this runs
         steps = linters
     }
     ["pre-push"] {
@@ -150,14 +150,14 @@ hooks {
 }
 ```
 
-**Wichtig für KI-Agenten:** `hk check --all` bzw. `hk run pre-commit --all` muss vor jedem Commit fehlerfrei durchlaufen. Ein Commit, der nur zustande kommt, weil ein Hook umgangen wurde (`--no-verify`), gilt als nicht abgeschlossen (siehe `05-agent-guidelines.md`).
+**Important for AI agents:** `hk check --all` or `hk run pre-commit --all` must complete successfully before every commit. A commit that succeeds only because a hook was bypassed (`--no-verify`) is not considered complete (see `05-agent-guidelines.md`).
 
-`shellcheck`, `shfmt`, `yamllint`, `markdownlint` und `hk` selbst werden **nicht** manuell installiert (kein `brew install …`), sondern über `mise.toml` gepinnt und via `mise install` bereitgestellt (siehe Abschnitt „Tooling-Provider (mise)" oben). Regel-Ausnahmen für `markdownlint`/`yamllint` stehen in `.markdownlint.jsonc`/`.yamllint.yml` im Repo-Root, jeweils mit Begründungskommentar.
+`shellcheck`, `shfmt`, `yamllint`, `markdownlint`, and `hk` itself are **not** installed manually (no `brew install …`); they are pinned through `mise.toml` and provided via `mise install` (see the "Tooling Provider (mise)" section above). Rule exceptions for `markdownlint`/`yamllint` are defined in `.markdownlint.jsonc`/`.yamllint.yml` in the repository root, each with an explanatory comment.
 
-## Linting/Formatting-Konfiguration (Python)
+## Linting/Formatting Configuration (Python)
 
 ```toml
-# pyproject.toml (Auszug)
+# pyproject.toml (excerpt)
 [tool.ruff]
 line-length = 100
 target-version = "py312"
@@ -171,16 +171,16 @@ disallow_untyped_defs = true
 warn_return_any = true
 ```
 
-`strict = true` bei mypy ist bewusst gewählt: KI-Agenten neigen dazu, `Any` oder fehlende Typannotationen als Abkürzung zu nutzen — strict mode verhindert das automatisiert, statt auf Review-Disziplin zu vertrauen.
+`strict = true` for mypy is intentional: AI agents tend to use `Any` or omit type annotations as shortcuts — strict mode prevents this automatically rather than relying on review discipline.
 
-## Teststrategie
+## Test Strategy
 
-- **Unit-Tests** je Modul, keine echten Netzwerk-/Dateisystemzugriffe außerhalb von Test-Fixtures (siehe `03-modulspezifikationen.md`, Abschnitt „Testbarkeit" je Modul).
-- **Integrationstests** (`@pytest.mark.integration`) gegen echte lokale Dienste (GraphHopper-Container, echte DEM-Kachel) — laufen nicht bei jedem `pre-push`, sondern separat in CI bzw. auf Anforderung.
-- **Regressionstests** für die Optimierungsschicht: kleine, von Hand nachvollziehbare Szenarien mit bekanntem optimalem Ladeplan.
-- **Coverage-Schwelle** (`pytest-cov`) als CI-Gate, z. B. minimal 85 % für `src/tripplanner/` — verhindert, dass Agenten neuen Code ohne begleitende Tests einchecken.
+* **Unit tests** for each module, with no real network/filesystem access outside test fixtures (see `03-module-specifications.md`, "Testability" section for each module).
+* **Integration tests** (`@pytest.mark.integration`) against real local services (GraphHopper container, real DEM tile) — these do not run on every `pre-push`, but separately in CI or on demand.
+* **Regression tests** for the optimization layer: small, manually verifiable scenarios with a known optimal charging plan.
+* **Coverage threshold** (`pytest-cov`) as a CI gate, e.g. a minimum of 85% for `src/tripplanner/` — prevents agents from committing new code without accompanying tests.
 
-## CI-Pipeline (GitHub Actions, Beispielskizze)
+## CI Pipeline (GitHub Actions, Example)
 
 ```yaml
 # .github/workflows/ci.yml
@@ -191,7 +191,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2   # installiert Python/uv/hk/… aus mise.toml
+      - uses: jdx/mise-action@v2   # installs Python/uv/hk/… from mise.toml
       - run: uv sync
       - run: uv run hk check --all
       - run: uv run pytest -m "not integration" --cov=src/tripplanner --cov-fail-under=85
@@ -199,7 +199,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       graphhopper:
-        image: israelhikingmap/graphhopper   # Platzhalter, konkretes Image im Projekt festlegen
+        image: israelhikingmap/graphhopper   # placeholder; define the concrete image in the project
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
@@ -209,15 +209,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2   # installiert Node aus mise.toml
+      - uses: jdx/mise-action@v2   # installs Node from mise.toml
       - run: npm --prefix frontend ci
       - run: npm --prefix frontend run lint
       - run: npm --prefix frontend run typecheck
       - run: npm --prefix frontend run test
 ```
 
-CI wiederholt bewusst dieselben Checks wie die lokalen hk-Hooks — lokale Hooks können umgangen werden (`--no-verify`, fehlende Installation), CI ist die verbindliche letzte Instanz vor einem Merge.
+CI deliberately repeats the same checks as the local `hk` hooks — local hooks can be bypassed (`--no-verify`, missing installation), whereas CI is the authoritative final gate before a merge.
 
-## Dokumentation
+## Documentation
 
-Für generierte API-/Modul-Dokumentation aus Docstrings wird empfohlen, ein einheitliches Docstring-Format (Google- oder NumPy-Style, projektweit festgelegt) zu verwenden und per `ruff` (`D`-Regeln, pydocstyle-kompatibel) zu erzwingen, damit spätere Doku-Generierung (z. B. mkdocs mit mkdocstrings) ohne Nacharbeit funktioniert.
+For generated API/module documentation from docstrings, it is recommended to use a consistent docstring format (Google or NumPy style, established project-wide) and enforce it via `ruff` (`D` rules, compatible with pydocstyle), so that later documentation generation (e.g. with mkdocs and mkdocstrings) works without additional cleanup.

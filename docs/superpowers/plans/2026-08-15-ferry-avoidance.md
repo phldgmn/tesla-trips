@@ -39,27 +39,28 @@
 Add to `tests/routing/test_routing.py`, inside `class TestRouteSegmentModel:` (after `test_route_segment_oberflaeche_optional`):
 
 ```python
-    def test_route_segment_road_environment_optional(self) -> None:
-        """road_environment ist optional (None wenn GraphHopper es nicht liefert)."""
-        segment = RouteSegment(
-            segment_index=0,
-            geometrie=[(52.5, 13.4), (52.6, 13.5)],
-            laenge_m=1000.0,
-            strassenklasse="MOTORWAY",
-            bearing_deg=45.0,
-        )
-        assert segment.road_environment is None
+def test_route_segment_road_environment_optional(self) -> None:
+    """road_environment ist optional (None wenn GraphHopper es nicht liefert)."""
+    segment = RouteSegment(
+        segment_index=0,
+        geometrie=[(52.5, 13.4), (52.6, 13.5)],
+        laenge_m=1000.0,
+        strassenklasse="MOTORWAY",
+        bearing_deg=45.0,
+    )
+    assert segment.road_environment is None
 
-    def test_route_segment_strassenname_optional(self) -> None:
-        """strassenname ist optional (None wenn GraphHopper es nicht liefert)."""
-        segment = RouteSegment(
-            segment_index=0,
-            geometrie=[(52.5, 13.4), (52.6, 13.5)],
-            laenge_m=1000.0,
-            strassenklasse="MOTORWAY",
-            bearing_deg=45.0,
-        )
-        assert segment.strassenname is None
+
+def test_route_segment_strassenname_optional(self) -> None:
+    """strassenname ist optional (None wenn GraphHopper es nicht liefert)."""
+    segment = RouteSegment(
+        segment_index=0,
+        geometrie=[(52.5, 13.4), (52.6, 13.5)],
+        laenge_m=1000.0,
+        strassenklasse="MOTORWAY",
+        bearing_deg=45.0,
+    )
+    assert segment.strassenname is None
 ```
 
 Add a new test class at the end of `tests/routing/test_routing.py`:
@@ -129,8 +130,6 @@ In `src/tripplanner/routing/models.py`, insert after the `bearing_deg` field (af
 Append to the end of `src/tripplanner/routing/models.py`:
 
 ```python
-
-
 class FaehrSegment(BaseModel):
     """Eine in einer berechneten `Route` erkannte, zusammenhängende Fährverbindung.
 
@@ -773,17 +772,17 @@ class TestErkenneFaehren:
         route = Route(
             segments=[
                 _segment(0, (54.50, 11.22), (54.55, 11.25), "ROAD"),
-                _segment(
-                    1, (54.55, 11.25), (54.60, 11.30), "FERRY", "Rødby (DK) - Puttgarden (D)"
-                ),
-                _segment(
-                    2, (54.60, 11.30), (54.65, 11.35), "FERRY", "Rødby (DK) - Puttgarden (D)"
-                ),
+                _segment(1, (54.55, 11.25), (54.60, 11.30), "FERRY", "Rødby (DK) - Puttgarden (D)"),
+                _segment(2, (54.60, 11.30), (54.65, 11.35), "FERRY", "Rødby (DK) - Puttgarden (D)"),
                 _segment(3, (54.65, 11.35), (54.70, 11.40), "ROAD"),
             ],
             gesamtlaenge_m=4000.0,
             geometrie=[
-                (54.50, 11.22), (54.55, 11.25), (54.60, 11.30), (54.65, 11.35), (54.70, 11.40)
+                (54.50, 11.22),
+                (54.55, 11.25),
+                (54.60, 11.30),
+                (54.65, 11.35),
+                (54.70, 11.40),
             ],
         )
 
@@ -1043,9 +1042,7 @@ class TestBuildCustomModel:
         assert ring[0] == [11.22, 54.50]  # [lon, lat] Reihenfolge (GeoJSON)
         assert ring[0] == ring[-1]  # geschlossener Ring
 
-    def test_use_custom_model_and_ferry_avoidance_combined(
-        self, trip_request: TripRequest
-    ) -> None:
+    def test_use_custom_model_and_ferry_avoidance_combined(self, trip_request: TripRequest) -> None:
         """use_custom_model=True und Fährvermeidung wirken gemeinsam auf dieselbe priority-Liste."""
         provider = GraphHopperRoutingProvider(client=None, use_custom_model=True)  # type: ignore[arg-type]
         anfrage = trip_request.model_copy(update={"alle_faehren_vermeiden": True})
@@ -1110,77 +1107,78 @@ def _faehr_ausschluss_zu_geojson_feature(ausschluss: FaehrAusschluss) -> dict[st
 Replace the `berechne_route` body's custom_model construction (the block currently reading `custom_model = None` / `if self.use_custom_model: custom_model = {...}`) with a call to a new method, and add that method. Full replacement of `async def berechne_route(self, anfrage: TripRequest) -> Route:` (lines 205-238):
 
 ```python
-    async def berechne_route(self, anfrage: TripRequest) -> Route:
-        """Berechnet eine Route für eine TripRequest (inkl. Zwischenstopps)."""
-        # Umwandlung TripRequest → GraphHopper Parameter
-        points = [anfrage.start] + [wp.koordinate for wp in anfrage.zwischenstopps] + [anfrage.ziel]
+async def berechne_route(self, anfrage: TripRequest) -> Route:
+    """Berechnet eine Route für eine TripRequest (inkl. Zwischenstopps)."""
+    # Umwandlung TripRequest → GraphHopper Parameter
+    points = [anfrage.start] + [wp.koordinate for wp in anfrage.zwischenstopps] + [anfrage.ziel]
 
-        details_list = [
-            *await self._ermittele_verfuegbare_path_details(),
-            *self._IMMER_VERFUEGBARE_DETAILS,
+    details_list = [
+        *await self._ermittele_verfuegbare_path_details(),
+        *self._IMMER_VERFUEGBARE_DETAILS,
+    ]
+
+    custom_model = self._build_custom_model(anfrage)
+
+    response = await self.client.route(
+        points=points,
+        profile="car",
+        # elevation=False: der `polyline`-Decoder unterstützt nur 2D
+        # (lat, lon) - eine 3D-kodierte Polyline (mit Elevation) würde
+        # `polyline.decode()` falsch ausrichten und zum Absturz bringen.
+        # `RouteSegment.geometrie` ist ohnehin nur (lat, lon); Steigung
+        # wird separat vom `elevation`-Modul aus DEM-Kacheln berechnet.
+        elevation=False,
+        details=details_list,
+        custom_model=custom_model,
+    )
+
+    # Mapping GraphHopperResponse → Route
+    return self._map_path_to_route(response.paths[0])
+
+
+def _build_custom_model(self, anfrage: TripRequest) -> dict[str, object] | None:
+    """Baut das optionale GraphHopper `custom_model` aus Tempolimit- und Fähr-Präferenzen.
+
+    Gibt `None` zurück, wenn weder `use_custom_model` (Tempolimit-Profil) noch
+    Fährvermeidung (`anfrage.alle_faehren_vermeiden`/`anfrage.vermiedene_faehren`)
+    angefordert wurde - identisch zum bisherigen Verhalten ohne benutzerdefiniertes
+    Modell (kein custom_model-Feld im GraphHopper-Request).
+    """
+    priority: list[dict[str, object]] = []
+    speed: list[dict[str, object]] | None = None
+    distance_influence: float | None = None
+
+    if self.use_custom_model:
+        speed = [
+            {"if": "road_class == MOTORWAY", "limit_to": 130},
+            {"if": "true", "limit_to": 100},
         ]
+        priority.append({"if": "road_class == MOTORWAY", "multiply_by": 1.0})
+        distance_influence = 0.0
 
-        custom_model = self._build_custom_model(anfrage)
+    if anfrage.alle_faehren_vermeiden:
+        priority.append({"if": "road_environment == FERRY", "multiply_by": 0.0})
 
-        response = await self.client.route(
-            points=points,
-            profile="car",
-            # elevation=False: der `polyline`-Decoder unterstützt nur 2D
-            # (lat, lon) - eine 3D-kodierte Polyline (mit Elevation) würde
-            # `polyline.decode()` falsch ausrichten und zum Absturz bringen.
-            # `RouteSegment.geometrie` ist ohnehin nur (lat, lon); Steigung
-            # wird separat vom `elevation`-Modul aus DEM-Kacheln berechnet.
-            elevation=False,
-            details=details_list,
-            custom_model=custom_model,
-        )
+    areas: dict[str, object] = {}
+    for index, ausschluss in enumerate(anfrage.vermiedene_faehren):
+        area_id = f"faehre_{index}"
+        areas[area_id] = _faehr_ausschluss_zu_geojson_feature(ausschluss)
+        priority.append({"if": f"in_{area_id}", "multiply_by": 0.0})
 
-        # Mapping GraphHopperResponse → Route
-        return self._map_path_to_route(response.paths[0])
+    if not priority and speed is None:
+        return None
 
-    def _build_custom_model(self, anfrage: TripRequest) -> dict[str, object] | None:
-        """Baut das optionale GraphHopper `custom_model` aus Tempolimit- und Fähr-Präferenzen.
+    custom_model: dict[str, object] = {}
+    if speed is not None:
+        custom_model["speed"] = speed
+    if priority:
+        custom_model["priority"] = priority
+    if areas:
+        custom_model["areas"] = areas
+    if distance_influence is not None:
+        custom_model["distance_influence"] = distance_influence
 
-        Gibt `None` zurück, wenn weder `use_custom_model` (Tempolimit-Profil) noch
-        Fährvermeidung (`anfrage.alle_faehren_vermeiden`/`anfrage.vermiedene_faehren`)
-        angefordert wurde - identisch zum bisherigen Verhalten ohne benutzerdefiniertes
-        Modell (kein custom_model-Feld im GraphHopper-Request).
-        """
-        priority: list[dict[str, object]] = []
-        speed: list[dict[str, object]] | None = None
-        distance_influence: float | None = None
-
-        if self.use_custom_model:
-            speed = [
-                {"if": "road_class == MOTORWAY", "limit_to": 130},
-                {"if": "true", "limit_to": 100},
-            ]
-            priority.append({"if": "road_class == MOTORWAY", "multiply_by": 1.0})
-            distance_influence = 0.0
-
-        if anfrage.alle_faehren_vermeiden:
-            priority.append({"if": "road_environment == FERRY", "multiply_by": 0.0})
-
-        areas: dict[str, object] = {}
-        for index, ausschluss in enumerate(anfrage.vermiedene_faehren):
-            area_id = f"faehre_{index}"
-            areas[area_id] = _faehr_ausschluss_zu_geojson_feature(ausschluss)
-            priority.append({"if": f"in_{area_id}", "multiply_by": 0.0})
-
-        if not priority and speed is None:
-            return None
-
-        custom_model: dict[str, object] = {}
-        if speed is not None:
-            custom_model["speed"] = speed
-        if priority:
-            custom_model["priority"] = priority
-        if areas:
-            custom_model["areas"] = areas
-        if distance_influence is not None:
-            custom_model["distance_influence"] = distance_influence
-
-        return custom_model
+    return custom_model
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -1665,8 +1663,6 @@ class FaehrAusschlussAPI(BaseModel):
     name: str = Field(..., description="Anzeigename der Fährverbindung")
     bbox_sw: tuple[float, float] = Field(..., description="Südwest-Ecke der Bounding Box")
     bbox_no: tuple[float, float] = Field(..., description="Nordost-Ecke der Bounding Box")
-
-
 ```
 
 Update `TripRequestAPI` (lines 781-795), adding two fields at the end:
@@ -1693,8 +1689,7 @@ class TripRequestAPI(BaseModel):
     vermiedene_faehren: list[FaehrAusschlussAPI] = Field(
         default_factory=list,
         description=(
-            "Liste spezifischer, zuvor erkannter Fährverbindungen, die vermieden "
-            "werden sollen"
+            "Liste spezifischer, zuvor erkannter Fährverbindungen, die vermieden werden sollen"
         ),
     )
 ```
@@ -1713,8 +1708,6 @@ class FaehrSegmentAPI(BaseModel):
     bbox_no: tuple[float, float] = Field(
         ..., description="Nordost-Ecke der gepufferten Bounding Box"
     )
-
-
 ```
 
 Update `TripSimulationResultAPI` (lines 821-832), adding a field at the end:
@@ -1741,102 +1734,101 @@ class TripSimulationResultAPI(BaseModel):
 In `create_trip_endpoint`, update `anfrage_dict` (lines 850-868) to add the two request fields:
 
 ```python
-    anfrage_dict: dict[str, object] = {
-        "start": request.start,
-        "ziel": request.ziel,
-        "zwischenstopps": [
-            {
-                "koordinate": wp.koordinate,
-                "aufenthaltsdauer": timedelta(seconds=wp.aufenthaltsdauer_s)
-                if wp.aufenthaltsdauer_s
-                else None,
-                "geplante_abfahrt": datetime.fromisoformat(wp.geplante_abfahrt)
-                if wp.geplante_abfahrt
-                else None,
-            }
-            for wp in request.zwischenstopps
-        ],
-        "abfahrtszeit": request.abfahrtszeit,
-        "fahrzeugprofil": request.fahrzeugprofil.model_dump(),
-        "praeferenzen": request.praeferenzen,
-        "alle_faehren_vermeiden": request.alle_faehren_vermeiden,
-        "vermiedene_faehren": [
-            {"name": f.name, "bbox_sw": f.bbox_sw, "bbox_no": f.bbox_no}
-            for f in request.vermiedene_faehren
-        ],
-    }
+anfrage_dict: dict[str, object] = {
+    "start": request.start,
+    "ziel": request.ziel,
+    "zwischenstopps": [
+        {
+            "koordinate": wp.koordinate,
+            "aufenthaltsdauer": timedelta(seconds=wp.aufenthaltsdauer_s)
+            if wp.aufenthaltsdauer_s
+            else None,
+            "geplante_abfahrt": datetime.fromisoformat(wp.geplante_abfahrt)
+            if wp.geplante_abfahrt
+            else None,
+        }
+        for wp in request.zwischenstopps
+    ],
+    "abfahrtszeit": request.abfahrtszeit,
+    "fahrzeugprofil": request.fahrzeugprofil.model_dump(),
+    "praeferenzen": request.praeferenzen,
+    "alle_faehren_vermeiden": request.alle_faehren_vermeiden,
+    "vermiedene_faehren": [
+        {"name": f.name, "bbox_sw": f.bbox_sw, "bbox_no": f.bbox_no}
+        for f in request.vermiedene_faehren
+    ],
+}
 
-    erkannte_route: Route | None = None
+erkannte_route: Route | None = None
 
-    def _route_erfassen(route: Route) -> None:
-        nonlocal erkannte_route
-        erkannte_route = route
+
+def _route_erfassen(route: Route) -> None:
+    nonlocal erkannte_route
+    erkannte_route = route
 ```
 
 Update the `try` block (lines 870-906): add `route_observer=_route_erfassen` to the `create_trip_simulation(...)` call, compute `erkannte_faehren` right after, and add `erkannte_faehren=[...]` to the returned `TripSimulationResultAPI`:
 
 ```python
-    try:
-        ergebnis = await create_trip_simulation(
-            anfrage_dict,
-            routing_provider=routing_provider,
-            charging_provider=charging_provider,
-            start_soc_pct=request.start_soc_pct,
-            ziel_soc_pct=request.ziel_soc_pct,
-            route_observer=_route_erfassen,
-        )
+try:
+    ergebnis = await create_trip_simulation(
+        anfrage_dict,
+        routing_provider=routing_provider,
+        charging_provider=charging_provider,
+        start_soc_pct=request.start_soc_pct,
+        ziel_soc_pct=request.ziel_soc_pct,
+        route_observer=_route_erfassen,
+    )
 
-        erkannte_faehren = erkenne_faehren(erkannte_route) if erkannte_route is not None else []
+    erkannte_faehren = erkenne_faehren(erkannte_route) if erkannte_route is not None else []
 
-        return TripSimulationResultAPI(
-            gesamt_distanz_km=ergebnis.gesamt_distanz_km,
-            gesamt_fahrzeit_min=ergebnis.gesamt_fahrzeit_min,
-            gesamt_ladezeit_min=ergebnis.gesamt_ladezeit_min,
-            start_soc_pct=ergebnis.start_soc_pct,
-            ziel_soc_pct=ergebnis.ziel_soc_pct,
-            frames=[
-                FrameAPI(
-                    zeitpunkt=f.zeitpunkt.isoformat(),
-                    position=f.position,
-                    soc_pct=f.soc_pct,
-                    zustand=f.zustand.value,
-                    geschwindigkeit_kmh=f.geschwindigkeit_kmh,
-                )
-                for f in ergebnis.frames
-            ],
-            charging_stops=[
-                ChargingStopAPI(
-                    name=stop.name,
-                    position=stop.position,
-                    ankunfts_soc_pct=stop.ankunfts_soc_pct,
-                    ziel_soc_pct=stop.ziel_soc_pct,
-                    ladedauer_s=stop.ladedauer_s,
-                    energie_geladen_kwh=stop.energie_geladen_kwh,
-                )
-                for stop in ergebnis.charging_stops
-            ],
-            erkannte_faehren=[
-                FaehrSegmentAPI(
-                    name=f.name, laenge_m=f.laenge_m, bbox_sw=f.bbox_sw, bbox_no=f.bbox_no
-                )
-                for f in erkannte_faehren
-            ],
-        )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Route nicht durchführbar: {e!s}",
-        ) from e
-    except httpx.HTTPError as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Routing-Server (GraphHopper) nicht erreichbar oder lieferte einen Fehler: {e}",
-        ) from e
-    except Exception as e:
-        logger.exception(
-            "Fehler bei der Routensimulation: %s", e, extra={"traceback": traceback.format_exc()}
-        )
-        raise HTTPException(status_code=500, detail=f"Simulation fehlgeschlagen: {e!s}") from e
+    return TripSimulationResultAPI(
+        gesamt_distanz_km=ergebnis.gesamt_distanz_km,
+        gesamt_fahrzeit_min=ergebnis.gesamt_fahrzeit_min,
+        gesamt_ladezeit_min=ergebnis.gesamt_ladezeit_min,
+        start_soc_pct=ergebnis.start_soc_pct,
+        ziel_soc_pct=ergebnis.ziel_soc_pct,
+        frames=[
+            FrameAPI(
+                zeitpunkt=f.zeitpunkt.isoformat(),
+                position=f.position,
+                soc_pct=f.soc_pct,
+                zustand=f.zustand.value,
+                geschwindigkeit_kmh=f.geschwindigkeit_kmh,
+            )
+            for f in ergebnis.frames
+        ],
+        charging_stops=[
+            ChargingStopAPI(
+                name=stop.name,
+                position=stop.position,
+                ankunfts_soc_pct=stop.ankunfts_soc_pct,
+                ziel_soc_pct=stop.ziel_soc_pct,
+                ladedauer_s=stop.ladedauer_s,
+                energie_geladen_kwh=stop.energie_geladen_kwh,
+            )
+            for stop in ergebnis.charging_stops
+        ],
+        erkannte_faehren=[
+            FaehrSegmentAPI(name=f.name, laenge_m=f.laenge_m, bbox_sw=f.bbox_sw, bbox_no=f.bbox_no)
+            for f in erkannte_faehren
+        ],
+    )
+except ValueError as e:
+    raise HTTPException(
+        status_code=422,
+        detail=f"Route nicht durchführbar: {e!s}",
+    ) from e
+except httpx.HTTPError as e:
+    raise HTTPException(
+        status_code=502,
+        detail=f"Routing-Server (GraphHopper) nicht erreichbar oder lieferte einen Fehler: {e}",
+    ) from e
+except Exception as e:
+    logger.exception(
+        "Fehler bei der Routensimulation: %s", e, extra={"traceback": traceback.format_exc()}
+    )
+    raise HTTPException(status_code=500, detail=f"Simulation fehlgeschlagen: {e!s}") from e
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**

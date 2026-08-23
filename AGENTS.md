@@ -1,94 +1,94 @@
-# AGENTS.md — Leitlinien für KI-Coding-Agenten
+# AGENTS.md — Guidelines for AI Coding Agents
 
-Diese Datei liegt im Repo-Root und wird von KI-Coding-Agenten vor Beginn jeder Aufgabe gelesen.
+This file is located in the repository root and is read by AI coding agents before starting every task.
 
-## Grundprinzip
+## Core Principle
 
-Code gilt nur dann als fertig, wenn **alle** der folgenden Punkte erfüllt sind — nicht als Checkliste zum Abhaken nach dem Schreiben, sondern als Definition of Done:
+Code is considered complete only when **all** of the following requirements are met — these are not a checklist to tick off after writing the code, but the definition of done:
 
-1. `uv run hk check --all` läuft ohne Fehler durch (Linting, Formatting, Type-Checking).
-2. Für jede neue Funktionalität existieren Tests, die vor der Änderung fehlschlagen und danach erfolgreich sind.
-3. `uv run pytest -m "not integration"` läuft vollständig grün.
-4. Die Coverage-Schwelle aus `docs/04-repo-tooling-setup.md` wird nicht unterschritten (85 % für `src/tripplanner/`).
-5. Keine neue Abhängigkeit zwischen Modulen außer über die in `models.py` definierten Schnittstellen (siehe `docs/03-modulspezifikationen.md`).
-6. **Änderungen werden IMMER committet.** Jede abgeschlossene Aufgabe (Bugfix, Feature, Refactor) endet mit einem `git commit` der Änderungen — unabhängig davon, ob explizit danach gefragt wurde. Unfertige/experimentelle Arbeit ausdrücklich ausgenommen (z. B. auf explizite Nutzeranweisung "noch nicht committen"). Kein Task gilt als abgeschlossen, solange Änderungen nur im Arbeitsverzeichnis liegen.
-7. **Häufig committen.** Statt einer Aufgabe einen einzigen großen Commit am Ende zu geben, wird in kleinen, in sich abgeschlossenen Schritten committet (z. B. nach jedem funktionierenden Zwischenstand). Das erleichtert es, bei einem Fehlschlag gezielt auf einen früheren, funktionierenden Stand zurückzusetzen, statt die gesamte Aufgabe zu verwerfen.
+1. `uv run hk check --all` completes without errors (linting, formatting, type checking).
+2. Tests exist for every new piece of functionality that fail before the change and pass afterward.
+3. `uv run pytest -m "not integration"` passes completely.
+4. The coverage threshold defined in `docs/04-repo-tooling-setup.md` is not undercut (85% for `src/tripplanner/`).
+5. No new dependencies are introduced between modules except through the interfaces defined in `models.py` (see `docs/03-modulspezifikationen.md`).
+6. **Changes are ALWAYS committed.** Every completed task (bugfix, feature, refactor) ends with a `git commit` containing the changes — regardless of whether this was explicitly requested. Unfinished/experimental work is explicitly excluded (e.g. following an explicit user instruction to "not commit yet"). A task is not considered complete as long as changes exist only in the working tree.
+7. **Commit frequently.** Instead of producing a single large commit at the end of a task, commit in small, self-contained steps (e.g. after each working intermediate state). This makes it easier to selectively roll back to an earlier working state if something goes wrong, rather than discarding the entire task.
 
-## Services starten und stoppen
+## Starting and Stopping Services
 
-Für Integrationstests und das manuelle Prüfen von API/Frontend wird **ausschließlich** `./run.sh` verwendet — nicht `uvicorn` direkt, nicht `npm run dev` direkt. Das Skript sorgt für:
+For integration tests and manual API/frontend testing, **only** `./run.sh` is used — not `uvicorn` directly and not `npm run dev` directly. The script provides:
 
-1. **Stoppen laufender Instanzen** vor dem Neustart — auch wenn sie von einem vorherigen Agenten-Lauf übrig sind.
-2. **Farbig markierte, identifizierbare Ausgabe** (`[BACKEND]` / `[FRONTEND]`) in einem gemeinsamen Terminal.
-3. **PID-Tracking in `.run/`**, sodass auch nach einem Session-Wechsel klar ist, was läuft.
-4. **Einheitliche Log-Dateien** (`.run/backend.log`, `.run/frontend.log`) für Debugging.
+1. **Stopping running instances** before restarting — including instances left over from a previous agent run.
+2. **Color-coded, identifiable output** (`[BACKEND]` / `[FRONTEND]`) in a shared terminal.
+3. **PID tracking in `.run/`**, so it remains clear what is running even after switching sessions.
+4. **Consistent log files** (`.run/backend.log`, `.run/frontend.log`) for debugging.
 
 ```bash
-# Beide Dienste starten (Default; stoppt vorher, falls bereits etwas läuft)
+# Start both services (default; stops them first if something is already running)
 ./run.sh start
 
-# Nur Backend
+# Backend only
 ./run.sh start backend
 
-# Nur Frontend
+# Frontend only
 ./run.sh start frontend
 
-# Status prüfen
+# Check status
 ./run.sh status
 
-# Stoppen
+# Stop
 ./run.sh stop
 
-# Neu starten (stop + start)
+# Restart (stop + start)
 ./run.sh restart
 ```
 
-**Regel:** Agenten, die für eine Aufgabe Backend oder Frontend benötigen (Integrationstests, visuelle Prüfung, API-Tests gegen einen laufenden Server), starten die Dienste über `./run.sh` und beenden sie nach Abschluss der Aufgabe über `./run.sh stop`. Der direkte Aufruf von `uvicorn` oder `npm run dev` zum Start von Diensten ist nicht zulässig.
+**Rule:** Agents that require the backend or frontend for a task (integration tests, visual inspection, API tests against a running server) must start the services via `./run.sh` and stop them via `./run.sh stop` after completing the task. Directly invoking `uvicorn` or `npm run dev` to start services is not permitted.
 
-## Verbotene Abkürzungen
+## Forbidden Shortcuts
 
-Agenten dürfen **nicht**:
+Agents must **not**:
 
-- Commits mit `--no-verify` oder vergleichbaren Mechanismen an den Hooks vorbei erzeugen.
-- Lint- oder Type-Fehler durch `# noqa`, `# type: ignore` oder das Absenken von `mypy`/`ruff`-Regeln in `pyproject.toml` "beheben", ohne dass eine inhaltliche Begründung im Commit/PR dokumentiert ist. Regel-Ausnahmen sind auf Zeilenebene mit Begründungskommentar zulässig, nicht als globale Config-Änderung ohne Rücksprache.
-- Tests löschen oder deaktivieren (`skip`), um eine rote CI grün zu bekommen.
-- Externe Datenquellen (GraphHopper, Open-Meteo, DATEX II, Tesla-Ladepunktdaten) in Unit-Tests live ansprechen — dafür existieren Fixtures (siehe `docs/03-modulspezifikationen.md`).
-- Systemweite Suchen wie `find / …`, `find ~ …` oder vergleichbare Scans über das gesamte Dateisystem/Home-Verzeichnis. Suchen sind auf das Repo-Verzeichnis (oder explizit benannte, enge Pfade) zu beschränken — z. B. `glob`/`grep`-Tools mit repo-relativem Pfad statt eines ungezielten `find /`.
+* Create commits with `--no-verify` or comparable mechanisms that bypass the hooks.
+* Suppress linting or type errors using `# noqa`, `# type: ignore`, or by lowering `mypy`/`ruff` rules in `pyproject.toml` without an explanation of the substantive reason being documented in the commit/PR. Rule exceptions are permitted at the individual-line level with an explanatory comment, but not as a global configuration change without consultation.
+* Delete or disable tests (`skip`) to make a failing CI pipeline pass.
+* Make live requests to external data sources (GraphHopper, Open-Meteo, DATEX II, Tesla charging-station data) from unit tests — fixtures exist for this purpose (see `docs/03-modulspezifikationen.md`).
+* Perform system-wide searches such as `find / …`, `find ~ …`, or comparable scans of the entire filesystem/home directory. Searches must be restricted to the repository directory (or explicitly named, narrow paths) — e.g. use `glob`/`grep` tools with repository-relative paths rather than an unrestricted `find /`.
 
-## Vorgehen pro Aufgabe
+## Procedure for Each Task
 
-1. Zuständiges Modul aus `docs/03-modulspezifikationen.md` bzw. den Detailplänen unter `docs/plans/` identifizieren; Aufgabe nicht modulübergreifend beginnen, wenn sie sich auf ein Modul eingrenzen lässt.
-2. Bestehende Schnittstellen (`models.py` des Moduls) lesen, bevor neue Datenstrukturen eingeführt werden — Duplikate von Datenmodellen vermeiden.
-3. Test zuerst schreiben oder zumindest vor der Implementierung festlegen, anhand welcher Testfälle die Änderung verifiziert wird.
-4. Implementierung.
-5. `uv run hk check --all` und relevante Tests lokal ausführen, bevor ein Commit vorgeschlagen wird.
-6. Commit-Nachricht beschreibt **was** und **warum**, nicht nur **was** (z. B. nicht nur "add wind module", sondern kurz die Berechnungsannahme benennen).
+1. Identify the responsible module from `docs/03-modulspezifikationen.md` or the detailed plans under `docs/plans/`; do not begin work across module boundaries if the task can be confined to a single module.
+2. Read the existing interfaces (`models.py` of the module) before introducing new data structures — avoid duplicating data models.
+3. Write the test first, or at minimum determine before implementation which test cases will be used to verify the change.
+4. Implement the change.
+5. Run `uv run hk check --all` and the relevant tests locally before proposing a commit.
+6. The commit message describes **what** and **why**, not merely **what** (e.g. not just "add wind module", but briefly state the calculation assumption).
 
-## Sub-Agenten
+## Sub-Agents
 
-Wo sinnvoll werden Sub-Agenten eingesetzt, um unabhängige Teilaufgaben zu parallelisieren — z. B. Recherche über mehrere Module hinweg, unabhängige Bugfixes in getrennten Dateien, oder das parallele Einholen von Kontext, während der Hauptagent an der eigentlichen Implementierung weiterarbeitet. Voraussetzung: Die Teilaufgaben sind wirklich unabhängig (keine gemeinsam bearbeiteten Dateien, keine sequentielle Abhängigkeit), und ihre Ergebnisse werden vor der Übernahme geprüft statt ungesehen gemergt.
+Where appropriate, use sub-agents to parallelize independent subtasks — e.g. research across multiple modules, independent bugfixes in separate files, or gathering context in parallel while the main agent continues with the actual implementation. The prerequisite is that the subtasks are genuinely independent (no shared files, no sequential dependency), and their results are reviewed before being incorporated rather than merged blindly.
 
-## Modulgrenzen
+## Module Boundaries
 
-- Kein Modul greift auf interne Implementierungsdetails eines anderen Moduls zu — nur auf dessen `models.py`-Datenstrukturen und öffentliche Funktionen/Klassen.
-- Ausnahme: `tripplanner.geo` ist ein abhängigkeitsfreies Geo-Primitiv (kein Business-Modul) und darf von jedem Modul importiert werden (siehe `docs/07-implementierungsplan.md`, Abschnitt 6.2).
-- Externe Datenquellen (HTTP-Clients, Dateisystemzugriffe) werden hinter einem Provider-Interface gekapselt (siehe z. B. `WeatherProvider`, `ChargingStationProvider` in `docs/03-modulspezifikationen.md`), damit sie in Tests ersetzbar sind und die Datenquelle bei Bedarf austauschbar bleibt.
-- Neue externe Abhängigkeiten (Bibliotheken, APIs) werden nicht ohne Bezug zu einem der in `docs/01-projektspezifikation.md` festgelegten Architekturentscheidungen eingeführt.
+* No module may access the internal implementation details of another module — only its `models.py` data structures and public functions/classes.
+* Exception: `tripplanner.geo` is a dependency-free geo primitive (not a business module) and may be imported by any module (see `docs/07-implementierungsplan.md`, section 6.2).
+* External data sources (HTTP clients, filesystem access) are encapsulated behind a provider interface (see, for example, `WeatherProvider` and `ChargingStationProvider` in `docs/03-modulspezifikationen.md`) so that they can be replaced in tests and the data source can be exchanged when necessary.
+* New external dependencies (libraries, APIs) must not be introduced without being related to one of the architectural decisions defined in `docs/01-projektspezifikation.md`.
 
-## Typannotationen und Docstrings
+## Type Annotations and Docstrings
 
-- Jede öffentliche Funktion/Methode hat vollständige Typannotationen (durch `mypy --strict` erzwungen) und einen Docstring im projektweit einheitlichen Stil (Google-Style, siehe `docs/04-repo-tooling-setup.md`).
-- Pydantic-Modelle sind die einzige zulässige Form für Datenstrukturen, die Modulgrenzen überqueren.
+* Every public function/method has complete type annotations (enforced by `mypy --strict`) and a docstring following the project-wide standard (Google style, see `docs/04-repo-tooling-setup.md`).
+* Pydantic models are the only permitted form of data structures crossing module boundaries.
 
-## Sprache in Code, Kommentaren und Dokumentation
+## Language in Code, Comments, and Documentation
 
-- Neuer Code, neue Kommentare und neue Dokumentation (Docstrings, README-Abschnitte, `docs/`-Dateien, Commit-Nachrichten für Code-Inhalte) werden **immer auf Englisch** verfasst — unabhängig von der Sprache dieser AGENTS.md-Datei oder bestehender Altbestände im Repo.
-- Wird bestehender Code, ein bestehender Kommentar oder ein bestehender Dokumentationsabschnitt bearbeitet und ist der betroffene Teil noch auf Deutsch, fragt der Agent aktiv beim Nutzer nach, ob dieser Teil im Zuge der Änderung ins Englische übersetzt werden soll, statt ihn stillschweigend auf Deutsch zu belassen oder weiter auf Deutsch zu ergänzen.
+* New code, new comments, and new documentation (docstrings, README sections, `docs/` files, commit messages for code-related content) are **always written in English** — regardless of the language of this AGENTS.md file or existing legacy content in the repository.
+* When modifying existing code, an existing comment, or an existing documentation section that is still in German, translate the affected part into English where reasonably possible.
 
-## Koordinatenkonvention
+## Coordinate Convention
 
-Alle `Coordinate`-Tupel im Projekt sind `(lat, lon)`. Ausnahmen nur an den drei in `docs/07-implementierungsplan.md`, Abschnitt 3, dokumentierten externen Grenzen (GraphHopper-Request, rasterio-Pixel-Lookup, MapLibre/GeoJSON-Rendering).
+All `Coordinate` tuples in the project are `(lat, lon)`. Exceptions are permitted only at the three external boundaries documented in `docs/07-implementierungsplan.md`, section 3 (GraphHopper request, rasterio pixel lookup, MapLibre/GeoJSON rendering).
 
-## Bei Unsicherheit
+## When in Doubt
 
-Wenn eine Anforderung mehrdeutig ist, trifft der Agent eine begründete, dokumentierte Annahme (Kommentar im Code + Erwähnung im PR-Text) statt die Aufgabe unbearbeitet zu lassen — außer die Mehrdeutigkeit betrifft eine der offenen Fragen in `docs/06-offene-punkte-widersprueche.md`; diese sind bereits in `docs/07-implementierungsplan.md`, Abschnitt 7, verbindlich entschieden.
+If a requirement is ambiguous, the agent makes a justified, documented assumption (a comment in the code + a mention in the PR description) rather than leaving the task undone — unless the ambiguity concerns one of the open questions in `docs/06-offene-punkte-widersprueche.md`; these have already been conclusively resolved in `docs/07-implementierungsplan.md`, section 7.

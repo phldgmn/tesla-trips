@@ -85,12 +85,15 @@ Add two optional fields, following the existing pattern of `strassenklasse`/`obe
 ```python
 class FaehrSegment(BaseModel):
     """Eine im berechneten Route erkannte, zusammenhängende Fährverbindung."""
+
     name: str  # z. B. "Rødby (DK) - Puttgarden (D)"; Fallback "Unbenannte Fähre" wenn kein street_name
     laenge_m: float
     bbox_sw: Coordinate  # gepufferte Bounding Box, Südwest-Ecke
     bbox_no: Coordinate  # gepufferte Bounding Box, Nordost-Ecke
 
+
 FAEHR_PUFFER_GRAD: float = 0.005  # ~500 m Puffer um die exakte Segmentgeometrie
+
 
 def erkenne_faehren(route: Route) -> list[FaehrSegment]:
     """Gruppiert zusammenhängende `road_environment == "FERRY"`-Segmente der Route zu

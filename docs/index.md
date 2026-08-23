@@ -1,5 +1,5 @@
-# Tesla-Tripplaner
+# Tesla Trip Planner
 
-Personalisierter Reiseplaner für ein Tesla Model 3 mit physikalisch fundiertem Verbrauchsmodell und optimierter Ladeplanung.
+Personalized trip planner for a Tesla Model 3 with a physics-based energy consumption model and optimized charging planning.
 
-Siehe `docs/01-projektspezifikation.md` bis `docs/06-offene-punkte-widersprueche.md` für die fachliche Spezifikation und `docs/07-implementierungsplan.md` sowie `docs/plans/` für den Implementierungsplan.
+See `docs/01-project-specifications.md` through `docs/06-open-points-contradictions.md` for the functional specification, and `docs/07-implementation-plan.md` and `docs/plans/` for the implementation plan.

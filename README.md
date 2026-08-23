@@ -134,8 +134,8 @@ Weitere Frontend-Kommandos: `npm --prefix frontend run build`, `npm --prefix fro
 
 ## Dokumentation
 
-- Fachspezifikation: `docs/01-projektspezifikation.md` bis `docs/06-offene-punkte-widersprueche.md`
-- Implementierungsplan: `docs/07-implementierungsplan.md` und `docs/plans/`
+- Fachspezifikation: `docs/01-project-specifications.md` bis `docs/06-open-points-contradictions.md`
+- Implementierungsplan: `docs/07-implementation-plan.md` und `docs/plans/`
 - Agenten-Leitlinien: `AGENTS.md`
 
-Frontend (`frontend/`): TypeScript + MapLibre GL JS, siehe `docs/plans/08-simulation-visualization-api.md`.
+Frontend (`frontend/`): TypeScript + MapLibre GL JS.
