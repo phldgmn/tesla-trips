@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import inspect
 import math
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 from urllib.parse import parse_qs, urlparse
@@ -50,7 +50,7 @@ from tripplanner.trip_input.models import (
     VehicleProfile,
     Waypoint,
 )
-from tripplanner.weather.models import WeatherSample
+from tripplanner.weather.models import WeatherQuery, WeatherSample
 from tripplanner.weather.providers import FakeWeatherProvider, OpenMeteoProvider
 
 # =============================================================================
@@ -2151,55 +2151,37 @@ async def test_create_trip_simulation_alle_schritte_sind_aufgerufen(
 # =============================================================================
 
 
-class _DivergingFakeWeatherProvider(FakeWeatherProvider):
-    """Fake weather provider that always returns different temperatures,
-    forcing the ETA to change every iteration (never converges)."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._call_count = 0
-
-    async def fetch_weather(
-        self,
-        queries: Sequence[WeatherQuery],
-    ) -> list[WeatherSample]:
-        self._call_count += 1
-        self.fetch_weather_calls.append(queries)
-        # Return increasing temperatures to force energy recalculation changes
-        return [
-            WeatherSample(
-                koordinate=q.koordinate,
-                zeitpunkt=q.zeitpunkt,
-                temperatur_c=20.0 + self._call_count,  # Always different
-                windgeschwindigkeit_ms=5.0,
-                windrichtung_deg=180.0,
-                niederschlag_mm=0.0,
-                schneefall_cm=0.0,
-                luftdruck_hpa=1013.25,
-                luftfeuchtigkeit_pct=60.0,
-                globalstrahlung_wm2=400.0,
-                bewoelkung_pct=20.0,
-            )
-            for q in queries
-        ]
-
-
 @pytest.mark.asyncio
 async def test_convergence_loop_terminates_at_max_iterations(
     valid_trip_request: dict,
     fake_routing_provider: FakeRoutingProvider,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test: Iterative loop terminates at max_iterations even without convergence.
 
-    A pathological weather provider that always returns different values
-    should force the loop to run exactly max_iterations times, not run
-    infinitely.
+    `_step_9_update_eta` is patched to always shift every segment's ETA by a
+    fixed, non-vanishing amount, guaranteeing the deviation never drops below
+    the convergence threshold. This isolates the loop's hard iteration cap
+    from the route/energy feasibility of any particular weather scenario.
     """
-    diverging_provider = _DivergingFakeWeatherProvider()
+    weather_calls: list[object] = []
+    real_update_eta = trip_api._step_9_update_eta
+
+    def _never_converging_update_eta(segment_eta_list: object, charging_plan: object) -> object:
+        updated = real_update_eta(segment_eta_list, charging_plan)
+        return [(seg, eta + timedelta(hours=1)) for seg, eta in updated]
+
+    monkeypatch.setattr(trip_api, "_step_9_update_eta", _never_converging_update_eta)
+
+    class _CountingWeatherProvider(FakeWeatherProvider):
+        async def fetch_weather(self, queries: Sequence[WeatherQuery]) -> list[WeatherSample]:
+            weather_calls.append(queries)
+            return await super().fetch_weather(queries)
+
     result = await create_trip_simulation(
         valid_trip_request,
         routing_provider=fake_routing_provider,
-        weather_provider=diverging_provider,
+        weather_provider=_CountingWeatherProvider(),
         charging_provider=FakeChargingStationProvider(),
         start_soc_pct=80.0,
         destination_soc_pct=20.0,
@@ -2207,8 +2189,9 @@ async def test_convergence_loop_terminates_at_max_iterations(
         convergence_threshold_minutes=30.0,
     )
 
-    # Loop should have run exactly 3 iterations
-    assert diverging_provider.fetch_weather_calls.__len__() == 3
+    # Loop should have run exactly 3 iterations (one fetch_weather call each),
+    # not run infinitely despite the ETA never converging.
+    assert len(weather_calls) == 3
     # Result should still be valid (not crashed from infinite loop)
     assert result.gesamt_distanz_km > 0
     assert result.gesamt_fahrzeit_min > 0

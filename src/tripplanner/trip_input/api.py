@@ -662,32 +662,6 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
         request.zwischenstopps, segment_eta_list, request.abfahrtszeit
     )
 
-    # 6. Step 5: Fetch weather
-    weather_samples = await _step_5_fetch_weather(
-        weather_provider,
-        route,
-        segment_eta_list,
-        request.abfahrtszeit,
-    )
-
-    # 7. Step 6: Construction sites (optional)
-    construction_zones = await _step_6_construction_sites(
-        construction_provider, route, ["DE", "DK", "SE"]
-    )
-
-    # 8. Step 7: Calculate energy consumption
-    energy_results = await _step_7_calculate_segment_energy(
-        route,
-        segments,
-        segment_eta_list,
-        weather_samples,
-        request.fahrzeugprofil,
-        construction_zones,
-        request.abfahrtszeit,
-        elevation_provider,
-        elevation_points,
-    )
-
     # Prepare ferry time windows as optimizer input
     ferry_pins = {
         f.segment_index_start: (f.segment_index_end, f.abfahrt, f.ankunft)
@@ -695,32 +669,6 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
         if f.abfahrt is not None and f.ankunft is not None
     }
     charging_duration_map = {v.station_id: v.ladedauer_s for v in request.ladedauer_vorgaben}
-
-    # 9. Step 8: Optimize charging plan
-    charging_plan = await _step_8_optimize_charging_plan(
-        route,
-        energy_results,
-        request.fahrzeugprofil,
-        start_soc_pct,
-        destination_soc_pct,
-        construction_zones,
-        request.abfahrtszeit,
-        elevation_provider,
-        elevation_points,
-        zwischenstopps=waypoints_with_wait_time,
-        charging_provider=charging_provider,
-        ladedauer_vorgaben=charging_duration_map,
-        faehr_zeitfenster=ferry_pins,
-    )
-
-    # 9b. For each charging stop, route a real round-trip connection
-    charging_stop_detours = await _step_route_charging_detours(
-        routing_provider,
-        route,
-        charging_plan,
-        request.abfahrtszeit,
-        request.fahrzeugprofil,
-    )
 
     # 10. Iterative ETA/weather convergence loop
     prev_segment_eta_list: list[tuple[RouteSegment, timedelta]] | None = None
