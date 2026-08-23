@@ -50,6 +50,8 @@ import {
   CalendarDays,
   Car,
   X,
+  CloudSun,
+  Construction,
   type LucideIcon,
 } from "lucide-react";
 
@@ -558,6 +560,10 @@ export function TripPlannerForm({
     "alle-faehren-vermeiden",
     false,
   );
+  const [wetterBeruecksichtigen, setWetterBeruecksichtigen] =
+    usePersistentState("wetter-beruecksichtigen", true);
+  const [baustellenBeruecksichtigen, setBaustellenBeruecksichtigen] =
+    usePersistentState("baustellen-beruecksichtigen", true);
   const [vermiedeneFaehren, setVermiedeneFaehren] = usePersistentState<
     FerryExclusion[]
   >("vermiedene-faehren", []);
@@ -860,6 +866,8 @@ export function TripPlannerForm({
         vermiedeneFaehren: vermiedene,
         faehrZeitfenster: zeitfenster,
         ladedauerVorgaben: ladedauern,
+        wetterBeruecksichtigen,
+        baustellenBeruecksichtigen,
       });
       onSubmit(payload);
     } catch (error) {
@@ -1231,6 +1239,77 @@ export function TripPlannerForm({
           title="Ignorierte Fähren verwalten"
         >
           Ignoriert ({vermiedeneFaehren.length})
+        </button>
+      </div>
+
+      {/* 2b. Wetter/Baustellen einzeln deaktivierbar: umgeht KEINEN Bug, gibt
+          dem Nutzer aber die Kontrolle, einen langsamen/ratenlimitierten
+          Provider für eine schnellere Berechnung zu überspringen (siehe
+          `wetter_beruecksichtigen`/`baustellen_beruecksichtigen` im Backend). */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.4rem",
+          marginBottom: "1rem",
+        }}
+      >
+        <span style={{ fontSize: "0.78rem", color: "#6b7280", flexShrink: 0 }}>
+          Routendetails:
+        </span>
+        <button
+          type="button"
+          onClick={() => setWetterBeruecksichtigen(!wetterBeruecksichtigen)}
+          disabled={isSubmitting}
+          aria-pressed={wetterBeruecksichtigen}
+          title={
+            wetterBeruecksichtigen
+              ? "Wetterdaten werden bei der Berechnung berücksichtigt (klicken zum Deaktivieren)"
+              : "Wetterdaten werden bei der Berechnung ignoriert (klicken zum Aktivieren)"
+          }
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.3rem",
+            padding: "0.35rem 0.65rem",
+            background: wetterBeruecksichtigen ? "#eff6ff" : "#f9fafb",
+            border: `1px solid ${wetterBeruecksichtigen ? "#93c5fd" : "#e5e7eb"}`,
+            borderRadius: "999px",
+            cursor: isSubmitting ? "not-allowed" : "pointer",
+            fontSize: "0.78rem",
+            color: wetterBeruecksichtigen ? "#1d4ed8" : "#6b7280",
+          }}
+        >
+          <CloudSun size={13} />
+          Wetter
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            setBaustellenBeruecksichtigen(!baustellenBeruecksichtigen)
+          }
+          disabled={isSubmitting}
+          aria-pressed={baustellenBeruecksichtigen}
+          title={
+            baustellenBeruecksichtigen
+              ? "Baustellen werden bei der Berechnung berücksichtigt (klicken zum Deaktivieren)"
+              : "Baustellen werden bei der Berechnung ignoriert (klicken zum Aktivieren)"
+          }
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.3rem",
+            padding: "0.35rem 0.65rem",
+            background: baustellenBeruecksichtigen ? "#eff6ff" : "#f9fafb",
+            border: `1px solid ${baustellenBeruecksichtigen ? "#93c5fd" : "#e5e7eb"}`,
+            borderRadius: "999px",
+            cursor: isSubmitting ? "not-allowed" : "pointer",
+            fontSize: "0.78rem",
+            color: baustellenBeruecksichtigen ? "#1d4ed8" : "#6b7280",
+          }}
+        >
+          <Construction size={13} />
+          Baustellen
         </button>
       </div>
 

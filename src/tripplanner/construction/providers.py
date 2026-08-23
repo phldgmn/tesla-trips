@@ -409,6 +409,7 @@ class FakeConstructionProvider(ConstructionProvider):
     def __init__(self, test_zones: list[ConstructionZone] | None = None) -> None:
         """Initialisiert den Fake-Provider mit optionalen Test-Zonen."""
         self.test_zones = test_zones or []
+        self.fetch_construction_zones_calls: list[tuple[routing_models.Route, list[Land]]] = []
 
     async def fetch_construction_zones(
         self,
@@ -416,6 +417,7 @@ class FakeConstructionProvider(ConstructionProvider):
         countries: list[Land],
     ) -> list[ConstructionZone]:
         """Liefert die konfigurierten Test-Zonen, optional gefiltert nach Land."""
+        self.fetch_construction_zones_calls.append((route, countries))
         if countries:
             return [zone for zone in self.test_zones if zone.land in countries]
         return self.test_zones.copy()

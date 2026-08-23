@@ -124,6 +124,12 @@ export interface TripRequestPayload {
   vermiedene_faehren: FerryExclusion[];
   faehr_zeitfenster: FaehrZeitfenster[];
   ladedauer_vorgaben: LadedauerVorgabe[];
+  /** Falls false, wird der Wetter-Provider für diese Berechnung übersprungen,
+   *  um sie zu beschleunigen (siehe `TripPlannerForm`-Toggle "Wetter"). */
+  wetter_beruecksichtigen: boolean;
+  /** Falls false, wird der Baustellen-Provider für diese Berechnung
+   *  übersprungen, um sie zu beschleunigen (Toggle "Baustellen"). */
+  baustellen_beruecksichtigen: boolean;
 }
 
 /** Fehler beim Aufbau des Requests aus dem aktuellen Formularzustand
@@ -145,6 +151,8 @@ export function buildTripRequestPayload(args: {
   vermiedeneFaehren?: FerryExclusion[];
   faehrZeitfenster?: FaehrZeitfenster[];
   ladedauerVorgaben?: LadedauerVorgabe[];
+  wetterBeruecksichtigen?: boolean;
+  baustellenBeruecksichtigen?: boolean;
 }): TripRequestPayload {
   const { stops } = args;
   if (stops.length < 2) {
@@ -190,6 +198,8 @@ export function buildTripRequestPayload(args: {
     vermiedene_faehren: args.vermiedeneFaehren ?? [],
     faehr_zeitfenster: args.faehrZeitfenster ?? [],
     ladedauer_vorgaben: args.ladedauerVorgaben ?? [],
+    wetter_beruecksichtigen: args.wetterBeruecksichtigen ?? true,
+    baustellen_beruecksichtigen: args.baustellenBeruecksichtigen ?? true,
   };
 }
 

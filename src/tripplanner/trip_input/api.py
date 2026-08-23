@@ -1200,6 +1200,22 @@ class TripRequestAPI(BaseModel):
         default_factory=list,
         description="Vom Nutzer vorgegebene feste Ladedauern für einzelne Ladehalte",
     )
+    wetter_beruecksichtigen: bool = Field(
+        default=True,
+        description=(
+            "Falls False, wird der Wetter-Provider für diese Berechnung übersprungen "
+            "(Fallback auf neutrale Platzhalterwerte statt Live-Abfrage), um die "
+            "Berechnungsdauer zu reduzieren."
+        ),
+    )
+    baustellen_beruecksichtigen: bool = Field(
+        default=True,
+        description=(
+            "Falls False, wird der Baustellen-Provider für diese Berechnung "
+            "übersprungen (keine Geschwindigkeitsreduktion durch Baustellen), um "
+            "die Berechnungsdauer zu reduzieren."
+        ),
+    )
 
 
 class FrameAPI(BaseModel):
@@ -1382,6 +1398,13 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
     Nutzt `create_trip_simulation()` zur Orchestrierung aller 11 Datenfluss-Schritte.
     Routing erfolgt über den echten GraphHopper-Server (`get_routing_provider`);
     ohne laufenden Server (siehe README.md) schlägt der Request mit 502 fehl.
+
+    `request.wetter_beruecksichtigen`/`request.baustellen_beruecksichtigen` steuern,
+    ob der jeweilige Provider überhaupt aufgerufen wird (`None` statt der
+    injizierten Instanz an `create_trip_simulation` übergeben) - das lässt dem
+    Nutzer die Wahl, einen langsamen/ratenlimitierten Provider für eine schnellere
+    Berechnung zu überspringen, ohne die zugrunde liegende Performance-Ursache zu
+    beheben.
     """
     # TripRequestAPI nach TripRequest konvertieren
     request_dict: dict[str, object] = {
@@ -1440,8 +1463,10 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
             request_dict,
             routing_provider=routing_provider,
             charging_provider=charging_provider,
-            weather_provider=weather_provider,
-            construction_provider=construction_provider,
+            weather_provider=(weather_provider if request.wetter_beruecksichtigen else None),
+            construction_provider=(
+                construction_provider if request.baustellen_beruecksichtigen else None
+            ),
             elevation_provider=elevation_provider,
             start_soc_pct=request.start_soc_pct,
             destination_soc_pct=request.ziel_soc_pct,

@@ -1362,6 +1362,113 @@ def test_fastapi_endpoint_accepts_ferry_avoidance_fields(
     assert response.status_code == 201
 
 
+def test_fastapi_endpoint_wetter_beruecksichtigen_false_skips_weather_provider(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """wetter_beruecksichtigen=False überspringt den injizierten Wetter-Provider
+    vollständig (kein Aufruf von fetch_weather/refetch_weather)."""
+    spy_weather_provider = FakeWeatherProvider()
+    app.dependency_overrides[get_weather_provider] = lambda: spy_weather_provider
+    try:
+        api_request = {
+            "start": valid_trip_request["start"],
+            "ziel": valid_trip_request["ziel"],
+            "zwischenstopps": [],
+            "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+            "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "praeferenzen": {},
+            "wetter_beruecksichtigen": False,
+        }
+
+        response = client.post("/trips", json=api_request)
+
+        assert response.status_code == 201
+        assert spy_weather_provider.fetch_weather_calls == []
+        assert spy_weather_provider.refetch_weather_calls == []
+    finally:
+        app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
+
+
+def test_fastapi_endpoint_wetter_beruecksichtigen_default_true_calls_weather_provider(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """Ohne explizites wetter_beruecksichtigen (Default True) wird der injizierte
+    Wetter-Provider weiterhin aufgerufen (Rückwärtskompatibilität)."""
+    spy_weather_provider = FakeWeatherProvider()
+    app.dependency_overrides[get_weather_provider] = lambda: spy_weather_provider
+    try:
+        api_request = {
+            "start": valid_trip_request["start"],
+            "ziel": valid_trip_request["ziel"],
+            "zwischenstopps": [],
+            "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+            "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "praeferenzen": {},
+        }
+
+        response = client.post("/trips", json=api_request)
+
+        assert response.status_code == 201
+        assert len(spy_weather_provider.fetch_weather_calls) > 0
+    finally:
+        app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
+
+
+def test_fastapi_endpoint_baustellen_beruecksichtigen_false_skips_construction_provider(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """baustellen_beruecksichtigen=False überspringt den injizierten
+    Baustellen-Provider vollständig (kein Aufruf von fetch_construction_zones)."""
+    spy_construction_provider = FakeConstructionProvider()
+    app.dependency_overrides[get_construction_provider] = lambda: spy_construction_provider
+    try:
+        api_request = {
+            "start": valid_trip_request["start"],
+            "ziel": valid_trip_request["ziel"],
+            "zwischenstopps": [],
+            "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+            "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "praeferenzen": {},
+            "baustellen_beruecksichtigen": False,
+        }
+
+        response = client.post("/trips", json=api_request)
+
+        assert response.status_code == 201
+        assert spy_construction_provider.fetch_construction_zones_calls == []
+    finally:
+        app.dependency_overrides[get_construction_provider] = (
+            lambda: FakeConstructionProvider()  # noqa: PLW0108
+        )
+
+
+def test_fastapi_endpoint_baustellen_beruecksichtigen_default_true_calls_construction_provider(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """Ohne explizites baustellen_beruecksichtigen (Default True) wird der
+    injizierte Baustellen-Provider weiterhin aufgerufen (Rückwärtskompatibilität)."""
+    spy_construction_provider = FakeConstructionProvider()
+    app.dependency_overrides[get_construction_provider] = lambda: spy_construction_provider
+    try:
+        api_request = {
+            "start": valid_trip_request["start"],
+            "ziel": valid_trip_request["ziel"],
+            "zwischenstopps": [],
+            "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+            "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "praeferenzen": {},
+        }
+
+        response = client.post("/trips", json=api_request)
+
+        assert response.status_code == 201
+        assert len(spy_construction_provider.fetch_construction_zones_calls) > 0
+    finally:
+        app.dependency_overrides[get_construction_provider] = (
+            lambda: FakeConstructionProvider()  # noqa: PLW0108
+        )
+
+
 def test_fastapi_endpoint_custom_soc(client: TestClient, valid_trip_request: dict) -> None:
     """Test: FastAPI-Endpunkt akzeptiert benutzerdefinierte Start-/Ziel-SoC."""
     api_request = {

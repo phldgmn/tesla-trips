@@ -95,3 +95,31 @@ describe("buildTripRequestPayload faehr_zeitfenster/ladedauer_vorgaben fields", 
     ]);
   });
 });
+
+describe("buildTripRequestPayload wetter_beruecksichtigen/baustellen_beruecksichtigen fields", () => {
+  it("defaults wetter_beruecksichtigen and baustellen_beruecksichtigen to true", () => {
+    const payload = buildTripRequestPayload({
+      stops: makeStops(),
+      fahrzeugprofil: vehicleProfile,
+      startSocPct: 80,
+      zielSocPct: 20,
+    });
+
+    expect(payload.wetter_beruecksichtigen).toBe(true);
+    expect(payload.baustellen_beruecksichtigen).toBe(true);
+  });
+
+  it("passes through explicit false values to disable providers", () => {
+    const payload = buildTripRequestPayload({
+      stops: makeStops(),
+      fahrzeugprofil: vehicleProfile,
+      startSocPct: 80,
+      zielSocPct: 20,
+      wetterBeruecksichtigen: false,
+      baustellenBeruecksichtigen: false,
+    });
+
+    expect(payload.wetter_beruecksichtigen).toBe(false);
+    expect(payload.baustellen_beruecksichtigen).toBe(false);
+  });
+});
