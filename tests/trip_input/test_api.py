@@ -57,7 +57,12 @@ from tripplanner.trip_input.models import (
     Waypoint,
 )
 from tripplanner.weather.models import WeatherQuery, WeatherSample
-from tripplanner.weather.providers import FakeWeatherProvider, OpenMeteoProvider
+from tripplanner.weather.providers import (
+    FakeWeatherProvider,
+    LoadBalancedWeatherProvider,
+    OpenMeteoProvider,
+    WeatherProviderEntry,
+)
 
 # =============================================================================
 # Fixtures
@@ -1869,13 +1874,15 @@ def test_create_trip_endpoint_uses_open_meteo_provider_for_real_weather(
     assert all(w != 5.0 for w in wind_speeds), "duerfen nicht Fake-Konstante 5.0 sein"
 
 
-def test_fastapi_endpoint_weather_rate_limit_returns_502(
+def test_fastapi_endpoint_weather_provider_failure_degrades_gracefully(
     monkeypatch: pytest.MonkeyPatch,
     fake_charging_provider_berlin_munich: FakeChargingStationProvider,
 ) -> None:
-    """Ein `httpx.HTTPStatusError` mit Status 429 (Rate-Limit) vom Wetter-
-    Provider liefert 502 statt eines generischen 500ers - mirrort den
-    bestehenden GraphHopper-Fehlerpfad (Plan 10 Section 6)."""
+    """A weather provider that always fails (e.g. Open-Meteo 429 rate limit)
+    must never break trip calculation: `/trips` still returns 201, falling
+    back to a neutral placeholder `WeatherSample` for every point instead of
+    propagating the `httpx.HTTPStatusError` as a 502. Regression test for the
+    incident where an Open-Meteo 429 made `/trips` fail outright."""
 
     async def rate_limited_get(
         self: httpx.AsyncClient, url: str, *args: object, **kwargs: object
@@ -1886,14 +1893,35 @@ def test_fastapi_endpoint_weather_rate_limit_returns_502(
 
     monkeypatch.setattr(httpx.AsyncClient, "get", rate_limited_get)
 
+    captured_weather_samples: list[list[WeatherSample]] = []
+    original_step_7 = trip_api._step_7_calculate_segment_energy
+
+    async def spy_step_7(
+        route: Route,
+        route_segments: list[RouteSegment],
+        segment_eta_list: list[tuple[RouteSegment, timedelta]],
+        weather_samples: list[WeatherSample],
+        *rest: object,
+    ) -> object:
+        captured_weather_samples.append(list(weather_samples))
+        return await original_step_7(
+            route, route_segments, segment_eta_list, weather_samples, *rest
+        )
+
+    monkeypatch.setattr(trip_api, "_step_7_calculate_segment_energy", spy_step_7)
+
     app.dependency_overrides[get_routing_provider] = FakeRoutingProvider
     app.dependency_overrides[get_charging_provider] = lambda: fake_charging_provider_berlin_munich
     app.dependency_overrides[get_elevation_provider] = lambda: ElevationProvider(
         data_source=FakeDataSource()
     )
+    # Single-entry composite: no other provider to fail over to, so this
+    # exercises the "every eligible provider failed" neutral-fallback path.
     # PLW0108: lambda erforderlich (siehe `client`-Fixture oben) - vermeidet
     # den FastAPI-Override-Introspektions-Bug bei list[BaseModel]-Konstruktorparametern.
-    app.dependency_overrides[get_weather_provider] = lambda: OpenMeteoProvider()  # noqa: PLW0108
+    app.dependency_overrides[get_weather_provider] = lambda: LoadBalancedWeatherProvider(
+        [WeatherProviderEntry("open-meteo", OpenMeteoProvider(), None)]
+    )
     app.dependency_overrides[get_construction_provider] = lambda: FakeConstructionProvider()  # noqa: PLW0108
     try:
         with TestClient(app) as test_client:
@@ -1913,9 +1941,13 @@ def test_fastapi_endpoint_weather_rate_limit_returns_502(
         app.dependency_overrides.pop(get_weather_provider, None)
         app.dependency_overrides.pop(get_construction_provider, None)
 
-    assert response.status_code == 502
-    detail = response.json()["detail"]
-    assert "Rate-Limit" in detail or "429" in detail
+    assert response.status_code == 201
+    assert captured_weather_samples, "erwartete mindestens einen _step_7-Aufruf"
+    samples = captured_weather_samples[0]
+    assert samples, "erwartete Fallback-WeatherSamples trotz durchgehend 429"
+    assert all(s.temperatur_c == 15.0 for s in samples), (
+        "erwartete neutrale Platzhalterwerte (siehe _neutral_weather_sample)"
+    )
 
 
 # =============================================================================

@@ -9,15 +9,18 @@ Testet:
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+from tripplanner.trip_input import providers_factory as providers_factory_module
 from tripplanner.trip_input.providers_factory import (
     ProductionProviders,
     build_production_providers,
     close_production_providers,
 )
+from tripplanner.weather.providers import LoadBalancedWeatherProvider
 
 
 class TestProductionProviders:
@@ -123,3 +126,99 @@ class TestCloseProductionProviders:
 
         # Nach Schließen sollten Ressourcen freigegeben sein
         # (keine further assertions, da Implementierungsspezifisch)
+
+
+@pytest.mark.asyncio
+class TestBuildWeatherProvider:
+    """Tests for the `weather` field produced by `build_production_providers()`."""
+
+    async def test_weather_is_load_balanced_provider(self) -> None:
+        """The production `weather` provider is always a `LoadBalancedWeatherProvider`,
+        even with zero optional API keys configured - the resilience guarantee (see
+        `LoadBalancedWeatherProvider`) applies unconditionally."""
+        providers = await build_production_providers()
+        assert isinstance(providers.weather, LoadBalancedWeatherProvider)
+        await close_production_providers(providers)
+
+    async def test_weather_always_includes_global_and_national_providers(
+        self, tmp_path: Path
+    ) -> None:
+        """Open-Meteo, MET Norway, SMHI, and DMI are always registered."""
+        missing_credentials = tmp_path / "missing-credentials.yaml"
+        with (
+            patch.object(providers_factory_module, "_LOCAL_CREDENTIALS_PATH", missing_credentials),
+            patch.dict("os.environ", {}, clear=True),
+        ):
+            providers = await build_production_providers()
+
+        names = {e.name for e in providers.weather._entries}
+        assert {"open-meteo", "met-norway", "smhi", "dmi"} <= names
+        await close_production_providers(providers)
+
+    async def test_weather_excludes_openweather_without_api_key(self, tmp_path: Path) -> None:
+        """OpenWeather is omitted entirely when no API key is configured anywhere."""
+        missing_credentials = tmp_path / "missing-credentials.yaml"
+        with (
+            patch.object(providers_factory_module, "_LOCAL_CREDENTIALS_PATH", missing_credentials),
+            patch.dict("os.environ", {}, clear=True),
+        ):
+            providers = await build_production_providers()
+
+        names = {e.name for e in providers.weather._entries}
+        assert "openweather" not in names
+        await close_production_providers(providers)
+
+    async def test_weather_includes_openweather_when_env_key_set(self, tmp_path: Path) -> None:
+        """Setting `OPENWEATHER_API_KEY` adds an `openweather` entry to the composite."""
+        missing_credentials = tmp_path / "missing-credentials.yaml"
+        with (
+            patch.object(providers_factory_module, "_LOCAL_CREDENTIALS_PATH", missing_credentials),
+            patch.dict("os.environ", {"OPENWEATHER_API_KEY": "env-key"}, clear=True),
+        ):
+            providers = await build_production_providers()
+
+        names = {e.name for e in providers.weather._entries}
+        assert "openweather" in names
+        await close_production_providers(providers)
+
+    async def test_weather_smhi_restricted_to_sweden_dmi_restricted_to_denmark(self) -> None:
+        """SMHI's and DMI's `WeatherProviderEntry.countries` restrict them to SE/DK only."""
+        providers = await build_production_providers()
+        entries = {e.name: e for e in providers.weather._entries}
+
+        assert entries["smhi"].countries == frozenset({"SE"})
+        assert entries["dmi"].countries == frozenset({"DK"})
+        assert entries["open-meteo"].countries is None
+        assert entries["met-norway"].countries is None
+        await close_production_providers(providers)
+
+    async def test_weather_openweather_key_from_local_credentials_file(
+        self, tmp_path: Path
+    ) -> None:
+        """A `weather.openweather.key` in `credentials.local.yaml` is picked up."""
+        credentials_file = tmp_path / "credentials.local.yaml"
+        credentials_file.write_text("weather:\n  openweather:\n    key: file-key\n")
+        with (
+            patch.object(providers_factory_module, "_LOCAL_CREDENTIALS_PATH", credentials_file),
+            patch.dict("os.environ", {}, clear=True),
+        ):
+            providers = await build_production_providers()
+
+        names = {e.name for e in providers.weather._entries}
+        assert "openweather" in names
+        await close_production_providers(providers)
+
+    async def test_weather_env_key_takes_precedence_over_file(self, tmp_path: Path) -> None:
+        """`OPENWEATHER_API_KEY` env var wins over `credentials.local.yaml`."""
+        credentials_file = tmp_path / "credentials.local.yaml"
+        credentials_file.write_text("weather:\n  openweather:\n    key: file-key\n")
+        with (
+            patch.object(providers_factory_module, "_LOCAL_CREDENTIALS_PATH", credentials_file),
+            patch.dict("os.environ", {"OPENWEATHER_API_KEY": "env-key"}, clear=True),
+        ):
+            providers = await build_production_providers()
+
+        entries = {e.name: e for e in providers.weather._entries}
+        openweather_provider = entries["openweather"].provider
+        assert openweather_provider._api_key == "env-key"
+        await close_production_providers(providers)

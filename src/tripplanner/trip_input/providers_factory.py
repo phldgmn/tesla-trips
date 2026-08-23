@@ -31,7 +31,15 @@ from tripplanner.elevation.elevation import ElevationProvider
 from tripplanner.elevation.providers import CopernicusDEMDataSource, DEMDataSourceProtocol
 from tripplanner.routing.client import GraphHopperClient
 from tripplanner.routing.providers import GraphHopperRoutingProvider
-from tripplanner.weather.providers import OpenMeteoProvider
+from tripplanner.weather.providers import (
+    DmiProvider,
+    LoadBalancedWeatherProvider,
+    MetNorwayProvider,
+    OpenMeteoProvider,
+    OpenWeatherProvider,
+    SmhiProvider,
+    WeatherProviderEntry,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _LOCAL_CREDENTIALS_PATH = _REPO_ROOT / "credentials.local.yaml"
@@ -45,7 +53,7 @@ class ProductionProviders(NamedTuple):
 
     routing: GraphHopperRoutingProvider
     elevation_provider: ElevationProvider
-    weather: OpenMeteoProvider
+    weather: LoadBalancedWeatherProvider
     construction: ConstructionProviderImpl
     charging: TeslaChargingStationProvider
 
@@ -85,15 +93,16 @@ async def build_production_providers(
         elevation_data_source = CopernicusDEMDataSource()
     elevation = ElevationProvider(data_source=elevation_data_source)
 
-    # Weather: OpenMeteoProvider ohne Auth (free API)
-    weather = OpenMeteoProvider()
+    local_credentials = _load_local_credentials()
+
+    # Weather: country-aware, load-balanced composite (siehe _build_weather_provider).
+    weather = _build_weather_provider(local_credentials)
 
     # Construction: konfigurierbarer Provider; Default lädt echte Credentials
     # aus Umgebungsvariablen/credentials.local.yaml (siehe _load_local_credentials).
     if construction_provider is None:
-        credentials = _load_local_credentials()
-        dk_creds = credentials.get("DK", {})
-        se_creds = credentials.get("SE", {})
+        dk_creds = local_credentials.get("DK", {})
+        se_creds = local_credentials.get("SE", {})
         construction = ConstructionProviderImpl(
             config=ConstructionProviderConfig(
                 dk_client_id=os.environ.get("DK_CLIENT_ID", dk_creds.get("dk_client_id")),
@@ -120,6 +129,47 @@ async def build_production_providers(
     )
 
 
+def _build_weather_provider(
+    local_credentials: dict[str, dict[str, str]],
+) -> LoadBalancedWeatherProvider:
+    """Builds the production `WeatherProvider`.
+
+    A country-aware, load-balanced composite of every configured real
+    weather provider (see `tripplanner.weather.providers.LoadBalancedWeatherProvider`):
+    Open-Meteo and MET Norway are always included (global, keyless).
+    OpenWeather (global) is included only when an API key is configured
+    (`credentials.local.yaml`: `weather.openweather.key`, or env var
+    `OPENWEATHER_API_KEY`, which takes precedence). SMHI and DMI are always
+    included but restricted to Sweden/Denmark respectively - the composite
+    itself enforces this via `WeatherProviderEntry.countries`, so a single
+    missing-key provider or a country-restricted provider never blocks
+    weather data for the other focus countries.
+
+    Args:
+        local_credentials: Result of `_load_local_credentials()`, passed in
+            to avoid re-reading `credentials.local.yaml`.
+
+    Returns:
+        A `LoadBalancedWeatherProvider` wrapping every available provider.
+    """
+    entries: list[WeatherProviderEntry] = [
+        WeatherProviderEntry("open-meteo", OpenMeteoProvider(), None),
+        WeatherProviderEntry("met-norway", MetNorwayProvider(), None),
+        WeatherProviderEntry("smhi", SmhiProvider(), frozenset({"SE"})),
+        WeatherProviderEntry("dmi", DmiProvider(), frozenset({"DK"})),
+    ]
+
+    openweather_key = os.environ.get("OPENWEATHER_API_KEY") or local_credentials.get(
+        "OPENWEATHER", {}
+    ).get("key")
+    if openweather_key:
+        entries.append(
+            WeatherProviderEntry("openweather", OpenWeatherProvider(api_key=openweather_key), None)
+        )
+
+    return LoadBalancedWeatherProvider(entries)
+
+
 async def close_production_providers(providers: ProductionProviders) -> None:
     """Schließt alle asynchronen Ressourcen der Produktion-Provider.
 
@@ -134,7 +184,7 @@ async def close_production_providers(providers: ProductionProviders) -> None:
 
 
 def _load_local_credentials() -> dict[str, dict[str, str]]:
-    """Load and remap DK/SE construction credentials from `credentials.local.yaml`.
+    """Loads DK/SE construction and OpenWeather credentials from `credentials.local.yaml`.
 
     Reads the repo-root `credentials.local.yaml` (gitignored; see
     `_LOCAL_CREDENTIALS_PATH`) via PyYAML `safe_load`. Never crashes when the
@@ -142,9 +192,10 @@ def _load_local_credentials() -> dict[str, dict[str, str]]:
     (the Autobahn GmbH API is unauthenticated).
 
     Returns:
-        A dict keyed by country code, each value already using
-        `ConstructionProviderConfig`'s field names (`dk_client_id`,
-        `dk_secret`, `tv_api_key`) so callers can pass them straight through.
+        A dict keyed by country code (`DK`/`SE`) or `OPENWEATHER`, each
+        value already using the target config's field names
+        (`dk_client_id`, `dk_secret`, `tv_api_key`, `key`) so callers can
+        pass them straight through.
     """
     if not _LOCAL_CREDENTIALS_PATH.is_file():
         return {}
@@ -158,4 +209,8 @@ def _load_local_credentials() -> dict[str, dict[str, str]]:
     se_raw = raw.get("SE")
     if isinstance(se_raw, dict) and "key" in se_raw:
         result["SE"] = {"tv_api_key": se_raw["key"]}
+    weather_raw = raw.get("weather")
+    openweather_raw = weather_raw.get("openweather") if isinstance(weather_raw, dict) else None
+    if isinstance(openweather_raw, dict) and "key" in openweather_raw:
+        result["OPENWEATHER"] = {"key": openweather_raw["key"]}
     return result

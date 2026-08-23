@@ -1514,17 +1514,12 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
             status_code=422,
             detail=f"Route nicht durchführbar: {e!s}",
         ) from e
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == httpx.codes.TOO_MANY_REQUESTS:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Wetter-Server (Open-Meteo) Rate-Limit erreicht: {e}",
-            ) from e
-        raise HTTPException(
-            status_code=502,
-            detail=f"Routing-Server (GraphHopper) nicht erreichbar oder lieferte einen Fehler: {e}",
-        ) from e
     except httpx.HTTPError as e:
+        # Weather providers never raise here anymore (see
+        # `LoadBalancedWeatherProvider`: failures fail over between
+        # providers and degrade to a neutral placeholder instead of
+        # propagating), so any `httpx.HTTPError` reaching this handler
+        # originates from the routing (GraphHopper) call.
         raise HTTPException(
             status_code=502,
             detail=f"Routing-Server (GraphHopper) nicht erreichbar oder lieferte einen Fehler: {e}",
