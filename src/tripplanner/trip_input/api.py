@@ -7,9 +7,10 @@ Diese Modul implementiert:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import traceback
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
@@ -70,7 +71,7 @@ from tripplanner.wind import compute_wind_components_for_route
 from tripplanner.wind.models import WindComponents
 
 if TYPE_CHECKING:
-    pass
+    from tripplanner.optimization.models import ChargingStop
 
 # =============================================================================
 # GraphHopper-Konfiguration
@@ -104,7 +105,7 @@ async def _step_1_route_calculate(
     return await provider.berechne_route(request)
 
 
-def _step_2_extract_elevation_profile(
+async def _step_2_extract_elevation_profile(
     route: Route, elevation_provider: ElevationProvider
 ) -> list[ElevationPoint]:
     """Step 2: Extract elevation profile along the route.
@@ -116,7 +117,7 @@ def _step_2_extract_elevation_profile(
     Returns:
         List of ElevationPoint for all sampling points.
     """
-    return elevation_provider.get_elevation_profile(route)
+    return await elevation_provider.get_elevation_profile(route)
 
 
 def _step_3_segment_route(route: Route) -> list[RouteSegment]:
@@ -506,8 +507,18 @@ async def _step_route_charging_detours(
         Kartengeometrie fuer den Abstecher).
     """
     provider = routing_provider or FakeRoutingProvider()
-    detouren: dict[int, LadehaltDetour] = {}
-    for ladehalt in charging_plan.ladehalte:
+
+    # 1. Build all routing requests (hinweg + rueckweg per stop)
+    tasks: list[
+        tuple[
+            int,
+            int,
+            ChargingStop,
+            TripRequest,
+            TripRequest,
+        ]
+    ] = []
+    for stop_idx, ladehalt in enumerate(charging_plan.ladehalte):
         vor_index, after_index = _find_bracket_points(route, ladehalt.segment_index)
         hinweg_anfrage = TripRequest(
             start=route.geometrie[vor_index],
@@ -521,18 +532,39 @@ async def _step_route_charging_detours(
             abfahrtszeit=abfahrtszeit,
             fahrzeugprofil=fahrzeugprofil,
         )
-        try:
-            hinweg_route = await provider.berechne_route(hinweg_anfrage)
-            rueckweg_route = await provider.berechne_route(rueckweg_anfrage)
-        except httpx.HTTPError:
+        tasks.append((stop_idx, id(ladehalt), ladehalt, hinweg_anfrage, rueckweg_anfrage))
+
+    if not tasks:
+        return {}
+
+    # 2. Fan out all routing coroutines concurrently
+    coros: list[Coroutine[None, None, Route]] = []
+    for _, _, _, hinweg, rueckweg in tasks:
+        coros.append(provider.berechne_route(hinweg))
+        coros.append(provider.berechne_route(rueckweg))
+
+    results = await asyncio.gather(*coros, return_exceptions=True)
+
+    # 3. Reassemble results per stop (2 results per stop: hinweg, rueckweg)
+    detouren: dict[int, LadehaltDetour] = {}
+    for stop_idx, stop_id, ladehalt, _, _ in tasks:
+        start = stop_idx * 2
+        hinweg_result, rueckweg_result = results[start], results[start + 1]
+
+        # Skip this stop if either leg failed
+        if isinstance(hinweg_result, BaseException) or isinstance(rueckweg_result, BaseException):
             continue
+
+        hinweg_route = hinweg_result
+        rueckweg_route = rueckweg_result
         station_index = len(hinweg_route.geometrie) - 1
-        detouren[id(ladehalt)] = LadehaltDetour(
+        detouren[stop_id] = LadehaltDetour(
             geometrie=hinweg_route.geometrie + rueckweg_route.geometrie[1:],
-            route_index_vor=vor_index,
-            route_index_nach=after_index,
+            route_index_vor=_find_bracket_points(route, ladehalt.segment_index)[0],
+            route_index_nach=_find_bracket_points(route, ladehalt.segment_index)[1],
             station_index=station_index,
         )
+
     return detouren
 
 
@@ -678,7 +710,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
     # 3. Step 2: Extract elevation profile
     if elevation_provider is None:
         elevation_provider = ElevationProvider(data_source=FakeDataSource())
-    elevation_points = _step_2_extract_elevation_profile(route, elevation_provider)
+    elevation_points = await _step_2_extract_elevation_profile(route, elevation_provider)
 
     # 4. Step 3: Segment routing (already in route.segments)
     segments = _step_3_segment_route(route)

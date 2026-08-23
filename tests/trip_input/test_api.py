@@ -631,7 +631,7 @@ class _CoordinateElevationDataSource:
     def get_elevation(self, lat: float, lon: float) -> float:
         return self._elevations.get((lat, lon), 0.0)
 
-    def get_elevations_batch(self, coordinates: list[tuple[float, float]]) -> list[float]:
+    async def get_elevations_batch(self, coordinates: list[tuple[float, float]]) -> list[float]:
         return [self.get_elevation(lat, lon) for lat, lon in coordinates]
 
     def get_tile_at(self, lat: float, lon: float) -> None:
@@ -678,7 +678,7 @@ class TestElevationGradientAffectsEnergy:
         route = Route(
             segments=[segment], gesamtlaenge_m=segment.laenge_m, geometrie=segment.geometrie
         )
-        elevation_points = elevation_provider.get_elevation_profile(route)
+        elevation_points = await elevation_provider.get_elevation_profile(route)
         abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0)
         weather = WeatherSample(
             koordinate=segment.geometrie[0],

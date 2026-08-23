@@ -4,6 +4,7 @@ Das DEMDataSourceProtocol ermöglicht testbare Höhen-Datenquellen ohne
 feste Abhängigkeit von rasterio.
 """
 
+import asyncio
 import logging
 import math
 import struct
@@ -39,7 +40,7 @@ class DEMDataSourceProtocol(Protocol):
         """
         ...
 
-    def get_elevations_batch(self, coordinates: list[tuple[float, float]]) -> list[float]:
+    async def get_elevations_batch(self, coordinates: list[tuple[float, float]]) -> list[float]:
         """Höhenwerte für mehrere Koordinaten (optimiert für Batch-Lookup).
 
         Args:
@@ -113,7 +114,7 @@ class FakeDataSource:
         noise = (hash_val / 1000.0 - 0.5) * self.noise_range
         return self.baseline + noise
 
-    def get_elevations_batch(self, coordinates: list[tuple[float, float]]) -> list[float]:
+    async def get_elevations_batch(self, coordinates: list[tuple[float, float]]) -> list[float]:
         """Höhenwerte für mehrere Koordinaten (optimiert für Batch-Lookup).
 
         Args:
@@ -273,6 +274,30 @@ class CopernicusDEMDataSource:
                 evicted.close()
         return dataset
 
+    def _dataset_for_tile(self, uri: str) -> rasterio.io.DatasetReader | None:
+        """Open or return cached dataset for a tile URI (thread-safe for batch).
+
+        Same LRU caching logic as `_dataset_for` but takes a URI directly
+        to avoid constructing one in the thread per call.
+        """
+        if uri in self._datasets:
+            dataset = self._datasets.pop(uri)
+            self._datasets[uri] = dataset
+            return dataset
+
+        try:
+            dataset = rasterio.open(uri)
+        except Exception:
+            logger.warning("DEM-Kachel %s konnte nicht geöffnet werden - Fallback 0.0m", uri)
+            dataset = None
+
+        self._datasets[uri] = dataset
+        if len(self._datasets) > self._max_open_tiles:
+            _, evicted = self._datasets.popitem(last=False)
+            if evicted is not None:
+                evicted.close()
+        return dataset
+
     def get_elevation(self, lat: float, lon: float) -> float:
         """Höhenwert an einer Koordinate abfragen.
 
@@ -302,8 +327,12 @@ class CopernicusDEMDataSource:
             return 0.0
         return value_f
 
-    def get_elevations_batch(self, coordinates: list[tuple[float, float]]) -> list[float]:
+    async def get_elevations_batch(self, coordinates: list[tuple[float, float]]) -> list[float]:
         """Höhenwerte für mehrere Koordinaten abfragen (optimiert für Batch-Lookup).
+
+        Gruppiert Koordinaten nach 1°-DEM-Kachel, öffnet die benötigten Kacheln
+        concurrent via ``asyncio.to_thread`` (GDAL/rasterio ist blockierend) und
+        liest die Pixelwerte aus den gecachten Datasets.
 
         Args:
             coordinates: Liste von (lat, lon)-Tupeln
@@ -311,7 +340,48 @@ class CopernicusDEMDataSource:
         Returns:
             Liste von Höhenwerten in derselben Reihenfolge wie `coordinates`
         """
-        return [self.get_elevation(lat, lon) for lat, lon in coordinates]
+        if not coordinates:
+            return []
+
+        # 1. Group coordinates by tile URI
+        tile_coords: dict[str, list[tuple[int, float, float]]] = {}
+        for i, (lat, lon) in enumerate(coordinates):
+            uri = self._tile_uri(lat, lon)
+            tile_coords.setdefault(uri, []).append((i, lat, lon))
+
+        if not tile_coords:
+            return []
+
+        # 2. Open each distinct tile concurrently (rasterio/GDAL is blocking)
+        async def _load_dataset(uri: str) -> rasterio.io.DatasetReader | None:
+            return await asyncio.to_thread(self._dataset_for_tile, uri)
+
+        datasets = await asyncio.gather(
+            *[_load_dataset(uri) for uri in tile_coords],
+        )
+
+        # 3. Read pixel values and reconstruct in original order
+        results: list[float] = [0.0] * len(coordinates)
+        for uri, dataset in zip(tile_coords, datasets, strict=True):
+            if dataset is None:
+                continue
+            for idx, lat, lon in tile_coords[uri]:
+                try:
+                    row, col = dataset.index(lon, lat)
+                    if not (0 <= row < dataset.height and 0 <= col < dataset.width):
+                        continue
+                    value = dataset.read(1, window=Window(col, row, 1, 1))[0, 0]
+                    value_f = float(value)
+                    if dataset.nodata is not None and value_f == dataset.nodata:
+                        continue
+                    results[idx] = value_f
+                except Exception:
+                    logger.warning(
+                        "DEM-Range-Request für (%s, %s) fehlgeschlagen - Fallback 0.0m",
+                        lat,
+                        lon,
+                    )
+        return results
 
     def get_tile_at(self, lat: float, lon: float) -> DEMTile | None:
         """Ermittle die DEM-Kachel für eine Koordinate.

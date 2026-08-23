@@ -43,7 +43,7 @@ class ElevationProvider:
         """
         self.data_source = data_source
 
-    def get_elevation_profile(
+    async def get_elevation_profile(
         self, route: object, sampling_distance_m: float = 100.0
     ) -> list[ElevationPoint]:
         """Extrahiert Höhenprofile entlang der Route.
@@ -82,7 +82,7 @@ class ElevationProvider:
             return []
 
         # Höhenwerte abfragen
-        elevations = self.data_source.get_elevations_batch(coordinates)
+        elevations = await self.data_source.get_elevations_batch(coordinates)
 
         return [
             ElevationPoint(koordinate=coord, hoehe_m=elev)
