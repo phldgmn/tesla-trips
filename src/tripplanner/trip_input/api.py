@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import traceback
-from collections.abc import AsyncIterator, Callable, Coroutine
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -656,6 +657,51 @@ def _match_ferry_time_window(
 
 
 # =============================================================================
+
+
+_logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _log_step(
+    step_name: str,
+    iteration: int | None = None,
+) -> Iterator[None]:
+    """Context manager that logs step start/end with elapsed duration.
+
+    Logs INFO on entry and INFO with elapsed duration on successful exit.
+    On exception, logs WARNING with elapsed duration and re-raises.
+    Works with both sync and async calls (wrap ``await step(...)`` in ``with``).
+
+    Args:
+        step_name: Human-readable name for the pipeline step.
+        iteration: Iteration number (0-based) inside the convergence loop,
+            or ``None`` for steps outside the loop.
+    """
+    iteration_tag = f" (iteration {iteration})" if iteration is not None else ""
+    _logger.info("Pipeline step '%s'%s \u2014 start", step_name, iteration_tag)
+    t0 = time.perf_counter()
+    try:
+        yield
+    except BaseException as exc:
+        elapsed_ms = (time.perf_counter() - t0) * 1_000
+        _logger.warning(
+            "Pipeline step '%s'%s \u2014 FAILED after %.1f ms: %s",
+            step_name,
+            iteration_tag,
+            elapsed_ms,
+            exc,
+        )
+        raise
+    elapsed_ms = (time.perf_counter() - t0) * 1_000
+    _logger.info(
+        "Pipeline step '%s'%s \u2014 done in %.1f ms",
+        step_name,
+        iteration_tag,
+        elapsed_ms,
+    )
+
+
 # Kernfunktion: Orchestrierung aller 11 Schritte
 # =============================================================================
 
@@ -704,13 +750,34 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
         runs without external APIs (GraphHopper, Open-Meteo, DEM server).
         For production, the actual provider classes are used.
     """
-    # 1. Create TripRequest
     request = TripRequest.model_validate(request_dict)
+    _pipeline_start = time.perf_counter()
+
+    _logger.info(
+        "Pipeline start: %d coordinate(s), start_soc=%.1f%%, "
+        "destination_soc=%.1f%%, max_iterations=%d",
+        len(request.start)
+        + len(request.ziel)
+        + sum(len(wp.koordinate) for wp in request.zwischenstopps),
+        (
+            request.fahrzeugprofil.start_soc_pct
+            if hasattr(request.fahrzeugprofil, "start_soc_pct")
+            else 80.0
+        ),
+        (
+            request.fahrzeugprofil.ziel_soc_pct
+            if hasattr(request.fahrzeugprofil, "ziel_soc_pct")
+            else 20.0
+        ),
+        max_iterations,
+    )
+    # 1. Create TripRequest
 
     # 2. Step 1: Calculate route
-    route = await _step_1_route_calculate(request, routing_provider)
-    if route_observer is not None:
-        route_observer(route)
+    with _log_step("route_calculate"):
+        route = await _step_1_route_calculate(request, routing_provider)
+        if route_observer is not None:
+            route_observer(route)
 
     # Match user-specified ferry time windows against detected ferries
     detected_ferries = _match_ferry_time_window(erkenne_faehren(route), request.faehr_zeitfenster)
@@ -720,13 +787,17 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
     # 3. Step 2: Extract elevation profile
     if elevation_provider is None:
         elevation_provider = ElevationProvider(data_source=FakeDataSource())
-    elevation_points = await _step_2_extract_elevation_profile(route, elevation_provider)
+    with _log_step("extract_elevation_profile"):
+        elevation_points = await _step_2_extract_elevation_profile(route, elevation_provider)
 
     # 4. Step 3: Segment routing (already in route.segments)
-    segments = _step_3_segment_route(route)
+    with _log_step("segment_route"):
+        segments = _step_3_segment_route(route)
 
     # 5. Step 4: Initial ETA estimate
-    segment_eta_list = _step_4_estimate_initial_eta(route, request.abfahrtszeit)
+    with _log_step("estimate_initial_eta"):
+        segment_eta_list = _step_4_estimate_initial_eta(route, request.abfahrtszeit)
+
     # Note: Derived waiting time is a cost factor for the optimizer, not a required
     # minimum stop duration - the A* path can bypass it if no SoC/charging need arises.
     waypoints_with_wait_time = _with_derived_wait_time(
@@ -753,60 +824,66 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
         # Fetch weather with updated ETA-based timestamps; from the 2nd
         # iteration onward, reuse the provider's cache for unchanged points
         # via refetch_weather (if supported) instead of a full refetch.
-        weather_samples, weather_queries = await _step_5_fetch_weather(
-            weather_provider,
-            route,
-            segment_eta_list,
-            request.abfahrtszeit,
-            previous_queries=weather_queries,
-        )
+        with _log_step("fetch_weather", iteration):
+            weather_samples, weather_queries = await _step_5_fetch_weather(
+                weather_provider,
+                route,
+                segment_eta_list,
+                request.abfahrtszeit,
+                previous_queries=weather_queries,
+            )
 
         # Construction sites (optional)
-        construction_zones = await _step_6_construction_sites(
-            construction_provider, route, ["DE", "DK", "SE"]
-        )
+        with _log_step("construction_sites", iteration):
+            construction_zones = await _step_6_construction_sites(
+                construction_provider, route, ["DE", "DK", "SE"]
+            )
 
         # Calculate energy consumption
-        energy_results = await _step_7_calculate_segment_energy(
-            route,
-            segments,
-            segment_eta_list,
-            weather_samples,
-            request.fahrzeugprofil,
-            construction_zones,
-            request.abfahrtszeit,
-            elevation_provider,
-            elevation_points,
-        )
+        with _log_step("calculate_segment_energy", iteration):
+            energy_results = await _step_7_calculate_segment_energy(
+                route,
+                segments,
+                segment_eta_list,
+                weather_samples,
+                request.fahrzeugprofil,
+                construction_zones,
+                request.abfahrtszeit,
+                elevation_provider,
+                elevation_points,
+            )
 
         # Optimize charging plan
-        charging_plan = await _step_8_optimize_charging_plan(
-            route,
-            energy_results,
-            request.fahrzeugprofil,
-            start_soc_pct,
-            destination_soc_pct,
-            construction_zones,
-            request.abfahrtszeit,
-            elevation_provider,
-            elevation_points,
-            zwischenstopps=waypoints_with_wait_time,
-            charging_provider=charging_provider,
-            ladedauer_vorgaben=charging_duration_map,
-            faehr_zeitfenster=ferry_pins,
-        )
+        with _log_step("optimize_charging_plan", iteration):
+            charging_plan = await _step_8_optimize_charging_plan(
+                route,
+                energy_results,
+                request.fahrzeugprofil,
+                start_soc_pct,
+                destination_soc_pct,
+                construction_zones,
+                request.abfahrtszeit,
+                elevation_provider,
+                elevation_points,
+                zwischenstopps=waypoints_with_wait_time,
+                charging_provider=charging_provider,
+                ladedauer_vorgaben=charging_duration_map,
+                faehr_zeitfenster=ferry_pins,
+            )
 
         # Update ETA with charging plan
-        segment_eta_list = _step_9_update_eta(segment_eta_list, charging_plan)
+        with _log_step("update_eta", iteration):
+            segment_eta_list = _step_9_update_eta(segment_eta_list, charging_plan)
 
         # Recalculate detours based on the final charging plan
-        charging_stop_detours = await _step_route_charging_detours(
-            routing_provider,
-            route,
-            charging_plan,
-            request.abfahrtszeit,
-            request.fahrzeugprofil,
-        )
+        with _log_step("charging_detours", iteration):
+            charging_stop_detours = await _step_route_charging_detours(
+                routing_provider,
+                route,
+                charging_plan,
+                request.abfahrtszeit,
+                request.fahrzeugprofil,
+            )
 
         # Convergence check: compare with previous iteration's ETA
         if iteration > 0 and prev_segment_eta_list is not None:
@@ -822,18 +899,28 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
                 break
 
     # 11. Step 10: Run simulation
-    simulation_result = simulate_trip(
-        route=route,
-        charging_plan=charging_plan,
-        segment_energy=energy_results,
-        start_soc_pct=start_soc_pct,
-        output_resolution_seconds=60,
-        abfahrtszeit=request.abfahrtszeit,
-        battery_capacity_kwh=request.fahrzeugprofil.batteriekapazitaet_kwh,
-        charging_stop_detours=charging_stop_detours,
-    )
+    with _log_step("simulate_trip"):
+        simulation_result = simulate_trip(
+            route=route,
+            charging_plan=charging_plan,
+            segment_energy=energy_results,
+            start_soc_pct=start_soc_pct,
+            output_resolution_seconds=60,
+            abfahrtszeit=request.abfahrtszeit,
+            battery_capacity_kwh=request.fahrzeugprofil.batteriekapazitaet_kwh,
+            charging_stop_detours=charging_stop_detours,
+        )
+
     # 12. Step 11: Return result
-    simulation_result = _attach_charging_pricing(simulation_result, charging_provider)
+    with _log_step("attach_charging_pricing"):
+        simulation_result = _attach_charging_pricing(simulation_result, charging_provider)
+    total_elapsed_ms = (time.perf_counter() - _pipeline_start) * 1_000
+    _logger.info(
+        "Pipeline complete: %d frame(s), %d stop(s), %.1f ms total",
+        len(simulation_result.frames),
+        len(simulation_result.charging_stops),
+        total_elapsed_ms,
+    )
     return simulation_result
 
 
@@ -1577,6 +1664,7 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
             charging_stops_missing_pricing=ergebnis.charging_stops_missing_pricing,
         )
     except ValueError as e:
+        logger.warning("Trip simulation rejected (422): %s", e)
         raise HTTPException(
             status_code=422,
             detail=f"Route nicht durchführbar: {e!s}",
@@ -1587,6 +1675,7 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
         # providers and degrade to a neutral placeholder instead of
         # propagating), so any `httpx.HTTPError` reaching this handler
         # originates from the routing (GraphHopper) call.
+        logger.warning("Routing provider (GraphHopper) request failed (502): %s", e)
         raise HTTPException(
             status_code=502,
             detail=f"Routing-Server (GraphHopper) nicht erreichbar oder lieferte einen Fehler: {e}",

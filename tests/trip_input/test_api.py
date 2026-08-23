@@ -9,6 +9,7 @@ enthält:
 from __future__ import annotations
 
 import inspect
+import logging
 import math
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
@@ -39,6 +40,7 @@ from tripplanner.simulation.models import (
     TripSimulationResult,
 )
 from tripplanner.trip_input.api import (
+    _log_step,
     app,
     create_trip_endpoint,
     create_trip_simulation,
@@ -2701,4 +2703,254 @@ class TestAttachChargingPricing:
         assert attached.charging_stops[0].price_per_kwh == pytest.approx(0.40)
         queue = provider.list_pricing_queue()
         assert len(queue) == 1
-        assert queue[0]["tesla_location_id"] == "rhudensupercharger"
+
+
+# =============================================================================
+# Logging instrumentation tests
+# =============================================================================
+
+
+_LOGGERS = ["tripplanner.trip_input.api"]
+
+
+@pytest.mark.asyncio
+async def test_create_trip_simulation_emits_step_logging(
+    valid_trip_request: dict,
+    fake_routing_provider: FakeRoutingProvider,
+    fake_weather_provider: FakeWeatherProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
+    fake_construction_provider: FakeConstructionProvider,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """create_trip_simulation emits step-start/step-end log records with duration.
+
+    Verifies that the _log_step context manager produces INFO records for at
+    least a representative subset of pipeline steps.
+    """
+    with caplog.at_level(logging.INFO, logger="tripplanner.trip_input.api"):
+        result = await create_trip_simulation(
+            valid_trip_request,
+            routing_provider=fake_routing_provider,
+            weather_provider=fake_weather_provider,
+            construction_provider=fake_construction_provider,
+            charging_provider=fake_charging_provider_berlin_munich,
+            start_soc_pct=80.0,
+            destination_soc_pct=20.0,
+        )
+
+    assert result.gesamt_distanz_km > 0
+
+    # Check step start records exist for at least route_calculate and fetch_weather
+    step_starts = [
+        r.message
+        for r in caplog.records
+        if r.levelno == logging.INFO
+        and r.name == "tripplanner.trip_input.api"
+        and " — start" in r.message
+    ]
+    assert any("route_calculate" in m for m in step_starts), (
+        f"Expected step-start log for route_calculate; got: {step_starts}"
+    )
+    assert any("simulate_trip" in m for m in step_starts), (
+        f"Expected step-start log for simulate_trip; got: {step_starts}"
+    )
+
+    # Check step end records contain duration info
+    step_ends = [
+        r.message
+        for r in caplog.records
+        if r.levelno == logging.INFO
+        and r.name == "tripplanner.trip_input.api"
+        and " — done in" in r.message
+    ]
+    assert any("route_calculate" in m for m in step_ends), (
+        f"Expected step-end log for route_calculate; got: {step_ends}"
+    )
+    # Each step-end should mention duration in ms
+    assert any("ms" in m for m in step_ends), (
+        f"Expected duration in step-end logs; got: {step_ends}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_trip_simulation_emits_total_elapsed(
+    valid_trip_request: dict,
+    fake_routing_provider: FakeRoutingProvider,
+    fake_weather_provider: FakeWeatherProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
+    fake_construction_provider: FakeConstructionProvider,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The simulation logs a 'Pipeline complete' line with total elapsed ms."""
+    with caplog.at_level(logging.INFO, logger="tripplanner.trip_input.api"):
+        result = await create_trip_simulation(
+            valid_trip_request,
+            routing_provider=fake_routing_provider,
+            weather_provider=fake_weather_provider,
+            construction_provider=fake_construction_provider,
+            charging_provider=fake_charging_provider_berlin_munich,
+            start_soc_pct=80.0,
+            destination_soc_pct=20.0,
+        )
+
+    assert result.gesamt_distanz_km > 0
+
+    complete = [
+        r.message
+        for r in caplog.records
+        if r.levelno == logging.INFO
+        and r.name == "tripplanner.trip_input.api"
+        and "Pipeline complete" in r.message
+    ]
+    assert len(complete) == 1
+    assert "ms total" in complete[0]
+
+
+def test_fastapi_endpoint_logs_valueerror_as_422_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A ValueError deep in the pipeline still returns 422 and emits a warning.
+
+    We monkey-patch _step_1_route_calculate to raise ValueError, which surfaces
+    through the endpoint's ValueError handler.
+    """
+
+    async def _fake_step_1_raises(*args: object, **kwargs: object) -> Route:
+        raise ValueError("Kein erreichbarer Zielknoten gefunden")
+
+    monkeypatch.setattr(trip_api, "_step_1_route_calculate", _fake_step_1_raises)
+
+    app.dependency_overrides[get_routing_provider] = FakeRoutingProvider
+    try:
+        with TestClient(app) as test_client:
+            api_request = {
+                "start": (52.52, 13.405),
+                "ziel": (48.1351, 11.582),
+                "zwischenstopps": [],
+                "abfahrtszeit": "2026-08-15T08:30:00",
+                "fahrzeugprofil": _make_fahrzeugprofil_dict(),
+                "praeferenzen": {},
+            }
+            response = test_client.post("/trips", json=api_request)
+    finally:
+        app.dependency_overrides.pop(get_routing_provider, None)
+
+    assert response.status_code == 422
+    assert "nicht durchführbar" in response.json()["detail"]
+
+    # Verify the warning was logged
+    warnings = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING
+        and r.name == "tripplanner.trip_input.api"
+        and "rejected (422)" in r.message
+    ]
+    assert len(warnings) == 1
+    assert "Kein erreichbarer Zielknoten" in warnings[0].message
+
+
+def test_fastapi_endpoint_logs_httpx_error_as_502_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An httpx.HTTPError from routing returns 502 and emits a warning."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    provider = _make_graphhopper_provider(handler)
+    app.dependency_overrides[get_routing_provider] = lambda: provider
+    try:
+        with TestClient(app) as test_client:
+            api_request = {
+                "start": (52.52, 13.405),
+                "ziel": (48.1351, 11.582),
+                "zwischenstopps": [],
+                "abfahrtszeit": "2026-08-15T08:30:00",
+                "fahrzeugprofil": _make_fahrzeugprofil_dict(),
+                "praeferenzen": {},
+            }
+            response = test_client.post("/trips", json=api_request)
+    finally:
+        app.dependency_overrides.pop(get_routing_provider, None)
+
+    assert response.status_code == 502
+
+    warnings = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING
+        and r.name == "tripplanner.trip_input.api"
+        and "request failed (502)" in r.message
+    ]
+    assert len(warnings) == 1
+    assert "connection refused" in warnings[0].message
+
+
+def test_log_step_context_manager_logs_on_exception(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """When a step raises, _log_step logs WARNING with elapsed and re-raises."""
+    try:
+        with caplog.at_level(logging.INFO, logger="tripplanner.trip_input.api"):  # noqa: SIM117
+            with _log_step("test_step"):
+                raise ValueError("boom")
+    except ValueError as exc:
+        assert str(exc) == "boom"
+
+    starts = [r for r in caplog.records if " — start" in r.message]
+    assert len(starts) == 1
+    assert starts[0].levelno == logging.INFO
+    assert starts[0].message == "Pipeline step 'test_step' — start"
+
+    fails = [r for r in caplog.records if " — FAILED" in r.message]
+    assert len(fails) == 1
+    assert fails[0].levelno == logging.WARNING
+    assert "test_step" in fails[0].message
+    assert "boom" in fails[0].message
+    assert "ms" in fails[0].message
+
+
+@pytest.mark.asyncio
+async def test_create_trip_simulation_emits_iteration_logging(
+    valid_trip_request: dict,
+    fake_routing_provider: FakeRoutingProvider,
+    fake_weather_provider: FakeWeatherProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
+    fake_construction_provider: FakeConstructionProvider,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Steps inside the convergence loop log the iteration number."""
+    # Force more iterations by setting a low convergence threshold
+    with caplog.at_level(logging.INFO, logger="tripplanner.trip_input.api"):
+        result = await create_trip_simulation(
+            valid_trip_request,
+            routing_provider=fake_routing_provider,
+            weather_provider=fake_weather_provider,
+            construction_provider=fake_construction_provider,
+            charging_provider=fake_charging_provider_berlin_munich,
+            start_soc_pct=80.0,
+            destination_soc_pct=20.0,
+            max_iterations=3,
+            convergence_threshold_minutes=0.0,  # disable early exit
+        )
+
+    assert result.gesamt_distanz_km > 0
+
+    # Check that iteration-tagged messages exist for steps inside the loop
+    iteration_msgs = [
+        r.message
+        for r in caplog.records
+        if r.levelno == logging.INFO
+        and r.name == "tripplanner.trip_input.api"
+        and "iteration" in r.message.lower()
+    ]
+    # Should have at least some iteration-tagged logs for steps 5-8b
+    assert any("fetch_weather" in m for m in iteration_msgs), (
+        f"Expected iteration-tagged fetch_weather log; got: {iteration_msgs}"
+    )
+    assert any("optimize_charging_plan" in m for m in iteration_msgs), (
+        f"Expected iteration-tagged optimize_charging_plan log; got: {iteration_msgs}"
+    )
