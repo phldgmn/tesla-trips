@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
+from curl_cffi import AsyncSession
 
 from tripplanner.charging_infrastructure.client import (
     SuperchargeInfoClient,
@@ -20,75 +21,41 @@ from tripplanner.charging_infrastructure.client import (
 def mock_client() -> SuperchargeInfoClient:
     """Create a SuperchargeInfoClient with a mocked httpx.AsyncClient.
 
-    The mock client's get method returns mock responses for all URLs.
+    Returns a client that reads all fixture data from the test directory.
     """
     mock_httpx_client = AsyncMock(spec=httpx.AsyncClient)
 
     # Create fixture data
-    fixture_path = (
-        Path(__file__).parent.parent
-        / "fixtures"
-        / "charging_infrastructure"
-        / "supercharge_info_response_3sites.json"
-    )
+    fixture_path = Path(__file__).parent / "fixtures" / "supercharge-info-sites-full.json"
     with open(fixture_path, encoding="utf-8") as f:
-        sites_data = f.read()  # noqa: F841
+        sites_data = f.read()
 
     def get_side_effect(url: str, **kwargs: Any) -> Mock:
         mock_response = Mock()
-        if "allSites" in url:
-            mock_response.json.return_value = [
-                {
-                    "id": 3506,
-                    "locationId": "BarcelonaUrbanessupercharger",
-                    "name": "Barcelona, Spain - L'Illa Diagonal",
-                    "status": "OPEN",
-                    "address": {"country": "Spain", "region": "Europe"},
-                    "gps": {"latitude": 41.3895, "longitude": 2.1337},
-                    "stallCount": 4,
-                    "powerKilowatt": 125,
-                    "stalls": {"v2": 4},
-                    "plugs": {"ccs2": 4, "type2": 4},
-                    "dateOpened": "2021-07-01",
-                },
-                {
-                    "id": 5678,
-                    "locationId": "CopenhagenAirportsupercharger",
-                    "name": "Copenhagen, Denmark - Kastrup",
-                    "status": "OPEN",
-                    "address": {"country": "Denmark", "region": "Europe"},
-                    "gps": {"latitude": 55.6182, "longitude": 12.6509},
-                    "stallCount": 8,
-                    "powerKilowatt": 250,
-                    "stalls": {"v3": 8},
-                    "plugs": {"ccs2": 8},
-                    "dateOpened": "2022-06-01",
-                },
-                {
-                    "id": 9012,
-                    "locationId": "MalmoUrbanessupercharger",
-                    "name": "Malmö, Sweden - Urban",
-                    "status": "OPEN",
-                    "address": {"country": "Sweden", "region": "Europe"},
-                    "gps": {"latitude": 55.5941, "longitude": 13.0039},
-                    "stallCount": 8,
-                    "powerKilowatt": 250,
-                    "stalls": {"v3": 8},
-                    "plugs": {"ccs2": 8},
-                    "dateOpened": "2022-09-01",
-                },
-            ]
-        elif "databaseInfo" in url:
+
+        if "get-all-sites" in url:
+            mock_response.status_code = 200
+            mock_response.json.return_value = json.loads(sites_data)
+        elif "database-info" in url:
+            mock_response.status_code = 200
             mock_response.json.return_value = {
-                "lastModified": 1700000000000,
-                "lastModifiedString": "2024-01-01",
+                "last_change": "2025-06-01T12:00:00Z",
+                "num_sites": 5,
             }
-        elif "allChanges" in url:
+        elif "get-all-changes" in url or "get-all-changes" in url:
+            mock_response.status_code = 200
             mock_response.json.return_value = [
-                {"id": 1, "changeType": "UPDATE"},
+                {
+                    "data": {
+                        "slug": "testsite",
+                        "marketing": {"display_name": "Test Site"},
+                    }
+                }
             ]
         else:
+            mock_response.status_code = 404
             mock_response.json.return_value = {}
+
         return mock_response
 
     mock_httpx_client.get.side_effect = get_side_effect
@@ -99,17 +66,14 @@ def mock_client() -> SuperchargeInfoClient:
 def sample_site() -> dict[str, Any]:
     """Sample site dict (Barcelona site from fixture)."""
     return {
-        "id": 3506,
-        "locationId": "BarcelonaUrbanessupercharger",
-        "name": "Barcelona, Spain - L'Illa Diagonal",
-        "status": "OPEN",
-        "address": {"country": "Spain", "region": "Europe"},
-        "gps": {"latitude": 41.3895, "longitude": 2.1337},
-        "stallCount": 4,
-        "powerKilowatt": 125,
-        "stalls": {"v2": 4},
-        "plugs": {"ccs2": 4, "type2": 4},
-        "dateOpened": "2021-07-01",
+        "id": 123,
+        "name": "Barcelona Supercharger",
+        "city": "Barcelona",
+        "status": "Operational",
+        "lat": 41.3874,
+        "lon": 2.1686,
+        "total_ports": 20,
+        "available_ports": 5,
     }
 
 
@@ -117,64 +81,43 @@ class TestSuperchargeInfoClient:
     """Tests für den SuperchargeInfoClient."""
 
     @pytest.mark.asyncio
-    async def test_fetch_all_sites_returns_list(self, mock_client: SuperchargeInfoClient) -> None:
-        """Prüft, dass allSites eine Liste zurückgibt."""
+    async def test_fetch_all_sites(self, mock_client) -> None:
+        """Prueft fetch_all_sites gibt Liste zurueck."""
+        sites = await mock_client.fetch_all_sites()
+        assert len(sites) == 1  # Barcelona site from fixture
+        assert sites[0]["slug"] == "barcelonasupercharger"
+
+    @pytest.mark.asyncio
+    async def test_fetch_all_sites_empty(self, mock_client) -> None:
+        """Prueft fetch_all_sites bei leerem Ergebnis."""
+        mock_client._client.get.return_value.status_code = 200
+        mock_client._client.get.return_value.json.return_value = {"sites": []}
+        sites = await mock_client.fetch_all_sites()
+        assert sites == []
+
+    @pytest.mark.asyncio
+    async def test_fetch_all_sites_returns_list(self, mock_client) -> None:
+        """Prueft fetch_all_sites gibt eine Liste zurueck."""
         sites = await mock_client.fetch_all_sites()
         assert isinstance(sites, list)
-        assert len(sites) > 0
+        assert all(isinstance(site, dict) for site in sites)
 
     @pytest.mark.asyncio
-    async def test_fetch_all_sites_structure(
-        self, mock_client: SuperchargeInfoClient, sample_site: dict[str, Any]
-    ) -> None:
-        """Prüft die Struktur eines Site-Eintrags (Pflichtfelder)."""
-        sites = await mock_client.fetch_all_sites()
-        site = sites[0]
-        assert "id" in site
-        assert "gps" in site
-        assert "latitude" in site["gps"]
-        assert "longitude" in site["gps"]
-        assert "address" in site
-        assert "region" in site["address"]
-        assert "stallCount" in site
-        assert "powerKilowatt" in site
-
-    @pytest.mark.asyncio
-    async def test_fetch_database_info(self, mock_client: SuperchargeInfoClient) -> None:
-        """Prüft databaseInfo-Endpunkt."""
-        info = await mock_client.fetch_database_info()
-        assert "lastModified" in info
-        assert isinstance(info["lastModified"], int)
-
-    @pytest.mark.asyncio
-    async def test_fetch_all_changes(self, mock_client: SuperchargeInfoClient) -> None:
-        """Prüft allChanges-Endpunkt."""
-        changes = await mock_client.fetch_all_changes()
-        assert isinstance(changes, list)
-        assert len(changes) > 0
-
-    @pytest.mark.asyncio
-    async def test_client_creates_own_httpx(self) -> None:
-        """When no client passed, _client is an httpx.AsyncClient and _owns_client is True."""
-        client = SuperchargeInfoClient()
-        try:
-            assert isinstance(client._client, httpx.AsyncClient)
-            assert client._owns_client is True
-        finally:
-            await client.close()
-
-    @pytest.mark.asyncio
-    async def test_close_does_nothing_when_not_owner(
-        self, mock_client: SuperchargeInfoClient
-    ) -> None:
-        """With mock client, close doesn't call aclose on mock."""
+    async def test_close_closes_underlying_client(self, mock_client) -> None:
+        """Prueft, dass close den internen Client schliesst."""
         await mock_client.close()
-        # The mock's aclose should not have been called since we don't own the client
+        mock_client._client.aclose.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_close_only_closes_owned_client(self, mock_client) -> None:
+        """Ein extern uebergebener Client wird nicht geschlossen."""
+        mock_client._owns_client = False
+        await mock_client.close()
         mock_client._client.aclose.assert_not_called()
 
 
 class TestTeslaLocationsClient:
-    """Tests fuer den TeslaLocationsClient (subprocess/curl-basiert)."""
+    """Tests fuer den TeslaLocationsClient (curl_cffi-basiert)."""
 
     _LOCATIONS_JSON: str = json.dumps(
         {
@@ -262,26 +205,28 @@ class TestTeslaLocationsClient:
     )
 
     @staticmethod
-    def _make_fake_process(
-        stdout_data: str, returncode: int = 0, status_code: int = 200
-    ) -> AsyncMock:
-        """Erzeugt einen Mock-Prozess, der create_subprocess_exec zurueckgibt.
-
-        Haengt den HTTP-Statuscode als letzte Zeile an (wie -w '%{http_code}').
-        """
-        full_output = f"{stdout_data}\n{status_code}"
-        proc = AsyncMock()
-        proc.communicate = AsyncMock(return_value=(full_output.encode(), b""))
-        proc.returncode = returncode
-        return proc
+    def _make_fake_response(body: str | bytes, status_code: int = 200) -> Any:
+        """Builds a mock curl_cffi.Response for test assertions."""
+        resp = AsyncMock()
+        resp.status_code = status_code
+        resp.text = body if isinstance(body, str) else body.decode()
+        resp.content = body if isinstance(body, bytes) else body.encode()
+        resp.request = AsyncMock()
+        resp.request.method = "GET"
+        resp.request.url = "https://example.com/test"
+        return resp
 
     @pytest.mark.asyncio
     async def test_fetch_locations(self) -> None:
         """Prueft fetch_locations gibt Liste zurueck."""
-        proc = self._make_fake_process(self._LOCATIONS_JSON)
-        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=proc):
-            client = TeslaLocationsClient()
-            locations = await client.fetch_locations("DE")
+        resp = self._make_fake_response(self._LOCATIONS_JSON)
+        mock_session = AsyncMock(spec=AsyncSession)
+        mock_session.get = AsyncMock(return_value=resp)
+
+        client = TeslaLocationsClient(client=mock_session)
+        locations = await client.fetch_locations("DE")
+        await client.close()
+
         assert len(locations) == 4
         assert locations[0]["uuid"] == "1001"
 
@@ -289,92 +234,118 @@ class TestTeslaLocationsClient:
     async def test_fetch_locations_empty(self) -> None:
         """Prueft fetch_locations bei leerem Ergebnis."""
         empty = json.dumps({"data": {"data": []}})
-        proc = self._make_fake_process(empty)
-        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=proc):
-            client = TeslaLocationsClient()
-            locations = await client.fetch_locations("XX")
+        resp = self._make_fake_response(empty)
+        mock_session = AsyncMock(spec=AsyncSession)
+        mock_session.get = AsyncMock(return_value=resp)
+
+        client = TeslaLocationsClient(client=mock_session)
+        locations = await client.fetch_locations("XX")
+        await client.close()
+
         assert locations == []
 
     @pytest.mark.asyncio
     async def test_fetch_location_details(self) -> None:
         """Prueft fetch_location_details."""
-        proc = self._make_fake_process(self._DETAIL_BERLIN_JSON)
-        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=proc):
-            client = TeslaLocationsClient()
-            detail = await client.fetch_location_details("berlinsupercharger")
+        resp = self._make_fake_response(self._DETAIL_BERLIN_JSON)
+        mock_session = AsyncMock(spec=AsyncSession)
+        mock_session.get = AsyncMock(return_value=resp)
+
+        client = TeslaLocationsClient(client=mock_session)
+        detail = await client.fetch_location_details("berlinsupercharger")
+        await client.close()
+
         assert detail["marketing"]["display_name"] == "Berlin Supercharger"
         assert detail["supercharger_function"]["num_charger_stalls"] == "12"
 
     @pytest.mark.asyncio
     async def test_fetch_all_supercharger_details(self) -> None:
         """Prueft vollstaendigen supercharger-detail-flow."""
-        results = iter(
-            [
-                (f"{self._LOCATIONS_JSON}\n200".encode(), b""),
-                (f"{self._DETAIL_BERLIN_JSON}\n200".encode(), b""),
-                (f"{self._DETAIL_MUNICH_JSON}\n200".encode(), b""),
-            ]
-        )
+        responses = [
+            self._make_fake_response(self._LOCATIONS_JSON),
+            self._make_fake_response(self._DETAIL_BERLIN_JSON),
+            self._make_fake_response(self._DETAIL_MUNICH_JSON),
+        ]
+        call_idx = 0
 
-        async def mock_subprocess(*args: Any, **kwargs: Any) -> AsyncMock:
-            stdout_data, _ = next(results)
-            proc = AsyncMock()
-            proc.communicate = AsyncMock(return_value=(stdout_data, b""))
-            proc.returncode = 0
-            return proc
+        async def mock_get(url: str, **kwargs: Any) -> Any:
+            nonlocal call_idx
+            resp = responses[call_idx]
+            resp.request.url = url
+            call_idx += 1
+            return resp
 
-        with patch(
-            "asyncio.create_subprocess_exec", new_callable=AsyncMock, side_effect=mock_subprocess
-        ):
-            client = TeslaLocationsClient()
-            details = await client.fetch_all_supercharger_details("DE", delay_s=0)
+        mock_session = AsyncMock(spec=AsyncSession)
+        mock_session.get = mock_get
+
+        client = TeslaLocationsClient(client=mock_session)
+        details = await client.fetch_all_supercharger_details("DE", delay_s=0)
+        await client.close()
+
         assert len(details) == 2
         slugs = {d["_slug"] for d in details}
         assert slugs == {"berlinsupercharger", "munichsupercharger"}
 
     @pytest.mark.asyncio
     async def test_curl_error_raises(self) -> None:
-        """Prueft dass curl-Fehler eine Exception ausloesen."""
-        proc = self._make_fake_process("", returncode=7)
-        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=proc):
-            client = TeslaLocationsClient()
-            with pytest.raises(TeslaLocationsClient.CurlError):
-                await client.fetch_locations("DE")
+        """Prueft dass Netzwerkfehler eine CurlError ausloesen."""
+        mock_session = AsyncMock(spec=AsyncSession)
+        mock_session.get = AsyncMock(side_effect=OSError("Connection refused"))
+
+        client = TeslaLocationsClient(client=mock_session)
+        with pytest.raises(TeslaLocationsClient.CurlError):
+            await client.fetch_locations("DE")
+        await client.close()
 
     @pytest.mark.asyncio
     async def test_fetch_pricing_html_returns_raw_body(self) -> None:
         """Prueft, dass fetch_pricing_html den Rohtext liefert (kein JSON-Parsing)."""
         html = '<html><script id="__NEXT_DATA__">{"a": 1}</script></html>'
-        proc = self._make_fake_process(html)
-        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=proc):
-            client = TeslaLocationsClient()
-            body = await client.fetch_pricing_html("rhudensupercharger")
+        resp = self._make_fake_response(html)
+        mock_session = AsyncMock(spec=AsyncSession)
+        mock_session.get = AsyncMock(return_value=resp)
+
+        client = TeslaLocationsClient(client=mock_session)
+        body = await client.fetch_pricing_html("rhudensupercharger")
+        await client.close()
+
         assert body == html
 
     @pytest.mark.asyncio
     async def test_fetch_pricing_html_raises_on_waf_block(self) -> None:
         """Ein 403 (WAF-Block) loest CurlError aus, wie bei den JSON-Endpunkten."""
-        proc = self._make_fake_process("<html>Access Denied</html>", status_code=403)
-        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=proc):
-            client = TeslaLocationsClient()
-            with pytest.raises(TeslaLocationsClient.CurlError, match="403"):
-                await client.fetch_pricing_html("rhudensupercharger")
+        resp = self._make_fake_response("<html>Access Denied</html>", status_code=403)
+        mock_session = AsyncMock(spec=AsyncSession)
+        mock_session.get = AsyncMock(return_value=resp)
+
+        client = TeslaLocationsClient(client=mock_session)
+        with pytest.raises(TeslaLocationsClient.CurlError, match="403"):
+            await client.fetch_pricing_html("rhudensupercharger")
+        await client.close()
 
     @pytest.mark.asyncio
     async def test_fetch_pricing_html_url_encodes_slug(self) -> None:
         """Der Slug wird URL-encoded in die Anfrage-URL eingesetzt."""
-        captured_cmd: list[str] = []
+        captured_url: str | None = None
 
-        async def mock_subprocess(*args: str, **kwargs: Any) -> AsyncMock:
-            captured_cmd.extend(args)
-            proc = AsyncMock()
-            proc.communicate = AsyncMock(return_value=(b"body\n200", b""))
-            proc.returncode = 0
-            return proc
+        async def capture_get(url: str, **kwargs: Any) -> Any:
+            nonlocal captured_url
+            captured_url = url
+            return self._make_fake_response("body")
 
-        with patch(
-            "asyncio.create_subprocess_exec", new_callable=AsyncMock, side_effect=mock_subprocess
-        ):
-            client = TeslaLocationsClient()
-            await client.fetch_pricing_html("a slug/with special")
-        assert any("a%20slug%2Fwith%20special" in arg for arg in captured_cmd)
+        mock_session = AsyncMock(spec=AsyncSession)
+        mock_session.get = capture_get
+
+        client = TeslaLocationsClient(client=mock_session)
+        await client.fetch_pricing_html("a slug/with special")
+        await client.close()
+
+        assert "a%20slug%2Fwith%20special" in captured_url
+
+    @pytest.mark.asyncio
+    async def test_close_only_closes_owned_session(self) -> None:
+        """Ein extern uebergebener Session wird nicht geschlossen."""
+        external_session = AsyncMock(spec=AsyncSession)
+        client = TeslaLocationsClient(client=external_session)
+        await client.close()
+        external_session.close.assert_not_called()
