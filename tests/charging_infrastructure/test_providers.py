@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -14,6 +14,7 @@ from tripplanner.charging_infrastructure.client import (
     SuperchargeInfoClient,
     TeslaLocationsClient,
 )
+from tripplanner.charging_infrastructure.database import SQLiteDatabase
 from tripplanner.charging_infrastructure.models import (
     ChargingStationProvider,
     StallType,
@@ -352,6 +353,72 @@ class TestTeslaChargingStationProvider:
         assert len(es_stations) == 0
 
     @pytest.mark.asyncio
+    async def test_non_open_status_excluded_from_routing(self, tmp_path: Path) -> None:
+        """Stationen mit Status ungleich OPEN (im Bau/Permit/Plan, existieren
+        noch nicht physisch - z. B. "Torsvik, Sweden" oder "Ringsted,
+        Denmark") duerfen nicht als Ladestopp-Kandidat auftauchen."""
+        db_path = tmp_path / "status_filter.db"
+        db = SQLiteDatabase(db_path)
+        db.initialize()
+        now = datetime.now(UTC).isoformat()
+        base = {
+            "latitude": 57.7,
+            "longitude": 11.9,
+            "country_code": "SE",
+            "stalls_v2": 0,
+            "stalls_v3": 8,
+            "stalls_v3_ultra": 0,
+            "stalls_v4": 0,
+            "total_stalls": 8,
+            "power_kilowatt": 250,
+            "connector_types": json.dumps(["ccs2"]),
+            "ist_24_7": 1,
+            "date_opened": None,
+            "last_updated_utc": now,
+        }
+        db.replace_all_stations(
+            [
+                {
+                    **base,
+                    "supercharge_info_id": 1,
+                    "tesla_location_id": "torsviksupercharger",
+                    "site_name": "Torsvik, Sweden",
+                    "status": "CONSTRUCTION",
+                },
+                {
+                    **base,
+                    "supercharge_info_id": 2,
+                    "tesla_location_id": "ringstedsupercharger",
+                    "site_name": "Ringsted, Denmark",
+                    "country_code": "DK",
+                    "status": "PERMIT",
+                },
+                {
+                    **base,
+                    "supercharge_info_id": 3,
+                    "tesla_location_id": "quickbornsupercharger",
+                    "site_name": "Quickborn, Germany",
+                    "country_code": "DE",
+                    "status": "PLAN",
+                },
+                {
+                    **base,
+                    "supercharge_info_id": 4,
+                    "tesla_location_id": "goteborgsupercharger",
+                    "site_name": "Göteborg, Sweden",
+                    "status": "OPEN",
+                },
+            ]
+        )
+        db.close()
+
+        provider = TeslaChargingStationProvider(db_path=db_path)
+        stations = await provider.get_stations_in_radius((57.7, 11.9), 10.0)
+
+        station_ids = {s.station_id for s in stations}
+        assert station_ids == {"goteborgsupercharger"}
+
+    @pytest.mark.asyncio
     async def test_auto_init_empty_db(
         self, tesla_provider_with_db: TeslaChargingStationProvider
     ) -> None:
@@ -640,6 +707,122 @@ class TestTeslaChargingStationProviderPricing:
         assert tiers[0].currency == "DKK"
         mock_tesla.fetch_pricing_html.assert_awaited_once_with("kopenhagensupercharger")
         assert tesla_provider_seeded.list_pricing_queue() == []
+
+    @pytest.mark.asyncio
+    async def test_refresh_pricing_resolves_numeric_slug(self, tmp_path: Path) -> None:
+        """Eine rein numerische `tesla_location_id` (stale supercharge.info-
+        `locationId`, z. B. "Rødekro East, Denmark" als "28500") wird vor dem
+        Abruf ueber Teslas eigene Standortliste in den echten Slug
+        ("rodekrosupercharger") aufgeloest, statt eine garantiert
+        404-liefernde Anfrage gegen die numerische ID zu senden."""
+        db_path = tmp_path / "numeric_slug.db"
+        db = SQLiteDatabase(db_path)
+        db.initialize()
+        now = datetime.now(UTC).isoformat()
+        db.replace_all_stations(
+            [
+                {
+                    "supercharge_info_id": 28500,
+                    "tesla_location_id": "28500",
+                    "site_name": "Rødekro East, Denmark",
+                    "latitude": 55.0715,
+                    "longitude": 9.3421,
+                    "country_code": "DK",
+                    "stalls_v2": 0,
+                    "stalls_v3": 8,
+                    "stalls_v3_ultra": 0,
+                    "stalls_v4": 0,
+                    "total_stalls": 8,
+                    "power_kilowatt": 250,
+                    "status": "OPEN",
+                    "connector_types": json.dumps(["ccs2"]),
+                    "ist_24_7": 1,
+                    "date_opened": None,
+                    "last_updated_utc": now,
+                },
+            ]
+        )
+        db.close()
+
+        provider = TeslaChargingStationProvider(db_path=db_path)
+        provider.enqueue_stations_for_pricing_refresh(["28500"])
+        mock_tesla = AsyncMock(spec=TeslaLocationsClient)
+        mock_tesla.fetch_locations.return_value = [
+            {
+                "location_type": ["supercharger"],
+                "location_url_slug": "rodekrosupercharger",
+                "latitude": 55.0716,
+                "longitude": 9.3422,
+            },
+            {
+                "location_type": ["supercharger"],
+                "location_url_slug": "kolding-supercharger",
+                "latitude": 55.5,
+                "longitude": 9.5,
+            },
+        ]
+        mock_tesla.fetch_pricing_html.return_value = _pricing_html(_FLAT_OWNER_TIER)
+
+        tiers = await provider.refresh_pricing("28500", tesla_client=mock_tesla)
+
+        assert len(tiers) == 1
+        mock_tesla.fetch_pricing_html.assert_awaited_once_with("rodekrosupercharger")
+        assert provider.list_pricing_queue() == []
+        # The corrected slug is persisted for future refreshes.
+        assert provider._resolve_supercharge_info_id("rodekrosupercharger") == 28500
+
+    @pytest.mark.asyncio
+    async def test_refresh_pricing_numeric_slug_no_match_raises(self, tmp_path: Path) -> None:
+        """Findet sich in Teslas Standortliste kein nahegelegener Treffer fuer
+        eine numerische ID, wird kein Request gegen die (bekannt 404-liefernde)
+        numerische ID gestellt - stattdessen ein CurlError geworfen und die
+        Station dennoch aus der Warteschlange entfernt."""
+        db_path = tmp_path / "numeric_slug_unresolved.db"
+        db = SQLiteDatabase(db_path)
+        db.initialize()
+        now = datetime.now(UTC).isoformat()
+        db.replace_all_stations(
+            [
+                {
+                    "supercharge_info_id": 99999,
+                    "tesla_location_id": "99999",
+                    "site_name": "Unknown Placeholder, Germany",
+                    "latitude": 52.0,
+                    "longitude": 13.0,
+                    "country_code": "DE",
+                    "stalls_v2": 0,
+                    "stalls_v3": 8,
+                    "stalls_v3_ultra": 0,
+                    "stalls_v4": 0,
+                    "total_stalls": 8,
+                    "power_kilowatt": 250,
+                    "status": "OPEN",
+                    "connector_types": json.dumps(["ccs2"]),
+                    "ist_24_7": 1,
+                    "date_opened": None,
+                    "last_updated_utc": now,
+                },
+            ]
+        )
+        db.close()
+
+        provider = TeslaChargingStationProvider(db_path=db_path)
+        provider.enqueue_stations_for_pricing_refresh(["99999"])
+        mock_tesla = AsyncMock(spec=TeslaLocationsClient)
+        mock_tesla.fetch_locations.return_value = [
+            {
+                "location_type": ["supercharger"],
+                "location_url_slug": "far-away-supercharger",
+                "latitude": 60.0,
+                "longitude": 20.0,
+            },
+        ]
+
+        with pytest.raises(TeslaLocationsClient.CurlError):
+            await provider.refresh_pricing("99999", tesla_client=mock_tesla)
+
+        mock_tesla.fetch_pricing_html.assert_not_awaited()
+        assert provider.list_pricing_queue() == []
 
     @pytest.mark.asyncio
     async def test_refresh_pricing_dequeues_even_on_parse_failure(

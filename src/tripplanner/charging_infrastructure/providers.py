@@ -435,6 +435,14 @@ class TeslaChargingStationProvider(ChargingStationProvider):
     # MAX_AGE_DAYS_DEFAULT, see docs/Tesla-Supercharger-Detail-Scraping.md).
     PRICING_MAX_AGE: timedelta = timedelta(days=14)
 
+    # Max distance (meters) for matching a station's stored coordinates to a
+    # Tesla directory entry when resolving a stale numeric `tesla_location_id`
+    # (see `_resolve_numeric_slug`). supercharge.info and Tesla's own
+    # coordinates for the same physical site normally agree within a few
+    # tens of meters; this margin tolerates minor drift without risking a
+    # false match against a nearby, unrelated Supercharger.
+    _SLUG_RESOLUTION_MAX_DISTANCE_M: float = 500.0
+
     def __init__(
         self,
         db_path: Path | None = None,
@@ -846,12 +854,20 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         """Lädt Stationen aus der DB und wandelt sie in ChargingStation um.
 
         Filtert auf Länder, die vom aktuellen ChargingStation-Modell
-        unterstützt werden (DE, DK, SE).
+        unterstützt werden (DE, DK, SE), sowie auf tatsächlich betriebsbereite
+        Stationen (`status == "OPEN"`). Stationen mit Status `CONSTRUCTION`
+        ("Coming Soon"), `PERMIT` oder `PLAN` existieren noch nicht physisch
+        (z. B. "Torsvik, Sweden", "Quickborn, Germany") bzw. sind reine
+        Lieferzentren im Bau (z. B. "Ringsted, Denmark") und dürfen daher
+        nicht als Ladestopp-Kandidat in Routing/Scraping auftauchen - siehe
+        `_db_record_to_charging_station`'s `status_map` für die Werte, die
+        `CONSTRUCTION`/`PERMIT`/`PLAN` annehmen können.
         """
         records = self._db.load_stations(
             country_filter=self._VALID_COUNTRIES  # type: ignore[arg-type]
         )
-        return [self._db_record_to_charging_station(r) for r in records]
+        operational = [r for r in records if str(r.get("status") or "OPEN").upper() == "OPEN"]
+        return [self._db_record_to_charging_station(r) for r in operational]
 
     async def get_stations_in_radius(
         self,
@@ -1044,6 +1060,56 @@ class TeslaChargingStationProvider(ChargingStationProvider):
             record = self._db.find_station_by_supercharge_info_id(int(station_id))
         return record["supercharge_info_id"] if record is not None else None
 
+    async def _resolve_numeric_slug(
+        self,
+        record: dict[str, Any],
+        tesla_client: TeslaLocationsClient,
+    ) -> str | None:
+        """Loest eine stale numerische `tesla_location_id` in Teslas echten Slug auf.
+
+        supercharge.info liefert fuer `locationId` gelegentlich einen
+        veralteten rein numerischen Platzhalter statt Teslas
+        `location_url_slug` (z. B. "Rødekro East, Denmark" als `"28500"` -
+        `tesla.com/findus/location/supercharger/28500` liefert 404; der
+        korrekte Slug ist `"rodekrosupercharger"`). Da Tesla keinen
+        Lookup-Endpunkt von numerischer ID auf Slug anbietet, wird stattdessen
+        Teslas eigene Standortliste (`fetch_locations`) fuer das Land der
+        Station nach dem naechstgelegenen Supercharger-Eintrag durchsucht.
+
+        Args:
+            record: DB-Record-Dict der Station (mit `country_code`,
+                `latitude`, `longitude`).
+            tesla_client: TeslaLocationsClient fuer den API-Zugriff.
+
+        Returns:
+            Der aufgeloeste `location_url_slug`, oder `None` wenn kein
+            Standort innerhalb von `_SLUG_RESOLUTION_MAX_DISTANCE_M` liegt.
+        """
+        country = record.get("country_code", "")
+        if not country:
+            return None
+        coordinate: Coordinate = (record["latitude"], record["longitude"])
+        try:
+            locations = await tesla_client.fetch_locations(country)
+        except TeslaLocationsClient.CurlError:
+            return None
+
+        best_slug: str | None = None
+        best_distance = self._SLUG_RESOLUTION_MAX_DISTANCE_M
+        for loc in locations:
+            if "supercharger" not in loc.get("location_type", []):
+                continue
+            candidate_slug: str = loc.get("location_url_slug", "")
+            lat = loc.get("latitude")
+            lon = loc.get("longitude")
+            if not candidate_slug or lat is None or lon is None:
+                continue
+            distance = haversine_distance_m(coordinate, (lat, lon))
+            if distance < best_distance:
+                best_distance = distance
+                best_slug = candidate_slug
+        return best_slug
+
     async def refresh_pricing(
         self,
         slug: str,
@@ -1061,6 +1127,12 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         Station ohne veroeffentlichte Preise bleibt sonst dauerhaft in der
         Warteschlange haengen).
 
+        Ist `slug` rein numerisch (stale supercharge.info-`locationId`, siehe
+        `_resolve_numeric_slug`), wird zuerst versucht, den echten
+        Tesla-Slug aufzuloesen; gelingt das, wird die DB aktualisiert und der
+        aufgeloeste Slug fuer den Abruf verwendet - so wird eine garantiert
+        404-liefernde Anfrage gegen die numerische ID vermieden.
+
         Args:
             slug: tesla_location_id (location_url_slug) der Station.
             tesla_client: Optionaler TeslaLocationsClient (fuer Tests).
@@ -1070,7 +1142,9 @@ class TeslaChargingStationProvider(ChargingStationProvider):
 
         Raises:
             ValueError: Wenn `slug` keiner bekannten Station entspricht.
-            TeslaLocationsClient.CurlError: Bei curl-Fehlern oder WAF-Block.
+            TeslaLocationsClient.CurlError: Bei curl-Fehlern, WAF-Block, oder
+                wenn eine numerische ID nicht zu einem Tesla-Slug aufgeloest
+                werden konnte.
             PricingParseError: Wenn die Antwort kein auswertbares
                 `chargerPricing` enthaelt (siehe `parse_pricing_tiers`).
         """
@@ -1082,7 +1156,27 @@ class TeslaChargingStationProvider(ChargingStationProvider):
             tesla_client = TeslaLocationsClient(debug_log=self._debug_log)
 
         try:
-            html = await tesla_client.fetch_pricing_html(slug)
+            fetch_slug = slug
+            if slug.isdigit():
+                record = self._db.find_station_by_supercharge_info_id(supercharge_info_id)
+                resolved = (
+                    await self._resolve_numeric_slug(record, tesla_client)
+                    if record is not None
+                    else None
+                )
+                if resolved is None:
+                    raise TeslaLocationsClient.CurlError(
+                        f"Slug '{slug}' ist ein numerischer supercharge.info-"
+                        "Platzhalter ohne aufloesbaren Tesla-URL-Slug (kein "
+                        "Standort innerhalb von "
+                        f"{self._SLUG_RESOLUTION_MAX_DISTANCE_M:.0f}m gefunden)."
+                    )
+                if resolved != slug:
+                    self._db.update_tesla_location_id(supercharge_info_id, resolved)
+                    self._stations = None
+                fetch_slug = resolved
+
+            html = await tesla_client.fetch_pricing_html(fetch_slug)
             tiers = parse_pricing_tiers(html)
             self._db.upsert_pricing(supercharge_info_id, [t.model_dump() for t in tiers])
         finally:

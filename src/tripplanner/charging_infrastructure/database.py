@@ -396,6 +396,30 @@ class SQLiteDatabase:
         self._conn.commit()
         return exists
 
+    def update_tesla_location_id(self, supercharge_info_id: int, slug: str) -> None:
+        """Ueberschreibt die `tesla_location_id` (Slug) einer bestehenden Station.
+
+        Wird verwendet, wenn sich ein zuvor gespeicherter Slug als falsch
+        herausstellt - z. B. wenn supercharge.info fuer `locationId` einen
+        stale numerischen Platzhalter statt Teslas echtem
+        `location_url_slug` liefert (siehe
+        `TeslaChargingStationProvider._resolve_numeric_slug`). Anders als
+        `update_station()` (das per `tesla_location_id` sucht) identifiziert
+        dies die Station ueber die stabile `supercharge_info_id`.
+
+        Args:
+            supercharge_info_id: Interne Station-ID.
+            slug: Der neue, aufgeloeste `location_url_slug`.
+        """
+        self._ensure_initialized()
+        assert self._conn is not None
+        _ = self._conn.execute(
+            "UPDATE charging_stations SET tesla_location_id = ?, last_updated_utc = ? "
+            "WHERE supercharge_info_id = ?",
+            (slug, datetime.now(UTC).isoformat(), supercharge_info_id),
+        )
+        self._conn.commit()
+
     def find_station_by_slug(self, slug: str) -> dict[str, Any] | None:
         """Findet eine Station anhand ihrer tesla_location_id.
 
