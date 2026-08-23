@@ -5,7 +5,9 @@ Re-exports:
 - `fetch_weather_for_route`: fetches weather along a route
 - `OpenMeteoClient` / `OpenMeteoProvider`: Open-Meteo Forecast API (global, keyless)
 - `MetNorwayProvider`: MET Norway Locationforecast 2.0 API (global, keyless)
-- `OpenWeatherProvider`: OpenWeather forecast API (global, API key)
+- `OpenWeatherProvider`: OpenWeather forecast API (global, API key,
+  client-side rate-limited below the free-tier 60 requests/minute cap)
+- `SlidingWindowRateLimiter`: generic async rolling-window rate limiter
 - `SmhiProvider`: SMHI meteorological forecasts API (Sweden only, keyless)
 - `DmiProvider`: DMI HARMONIE DINI forecast EDR API (Denmark only, keyless)
 - `LoadBalancedWeatherProvider` / `WeatherProviderEntry`: country-aware,
@@ -23,6 +25,7 @@ from tripplanner.weather.providers import (
     OpenMeteoClient,
     OpenMeteoProvider,
     OpenWeatherProvider,
+    SlidingWindowRateLimiter,
     SmhiProvider,
     WeatherProvider,
     WeatherProviderEntry,
@@ -38,6 +41,7 @@ __all__ = [
     "OpenMeteoProvider",
     "OpenMeteoResponse",
     "OpenWeatherProvider",
+    "SlidingWindowRateLimiter",
     "SmhiProvider",
     "WeatherProvider",
     "WeatherProviderEntry",

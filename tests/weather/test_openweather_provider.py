@@ -5,13 +5,14 @@ AGENTS.md).
 """
 
 from datetime import UTC, datetime
+from unittest import mock
 
 import httpx
 import pytest
 
 from tripplanner.geo import Coordinate
 from tripplanner.weather.models import WeatherQuery
-from tripplanner.weather.providers import OpenWeatherProvider
+from tripplanner.weather.providers import OpenWeatherProvider, SlidingWindowRateLimiter
 
 BERLIN: Coordinate = (52.5200, 13.4050)
 
@@ -181,3 +182,74 @@ async def test_openweather_provider_refetch_weather_delegates_to_fetch() -> None
 
     assert len(results) == 1
     assert results[0].zeitpunkt == target
+
+
+@pytest.mark.asyncio
+async def test_openweather_provider_throttles_below_requests_per_minute() -> None:
+    """More unique coordinates than `requests_per_minute` are spread across windows.
+
+    Reproduces the "temporary blocked" OpenWeather account scenario: a
+    route with many distinct coordinates must never fire more than
+    `requests_per_minute` HTTP requests within any 60s window.
+    """
+    target = datetime(2026, 8, 17, 15, 0)
+    dt_epoch = _to_utc_epoch(target)
+    call_times: list[float] = []
+    fake_now = [0.0]
+
+    def clock() -> float:
+        return fake_now[0]
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        call_times.append(clock())
+        return httpx.Response(200, json=_openweather_json(dt=dt_epoch))
+
+    async def fake_sleep(seconds: float) -> None:
+        fake_now[0] += seconds
+
+    limiter = SlidingWindowRateLimiter(max_calls=3, period_s=60.0, clock=clock)
+    provider = OpenWeatherProvider(
+        api_key="test-key",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        rate_limiter=limiter,
+    )
+    queries = [WeatherQuery(koordinate=(52.0 + i, 13.0), zeitpunkt=target) for i in range(7)]
+
+    with mock.patch("asyncio.sleep", side_effect=fake_sleep):
+        results = await provider.fetch_weather(queries)
+
+    assert len(results) == 7
+    assert len(call_times) == 7
+    # No 60s window contains more than 3 calls.
+    for i in range(len(call_times) - 3):
+        assert call_times[i + 3] - call_times[i] >= 60.0
+    await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_sliding_window_rate_limiter_allows_burst_then_throttles() -> None:
+    """First `max_calls` acquisitions are immediate; the next waits for the window to free up."""
+    fake_now = [100.0]
+
+    def clock() -> float:
+        return fake_now[0]
+
+    async def fake_sleep(seconds: float) -> None:
+        fake_now[0] += seconds
+
+    limiter = SlidingWindowRateLimiter(max_calls=2, period_s=10.0, clock=clock)
+
+    with mock.patch("asyncio.sleep", side_effect=fake_sleep):
+        await limiter.acquire()
+        await limiter.acquire()
+        start = fake_now[0]
+        await limiter.acquire()
+
+    assert fake_now[0] - start >= 10.0
+
+
+@pytest.mark.asyncio
+async def test_sliding_window_rate_limiter_rejects_non_positive_max_calls() -> None:
+    """`max_calls` must be at least 1."""
+    with pytest.raises(ValueError, match="max_calls"):
+        SlidingWindowRateLimiter(max_calls=0)
