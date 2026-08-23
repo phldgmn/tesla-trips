@@ -169,14 +169,14 @@ class TeslaLocationsClient:
     _BASE_HEADERS: ClassVar[dict[str, str]] = {
         "accept": "application/json, text/plain, */*",
         "accept-language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
-        "sec-fetch-dest": "empty",
-        "sec-fetch-mode": "cors",
-        "sec-fetch-site": "same-origin",
-        "referer": (
-            "https://www.tesla.com/de_de/findus?"
-            "bounds=61.019610081973084%2C-61.13933008750001%2C"
-            "6.759859256346627%2C-151.9303457125"
-        ),
+        #        "sec-fetch-dest": "empty",
+        #        "sec-fetch-mode": "cors",
+        #        "sec-fetch-site": "same-origin",
+        #        "referer": (
+        #            "https://www.tesla.com/de_de/findus?"
+        #            "bounds=61.019610081973084%2C-61.13933008750001%2C"
+        #            "6.759859256346627%2C-151.9303457125"
+        #        ),
     }
     """Zusaetzliche Header, die der Chrome 150-Preset nicht setzt, aber die
     Tesla API erwartet (z.B. ``accept`` und ``accept-language``). Der

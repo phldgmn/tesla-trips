@@ -396,6 +396,7 @@ def scrape_pricing(
         typer.echo(f"Debug-Log: {debug_log}")
 
     provider = TeslaChargingStationProvider(db_path=db_path_obj, debug_log=debug_log)
+
     try:
         pending = len(provider.list_pricing_queue())
         if pending == 0:
@@ -405,6 +406,8 @@ def scrape_pricing(
         typer.echo(f"Arbeite {run_count} von {pending} ab...")
 
         result = asyncio.run(provider.drain_pricing_queue(limit=limit, delay_s=delay))
+
+        provider.enqueue_stations_for_pricing_refresh([id for id, _ in result.failed])
     finally:
         provider._db.close()
 
