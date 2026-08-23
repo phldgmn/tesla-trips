@@ -72,19 +72,55 @@ port_pid() {
   lsof -ti ":$port" -P -n 2>/dev/null || true
 }
 
+kill_descendants() {
+  # Recursively collects every descendant PID of $1 (children, grandchildren, …).
+  # `uv run uvicorn --reload` forks a supervisor which in turn spawns the real
+  # ASGI worker plus multiprocessing helper processes (resource_tracker,
+  # spawn_main); a plain `kill $pid` only ever reaches the top-level `uv`
+  # process and leaves the rest running as PPID-1 orphans that keep serving
+  # in-flight requests (see: weather-provider calls appearing in the log
+  # long after `stop`). Callers must collect this list BEFORE killing
+  # anything - once a parent is dead its children are reparented to init and
+  # `pgrep -P` no longer finds them.
+  local pid="$1" child
+  for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+    kill_descendants "$child"
+    printf '%s\n' "$child"
+  done
+}
+
+reap_stray_workers() {
+  # Belt-and-suspenders cleanup for multiprocessing helper processes
+  # (resource_tracker/spawn_main) left behind by a previous backend instance
+  # that was killed before it could shut its process pool down gracefully
+  # (e.g. via `kill -9`, or before this script tracked full descendant
+  # trees). Scoped to this repo's venv interpreter path so it can never
+  # match an unrelated project.
+  local venv_python="$PWD/.venv/bin/python3"
+  local pids
+  pids="$(pgrep -f "${venv_python} -c from multiprocessing" 2>/dev/null || true)"
+  if [[ -n "$pids" ]]; then
+    warn "Reaping orphaned multiprocessing worker(s): $(echo "$pids" | tr '\n' ' ')…"
+    echo "$pids" | xargs kill -9 2>/dev/null || true
+  fi
+}
+
 kill_by_pidfile() {
   local pid_file="$1" label="$2"
   if pid_alive "$pid_file"; then
-    local pid
+    local pid all_pids
     pid="$(cat "$pid_file")"
-    warn "${label}: stopping PID $pid …"
-    kill "$pid" 2>/dev/null || true
+    all_pids="$(kill_descendants "$pid") $pid"
+    warn "${label}: stopping PID $pid and descendant(s) [$all_pids] …"
+    # shellcheck disable=SC2086
+    kill $all_pids 2>/dev/null || true
     # Grace period, then force-kill
     for _ in $(seq 1 5); do
-      kill -0 "$pid" 2>/dev/null || break
+      pid_alive "$pid_file" || break
       sleep 0.5
     done
-    kill -9 "$pid" 2>/dev/null || true
+    # shellcheck disable=SC2086
+    kill -9 $all_pids 2>/dev/null || true
     rm -f "$pid_file"
   fi
 }
@@ -236,6 +272,10 @@ stop_backend() {
     kill_by_port "$PORT_BACKEND" "BACKEND (orphan)"
     rm -f "$PID_BACKEND"
   fi
+  # Always sweep for multiprocessing helper processes left behind by a
+  # previous instance, regardless of whether the pidfile-tracked process
+  # tree was fully accounted for above.
+  reap_stray_workers
 }
 
 stop_frontend() {
