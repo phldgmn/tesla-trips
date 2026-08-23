@@ -545,6 +545,16 @@ async def _step_route_charging_detours(
 
     results = await asyncio.gather(*coros, return_exceptions=True)
 
+    # 2b. Distinguish httpx.HTTPError (skip/continue, preserving old behaviour)
+    #     from other exception types (re-raise, restoring old propagate-to-500/502
+    #     contract) — before f8e76fc only httpx.HTTPError was caught.
+    non_http_exceptions: list[BaseException] = []
+    for r in results:
+        if isinstance(r, BaseException) and not isinstance(r, httpx.HTTPError):
+            non_http_exceptions.append(r)
+    if non_http_exceptions:
+        raise non_http_exceptions[0]
+
     # 3. Reassemble results per stop (2 results per stop: hinweg, rueckweg)
     detouren: dict[int, LadehaltDetour] = {}
     for stop_idx, stop_id, ladehalt, _, _ in tasks:

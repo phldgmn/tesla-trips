@@ -327,7 +327,9 @@ class CopernicusDEMDataSource:
             return 0.0
         return value_f
 
-    async def get_elevations_batch(self, coordinates: list[tuple[float, float]]) -> list[float]:
+    async def get_elevations_batch(  # noqa: PLR0912
+        self, coordinates: list[tuple[float, float]]
+    ) -> list[float]:
         """Höhenwerte für mehrere Koordinaten abfragen (optimiert für Batch-Lookup).
 
         Gruppiert Koordinaten nach 1°-DEM-Kachel, öffnet die benötigten Kacheln
@@ -376,6 +378,29 @@ class CopernicusDEMDataSource:
                         continue
                     results[idx] = value_f
                 except Exception:
+                    # Dataset may have been evicted (closed) during the
+                    # concurrent open phase (step 2).  Re-open directly
+                    # (bypassing the LRU cache) to avoid eviction cascades,
+                    # matching the old sequential path's self-healing
+                    # behaviour.  Only fall back to 0.0m when the re-read
+                    # also fails.
+                    if dataset is not None and getattr(dataset, "closed", False):
+                        try:
+                            re = await asyncio.to_thread(rasterio.open, uri)
+                            try:
+                                row, col = re.index(lon, lat)
+                                if 0 <= row < re.height and 0 <= col < re.width:
+                                    value = re.read(1, window=Window(col, row, 1, 1))[0, 0]
+                                    value_f = float(value)
+                                    if re.nodata is not None and value_f == re.nodata:
+                                        pass  # fall through to 0.0
+                                    else:
+                                        results[idx] = value_f
+                                        continue
+                            finally:
+                                re.close()
+                        except Exception:
+                            pass  # fall through to warning
                     logger.warning(
                         "DEM-Range-Request für (%s, %s) fehlgeschlagen - Fallback 0.0m",
                         lat,

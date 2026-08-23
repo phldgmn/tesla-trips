@@ -246,3 +246,97 @@ class TestChargingDetourErrorHandling:
         # Could be 2 or 3 results (if the failing call is a route for a stop
         # whose other leg succeeds, that stop is skipped)
         assert 2 <= len(result) <= 3
+
+    def test_non_http_exception_propagates(self) -> None:
+        """A non-httpx exception (e.g. ValueError from response-parsing bug)
+        propagates out of _step_route_charging_detours instead of being
+        silently dropped — restoring the pre-f8e76fc behavior."""
+        stations = [
+            _make_charging_station(lat=48.2, lon=10.5),
+            _make_charging_station(lat=48.5, lon=10.0),
+        ]
+        charges = [
+            ChargingStop(
+                station=s,
+                segment_index=1,
+                ankunfts_soc_pct=20.0,
+                ziel_soc_pct=80.0,
+                geschaetzte_ladedauer_s=1800,
+                ankunftszeit=datetime(2025, 6, 15, 10, 0, 0),
+                abfahrtszeit=datetime(2025, 6, 15, 10, 30, 0),
+            )
+            for s in stations
+        ]
+        plan = _make_charging_plan(charges)
+        route = _make_route()
+
+        call_count = [0]
+
+        class _ValueErrorProvider(FakeRoutingProvider):
+            async def berechne_route(self, anfrage: TripRequest) -> Route:
+                call_count[0] += 1
+                if call_count[0] == 2:
+                    raise ValueError("parsing bug in response")
+                return await super().berechne_route(anfrage)
+
+        provider = _ValueErrorProvider()
+
+        async def run() -> dict[int, LadehaltDetour]:
+            return await _step_route_charging_detours(
+                provider, route, plan, datetime(2025, 6, 15, 10, 0, 0), VEHICLE_PROFILE
+            )
+
+        with pytest.raises(ValueError, match="parsing bug in response"):
+            asyncio.run(run())
+
+        # FakeRoutingProvider executes synchronously; all coroutines complete
+        # before gather, so call_count reflects total attempted calls
+        assert call_count[0] == 4  # 2 stops x 2 legs, call 2 raises
+
+    def test_httpx_on_one_stop_allows_others(self) -> None:
+        """httpx.HTTPError on one stop's leg allows other stops to succeed
+        — existing behavior preserved. With 2 stops and error on call 3
+        (rueckweg for stop 1), stop 0's detour is returned."""
+        stations = [
+            _make_charging_station(lat=48.2, lon=10.5),
+            _make_charging_station(lat=48.5, lon=10.0),
+        ]
+        charges = [
+            ChargingStop(
+                station=s,
+                segment_index=1,
+                ankunfts_soc_pct=20.0,
+                ziel_soc_pct=80.0,
+                geschaetzte_ladedauer_s=1800,
+                ankunftszeit=datetime(2025, 6, 15, 10, 0, 0),
+                abfahrtszeit=datetime(2025, 6, 15, 10, 30, 0),
+            )
+            for s in stations
+        ]
+        plan = _make_charging_plan(charges)
+        route = _make_route()
+
+        call_count = [0]
+
+        class _PartialFailingProvider(FakeRoutingProvider):
+            async def berechne_route(self, anfrage: TripRequest) -> Route:
+                call_count[0] += 1
+                if call_count[0] == 3:
+                    raise httpx.HTTPError("fail")
+                return await super().berechne_route(anfrage)
+
+        provider = _PartialFailingProvider()
+
+        async def run() -> dict[int, LadehaltDetour]:
+            return await _step_route_charging_detours(
+                provider, route, plan, datetime(2025, 6, 15, 10, 0, 0), VEHICLE_PROFILE
+            )
+
+        result = asyncio.run(run())
+        # Stop 0: weg(call 1) + rueck(call 2) both succeed → 1 detour
+        # Stop 1: weg(call 3) fails → entire stop skipped
+        # Result: exactly 1 detour for stop 0
+        assert len(result) == 1
+        stop_0_id = id(charges[0])
+        assert stop_0_id in result
+        assert id(charges[1]) not in result

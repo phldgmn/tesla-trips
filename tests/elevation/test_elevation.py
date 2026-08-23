@@ -317,3 +317,135 @@ class TestAsyncGatherCallsToThreadPerTile:
         source._datasets = OrderedDict()
         results = await source.get_elevations_batch([])
         assert results == []
+
+
+# =============================================================================
+# Regression test: tile eviction during concurrent open phase (Bug 1)
+# =============================================================================
+
+
+class _MockDataset:
+    """Minimal mock of rasterio.io.DatasetReader for eviction tests.
+
+    rasterio.read() returns a numpy-like array where [row, col] gives the value.
+    The batch code does: dataset.read(1, window=...)[0, 0]
+    """
+
+    def __init__(self, value: float) -> None:
+        self.value = value
+        self._closed = False
+        self.nodata = None
+        self.height = 10
+        self.width = 10
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def close(self) -> None:
+        self._closed = True
+
+    def index(self, lon: float, lat: float) -> tuple[int, int]:
+        return (0, 0)
+
+    def read(self, band: int, window=None) -> "_MockReadResult":
+        if self._closed:
+            raise ValueError("I/O on closed file")
+        return _MockReadResult(self.value)
+
+
+class _MockReadResult:
+    """Minimal mock of numpy array supporting [row, col] indexing."""
+
+    def __init__(self, value: float) -> None:
+        self.value = value
+
+    def __getitem__(self, key: tuple[int, int]) -> float:
+        return self.value
+
+
+class TestElevationTileEviction:
+    """Regression tests for LRU tile eviction during batched elevation reads."""
+
+    @pytest.mark.asyncio
+    async def test_batched_elevation_survives_tile_eviction(self) -> None:
+        """When a batch spans more than _max_open_tiles distinct tiles,
+        evicted datasets are re-opened during the pixel-read phase (step 3)
+        so elevations are correct instead of silently 0.0."""
+        source = CopernicusDEMDataSource(base_url="file:///nonexistent")
+        source._max_open_tiles = 2
+        source._datasets = OrderedDict()
+
+        # URIs must match what _tile_uri produces for a non-remote base_url:
+        # no /vsicurl/ prefix
+        tile_uris = [
+            "file:///nonexistent/Copernicus_DSM_COG_10_N47_00_E008_00_DEM/Copernicus_DSM_COG_10_N47_00_E008_00_DEM.tif",
+            "file:///nonexistent/Copernicus_DSM_COG_10_N48_00_E009_00_DEM/Copernicus_DSM_COG_10_N48_00_E009_00_DEM.tif",
+            "file:///nonexistent/Copernicus_DSM_COG_10_N49_00_E010_00_DEM/Copernicus_DSM_COG_10_N49_00_E010_00_DEM.tif",
+            "file:///nonexistent/Copernicus_DSM_COG_10_N50_00_E011_00_DEM/Copernicus_DSM_COG_10_N50_00_E011_00_DEM.tif",
+        ]
+        tile_values: dict[str, float] = dict(
+            zip(tile_uris, [100.0, 200.0, 300.0, 400.0], strict=True),
+        )
+
+        def make_dataset(path: str) -> _MockDataset:
+            return _MockDataset(tile_values[path])
+
+        # Track which tiles were closed (evicted)
+        closed_tiles: list[str] = []
+
+        def patched_open(path: str) -> _MockDataset:
+            ds = make_dataset(path)
+            orig_close = ds.close
+
+            def tracked_close() -> None:
+                closed_tiles.append(path)
+                orig_close()
+
+            ds.close = tracked_close  # type: ignore[method-assign]
+            return ds
+
+        orig_open = rasterio.open
+        rasterio.open = patched_open  # type: ignore[assignment]
+
+        try:
+            coords = [
+                (47.0, 8.0),  # tile 0 -> 100.0
+                (48.0, 9.0),  # tile 1 -> 200.0
+                (49.0, 10.0),  # tile 2 -> 300.0
+                (50.0, 11.0),  # tile 3 -> 400.0
+            ]
+            results = await source.get_elevations_batch(coords)
+            assert results == [100.0, 200.0, 300.0, 400.0], (
+                f"Elevations should not be zeroed by eviction: got {results}"
+            )
+            # Verify eviction actually happened
+            assert len(closed_tiles) > 0, "Expected some tiles to be evicted during the batch"
+        finally:
+            rasterio.open = orig_open  # type: ignore[assignment]
+
+    @pytest.mark.asyncio
+    async def test_batched_elevation_all_fresh_datasets(self) -> None:
+        """When all tiles fit within _max_open_tiles, no eviction occurs."""
+        source = CopernicusDEMDataSource(base_url="file:///nonexistent")
+        source._max_open_tiles = 4
+        source._datasets = OrderedDict()
+
+        tile_uris = [
+            "file:///nonexistent/Copernicus_DSM_COG_10_N47_00_E008_00_DEM/Copernicus_DSM_COG_10_N47_00_E008_00_DEM.tif",
+            "file:///nonexistent/Copernicus_DSM_COG_10_N48_00_E009_00_DEM/Copernicus_DSM_COG_10_N48_00_E009_00_DEM.tif",
+        ]
+        tile_values: dict[str, float] = dict(zip(tile_uris, [100.0, 200.0], strict=True))
+
+        def make_dataset(path: str) -> _MockDataset:
+            return _MockDataset(tile_values[path])
+
+        orig_open = rasterio.open
+        rasterio.open = make_dataset  # type: ignore[assignment]
+
+        try:
+            coords = [(47.0, 8.0), (48.0, 9.0)]
+            results = await source.get_elevations_batch(coords)
+            assert results == [100.0, 200.0]
+        finally:
+            rasterio.open = orig_open  # type: ignore[assignment]
