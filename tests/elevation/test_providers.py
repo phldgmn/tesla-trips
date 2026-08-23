@@ -8,6 +8,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+import rasterio
 
 from tripplanner.elevation.elevation import calculate_horizontal_distance
 from tripplanner.elevation.providers import CopernicusDEMDataSource, FakeDataSource
@@ -273,6 +274,36 @@ class TestCacheDir:
         # Verify tile file exists in cache
         cached_file = cache_dir / f"{tile_name}.tif"
         assert cached_file.exists(), "Tile file should exist in cache_dir after fetch"
+
+    def test_write_to_cache_remote_tile_uses_rasterio_shutil(
+        self, copernicus_tile_dir: Path, tmp_path: Path
+    ) -> None:
+        """Regression test: `_write_to_cache` must actually call `rasterio.shutil.copy`
+        for remote (`/vsicurl/`-prefixed) tiles without raising `AttributeError`.
+
+        `rasterio.shutil` is a submodule that a bare `import rasterio` does not
+        expose; it requires an explicit `import rasterio.shutil`. The other
+        `TestCacheDir` tests all use a local (non-remote) `base_url`, so
+        `_write_to_cache`'s early `uri.startswith("/vsicurl/")` guard skips the
+        copy entirely and never exercises this line — this test opens a real
+        local dataset but calls `_write_to_cache` with a `/vsicurl/`-prefixed
+        URI directly to force the remote code path, with no real network call.
+        """
+        cache_dir = tmp_path / "cache_remote"
+        cache_dir.mkdir()
+        src_tile = next(iter(copernicus_tile_dir.rglob("*.tif")))
+
+        source = CopernicusDEMDataSource(cache_dir=cache_dir)
+        dataset = rasterio.open(str(src_tile))
+        try:
+            source._write_to_cache("/vsicurl/https://example.com/fake/fake.tif", dataset, 47.0, 8.0)
+        finally:
+            dataset.close()
+
+        cached_file = cache_dir / "Copernicus_DSM_COG_10_N47_00_E008_00_DEM.tif"
+        assert cached_file.exists(), (
+            "rasterio.shutil.copy should have written the tile to cache_dir"
+        )
 
     def test_cache_dir_reads_from_local_file(self, copernicus_tile_dir: Path) -> None:
         """Second call with broken base_url must still return correct value via local cache."""

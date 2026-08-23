@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Protocol, cast
 
 import rasterio
+import rasterio.shutil
 from rasterio.windows import Window
 from typing_extensions import runtime_checkable
 
