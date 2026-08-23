@@ -9,6 +9,7 @@ import logging
 import math
 import os
 import struct
+import threading
 from collections import OrderedDict
 from pathlib import Path
 from typing import Protocol, cast
@@ -194,6 +195,27 @@ class FakeDataSource:
         return [cast(DEMTile, tile)]
 
 
+def copernicus_tile_name(lat: float, lon: float) -> str:
+    """Compute the Copernicus GLO-30 DEM tile name for a coordinate's 1x1-degree cell.
+
+    Shared between `CopernicusDEMDataSource` (runtime lookups) and
+    `scripts/fetch_dem_tiles.py` (bulk pre-download) so the naming scheme
+    can never drift between the two.
+
+    Args:
+        lat: Latitude (WGS84).
+        lon: Longitude (WGS84).
+
+    Returns:
+        Tile name, e.g. ``Copernicus_DSM_COG_10_N52_00_E013_00_DEM``.
+    """
+    lat_band = math.floor(lat)
+    lon_band = math.floor(lon)
+    ns = "N" if lat_band >= 0 else "S"
+    ew = "E" if lon_band >= 0 else "W"
+    return f"Copernicus_DSM_COG_10_{ns}{abs(lat_band):02d}_00_{ew}{abs(lon_band):03d}_00_DEM"
+
+
 class CopernicusDEMDataSource:
     """Reads Copernicus DEM GLO-30 tiles from the public AWS Open Data bucket.
 
@@ -285,11 +307,7 @@ class CopernicusDEMDataSource:
 
     def _tile_name(self, lat: float, lon: float) -> str:
         """Berechne den Copernicus-DEM-Kachelnamen für die 1x1-Grad-Zelle einer Koordinate."""
-        lat_band = math.floor(lat)
-        lon_band = math.floor(lon)
-        ns = "N" if lat_band >= 0 else "S"
-        ew = "E" if lon_band >= 0 else "W"
-        return f"Copernicus_DSM_COG_10_{ns}{abs(lat_band):02d}_00_{ew}{abs(lon_band):03d}_00_DEM"
+        return copernicus_tile_name(lat, lon)
 
     def _tile_uri(self, lat: float, lon: float) -> str:
         """Baue die GDAL-lesbare URI (vsicurl oder lokaler Pfad) für eine Kachel.
@@ -305,35 +323,76 @@ class CopernicusDEMDataSource:
         path = f"{self._base_url}/{name}/{name}.tif"
         return f"/vsicurl/{path}" if self._remote else path
 
-    def _write_to_cache(
-        self, uri: str, dataset: rasterio.io.DatasetReader, lat: float, lon: float
+    def _schedule_cache_write(
+        self,
+        uri: str,
+        dataset: rasterio.io.DatasetReader,
+        band: object,
+        lat: float,
+        lon: float,
     ) -> None:
-        """Write a freshly-fetched tile to the local disk cache.
+        """Fire-and-forget a disk-cache write for a freshly-fetched tile.
 
-        Called *after* the bulk read succeeds so that one successful
-        remote fetch serves both the immediate result and future calls.
-        Failure to write is silently logged — it must never affect
-        the elevation values returned to the caller.
+        Writes directly from the **already-fetched** in-memory band array
+        instead of re-reading the source dataset (avoids a second, slow
+        GDAL translate/copy pass over the network — this was the cause of
+        the elevation step regressing to multiple minutes once the
+        previously-broken `rasterio.shutil` import was fixed: every tile
+        paid for a full extra decode+recompress+re-fetch on top of the
+        bulk read that had already happened).
+
+        Runs the actual write in a **daemon background thread**, not
+        awaited and not on the request's critical path, so a slow or
+        failing disk write can never add latency to route calculation.
+        Cheap metadata (profile dict, tile name, target path) is captured
+        synchronously here — before the thread starts — so the background
+        write never touches `dataset` (which may close once the caller
+        returns) and never races on it.
 
         Args:
             uri: GDAL-readable tile URI.
-            dataset: The already-open dataset (remote tile) to copy.
+            dataset: The already-open dataset (for its raster profile only).
+            band: The full band already read via `dataset.read(1)`.
             lat: Latitude for tile name resolution.
             lon: Longitude for tile name resolution.
         """
         if self._cache_dir is None:
             return
-        # Only write remote tiles to cache (local tiles are already on disk).
+        # Only cache remote tiles (local tiles are already on disk).
         if not uri.startswith("/vsicurl/"):
             return
         name = self._tile_name(lat, lon)
+        if name in self._cache:
+            return  # already cached by a previous call
         local_path = self._cache_dir / f"{name}.tif"
         try:
-            rasterio.shutil.copy(
-                dataset,
-                str(local_path),
-                driver="GTiff",
-            )
+            profile = dict(dataset.profile)
+        except Exception:
+            logger.warning("DEM-Tile %s: Profil konnte nicht gelesen werden", name)
+            return
+        threading.Thread(
+            target=self._write_band_to_cache,
+            args=(name, local_path, band, profile),
+            daemon=True,
+        ).start()
+
+    def _write_band_to_cache(
+        self, name: str, local_path: Path, band: object, profile: dict[str, object]
+    ) -> None:
+        """Write an in-memory band array to a local GeoTIFF (runs in a background thread).
+
+        Failure is silently logged — it must never affect the elevation
+        values already returned to the caller.
+
+        Args:
+            name: Copernicus tile name (cache key).
+            local_path: Destination path under `cache_dir`.
+            band: The full band array to write.
+            profile: rasterio dataset profile (driver/dtype/crs/transform/...).
+        """
+        try:
+            with rasterio.open(str(local_path), "w", **profile) as dst:
+                dst.write(band, 1)
             self._cache[name] = str(local_path)
         except Exception:
             logger.warning(
@@ -484,8 +543,9 @@ class CopernicusDEMDataSource:
                 # Out-of-bounds index, etc. → leave 0.0.
                 pass
 
-        # ── Fix 3: Write to disk cache after successful fetch ────────
-        self._write_to_cache(uri, dataset, points[0][1], points[0][2])
+        # ── Fix 3: Schedule disk-cache write from the in-memory band ──
+        # (fire-and-forget background thread, never blocks the response)
+        self._schedule_cache_write(uri, dataset, band, points[0][1], points[0][2])
 
         # ── Close temporary dataset (not the LRU one) ────────────────
         if temp_dataset is not None and dataset is temp_dataset:

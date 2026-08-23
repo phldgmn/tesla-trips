@@ -4,6 +4,7 @@ DEMDataSourceProtocol.
 
 import importlib.util
 import shutil
+import time
 from pathlib import Path
 from types import ModuleType
 
@@ -275,19 +276,28 @@ class TestCacheDir:
         cached_file = cache_dir / f"{tile_name}.tif"
         assert cached_file.exists(), "Tile file should exist in cache_dir after fetch"
 
-    def test_write_to_cache_remote_tile_uses_rasterio_shutil(
+    def test_schedule_cache_write_remote_tile_writes_from_memory(
         self, copernicus_tile_dir: Path, tmp_path: Path
     ) -> None:
-        """Regression test: `_write_to_cache` must actually call `rasterio.shutil.copy`
-        for remote (`/vsicurl/`-prefixed) tiles without raising `AttributeError`.
+        """Regression test: the disk-cache write must actually succeed for a
+        remote (`/vsicurl/`-prefixed) tile, writing from the already-fetched
+        in-memory band array without raising.
 
-        `rasterio.shutil` is a submodule that a bare `import rasterio` does not
-        expose; it requires an explicit `import rasterio.shutil`. The other
-        `TestCacheDir` tests all use a local (non-remote) `base_url`, so
-        `_write_to_cache`'s early `uri.startswith("/vsicurl/")` guard skips the
-        copy entirely and never exercises this line — this test opens a real
-        local dataset but calls `_write_to_cache` with a `/vsicurl/`-prefixed
-        URI directly to force the remote code path, with no real network call.
+        Guards two prior bugs:
+        1. `rasterio.shutil` is a submodule a bare `import rasterio` does not
+           expose (`AttributeError: module 'rasterio' has no attribute
+           'shutil'`) — fixed by writing directly from the in-memory band via
+           `rasterio.open(path, "w", **profile)` instead of
+           `rasterio.shutil.copy`.
+        2. The write must not re-read the source dataset (that re-read was the
+           cause of the elevation step regressing to multiple minutes).
+
+        The other `TestCacheDir` tests all use a local (non-remote)
+        `base_url`, so `_schedule_cache_write`'s `uri.startswith("/vsicurl/")`
+        guard skips the write entirely and never exercises this path — this
+        test opens a real local dataset but calls `_schedule_cache_write`
+        with a `/vsicurl/`-prefixed URI directly to force the remote code
+        path, with no real network call.
         """
         cache_dir = tmp_path / "cache_remote"
         cache_dir.mkdir()
@@ -296,13 +306,19 @@ class TestCacheDir:
         source = CopernicusDEMDataSource(cache_dir=cache_dir)
         dataset = rasterio.open(str(src_tile))
         try:
-            source._write_to_cache("/vsicurl/https://example.com/fake/fake.tif", dataset, 47.0, 8.0)
+            band = dataset.read(1)
+            source._schedule_cache_write(
+                "/vsicurl/https://example.com/fake/fake.tif", dataset, band, 47.0, 8.0
+            )
         finally:
             dataset.close()
 
         cached_file = cache_dir / "Copernicus_DSM_COG_10_N47_00_E008_00_DEM.tif"
+        deadline = time.time() + 5.0
+        while not cached_file.exists() and time.time() < deadline:
+            time.sleep(0.05)
         assert cached_file.exists(), (
-            "rasterio.shutil.copy should have written the tile to cache_dir"
+            "background cache write should have written the tile to cache_dir"
         )
 
     def test_cache_dir_reads_from_local_file(self, copernicus_tile_dir: Path) -> None:

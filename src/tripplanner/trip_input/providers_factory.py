@@ -15,7 +15,6 @@ später einzubinden, ohne diesen Code erneut ändern zu müssen.
 from __future__ import annotations
 
 import os
-import tempfile
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -91,7 +90,11 @@ async def build_production_providers(
 
     # Elevation: CopernicusDEMDataSource (echte Copernicus-DEM-GLO-30-Kacheln)
     if elevation_data_source is None:
-        default_dem_cache = str(Path(tempfile.gettempdir()) / "tesla-trips" / "dem-cache")
+        # Persistent, not tempfile.gettempdir(): DEM tiles are large (~5-30MB
+        # each) and expensive to re-fetch; data/dem-tiles matches the repo's
+        # existing convention for large local data (GraphHopper graph, OSM
+        # extracts, see data/). Pre-populate via scripts/fetch_dem_tiles.py.
+        default_dem_cache = str(_REPO_ROOT / "data" / "dem-tiles")
         elevation_data_source = CopernicusDEMDataSource(
             cache_dir=Path(os.environ.get("DEM_CACHE_DIR", default_dem_cache)),
         )
