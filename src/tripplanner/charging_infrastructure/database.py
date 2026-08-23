@@ -8,6 +8,7 @@ Transaktionslogik für Stations- und Pricing-Daten.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -124,6 +125,15 @@ class SQLiteDatabase:
         """)
 
         _ = self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS charging_pricing_queue (
+                supercharge_info_id INTEGER PRIMARY KEY,
+                enqueued_utc TEXT NOT NULL,
+                FOREIGN KEY (supercharge_info_id) REFERENCES charging_stations(supercharge_info_id)
+                    ON DELETE CASCADE
+            )
+        """)
+
+        _ = self._conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_stations_coord
             ON charging_stations (latitude, longitude)
         """)
@@ -138,6 +148,10 @@ class SQLiteDatabase:
         _ = self._conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_pricing_station
             ON charging_pricing (supercharge_info_id)
+        """)
+        _ = self._conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_pricing_queue_enqueued
+            ON charging_pricing_queue (enqueued_utc)
         """)
 
         self._initialized = True
@@ -400,6 +414,32 @@ class SQLiteDatabase:
         row = self._cursor.fetchone()
         return dict(row) if row else None
 
+    def find_station_by_supercharge_info_id(
+        self, supercharge_info_id: int
+    ) -> dict[str, Any] | None:
+        """Findet eine Station anhand ihrer supercharge_info_id.
+
+        Fallback fuer `find_station_by_slug`, wenn eine Station keine
+        `tesla_location_id` besitzt (z. B. Stationen ausserhalb DE/DK/SE, die
+        nur ueber die supercharge.info-API bekannt sind - siehe
+        `ChargingStation.station_id`-Fallback in
+        `TeslaChargingStationProvider._db_record_to_charging_station`).
+
+        Args:
+            supercharge_info_id: Die interne Station-ID.
+
+        Returns:
+            Station-Dict oder None.
+        """
+        self._ensure_initialized()
+        assert self._cursor is not None
+        _ = self._cursor.execute(
+            "SELECT * FROM charging_stations WHERE supercharge_info_id = ?",
+            (supercharge_info_id,),
+        )
+        row = self._cursor.fetchone()
+        return dict(row) if row else None
+
     def upsert_pricing(self, supercharge_info_id: int, tiers: list[dict[str, Any]]) -> None:
         """Fügt oder ersetzt Preisdaten für eine Station.
 
@@ -415,8 +455,8 @@ class SQLiteDatabase:
             (supercharge_info_id,),
         )
 
+        now_utc = datetime.now(UTC).isoformat()
         for tier in tiers:
-            now_utc = datetime.now(UTC).isoformat()
             _ = self._conn.execute(
                 """
                 INSERT INTO charging_pricing (
@@ -437,6 +477,150 @@ class SQLiteDatabase:
             )
 
         self._conn.commit()
+
+    @staticmethod
+    def parse_iso_utc(value: str) -> datetime:
+        """Parses an ISO-8601 timestamp into a timezone-aware UTC `datetime`.
+
+        Args:
+            value: An ISO-8601 timestamp string, as stored via `datetime.
+                isoformat()`.
+        """
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=UTC)
+
+    def get_pricing_recency(
+        self, supercharge_info_ids: set[int] | None = None
+    ) -> dict[int, datetime]:
+        """Liefert je Station den Zeitpunkt der zuletzt gespeicherten Preisdaten.
+
+        Stationen ohne jegliche `charging_pricing`-Zeilen (noch nie gescraped)
+        fehlen im Ergebnis-Dict, statt eines `None`-Werts - der Aufrufer prueft
+        Abwesenheit ueber `station_id not in result`.
+
+        Args:
+            supercharge_info_ids: Optionales Set von Station-IDs fuer Filterung.
+
+        Returns:
+            Dict mapping supercharge_info_id -> Zeitpunkt der juengsten
+            Preiszeile (ueber alle Tiers dieser Station).
+        """
+        self._ensure_initialized()
+        assert self._cursor is not None
+
+        if supercharge_info_ids:
+            placeholders = ",".join("?" * len(supercharge_info_ids))
+            _ = self._cursor.execute(
+                f"""
+                SELECT supercharge_info_id, MAX(last_updated_utc) AS last_updated_utc
+                FROM charging_pricing
+                WHERE supercharge_info_id IN ({placeholders})
+                GROUP BY supercharge_info_id
+                """,
+                list(supercharge_info_ids),
+            )
+        else:
+            _ = self._cursor.execute(
+                """
+                SELECT supercharge_info_id, MAX(last_updated_utc) AS last_updated_utc
+                FROM charging_pricing
+                GROUP BY supercharge_info_id
+                """
+            )
+        return {
+            row["supercharge_info_id"]: self.parse_iso_utc(row["last_updated_utc"])
+            for row in self._cursor.fetchall()
+        }
+
+    def enqueue_pricing_refresh(self, supercharge_info_ids: Iterable[int]) -> int:
+        """Fuegt Stationen zur Preis-Scrape-Warteschlange hinzu (idempotent).
+
+        Bereits vorhandene Eintraege behalten ihren urspruenglichen
+        `enqueued_utc`-Zeitpunkt (`INSERT OR IGNORE`).
+
+        Args:
+            supercharge_info_ids: Station-IDs, die zur Warteschlange
+                hinzugefuegt werden sollen.
+
+        Returns:
+            Anzahl der tatsaechlich neu hinzugefuegten Eintraege.
+        """
+        self._ensure_initialized()
+        assert self._conn is not None
+
+        now_utc = datetime.now(UTC).isoformat()
+        added = 0
+        for supercharge_info_id in supercharge_info_ids:
+            cursor = self._conn.execute(
+                """
+                INSERT OR IGNORE INTO charging_pricing_queue (supercharge_info_id, enqueued_utc)
+                VALUES (?, ?)
+                """,
+                (supercharge_info_id, now_utc),
+            )
+            added += cursor.rowcount
+        self._conn.commit()
+        return added
+
+    def dequeue_pricing_refresh(self, supercharge_info_id: int) -> None:
+        """Entfernt eine Station aus der Preis-Scrape-Warteschlange.
+
+        Wird sowohl nach einem erfolgreichen Scrape als auch nach einem
+        endgueltig fehlgeschlagenen Versuch aufgerufen (siehe
+        `TeslaChargingStationProvider.drain_pricing_queue`) - ein weiterhin
+        veralteter Preis wird bei der naechsten Routen-Finalisierung erneut
+        eingereiht, statt hier endlos zu blockieren.
+
+        Args:
+            supercharge_info_id: Die zu entfernende Station-ID.
+        """
+        self._ensure_initialized()
+        assert self._conn is not None
+        _ = self._conn.execute(
+            "DELETE FROM charging_pricing_queue WHERE supercharge_info_id = ?",
+            (supercharge_info_id,),
+        )
+        self._conn.commit()
+
+    def load_pricing_queue(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """Liefert die Preis-Scrape-Warteschlange in Prioritaets-Reihenfolge.
+
+        Reihenfolge: Stationen ohne jegliche Preisdaten zuerst (
+        `pricing_last_updated_utc IS NULL`), danach die mit den aeltesten
+        Preisdaten zuerst (aufsteigend nach `pricing_last_updated_utc`).
+
+        Args:
+            limit: Optionale Obergrenze fuer die Anzahl zurueckgegebener
+                Eintraege.
+
+        Returns:
+            Liste von Dicts mit `supercharge_info_id`, `tesla_location_id`,
+            `site_name`, `country_code`, `pricing_last_updated_utc` (str oder
+            None).
+        """
+        self._ensure_initialized()
+        assert self._cursor is not None
+
+        sql = """
+            SELECT
+                q.supercharge_info_id AS supercharge_info_id,
+                s.tesla_location_id AS tesla_location_id,
+                s.site_name AS site_name,
+                s.country_code AS country_code,
+                (
+                    SELECT MAX(p.last_updated_utc)
+                    FROM charging_pricing p
+                    WHERE p.supercharge_info_id = q.supercharge_info_id
+                ) AS pricing_last_updated_utc
+            FROM charging_pricing_queue q
+            JOIN charging_stations s ON s.supercharge_info_id = q.supercharge_info_id
+            ORDER BY (pricing_last_updated_utc IS NOT NULL), pricing_last_updated_utc ASC,
+                q.enqueued_utc ASC
+        """
+        if limit is not None:
+            _ = self._cursor.execute(sql + " LIMIT ?", (limit,))
+        else:
+            _ = self._cursor.execute(sql)
+        return [dict(row) for row in self._cursor.fetchall()]
 
     def get_meta(self, key: str) -> str | None:
         """Liest einen Meta-Wert aus der Datenbank.
@@ -494,4 +678,4 @@ class SQLiteDatabase:
         value = self.get_meta("last_full_refresh_utc")
         if value is None:
             return None
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=UTC)
+        return self.parse_iso_utc(value)

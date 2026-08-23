@@ -8,6 +8,7 @@ Positionen, SoC und Geschwindigkeit.
 from __future__ import annotations
 
 from tripplanner.simulation.models import (
+    ChargingCostByCurrency,
     ChargingStopSummary,
     SimulationFrame,
     TripSimulationResult,
@@ -16,6 +17,7 @@ from tripplanner.simulation.models import (
 from tripplanner.simulation.simulate import simulate_trip
 
 __all__ = [
+    "ChargingCostByCurrency",
     "ChargingStopSummary",
     "SimulationFrame",
     "TripSimulationResult",

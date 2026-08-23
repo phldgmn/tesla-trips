@@ -258,3 +258,192 @@ class TestSQLiteDatabase:
         """close schließt Verbindung ohne Fehler."""
         tmp_db.close()
         # Should not raise
+
+    def test_upsert_pricing_stores_tiers(
+        self, tmp_db: SQLiteDatabase, sample_db_records: list[dict[str, Any]]
+    ) -> None:
+        """upsert_pricing speichert alle übergebenen Tiers für eine Station."""
+        tmp_db.replace_all_stations(sample_db_records)
+
+        tmp_db.upsert_pricing(
+            3506,
+            [
+                {
+                    "tier_label": "Charging Fees for Tesla Owner",
+                    "time_label": None,
+                    "currency": "EUR",
+                    "amount": 0.45,
+                    "unit": "kWh",
+                    "idle_fee_text": None,
+                },
+                {
+                    "tier_label": "Charging Fees for Other EV",
+                    "time_label": None,
+                    "currency": "EUR",
+                    "amount": 0.55,
+                    "unit": "kWh",
+                    "idle_fee_text": "0.50 EUR/min idle",
+                },
+            ],
+        )
+
+        pricing = tmp_db.load_pricing({3506})
+        assert len(pricing[3506]) == 2
+        amounts = {row["tier_label"]: row["amount"] for row in pricing[3506]}
+        assert amounts["Charging Fees for Tesla Owner"] == pytest.approx(0.45)
+        assert amounts["Charging Fees for Other EV"] == pytest.approx(0.55)
+
+    def test_upsert_pricing_replaces_previous_tiers(
+        self, tmp_db: SQLiteDatabase, sample_db_records: list[dict[str, Any]]
+    ) -> None:
+        """Ein erneuter upsert_pricing-Aufruf ersetzt (statt ergänzt) die Tiers."""
+        tmp_db.replace_all_stations(sample_db_records)
+        tier = {
+            "tier_label": "Charging Fees for Tesla Owner",
+            "time_label": None,
+            "currency": "EUR",
+            "amount": 0.45,
+            "unit": "kWh",
+            "idle_fee_text": None,
+        }
+        tmp_db.upsert_pricing(3506, [tier])
+        tmp_db.upsert_pricing(3506, [tier])
+
+        pricing = tmp_db.load_pricing({3506})
+        assert len(pricing[3506]) == 1
+
+    def test_get_pricing_recency_omits_never_priced_stations(
+        self, tmp_db: SQLiteDatabase, sample_db_records: list[dict[str, Any]]
+    ) -> None:
+        """Stationen ohne Preisdaten fehlen im Ergebnis von get_pricing_recency."""
+        tmp_db.replace_all_stations(sample_db_records)
+        tmp_db.upsert_pricing(
+            3506,
+            [
+                {
+                    "tier_label": "Charging Fees for Tesla Owner",
+                    "time_label": None,
+                    "currency": "EUR",
+                    "amount": 0.45,
+                    "unit": "kWh",
+                    "idle_fee_text": None,
+                }
+            ],
+        )
+
+        recency = tmp_db.get_pricing_recency({3506, 5678})
+
+        assert 3506 in recency
+        assert recency[3506].tzinfo is not None
+        assert 5678 not in recency
+
+    def test_enqueue_pricing_refresh_is_idempotent(
+        self, tmp_db: SQLiteDatabase, sample_db_records: list[dict[str, Any]]
+    ) -> None:
+        """Ein bereits eingereihter Eintrag wird nicht doppelt gezählt."""
+        tmp_db.replace_all_stations(sample_db_records)
+
+        first = tmp_db.enqueue_pricing_refresh([3506, 5678])
+        second = tmp_db.enqueue_pricing_refresh([3506, 9012])
+
+        assert first == 2
+        assert second == 1  # 3506 bereits vorhanden, nur 9012 ist neu
+        assert len(tmp_db.load_pricing_queue()) == 3
+
+    def test_dequeue_pricing_refresh_removes_entry(
+        self, tmp_db: SQLiteDatabase, sample_db_records: list[dict[str, Any]]
+    ) -> None:
+        """dequeue_pricing_refresh entfernt genau die angegebene Station."""
+        tmp_db.replace_all_stations(sample_db_records)
+        tmp_db.enqueue_pricing_refresh([3506, 5678])
+
+        tmp_db.dequeue_pricing_refresh(3506)
+
+        remaining = {row["supercharge_info_id"] for row in tmp_db.load_pricing_queue()}
+        assert remaining == {5678}
+
+    def test_load_pricing_queue_orders_never_priced_first(
+        self, tmp_db: SQLiteDatabase, sample_db_records: list[dict[str, Any]]
+    ) -> None:
+        """Nie gescrapte Stationen stehen vor Stationen mit (auch alten) Preisdaten."""
+        tmp_db.replace_all_stations(sample_db_records)
+        tmp_db.upsert_pricing(
+            5678,
+            [
+                {
+                    "tier_label": "Charging Fees for Tesla Owner",
+                    "time_label": None,
+                    "currency": "DKK",
+                    "amount": 4.5,
+                    "unit": "kWh",
+                    "idle_fee_text": None,
+                }
+            ],
+        )
+        tmp_db.enqueue_pricing_refresh([5678, 3506])  # 5678 has pricing, 3506 does not
+
+        queue = tmp_db.load_pricing_queue()
+
+        assert [row["supercharge_info_id"] for row in queue] == [3506, 5678]
+        assert queue[0]["pricing_last_updated_utc"] is None
+        assert queue[1]["pricing_last_updated_utc"] is not None
+
+    def test_load_pricing_queue_orders_stale_by_oldest_first(
+        self, tmp_db: SQLiteDatabase, sample_db_records: list[dict[str, Any]]
+    ) -> None:
+        """Unter Stationen mit Preisdaten steht die aelteste zuerst."""
+        tmp_db.replace_all_stations(sample_db_records)
+        tier = {
+            "tier_label": "Charging Fees for Tesla Owner",
+            "time_label": None,
+            "currency": "EUR",
+            "amount": 0.4,
+            "unit": "kWh",
+            "idle_fee_text": None,
+        }
+        tmp_db.upsert_pricing(3506, [tier])  # scraped second (newer)
+        tmp_db.upsert_pricing(5678, [tier])  # scraped after 3506 too, but we
+        # overwrite 3506's timestamp below to be clearly the newest, so 5678
+        # (older) sorts first.
+        conn = tmp_db._conn
+        assert conn is not None
+        conn.execute(
+            "UPDATE charging_pricing SET last_updated_utc = ? WHERE supercharge_info_id = ?",
+            ("2020-01-01T00:00:00+00:00", 5678),
+        )
+        conn.commit()
+        tmp_db.enqueue_pricing_refresh([3506, 5678])
+
+        queue = tmp_db.load_pricing_queue()
+
+        assert [row["supercharge_info_id"] for row in queue] == [5678, 3506]
+
+    def test_load_pricing_queue_respects_limit(
+        self, tmp_db: SQLiteDatabase, sample_db_records: list[dict[str, Any]]
+    ) -> None:
+        """`limit` begrenzt die Anzahl zurückgegebener Warteschlangen-Einträge."""
+        tmp_db.replace_all_stations(sample_db_records)
+        tmp_db.enqueue_pricing_refresh([3506, 5678, 9012])
+
+        queue = tmp_db.load_pricing_queue(limit=2)
+
+        assert len(queue) == 2
+
+    def test_find_station_by_supercharge_info_id(
+        self, tmp_db: SQLiteDatabase, sample_db_records: list[dict[str, Any]]
+    ) -> None:
+        """find_station_by_supercharge_info_id findet die Station per interner ID."""
+        tmp_db.replace_all_stations(sample_db_records)
+
+        found = tmp_db.find_station_by_supercharge_info_id(5678)
+        missing = tmp_db.find_station_by_supercharge_info_id(999999)
+
+        assert found is not None
+        assert found["tesla_location_id"] == "tesla-dk-copenhagen"
+        assert missing is None
+
+    def test_parse_iso_utc_roundtrip(self, tmp_db: SQLiteDatabase) -> None:
+        """parse_iso_utc parst ISO-Strings (inkl. Zulu-Suffix) als UTC-datetime."""
+        parsed = SQLiteDatabase.parse_iso_utc("2024-01-01T00:00:00Z")
+        assert parsed.tzinfo is not None
+        assert parsed.year == 2024

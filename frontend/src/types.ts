@@ -48,6 +48,22 @@ export interface TripSimulationResult {
   route_geometrie: [number, number][];
   /** In der berechneten Route erkannte Fährverbindungen */
   erkannte_faehren: FaehrSegment[];
+  /** Sum of estimated charging costs across all charging stops, grouped by
+   *  currency (empty if no stop has cached pricing data; multiple entries if
+   *  stops span several currencies, e.g. a DE-DK-SE trip) */
+  total_charging_cost: ChargingCostByCurrency[];
+  /** Number of charging stops excluded from `total_charging_cost` because no
+   *  pricing data is cached yet for their station */
+  charging_stops_missing_pricing: number;
+}
+
+/** Aggregated estimated charging cost in a single currency
+ *  (`TripSimulationResult.total_charging_cost`). */
+export interface ChargingCostByCurrency {
+  /** ISO-4217 currency code */
+  currency: string;
+  /** Summed cost in `currency` */
+  amount: number;
 }
 
 /** Ein Ladehalt (ChargingStop) aus dem Simulationsergebnis (`/trips`-Response). */
@@ -85,6 +101,17 @@ export interface ChargingStop {
   ankunftszeit: string;
   /** ISO-8601 Abfahrtszeitpunkt von der Station */
   abfahrtszeit: string;
+  /** Applicable Tesla-owner rate per kWh at arrival time, from cached pricing
+   *  data (null if no pricing data is cached yet for this station) */
+  price_per_kwh: number | null;
+  /** ISO-4217 currency of `price_per_kwh`/`estimated_cost` (null iff those are null) */
+  currency: string | null;
+  /** Estimated cost of this charging stop (`energie_geladen_kwh * price_per_kwh`),
+   *  null if no pricing data is cached yet for this station */
+  estimated_cost: number | null;
+  /** ISO-8601 timestamp of the cached pricing data used for `price_per_kwh`,
+   *  null if no pricing data has ever been scraped for this station */
+  pricing_updated_utc: string | null;
 }
 
 /** Ein Zwischenstopp (Waypoint) mit optionaler Aufenthaltsdauer. */

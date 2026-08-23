@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, datetime
+from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
 from math import ceil, cos, pi, sqrt
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from tqdm.asyncio import tqdm
 
@@ -23,11 +24,13 @@ from tripplanner.routing.models import Route
 from .client import SuperchargeInfoClient, TeslaLocationsClient
 from .database import _COUNTRY_MAP, SQLiteDatabase
 from .models import (
+    ChargingPricingTier,
     ChargingStation,
     ChargingStationProvider,
     ConnectorType,
     StallType,
 )
+from .pricing import PricingParseError, parse_pricing_tiers
 
 if TYPE_CHECKING:
     from typing import Literal
@@ -36,6 +39,33 @@ if TYPE_CHECKING:
 _DEFAULT_DB_PATH: Path = (
     Path(__file__).resolve().parent.parent.parent.parent / "data" / "tesla_superchargers.db"
 )
+
+
+class CachedPricing(NamedTuple):
+    """Gespeicherte Preisdaten einer Station.
+
+    Siehe `TeslaChargingStationProvider.get_cached_pricing`.
+    """
+
+    tiers: list[ChargingPricingTier]
+    """Preistiers, leer wenn nie gescraped oder Station ohne veroeffentlichte Preise."""
+    updated_utc: datetime | None
+    """Zeitpunkt der juengsten gespeicherten Preiszeile, None wenn nie gescraped."""
+
+
+class PricingQueueDrainResult(NamedTuple):
+    """Ergebnis eines Warteschlangen-Laufs.
+
+    Siehe `TeslaChargingStationProvider.drain_pricing_queue`.
+    """
+
+    refreshed: list[str]
+    """Slugs, deren Preisdaten erfolgreich aktualisiert wurden."""
+    skipped_fresh: list[str]
+    """Slugs, die bereits aktuell waren (defensiv erneut geprueft, siehe
+    `drain_pricing_queue`) und daher nicht erneut abgerufen wurden."""
+    failed: list[tuple[str, str]]
+    """(Slug, Fehlermeldung)-Paare fehlgeschlagener Scrape-Versuche."""
 
 
 _LAT_BAND_KM = 5.0
@@ -399,6 +429,11 @@ class TeslaChargingStationProvider(ChargingStationProvider):
     _POWER_V2_MAX: int = 150
     _POWER_V3_MAX: int = 250
     _POWER_V3_ULTRA_MAX: int = 350
+
+    # Default staleness threshold for cached pricing data before it is
+    # queued for re-scraping (mirrors the legacy tesla-pricing tool's
+    # MAX_AGE_DAYS_DEFAULT, see docs/Tesla-Supercharger-Detail-Scraping.md).
+    PRICING_MAX_AGE: timedelta = timedelta(days=14)
 
     def __init__(
         self,
@@ -989,6 +1024,240 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         if self._stations is None:
             self._stations = self._load_stations_from_db()
         return list(self._stations)
+
+    def _resolve_supercharge_info_id(self, station_id: str) -> int | None:
+        """Loest eine `ChargingStation.station_id` in eine `supercharge_info_id` auf.
+
+        `station_id` ist ueblicherweise der Slug (`tesla_location_id`); bei
+        Stationen ohne Slug faellt `_db_record_to_charging_station` auf
+        `str(supercharge_info_id)` zurueck, daher der Zahlen-Fallback hier.
+
+        Args:
+            station_id: `ChargingStation.station_id` (Slug oder numerischer
+                Fallback).
+
+        Returns:
+            Die interne `supercharge_info_id`, oder None wenn unbekannt.
+        """
+        record = self._db.find_station_by_slug(station_id)
+        if record is None and station_id.isdigit():
+            record = self._db.find_station_by_supercharge_info_id(int(station_id))
+        return record["supercharge_info_id"] if record is not None else None
+
+    async def refresh_pricing(
+        self,
+        slug: str,
+        tesla_client: TeslaLocationsClient | None = None,
+    ) -> list[ChargingPricingTier]:
+        """Holt und speichert aktuelle Preisdaten fuer eine einzelne Station.
+
+        Ruft die oeffentliche Standort-Detailseite ab (siehe
+        `TeslaLocationsClient.fetch_pricing_html` - NICHT die JSON-API, die
+        keine Preisdaten liefert), parst die eingebetteten `chargerPricing`-
+        Daten (siehe `pricing.parse_pricing_tiers`) und ersetzt die
+        gespeicherten Preise der Station. Entfernt die Station anschliessend
+        aus der Scrape-Warteschlange (siehe `enqueue_stations_for_pricing_
+        refresh`), unabhaengig davon, ob Preisdaten gefunden wurden (eine
+        Station ohne veroeffentlichte Preise bleibt sonst dauerhaft in der
+        Warteschlange haengen).
+
+        Args:
+            slug: tesla_location_id (location_url_slug) der Station.
+            tesla_client: Optionaler TeslaLocationsClient (fuer Tests).
+
+        Returns:
+            Die neu gespeicherten Preistiers (kann leer sein).
+
+        Raises:
+            ValueError: Wenn `slug` keiner bekannten Station entspricht.
+            TeslaLocationsClient.CurlError: Bei curl-Fehlern oder WAF-Block.
+            PricingParseError: Wenn die Antwort kein auswertbares
+                `chargerPricing` enthaelt (siehe `parse_pricing_tiers`).
+        """
+        supercharge_info_id = self._resolve_supercharge_info_id(slug)
+        if supercharge_info_id is None:
+            raise ValueError(f"Unbekannte Station: '{slug}'")
+
+        if tesla_client is None:
+            tesla_client = TeslaLocationsClient(debug_log=self._debug_log)
+
+        try:
+            html = await tesla_client.fetch_pricing_html(slug)
+            tiers = parse_pricing_tiers(html)
+            self._db.upsert_pricing(supercharge_info_id, [t.model_dump() for t in tiers])
+        finally:
+            self._db.dequeue_pricing_refresh(supercharge_info_id)
+
+        return tiers
+
+    def get_cached_pricing(self, station_id: str) -> CachedPricing:
+        """Liest gespeicherte Preisdaten einer Station, ohne sie neu abzurufen.
+
+        Args:
+            station_id: `ChargingStation.station_id` (Slug oder numerischer
+                Fallback, siehe `_resolve_supercharge_info_id`).
+
+        Returns:
+            `CachedPricing` mit den gespeicherten Tiers und dem Zeitpunkt der
+            juengsten Preiszeile (leer/None, wenn nie gescraped oder Station
+            unbekannt).
+        """
+        supercharge_info_id = self._resolve_supercharge_info_id(station_id)
+        if supercharge_info_id is None:
+            return CachedPricing(tiers=[], updated_utc=None)
+
+        rows = self._db.load_pricing({supercharge_info_id}).get(supercharge_info_id, [])
+        if not rows:
+            return CachedPricing(tiers=[], updated_utc=None)
+
+        tiers = [
+            ChargingPricingTier(
+                tier_label=row["tier_label"],
+                time_label=row["time_label"],
+                currency=row["currency"],
+                amount=row["amount"],
+                unit=row["unit"],
+                idle_fee_text=row["idle_fee_text"],
+            )
+            for row in rows
+        ]
+        updated_utc = max(SQLiteDatabase.parse_iso_utc(row["last_updated_utc"]) for row in rows)
+        return CachedPricing(tiers=tiers, updated_utc=updated_utc)
+
+    def enqueue_stations_for_pricing_refresh(
+        self,
+        station_ids: Iterable[str],
+        max_age: timedelta | None = None,
+    ) -> int:
+        """Reiht Stationen mit fehlenden/veralteten Preisdaten zum Scrapen ein.
+
+        Eine Station wird eingereiht, wenn sie noch nie mit Preisdaten
+        gescraped wurde, oder wenn ihre gespeicherten Preisdaten aelter als
+        `max_age` sind. Aktuelle Stationen werden NICHT eingereiht, um
+        unnoetigen Traffic gegen die Tesla-API/WAF zu vermeiden (siehe
+        `PRICING_MAX_AGE`).
+
+        Wird bei jeder Routen-Finalisierung fuer die tatsaechlich genutzten
+        Ladehalte aufgerufen (siehe `trip_input.api._attach_charging_pricing`)
+        - das eigentliche Scrapen laeuft NICHT synchron dabei, sondern
+        asynchron/out-of-band (siehe `drain_pricing_queue`, CLI-Befehl
+        `charger scrape-pricing`), da Requests gegen die Tesla-API zu
+        langsam/WAF-riskant fuer den Request/Response-Zyklus sind.
+
+        Args:
+            station_ids: `ChargingStation.station_id`-Werte, die geprueft
+                werden sollen (unbekannte IDs werden stillschweigend
+                uebersprungen).
+            max_age: Alter, ab dem gespeicherte Preisdaten als veraltet
+                gelten (Default: `PRICING_MAX_AGE`).
+
+        Returns:
+            Anzahl der tatsaechlich neu eingereihten Stationen.
+        """
+        if max_age is None:
+            max_age = self.PRICING_MAX_AGE
+
+        supercharge_info_ids = {
+            sid
+            for sid in (self._resolve_supercharge_info_id(s) for s in station_ids)
+            if sid is not None
+        }
+        if not supercharge_info_ids:
+            return 0
+
+        recency = self._db.get_pricing_recency(supercharge_info_ids)
+        now = datetime.now(UTC)
+        eligible = [
+            sid
+            for sid in supercharge_info_ids
+            if sid not in recency or (now - recency[sid]) > max_age
+        ]
+        if not eligible:
+            return 0
+        return self._db.enqueue_pricing_refresh(eligible)
+
+    def list_pricing_queue(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """Liefert die Preis-Scrape-Warteschlange in Prioritaets-Reihenfolge.
+
+        Siehe `SQLiteDatabase.load_pricing_queue` fuer die Sortierlogik: nie
+        gescrapte Stationen zuerst, danach die mit den aeltesten Preisdaten.
+
+        Args:
+            limit: Optionale Obergrenze fuer die Anzahl zurueckgegebener
+                Eintraege.
+
+        Returns:
+            Liste von Warteschlangen-Eintraegen (siehe `load_pricing_queue`).
+        """
+        return self._db.load_pricing_queue(limit=limit)
+
+    async def drain_pricing_queue(
+        self,
+        limit: int | None = None,
+        tesla_client: TeslaLocationsClient | None = None,
+        delay_s: float = 1.5,
+    ) -> PricingQueueDrainResult:
+        """Arbeitet die Preis-Scrape-Warteschlange in Prioritaets-Reihenfolge ab.
+
+        Fuer jeden Eintrag: prueft defensiv erneut die Aktualitaet (falls
+        zwischenzeitlich anderweitig aktualisiert), scraped sonst per
+        `refresh_pricing` und pausiert `delay_s` zwischen Requests (siehe
+        Referenz-Tool in docs/Tesla-Supercharger-Detail-Scraping.md: "random
+        1.0-2.5s pause between navigations"). Jeder Eintrag wird nach dem
+        Versuch aus der Warteschlange entfernt, auch bei Fehlschlag - siehe
+        `SQLiteDatabase.dequeue_pricing_refresh`.
+
+        Args:
+            limit: Optionale Obergrenze fuer die Anzahl abzuarbeitender
+                Eintraege in diesem Lauf.
+            tesla_client: Optionaler TeslaLocationsClient (fuer Tests).
+            delay_s: Pause zwischen aufeinanderfolgenden Requests in Sekunden.
+
+        Returns:
+            `PricingQueueDrainResult` mit erfolgreich aktualisierten,
+            uebersprungenen (bereits aktuellen) und fehlgeschlagenen Stationen.
+        """
+        if tesla_client is None:
+            tesla_client = TeslaLocationsClient(debug_log=self._debug_log)
+
+        entries = self.list_pricing_queue(limit=limit)
+        refreshed: list[str] = []
+        skipped_fresh: list[str] = []
+        failed: list[tuple[str, str]] = []
+
+        for entry in entries:
+            supercharge_info_id: int = entry["supercharge_info_id"]
+            slug: str | None = entry["tesla_location_id"]
+            if not slug:
+                # Station ohne Slug kann nicht ueber die Detailseite
+                # abgerufen werden (URL braucht den Slug) - dauerhaft
+                # unscrapebar, aus der Warteschlange entfernen statt bei
+                # jedem Lauf erneut zu scheitern.
+                self._db.dequeue_pricing_refresh(supercharge_info_id)
+                failed.append((str(supercharge_info_id), "Station hat keine tesla_location_id"))
+                continue
+
+            recency = self._db.get_pricing_recency({supercharge_info_id})
+            if (
+                supercharge_info_id in recency
+                and (datetime.now(UTC) - recency[supercharge_info_id]) <= self.PRICING_MAX_AGE
+            ):
+                self._db.dequeue_pricing_refresh(supercharge_info_id)
+                skipped_fresh.append(slug)
+                continue
+
+            try:
+                await self.refresh_pricing(slug, tesla_client=tesla_client)
+                refreshed.append(slug)
+            except (TeslaLocationsClient.CurlError, PricingParseError) as e:
+                failed.append((slug, str(e)))
+
+            if delay_s > 0 and entry is not entries[-1]:
+                await asyncio.sleep(delay_s)
+
+        return PricingQueueDrainResult(
+            refreshed=refreshed, skipped_fresh=skipped_fresh, failed=failed
+        )
 
     @staticmethod
     def _db_record_to_charging_station(

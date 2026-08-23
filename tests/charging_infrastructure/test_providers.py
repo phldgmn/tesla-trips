@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -17,6 +18,7 @@ from tripplanner.charging_infrastructure.models import (
     ChargingStationProvider,
     StallType,
 )
+from tripplanner.charging_infrastructure.pricing import PricingParseError
 from tripplanner.charging_infrastructure.providers import (
     FakeChargingStationProvider,
     LocalFileChargingStationProvider,
@@ -577,6 +579,256 @@ class TestTeslaChargingStationProvider:
         )
 
         assert station is None
+
+
+def _pricing_html(charger_pricing: list[dict[str, Any]]) -> str:
+    """Wraps `charger_pricing` in a minimal `__NEXT_DATA__` HTML page."""
+    payload = {"props": {"pageProps": {"formattedData": {"chargerPricing": charger_pricing}}}}
+    return f'<script id="__NEXT_DATA__" type="application/json">{json.dumps(payload)}</script>'
+
+
+_FLAT_OWNER_TIER = [{"label": "Charging Fees for Tesla Owner", "price": "DKK 4.50/kWh"}]
+
+
+class TestTeslaChargingStationProviderPricing:
+    """Tests für die Preis-Scraping/Warteschlangen-Methoden."""
+
+    def test_resolve_supercharge_info_id_by_slug(
+        self, tesla_provider_seeded: TeslaChargingStationProvider
+    ) -> None:
+        """Aufloesung ueber die tesla_location_id (Normalfall)."""
+        assert tesla_provider_seeded._resolve_supercharge_info_id("kopenhagensupercharger") == 5678
+
+    def test_resolve_supercharge_info_id_by_numeric_fallback(
+        self, tesla_provider_seeded: TeslaChargingStationProvider
+    ) -> None:
+        """Station 3506 hat keine tesla_location_id (siehe fixture) - Aufloesung
+        faellt auf die numerische supercharge_info_id zurueck, wie
+        `_db_record_to_charging_station` sie als `station_id` verwendet."""
+        assert tesla_provider_seeded._resolve_supercharge_info_id("3506") == 3506
+
+    def test_resolve_supercharge_info_id_unknown_returns_none(
+        self, tesla_provider_seeded: TeslaChargingStationProvider
+    ) -> None:
+        """Unbekannte Station-ID liefert None statt Fehler."""
+        assert tesla_provider_seeded._resolve_supercharge_info_id("does-not-exist") is None
+
+    @pytest.mark.asyncio
+    async def test_refresh_pricing_unknown_slug_raises(
+        self, tesla_provider_seeded: TeslaChargingStationProvider
+    ) -> None:
+        """refresh_pricing wirft ValueError fuer unbekannte Stationen."""
+        mock_tesla = AsyncMock(spec=TeslaLocationsClient)
+        with pytest.raises(ValueError, match="Unbekannte Station"):
+            await tesla_provider_seeded.refresh_pricing("does-not-exist", tesla_client=mock_tesla)
+
+    @pytest.mark.asyncio
+    async def test_refresh_pricing_persists_and_dequeues(
+        self, tesla_provider_seeded: TeslaChargingStationProvider
+    ) -> None:
+        """refresh_pricing speichert die geparsten Tiers und entfernt die Station
+        aus der Warteschlange."""
+        tesla_provider_seeded.enqueue_stations_for_pricing_refresh(["kopenhagensupercharger"])
+        mock_tesla = AsyncMock(spec=TeslaLocationsClient)
+        mock_tesla.fetch_pricing_html.return_value = _pricing_html(_FLAT_OWNER_TIER)
+
+        tiers = await tesla_provider_seeded.refresh_pricing(
+            "kopenhagensupercharger", tesla_client=mock_tesla
+        )
+
+        assert len(tiers) == 1
+        assert tiers[0].currency == "DKK"
+        mock_tesla.fetch_pricing_html.assert_awaited_once_with("kopenhagensupercharger")
+        assert tesla_provider_seeded.list_pricing_queue() == []
+
+    @pytest.mark.asyncio
+    async def test_refresh_pricing_dequeues_even_on_parse_failure(
+        self, tesla_provider_seeded: TeslaChargingStationProvider
+    ) -> None:
+        """Ein Parse-Fehler entfernt die Station trotzdem aus der Warteschlange
+        (verhindert dauerhaftes Haengenbleiben, siehe drain_pricing_queue)."""
+        tesla_provider_seeded.enqueue_stations_for_pricing_refresh(["kopenhagensupercharger"])
+        mock_tesla = AsyncMock(spec=TeslaLocationsClient)
+        mock_tesla.fetch_pricing_html.return_value = "<html>no next data</html>"
+
+        with pytest.raises(PricingParseError):
+            await tesla_provider_seeded.refresh_pricing(
+                "kopenhagensupercharger", tesla_client=mock_tesla
+            )
+
+        assert tesla_provider_seeded.list_pricing_queue() == []
+
+    def test_get_cached_pricing_empty_for_never_scraped(
+        self, tesla_provider_seeded: TeslaChargingStationProvider
+    ) -> None:
+        """Ohne vorherigen Scrape liefert get_cached_pricing eine leere CachedPricing."""
+        cached = tesla_provider_seeded.get_cached_pricing("kopenhagensupercharger")
+        assert cached.tiers == []
+        assert cached.updated_utc is None
+
+    @pytest.mark.asyncio
+    async def test_get_cached_pricing_after_refresh(
+        self, tesla_provider_seeded: TeslaChargingStationProvider
+    ) -> None:
+        """Nach refresh_pricing liefert get_cached_pricing die gespeicherten Tiers
+        samt Aktualisierungszeitpunkt."""
+        mock_tesla = AsyncMock(spec=TeslaLocationsClient)
+        mock_tesla.fetch_pricing_html.return_value = _pricing_html(_FLAT_OWNER_TIER)
+        await tesla_provider_seeded.refresh_pricing(
+            "kopenhagensupercharger", tesla_client=mock_tesla
+        )
+
+        cached = tesla_provider_seeded.get_cached_pricing("kopenhagensupercharger")
+
+        assert len(cached.tiers) == 1
+        assert cached.updated_utc is not None
+        assert cached.updated_utc.tzinfo is not None
+
+    def test_enqueue_stations_for_pricing_refresh_skips_fresh(
+        self, tesla_provider_seeded: TeslaChargingStationProvider
+    ) -> None:
+        """Eine kuerzlich aktualisierte Station wird nicht erneut eingereiht,
+        eine nie gescrapte schon."""
+        tesla_provider_seeded._db.upsert_pricing(
+            5678,
+            [
+                {
+                    "tier_label": "Charging Fees for Tesla Owner",
+                    "time_label": None,
+                    "currency": "DKK",
+                    "amount": 4.5,
+                    "unit": "kWh",
+                    "idle_fee_text": None,
+                }
+            ],
+        )
+
+        count = tesla_provider_seeded.enqueue_stations_for_pricing_refresh(
+            ["kopenhagensupercharger", "malmosupercharger"]
+        )
+
+        queued = {row["supercharge_info_id"] for row in tesla_provider_seeded.list_pricing_queue()}
+        assert count == 1
+        assert queued == {9012}  # malmosupercharger: never scraped
+
+    def test_enqueue_stations_for_pricing_refresh_requeues_stale(
+        self, tesla_provider_seeded: TeslaChargingStationProvider
+    ) -> None:
+        """Preisdaten aelter als max_age werden erneut eingereiht."""
+        tesla_provider_seeded._db.upsert_pricing(
+            5678,
+            [
+                {
+                    "tier_label": "Charging Fees for Tesla Owner",
+                    "time_label": None,
+                    "currency": "DKK",
+                    "amount": 4.5,
+                    "unit": "kWh",
+                    "idle_fee_text": None,
+                }
+            ],
+        )
+        conn = tesla_provider_seeded._db._conn
+        assert conn is not None
+        conn.execute(
+            "UPDATE charging_pricing SET last_updated_utc = ? WHERE supercharge_info_id = ?",
+            ("2000-01-01T00:00:00+00:00", 5678),
+        )
+        conn.commit()
+
+        count = tesla_provider_seeded.enqueue_stations_for_pricing_refresh(
+            ["kopenhagensupercharger"], max_age=timedelta(days=14)
+        )
+
+        assert count == 1
+
+    @pytest.mark.asyncio
+    async def test_drain_pricing_queue_refreshes_all_entries(
+        self, tesla_provider_seeded: TeslaChargingStationProvider
+    ) -> None:
+        """drain_pricing_queue arbeitet alle eingereihten Stationen ab."""
+        tesla_provider_seeded.enqueue_stations_for_pricing_refresh(
+            ["kopenhagensupercharger", "malmosupercharger"]
+        )
+        mock_tesla = AsyncMock(spec=TeslaLocationsClient)
+        mock_tesla.fetch_pricing_html.return_value = _pricing_html(_FLAT_OWNER_TIER)
+
+        result = await tesla_provider_seeded.drain_pricing_queue(tesla_client=mock_tesla, delay_s=0)
+
+        assert set(result.refreshed) == {"kopenhagensupercharger", "malmosupercharger"}
+        assert result.failed == []
+        assert tesla_provider_seeded.list_pricing_queue() == []
+
+    @pytest.mark.asyncio
+    async def test_drain_pricing_queue_records_failures_and_still_dequeues(
+        self, tesla_provider_seeded: TeslaChargingStationProvider
+    ) -> None:
+        """Ein WAF-Block wird als Fehlschlag erfasst, die Station trotzdem
+        aus der Warteschlange entfernt (Retry erst bei naechster
+        Routen-Finalisierung, siehe enqueue_stations_for_pricing_refresh)."""
+        tesla_provider_seeded.enqueue_stations_for_pricing_refresh(["kopenhagensupercharger"])
+        mock_tesla = AsyncMock(spec=TeslaLocationsClient)
+        mock_tesla.fetch_pricing_html.side_effect = TeslaLocationsClient.CurlError("403")
+
+        result = await tesla_provider_seeded.drain_pricing_queue(tesla_client=mock_tesla, delay_s=0)
+
+        assert result.refreshed == []
+        assert len(result.failed) == 1
+        assert result.failed[0][0] == "kopenhagensupercharger"
+        assert tesla_provider_seeded.list_pricing_queue() == []
+
+    @pytest.mark.asyncio
+    async def test_drain_pricing_queue_skips_already_fresh_without_fetch(
+        self, tesla_provider_seeded: TeslaChargingStationProvider
+    ) -> None:
+        """Wird eine Station zwischenzeitlich anderweitig aktualisiert, prueft
+        drain_pricing_queue das defensiv nach und ueberspringt sie ohne
+        Netzwerk-Request."""
+        tesla_provider_seeded._db.enqueue_pricing_refresh([5678])
+        tesla_provider_seeded._db.upsert_pricing(
+            5678,
+            [
+                {
+                    "tier_label": "Charging Fees for Tesla Owner",
+                    "time_label": None,
+                    "currency": "DKK",
+                    "amount": 4.5,
+                    "unit": "kWh",
+                    "idle_fee_text": None,
+                }
+            ],
+        )
+        mock_tesla = AsyncMock(spec=TeslaLocationsClient)
+
+        result = await tesla_provider_seeded.drain_pricing_queue(tesla_client=mock_tesla, delay_s=0)
+
+        mock_tesla.fetch_pricing_html.assert_not_awaited()
+        assert result.skipped_fresh == ["kopenhagensupercharger"]
+        assert tesla_provider_seeded.list_pricing_queue() == []
+
+    def test_list_pricing_queue_respects_priority_order(
+        self, tesla_provider_seeded: TeslaChargingStationProvider
+    ) -> None:
+        """list_pricing_queue delegiert an SQLiteDatabase.load_pricing_queue
+        (nie gescrapt zuerst)."""
+        tesla_provider_seeded._db.upsert_pricing(
+            5678,
+            [
+                {
+                    "tier_label": "Charging Fees for Tesla Owner",
+                    "time_label": None,
+                    "currency": "DKK",
+                    "amount": 4.5,
+                    "unit": "kWh",
+                    "idle_fee_text": None,
+                }
+            ],
+        )
+        tesla_provider_seeded._db.enqueue_pricing_refresh([5678, 9012])
+
+        queue = tesla_provider_seeded.list_pricing_queue()
+
+        assert [row["supercharge_info_id"] for row in queue] == [9012, 5678]
 
 
 @pytest.mark.asyncio

@@ -32,6 +32,7 @@ import {
   type RouteSample,
 } from "../utils/route-line";
 import { formatZeitpunkt } from "../utils/datetime-utils";
+import { formatCostOrDash } from "../utils/currency-utils";
 import { usePersistentState } from "../utils/persistent-state";
 import { ChargingStop, TripSimulationResult } from "../types";
 import type { Stop } from "../types/trip-request";
@@ -414,7 +415,7 @@ export function formatChargingDuration(seconds: number): string {
   return hours > 0 ? `${hours}h ${minutes}min` : `${minutes}min`;
 }
 
-/** Popup-HTML fuer einen Ladehalt: Name, Ankunfts-/Ziel-SoC samt Uhrzeit, Dauer, geladene Energie. */
+/** Popup-HTML fuer einen Ladehalt: Name, Ankunfts-/Ziel-SoC samt Uhrzeit, Dauer, geladene Energie, Preis. */
 export function buildChargingStopPopupHtml(stop: ChargingStop): string {
   const rows: [string, string][] = [
     ["Ankunft", `${stop.ankunfts_soc_pct.toFixed(0)}% SoC`],
@@ -423,6 +424,7 @@ export function buildChargingStopPopupHtml(stop: ChargingStop): string {
     ["Abfahrtszeit", formatZeitpunkt(stop.abfahrtszeit)],
     ["Dauer", formatChargingDuration(stop.ladedauer_s)],
     ["Geladen", `${stop.energie_geladen_kwh.toFixed(1)} kWh`],
+    ["Preis", formatCostOrDash(stop.estimated_cost, stop.currency)],
   ];
   const rowsHtml = rows
     .map(

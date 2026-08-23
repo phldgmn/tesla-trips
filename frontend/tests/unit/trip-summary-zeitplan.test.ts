@@ -32,6 +32,8 @@ function makeResult(
     ziel_soc_pct: 40,
     charging_stops: [],
     erkannte_faehren: [],
+    total_charging_cost: [],
+    charging_stops_missing_pricing: 0,
     ...overrides,
   };
 }
@@ -47,6 +49,10 @@ function makeChargingStop(overrides: Partial<ChargingStop> = {}): ChargingStop {
     energie_geladen_kwh: 25,
     ankunftszeit: "2026-08-15T10:00:00",
     abfahrtszeit: "2026-08-15T10:25:00",
+    price_per_kwh: null,
+    currency: null,
+    estimated_cost: null,
+    pricing_updated_utc: null,
     ...overrides,
   };
 }
@@ -87,6 +93,42 @@ describe("buildTimePlan", () => {
     expect(ladehalt?.label).toBe("Tesla Supercharger - Dresden");
     expect(ladehalt?.arrival).toBe("2026-08-15T10:00:00");
     expect(ladehalt?.departure).toBe("2026-08-15T10:25:00");
+  });
+
+  it("propagates estimated cost and currency from a priced charging stop", () => {
+    const result = makeResult({
+      charging_stops: [
+        makeChargingStop({
+          price_per_kwh: 0.4,
+          currency: "EUR",
+          estimated_cost: 10,
+          pricing_updated_utc: "2026-08-01T00:00:00",
+        }),
+      ],
+    });
+    const schedule = buildTimePlan(result, makeStops());
+    const ladehalt = schedule.find((e) => e.art === "Ladehalt");
+    expect(ladehalt?.estimatedCost).toBe(10);
+    expect(ladehalt?.costCurrency).toBe("EUR");
+  });
+
+  it("leaves estimated cost null for a charging stop without cached pricing", () => {
+    const result = makeResult({ charging_stops: [makeChargingStop()] });
+    const schedule = buildTimePlan(result, makeStops());
+    const ladehalt = schedule.find((e) => e.art === "Ladehalt");
+    expect(ladehalt?.estimatedCost).toBeNull();
+    expect(ladehalt?.costCurrency).toBeNull();
+  });
+
+  it("leaves estimated cost null for stop and ferry entries", () => {
+    const result = makeResult({ erkannte_faehren: [makeFaehre()] });
+    const schedule = buildTimePlan(result, makeStops());
+    for (const eintrag of schedule) {
+      if (eintrag.art !== "Ladehalt") {
+        expect(eintrag.estimatedCost).toBeNull();
+        expect(eintrag.costCurrency).toBeNull();
+      }
+    }
   });
 
   it("includes a pinned ferry with its scheduled departure/arrival", () => {

@@ -13,6 +13,7 @@ import math
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -32,6 +33,11 @@ from tripplanner.elevation.providers import FakeDataSource
 from tripplanner.energy.models import SegmentEnergyResult
 from tripplanner.routing import FakeRoutingProvider, GraphHopperClient, GraphHopperRoutingProvider
 from tripplanner.routing.models import FaehrSegment, Route, RouteSegment
+from tripplanner.simulation.models import (
+    ChargingCostByCurrency,
+    ChargingStopSummary,
+    TripSimulationResult,
+)
 from tripplanner.trip_input.api import (
     app,
     create_trip_endpoint,
@@ -2318,3 +2324,242 @@ async def test_convergence_loop_uses_refetch_weather_from_second_iteration(
         updated_coords = [q.koordinate for q in updated_queries]
         assert original_coords == updated_coords
     assert result.gesamt_distanz_km > 0
+
+
+# =============================================================================
+# _attach_charging_pricing (Step 12: Preisdaten anreichern + Warteschlange)
+# =============================================================================
+
+
+def _station_record(
+    supercharge_info_id: int, tesla_location_id: str, country_code: str
+) -> dict[str, object]:
+    """Minimales DB-Record-Dict fuer `SQLiteDatabase.replace_all_stations`."""
+    return {
+        "supercharge_info_id": supercharge_info_id,
+        "tesla_location_id": tesla_location_id,
+        "site_name": f"{tesla_location_id} site",
+        "latitude": 51.947,
+        "longitude": 10.140,
+        "country_code": country_code,
+        "stalls_v2": 0,
+        "stalls_v3": 8,
+        "stalls_v3_ultra": 0,
+        "stalls_v4": 0,
+        "total_stalls": 8,
+        "power_kilowatt": 250,
+        "status": "OPEN",
+        "connector_types": '["ccs2"]',
+        "ist_24_7": 1,
+        "date_opened": None,
+        "last_updated_utc": datetime.now(UTC).isoformat(),
+    }
+
+
+def _make_charging_stop_summary(
+    station_id: str = "rhudensupercharger",
+    ankunftszeit: datetime = datetime(2026, 1, 1, 18, 0, tzinfo=UTC),
+    energie_geladen_kwh: float = 25.0,
+) -> ChargingStopSummary:
+    return ChargingStopSummary(
+        name="Tesla Supercharger - Rhueden",
+        station_id=station_id,
+        position=(51.947, 10.140),
+        distanz_m=12000.0,
+        ankunfts_soc_pct=30.0,
+        ziel_soc_pct=80.0,
+        ladedauer_s=1500,
+        energie_geladen_kwh=energie_geladen_kwh,
+        ankunftszeit=ankunftszeit,
+        abfahrtszeit=ankunftszeit + timedelta(minutes=25),
+    )
+
+
+def _make_simulation_result(charging_stops: list[ChargingStopSummary]) -> TripSimulationResult:
+    return TripSimulationResult(
+        frames=[],
+        gesamt_distanz_km=100.0,
+        gesamt_fahrzeit_min=60.0,
+        gesamt_ladezeit_min=25.0,
+        start_soc_pct=80.0,
+        ziel_soc_pct=30.0,
+        charging_stops=charging_stops,
+    )
+
+
+class TestAttachChargingPricing:
+    """Tests für `trip_input.api._attach_charging_pricing`."""
+
+    def test_noop_without_charging_stops(self, tmp_path: Path) -> None:
+        """Ohne Ladehalte bleibt das Ergebnis unveraendert."""
+        provider = TeslaChargingStationProvider(db_path=tmp_path / "t.db")
+        result = _make_simulation_result([])
+
+        attached = trip_api._attach_charging_pricing(result, provider)
+
+        assert attached is result
+
+    def test_noop_for_non_tesla_provider(self) -> None:
+        """Ein Fake-/LocalFile-Provider unterstuetzt kein Pricing - No-Op."""
+        result = _make_simulation_result([_make_charging_stop_summary()])
+
+        attached = trip_api._attach_charging_pricing(result, FakeChargingStationProvider())
+
+        assert attached is result
+
+    def test_attaches_cached_pricing_and_computes_cost(self, tmp_path: Path) -> None:
+        """Mit gecachten Preisdaten werden price_per_kwh/currency/estimated_cost
+        gesetzt und die Warteschlange bleibt leer (Station ist frisch)."""
+        provider = TeslaChargingStationProvider(db_path=tmp_path / "t.db")
+        provider._db.replace_all_stations([_station_record(3506, "rhudensupercharger", "DE")])
+        provider._db.upsert_pricing(
+            3506,
+            [
+                {
+                    "tier_label": "Charging Fees for Tesla Owner",
+                    "time_label": None,
+                    "currency": "EUR",
+                    "amount": 0.40,
+                    "unit": "kWh",
+                    "idle_fee_text": None,
+                }
+            ],
+        )
+        result = _make_simulation_result([_make_charging_stop_summary(energie_geladen_kwh=25.0)])
+
+        attached = trip_api._attach_charging_pricing(result, provider)
+
+        stop = attached.charging_stops[0]
+        assert stop.price_per_kwh == pytest.approx(0.40)
+        assert stop.currency == "EUR"
+        assert stop.estimated_cost == pytest.approx(10.0)
+        assert stop.pricing_updated_utc is not None
+        assert attached.charging_stops_missing_pricing == 0
+        assert attached.total_charging_cost == [ChargingCostByCurrency(currency="EUR", amount=10.0)]
+        assert provider.list_pricing_queue() == []  # fresh pricing, not queued
+
+    def test_queues_station_without_pricing_and_leaves_stop_unpriced(self, tmp_path: Path) -> None:
+        """Ohne gecachte Preisdaten bleibt der Stopp unpreist, die Station
+        wird aber (an erster Stelle) fuer den Scrape eingereiht."""
+        provider = TeslaChargingStationProvider(db_path=tmp_path / "t.db")
+        provider._db.replace_all_stations([_station_record(3506, "rhudensupercharger", "DE")])
+        result = _make_simulation_result([_make_charging_stop_summary()])
+
+        attached = trip_api._attach_charging_pricing(result, provider)
+
+        stop = attached.charging_stops[0]
+        assert stop.price_per_kwh is None
+        assert stop.estimated_cost is None
+        assert attached.charging_stops_missing_pricing == 1
+        assert attached.total_charging_cost == []
+        queue = provider.list_pricing_queue()
+        assert len(queue) == 1
+        assert queue[0]["tesla_location_id"] == "rhudensupercharger"
+
+    def test_groups_total_cost_by_currency_across_countries(self, tmp_path: Path) -> None:
+        """Ladehalte in unterschiedlichen Waehrungen (DE/DK-Trip) werden NICHT
+        addiert, sondern getrennt nach Waehrung ausgewiesen."""
+        provider = TeslaChargingStationProvider(db_path=tmp_path / "t.db")
+        provider._db.replace_all_stations(
+            [
+                _station_record(3506, "rhudensupercharger", "DE"),
+                _station_record(5678, "kopenhagensupercharger", "DK"),
+            ]
+        )
+        provider._db.upsert_pricing(
+            3506,
+            [
+                {
+                    "tier_label": "Charging Fees for Tesla Owner",
+                    "time_label": None,
+                    "currency": "EUR",
+                    "amount": 0.40,
+                    "unit": "kWh",
+                    "idle_fee_text": None,
+                }
+            ],
+        )
+        provider._db.upsert_pricing(
+            5678,
+            [
+                {
+                    "tier_label": "Charging Fees for Tesla Owner",
+                    "time_label": None,
+                    "currency": "DKK",
+                    "amount": 4.0,
+                    "unit": "kWh",
+                    "idle_fee_text": None,
+                }
+            ],
+        )
+        result = _make_simulation_result(
+            [
+                _make_charging_stop_summary("rhudensupercharger", energie_geladen_kwh=25.0),
+                _make_charging_stop_summary("kopenhagensupercharger", energie_geladen_kwh=10.0),
+            ]
+        )
+
+        attached = trip_api._attach_charging_pricing(result, provider)
+
+        assert attached.total_charging_cost == [
+            ChargingCostByCurrency(currency="DKK", amount=40.0),
+            ChargingCostByCurrency(currency="EUR", amount=10.0),
+        ]
+        assert attached.charging_stops_missing_pricing == 0
+
+    def test_does_not_requeue_fresh_stations(self, tmp_path: Path) -> None:
+        """Eine kuerzlich gescrapte Station wird nicht erneut eingereiht."""
+        provider = TeslaChargingStationProvider(db_path=tmp_path / "t.db")
+        provider._db.replace_all_stations([_station_record(3506, "rhudensupercharger", "DE")])
+        provider._db.upsert_pricing(
+            3506,
+            [
+                {
+                    "tier_label": "Charging Fees for Tesla Owner",
+                    "time_label": None,
+                    "currency": "EUR",
+                    "amount": 0.40,
+                    "unit": "kWh",
+                    "idle_fee_text": None,
+                }
+            ],
+        )
+        result = _make_simulation_result([_make_charging_stop_summary()])
+
+        trip_api._attach_charging_pricing(result, provider)
+
+        assert provider.list_pricing_queue() == []
+
+    def test_requeues_stale_pricing(self, tmp_path: Path) -> None:
+        """Veraltete Preisdaten fuehren zur erneuten Einreihung, der Stopp
+        wird aber weiterhin mit den (veralteten) gecachten Daten bepreist."""
+        provider = TeslaChargingStationProvider(db_path=tmp_path / "t.db")
+        provider._db.replace_all_stations([_station_record(3506, "rhudensupercharger", "DE")])
+        provider._db.upsert_pricing(
+            3506,
+            [
+                {
+                    "tier_label": "Charging Fees for Tesla Owner",
+                    "time_label": None,
+                    "currency": "EUR",
+                    "amount": 0.40,
+                    "unit": "kWh",
+                    "idle_fee_text": None,
+                }
+            ],
+        )
+        conn = provider._db._conn
+        assert conn is not None
+        conn.execute(
+            "UPDATE charging_pricing SET last_updated_utc = ? WHERE supercharge_info_id = ?",
+            ("2000-01-01T00:00:00+00:00", 3506),
+        )
+        conn.commit()
+        result = _make_simulation_result([_make_charging_stop_summary()])
+
+        attached = trip_api._attach_charging_pricing(result, provider)
+
+        assert attached.charging_stops[0].price_per_kwh == pytest.approx(0.40)
+        queue = provider.list_pricing_queue()
+        assert len(queue) == 1
+        assert queue[0]["tesla_location_id"] == "rhudensupercharger"

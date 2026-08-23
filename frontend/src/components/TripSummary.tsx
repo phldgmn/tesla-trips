@@ -16,8 +16,9 @@ import {
   findNearestFrameIndex,
 } from "../utils/timing-utils";
 import { formatZeitpunkt } from "../utils/datetime-utils";
+import { formatCost, formatCostOrDash } from "../utils/currency-utils";
 import { Modal } from "./Modal";
-import type { TripSimulationResult } from "../types";
+import type { ChargingCostByCurrency, TripSimulationResult } from "../types";
 import type { Stop } from "../types/trip-request";
 
 export interface TripSummaryProps {
@@ -62,6 +63,11 @@ export interface TimePlanEntry {
   abfahrtsSocPct: number | null;
   /** Während eines Ladehalts geladene Energie in kWh, sonst null. */
   energieGeladenKwh: number | null;
+  /** Geschätzte Kosten dieses Ladehalts, oder null (kein Ladehalt oder keine
+   *  gecachten Preisdaten für die Station vorhanden). */
+  estimatedCost: number | null;
+  /** ISO-4217-Währung von `estimatedCost`, oder null (siehe `estimatedCost`). */
+  costCurrency: string | null;
 }
 
 /** Baut den vereinheitlichten, chronologischen Zeitplan aus Stopps, Ladehalten
@@ -96,6 +102,8 @@ export function buildTimePlan(
     ankunftsSocPct: null,
     abfahrtsSocPct: null,
     energieGeladenKwh: null,
+    estimatedCost: null,
+    costCurrency: null,
   }));
 
   const ladehaltEintraege: TimePlanEntry[] = result.charging_stops.map(
@@ -110,6 +118,8 @@ export function buildTimePlan(
       ankunftsSocPct: stop.ankunfts_soc_pct,
       abfahrtsSocPct: stop.ziel_soc_pct,
       energieGeladenKwh: stop.energie_geladen_kwh,
+      estimatedCost: stop.estimated_cost,
+      costCurrency: stop.currency,
     }),
   );
 
@@ -137,6 +147,8 @@ export function buildTimePlan(
         ankunftsSocPct: null,
         abfahrtsSocPct: null,
         energieGeladenKwh: null,
+        estimatedCost: null,
+        costCurrency: null,
       };
     },
   );
@@ -252,6 +264,17 @@ function TripSummary({ result, stops }: TripSummaryProps) {
               </td>
             </tr>
           )}
+          {result.charging_stops.length > 0 && (
+            <tr>
+              <td style={labelCellStyle}>Ladekosten (geschätzt)</td>
+              <td style={valueCellStyle}>
+                {formatChargingCosts(
+                  result.total_charging_cost,
+                  result.charging_stops_missing_pricing,
+                )}
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
 
@@ -290,6 +313,7 @@ function TripSummary({ result, stops }: TripSummaryProps) {
               <th style={headerCellStyle}>SoC bei Ankunft</th>
               <th style={headerCellStyle}>SoC bei Abfahrt</th>
               <th style={headerCellStyle}>Geladene Energie</th>
+              <th style={headerCellStyle}>Preis</th>
             </tr>
           </thead>
           <tbody>
@@ -313,6 +337,14 @@ function TripSummary({ result, stops }: TripSummaryProps) {
                 </td>
                 <td style={cellStyle}>
                   {formatKwhOrDash(eintrag.energieGeladenKwh)}
+                </td>
+                <td style={cellStyle}>
+                  {eintrag.art === "Ladehalt"
+                    ? formatCostOrDash(
+                        eintrag.estimatedCost,
+                        eintrag.costCurrency,
+                      )
+                    : ""}
                 </td>
               </tr>
             ))}
@@ -362,6 +394,28 @@ function formatKwhOrDash(kwh: number | null): string {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   })} kWh`;
+}
+
+/** Formatiert die nach Währung gruppierten Gesamt-Ladekosten
+ *  (`TripSimulationResult.total_charging_cost`), z. B. "10,00 € + 40,00 DKK".
+ *  Hängt einen Hinweis an, falls für einzelne Ladehalte keine Preisdaten
+ *  vorliegen (`charging_stops_missing_pricing`). Ohne jegliche Preisdaten
+ *  wird ein entsprechender Platzhaltertext zurückgegeben. */
+function formatChargingCosts(
+  totals: ChargingCostByCurrency[],
+  missingPricingCount: number,
+): string {
+  const missingSuffix =
+    missingPricingCount > 0
+      ? ` (${missingPricingCount} Halt${missingPricingCount === 1 ? "" : "e"} ohne Preisdaten)`
+      : "";
+  if (totals.length === 0) {
+    return `Preisdaten noch nicht verfügbar${missingSuffix}`;
+  }
+  const costsLabel = totals
+    .map((entry) => formatCost(entry.amount, entry.currency))
+    .join(" + ");
+  return `${costsLabel}${missingSuffix}`;
 }
 
 const labelCellStyle: React.CSSProperties = {

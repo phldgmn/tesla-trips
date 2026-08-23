@@ -11,7 +11,11 @@ import pytest
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
-from tripplanner.charging_infrastructure.providers import FakeChargingStationProvider
+from tripplanner.charging_infrastructure.client import TeslaLocationsClient
+from tripplanner.charging_infrastructure.providers import (
+    FakeChargingStationProvider,
+    TeslaChargingStationProvider,
+)
 from tripplanner.construction.providers import FakeConstructionProvider
 from tripplanner.elevation import ElevationProvider
 from tripplanner.elevation.providers import FakeDataSource
@@ -579,3 +583,211 @@ class TestCliOfflineFlag:
             mock_build_providers.assert_called_once()
             call_kwargs = mock_simulate.call_args.kwargs
             assert call_kwargs["routing_provider"] is mock_providers.routing
+
+
+# =============================================================================
+# charger pricing-queue / charger scrape-pricing
+# =============================================================================
+
+
+def _seed_station(db_path: Path, tesla_location_id: str = "rhudensupercharger") -> None:
+    """Seeds `db_path` with a single station, no pricing."""
+    provider = TeslaChargingStationProvider(db_path=db_path)
+    provider._db.replace_all_stations(
+        [
+            {
+                "supercharge_info_id": 3506,
+                "tesla_location_id": tesla_location_id,
+                "site_name": "Rhueden Supercharger",
+                "latitude": 51.947,
+                "longitude": 10.140,
+                "country_code": "DE",
+                "stalls_v2": 0,
+                "stalls_v3": 8,
+                "stalls_v3_ultra": 0,
+                "stalls_v4": 0,
+                "total_stalls": 8,
+                "power_kilowatt": 250,
+                "status": "OPEN",
+                "connector_types": '["ccs2"]',
+                "ist_24_7": 1,
+                "date_opened": None,
+                "last_updated_utc": datetime.now().isoformat(),
+            }
+        ]
+    )
+    provider._db.close()
+
+
+def _pricing_html(amount: str = "EUR 0,40/kWh") -> str:
+    """Minimal `__NEXT_DATA__` HTML page with one flat Tesla-owner rate."""
+    payload = {
+        "props": {
+            "pageProps": {
+                "formattedData": {
+                    "chargerPricing": [{"label": "Charging Fees for Tesla Owner", "price": amount}]
+                }
+            }
+        }
+    }
+    return f'<script id="__NEXT_DATA__" type="application/json">{json.dumps(payload)}</script>'
+
+
+class TestChargerPricingQueue:
+    """Tests für `charger pricing-queue`."""
+
+    def test_empty_queue_message(self, tmp_path: Path) -> None:
+        """Eine leere Warteschlange zeigt einen entsprechenden Hinweis."""
+        db_path = tmp_path / "pricing.db"
+        _seed_station(db_path)
+
+        result = runner.invoke(app, ["charger", "pricing-queue", "--db-path", str(db_path)])
+
+        assert result.exit_code == 0
+        assert "leer" in result.stdout
+
+    def test_lists_queued_station(self, tmp_path: Path) -> None:
+        """Eine eingereihte Station wird mit Slug und Land angezeigt."""
+        db_path = tmp_path / "pricing.db"
+        _seed_station(db_path, tesla_location_id="rhudensupercharger")
+        provider = TeslaChargingStationProvider(db_path=db_path)
+        provider.enqueue_stations_for_pricing_refresh(["rhudensupercharger"])
+        provider._db.close()
+
+        result = runner.invoke(app, ["charger", "pricing-queue", "--db-path", str(db_path)])
+
+        assert result.exit_code == 0
+        assert "rhudensupercharger" in result.stdout
+        assert "DE" in result.stdout
+        assert "nie aktualisiert" in result.stdout
+
+
+class TestChargerScrapePricing:
+    """Tests für `charger scrape-pricing`."""
+
+    def test_empty_queue_is_a_noop(self, tmp_path: Path) -> None:
+        """Eine leere Warteschlange fuehrt zu keinem Scrape-Versuch."""
+        db_path = tmp_path / "pricing.db"
+        _seed_station(db_path)
+
+        result = runner.invoke(app, ["charger", "scrape-pricing", "--db-path", str(db_path)])
+
+        assert result.exit_code == 0
+        assert "nichts zu tun" in result.stdout
+
+    def test_successful_scrape_persists_pricing_and_empties_queue(self, tmp_path: Path) -> None:
+        """Ein erfolgreicher Scrape speichert Preisdaten und leert die Warteschlange."""
+        db_path = tmp_path / "pricing.db"
+        _seed_station(db_path)
+        provider = TeslaChargingStationProvider(db_path=db_path)
+        provider.enqueue_stations_for_pricing_refresh(["rhudensupercharger"])
+        provider._db.close()
+
+        html = _pricing_html()
+
+        with patch(
+            "tripplanner.charging_infrastructure.client.TeslaLocationsClient.fetch_pricing_html",
+            new_callable=AsyncMock,
+            return_value=html,
+        ):
+            result = runner.invoke(
+                app,
+                ["charger", "scrape-pricing", "--db-path", str(db_path), "--delay", "0"],
+            )
+
+        assert result.exit_code == 0, f"stderr: {result.stderr}"
+        assert "1 aktualisiert" in result.stdout
+
+        verify_provider = TeslaChargingStationProvider(db_path=db_path)
+        assert verify_provider.list_pricing_queue() == []
+        cached = verify_provider.get_cached_pricing("rhudensupercharger")
+        assert len(cached.tiers) == 1
+        assert cached.tiers[0].currency == "EUR"
+        verify_provider._db.close()
+
+    def test_all_failures_exits_nonzero(self, tmp_path: Path) -> None:
+        """Schlaegt der einzige Versuch fehl, ist der Exit-Code != 0."""
+        db_path = tmp_path / "pricing.db"
+        _seed_station(db_path)
+        provider = TeslaChargingStationProvider(db_path=db_path)
+        provider.enqueue_stations_for_pricing_refresh(["rhudensupercharger"])
+        provider._db.close()
+
+        with patch(
+            "tripplanner.charging_infrastructure.client.TeslaLocationsClient.fetch_pricing_html",
+            new_callable=AsyncMock,
+            side_effect=TeslaLocationsClient.CurlError("403 Access Denied"),
+        ):
+            result = runner.invoke(
+                app,
+                ["charger", "scrape-pricing", "--db-path", str(db_path), "--delay", "0"],
+            )
+
+        assert result.exit_code == 1
+        assert "1 fehlgeschlagen" in result.stdout
+        assert "rhudensupercharger" in result.stderr
+
+        # Fehlgeschlagener Versuch wird trotzdem aus der Warteschlange entfernt
+        # (Retry erst bei naechster Routen-Finalisierung).
+        verify_provider = TeslaChargingStationProvider(db_path=db_path)
+        assert verify_provider.list_pricing_queue() == []
+        verify_provider._db.close()
+
+    def test_respects_limit(self, tmp_path: Path) -> None:
+        """--limit begrenzt die Anzahl in diesem Lauf abgearbeiteter Stationen."""
+        db_path = tmp_path / "pricing.db"
+        provider = TeslaChargingStationProvider(db_path=db_path)
+        provider._db.replace_all_stations(
+            [
+                {
+                    "supercharge_info_id": sid,
+                    "tesla_location_id": slug,
+                    "site_name": slug,
+                    "latitude": 51.9,
+                    "longitude": 10.1,
+                    "country_code": "DE",
+                    "stalls_v2": 0,
+                    "stalls_v3": 8,
+                    "stalls_v3_ultra": 0,
+                    "stalls_v4": 0,
+                    "total_stalls": 8,
+                    "power_kilowatt": 250,
+                    "status": "OPEN",
+                    "connector_types": '["ccs2"]',
+                    "ist_24_7": 1,
+                    "date_opened": None,
+                    "last_updated_utc": datetime.now().isoformat(),
+                }
+                for sid, slug in [(1, "a-supercharger"), (2, "b-supercharger")]
+            ]
+        )
+        provider.enqueue_stations_for_pricing_refresh(["a-supercharger", "b-supercharger"])
+        provider._db.close()
+
+        html = _pricing_html()
+
+        with patch(
+            "tripplanner.charging_infrastructure.client.TeslaLocationsClient.fetch_pricing_html",
+            new_callable=AsyncMock,
+            return_value=html,
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "charger",
+                    "scrape-pricing",
+                    "--db-path",
+                    str(db_path),
+                    "--delay",
+                    "0",
+                    "--limit",
+                    "1",
+                ],
+            )
+
+        assert result.exit_code == 0, f"stderr: {result.stderr}"
+        assert "1 aktualisiert" in result.stdout
+
+        verify_provider = TeslaChargingStationProvider(db_path=db_path)
+        assert len(verify_provider.list_pricing_queue()) == 1  # one still pending
+        verify_provider._db.close()

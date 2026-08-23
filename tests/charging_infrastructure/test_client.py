@@ -340,3 +340,41 @@ class TestTeslaLocationsClient:
             client = TeslaLocationsClient()
             with pytest.raises(TeslaLocationsClient.CurlError):
                 await client.fetch_locations("DE")
+
+    @pytest.mark.asyncio
+    async def test_fetch_pricing_html_returns_raw_body(self) -> None:
+        """Prueft, dass fetch_pricing_html den Rohtext liefert (kein JSON-Parsing)."""
+        html = '<html><script id="__NEXT_DATA__">{"a": 1}</script></html>'
+        proc = self._make_fake_process(html)
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=proc):
+            client = TeslaLocationsClient()
+            body = await client.fetch_pricing_html("rhudensupercharger")
+        assert body == html
+
+    @pytest.mark.asyncio
+    async def test_fetch_pricing_html_raises_on_waf_block(self) -> None:
+        """Ein 403 (WAF-Block) loest CurlError aus, wie bei den JSON-Endpunkten."""
+        proc = self._make_fake_process("<html>Access Denied</html>", status_code=403)
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=proc):
+            client = TeslaLocationsClient()
+            with pytest.raises(TeslaLocationsClient.CurlError, match="403"):
+                await client.fetch_pricing_html("rhudensupercharger")
+
+    @pytest.mark.asyncio
+    async def test_fetch_pricing_html_url_encodes_slug(self) -> None:
+        """Der Slug wird URL-encoded in die Anfrage-URL eingesetzt."""
+        captured_cmd: list[str] = []
+
+        async def mock_subprocess(*args: str, **kwargs: Any) -> AsyncMock:
+            captured_cmd.extend(args)
+            proc = AsyncMock()
+            proc.communicate = AsyncMock(return_value=(b"body\n200", b""))
+            proc.returncode = 0
+            return proc
+
+        with patch(
+            "asyncio.create_subprocess_exec", new_callable=AsyncMock, side_effect=mock_subprocess
+        ):
+            client = TeslaLocationsClient()
+            await client.fetch_pricing_html("a slug/with special")
+        assert any("a%20slug%2Fwith%20special" in arg for arg in captured_cmd)

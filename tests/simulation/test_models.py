@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 import pytest
 
 from tripplanner.simulation import SimulationFrame, TripState
+from tripplanner.simulation.models import ChargingCostByCurrency, ChargingStopSummary
 
 
 class TestSimulationFrame:
@@ -119,3 +120,64 @@ class TestSimulationFrame:
         assert len(frame.position) == 2
         assert frame.position[0] == 52.5200  # lat
         assert frame.position[1] == 13.4050  # lon
+
+
+class TestChargingStopSummaryPricing:
+    """Tests für die Pricing-Felder von `ChargingStopSummary`."""
+
+    def _base_kwargs(self) -> dict[str, object]:
+        return {
+            "name": "Tesla Supercharger - Rhueden",
+            "station_id": "rhudensupercharger",
+            "position": (51.947, 10.140),
+            "distanz_m": 12000.0,
+            "ankunfts_soc_pct": 30.0,
+            "ziel_soc_pct": 80.0,
+            "ladedauer_s": 1500,
+            "energie_geladen_kwh": 25.0,
+            "ankunftszeit": datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
+            "abfahrtszeit": datetime(2026, 1, 1, 10, 25, tzinfo=UTC),
+        }
+
+    def test_pricing_fields_default_to_none(self) -> None:
+        """Ohne explizite Preisdaten sind alle Pricing-Felder None (kein Preis
+        gecacht - Standardfall vor dem ersten Scrape)."""
+        stop = ChargingStopSummary(**self._base_kwargs())
+        assert stop.price_per_kwh is None
+        assert stop.currency is None
+        assert stop.estimated_cost is None
+        assert stop.pricing_updated_utc is None
+
+    def test_pricing_fields_accept_populated_values(self) -> None:
+        """Mit Preisdaten sind alle Pricing-Felder korrekt gesetzt."""
+        stop = ChargingStopSummary(
+            **self._base_kwargs(),
+            price_per_kwh=0.45,
+            currency="EUR",
+            estimated_cost=11.25,
+            pricing_updated_utc=datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+        )
+        assert stop.price_per_kwh == 0.45
+        assert stop.currency == "EUR"
+        assert stop.estimated_cost == 11.25
+        assert stop.pricing_updated_utc == datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+
+
+class TestChargingCostByCurrency:
+    """Tests für das `ChargingCostByCurrency`-Modell."""
+
+    def test_valid_entry(self) -> None:
+        """Ein gültiger Eintrag speichert Waehrung und Betrag."""
+        entry = ChargingCostByCurrency(currency="SEK", amount=45.5)
+        assert entry.currency == "SEK"
+        assert entry.amount == 45.5
+
+    def test_rejects_invalid_currency_length(self) -> None:
+        """Eine Waehrung, die nicht aus genau 3 Zeichen besteht, ist ungueltig."""
+        with pytest.raises(ValueError, match="3"):
+            ChargingCostByCurrency(currency="EURO", amount=1.0)
+
+    def test_rejects_negative_amount(self) -> None:
+        """Ein negativer Betrag ist ungueltig."""
+        with pytest.raises(ValueError, match="greater than or equal to 0"):
+            ChargingCostByCurrency(currency="EUR", amount=-1.0)

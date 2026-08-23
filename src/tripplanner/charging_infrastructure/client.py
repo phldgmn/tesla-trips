@@ -144,6 +144,15 @@ class TeslaLocationsClient:
 
     BASE_URL: str = "https://www.tesla.com/api/findus"
 
+    PRICING_BASE_URL: str = "https://www.tesla.com/findus/location/supercharger"
+    """Oeffentliche Standort-Detailseite (Next.js, kein JSON-API-Endpunkt wie
+    `BASE_URL`). Anders als `get-location-details` (siehe `Tesla-Supercharger-
+    API.md`) enthaelt nur diese Seite die kWh-Preise, eingebettet in einem
+    `<script id="__NEXT_DATA__">`-JSON-Blob - siehe `pricing.parse_pricing_tiers`
+    fuer das Parsing und `docs/Tesla-Supercharger-Detail-Scraping.md` fuer die
+    Herkunft dieser Struktur (reverse-engineered vom Referenz-Tool `tesla-
+    pricing`, dort ueber echten Browser statt curl abgerufen)."""
+
     # Exakte Header von der funktionierenden curl-Kommandozeile
     _CURL_HEADERS: ClassVar[list[str]] = [
         "-H",
@@ -198,20 +207,23 @@ class TeslaLocationsClient:
         self._delay = rate_limit_delay_s
         self._debug_log = debug_log
 
-    async def _curl_json(
+    async def _curl_raw(
         self,
         url: str,
-    ) -> dict[str, Any]:
-        """Fuehrt curl aus und parst JSON-Antwort.
+    ) -> str:
+        """Fuehrt curl aus und liefert den validierten Response-Body als Text.
 
-        Erfasst den HTTP-Statuscode ueber '-w' und prueft ihn vor
-        dem JSON-Parsing, um HTML-FehlerSeiten (403, 429) zu erkennen.
+        Erfasst den HTTP-Statuscode ueber '-w' und prueft ihn, um HTML-
+        FehlerSeiten (403, 429) zu erkennen, BEVOR der Body an den Aufrufer
+        zurueckgegeben wird - gemeinsame Basis fuer `_curl_json` (JSON-APIs)
+        und `fetch_pricing_html` (HTML-Seite, siehe `pricing.py`), da Akamais
+        WAF fuer beide Antwortformen identisch reagiert.
 
         Args:
             url: Vollstaendige URL mit Query-Parametern
 
         Returns:
-            Geparstes JSON-Dict
+            Response-Body als Text
 
         Raises:
             CurlError: Bei curl-Fehlern, leeren Antworten oder HTTP-Fehlern
@@ -281,6 +293,25 @@ class TeslaLocationsClient:
             )
             raise self.CurlError(f"Tesla API: HTTP {status_code}")
 
+        return body
+
+    async def _curl_json(
+        self,
+        url: str,
+    ) -> dict[str, Any]:
+        """Fuehrt curl aus und parst JSON-Antwort (siehe `_curl_raw`).
+
+        Args:
+            url: Vollstaendige URL mit Query-Parametern
+
+        Returns:
+            Geparstes JSON-Dict
+
+        Raises:
+            CurlError: Bei curl-Fehlern, leeren Antworten, HTTP-Fehlern oder
+                ungueltigem JSON
+        """
+        body = await self._curl_raw(url)
         try:
             parsed = json.loads(body)
             _debug_log(
@@ -400,3 +431,28 @@ class TeslaLocationsClient:
                 await asyncio.sleep(effective_delay)
 
         return details
+
+    async def fetch_pricing_html(self, slug: str) -> str:
+        """Fetches the raw HTML of a Supercharger's public detail page.
+
+        Anders als `fetch_location_details()` (JSON-API, keine Preisdaten,
+        siehe `PRICING_BASE_URL`-Docstring) ist diese Seite die einzige
+        oeffentliche Quelle fuer kWh-Preise. Nutzt denselben System-curl-
+        Mechanismus wie alle anderen Requests dieser Klasse (siehe `_curl_raw`)
+        - dieselbe Akamai-WAF-Umgehung gilt fuer HTML- wie fuer JSON-Antworten.
+
+        Args:
+            slug: Der location_url_slug aus fetch_locations() /
+                tesla_location_id aus der lokalen DB.
+
+        Returns:
+            Rohes HTML des Antwort-Bodys (siehe `pricing.parse_pricing_tiers`
+            fuer die Extraktion der `chargerPricing`-Daten daraus).
+
+        Raises:
+            CurlError: Bei curl-Fehlern, WAF-Block (403/429) oder anderen
+                Nicht-200-Antworten.
+        """
+        encoded_slug = quote(slug, safe="")
+        url = f"{self.PRICING_BASE_URL}/{encoded_slug}"
+        return await self._curl_raw(url)

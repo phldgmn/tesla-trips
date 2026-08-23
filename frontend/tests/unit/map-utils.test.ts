@@ -405,6 +405,10 @@ describe("MapVisualization utilities", () => {
       energie_geladen_kwh: 33.5,
       ankunftszeit: "2026-08-15T14:05:00",
       abfahrtszeit: "2026-08-15T14:35:00",
+      price_per_kwh: 0.4,
+      currency: "EUR",
+      estimated_cost: 13.4,
+      pricing_updated_utc: "2026-08-01T00:00:00",
     };
 
     it("should include the station name", () => {
@@ -431,6 +435,25 @@ describe("MapVisualization utilities", () => {
 
     it("should include charged energy in kWh", () => {
       expect(buildChargingStopPopupHtml(stop)).toContain("33.5 kWh");
+    });
+
+    it("should include the formatted estimated cost when pricing is cached", () => {
+      expect(buildChargingStopPopupHtml(stop)).toContain("13,40");
+    });
+
+    it("should show a dash when no pricing data is cached for the station", () => {
+      const unpriced: ChargingStop = {
+        ...stop,
+        price_per_kwh: null,
+        currency: null,
+        estimated_cost: null,
+        pricing_updated_utc: null,
+      };
+      const rows = buildChargingStopPopupHtml(unpriced);
+      expect(rows).toContain("Preis");
+      expect(rows).toContain(
+        '<td style="padding:2px 4px;text-align:right;">–</td>',
+      );
     });
   });
 

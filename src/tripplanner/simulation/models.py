@@ -118,6 +118,53 @@ class ChargingStopSummary(BaseModel):
     )
     ankunftszeit: datetime = Field(..., description="Zeitpunkt der Ankunft an der Station")
     abfahrtszeit: datetime = Field(..., description="Zeitpunkt der Abfahrt von der Station")
+    price_per_kwh: float | None = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Applicable Tesla-owner rate per kWh at arrival time, selected from "
+            "cached pricing data (see `tripplanner.charging_infrastructure.pricing."
+            "select_owner_rate_for_time`). None if no pricing data is cached yet "
+            "for this station."
+        ),
+    )
+    currency: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=3,
+        description=(
+            "ISO-4217 currency of `price_per_kwh`/`estimated_cost`. None iff those are None."
+        ),
+    )
+    estimated_cost: float | None = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Estimated cost of this charging stop (`energie_geladen_kwh * "
+            "price_per_kwh`). None if no pricing data is cached yet for this station."
+        ),
+    )
+    pricing_updated_utc: datetime | None = Field(
+        default=None,
+        description=(
+            "Timestamp of the cached pricing data used for `price_per_kwh`. "
+            "None if no pricing data has ever been scraped for this station."
+        ),
+    )
+
+
+class ChargingCostByCurrency(BaseModel):
+    """Aggregated estimated charging cost in a single currency.
+
+    A trip spanning several countries (e.g. Germany -> Denmark -> Sweden) can
+    have charging stops priced in different currencies (EUR/DKK/SEK); summing
+    raw amounts across currencies without a conversion would be meaningless,
+    so `TripSimulationResult.total_charging_cost` reports one entry per
+    currency actually observed among priced stops instead of a single total.
+    """
+
+    currency: str = Field(..., min_length=3, max_length=3, description="ISO-4217 currency code")
+    amount: float = Field(..., ge=0.0, description="Summed `estimated_cost` in `currency`")
 
 
 class TripSimulationResult(BaseModel):
@@ -132,6 +179,21 @@ class TripSimulationResult(BaseModel):
     charging_stops: list[ChargingStopSummary] = Field(
         default_factory=list,
         description="Ein Eintrag pro Ladehalt (chronologisch), fuer die Kartendarstellung",
+    )
+    total_charging_cost: list[ChargingCostByCurrency] = Field(
+        default_factory=list,
+        description=(
+            "Sum of `ChargingStopSummary.estimated_cost` across all charging "
+            "stops, grouped by currency. Empty if no stop has cached pricing data."
+        ),
+    )
+    charging_stops_missing_pricing: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Number of charging stops excluded from `total_charging_cost` "
+            "because no pricing data is cached yet for their station."
+        ),
     )
 
 
