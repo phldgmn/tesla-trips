@@ -12,6 +12,7 @@ Code gilt nur dann als fertig, wenn **alle** der folgenden Punkte erfüllt sind 
 4. Die Coverage-Schwelle aus `docs/04-repo-tooling-setup.md` wird nicht unterschritten (85 % für `src/tripplanner/`).
 5. Keine neue Abhängigkeit zwischen Modulen außer über die in `models.py` definierten Schnittstellen (siehe `docs/03-modulspezifikationen.md`).
 6. **Änderungen werden IMMER committet.** Jede abgeschlossene Aufgabe (Bugfix, Feature, Refactor) endet mit einem `git commit` der Änderungen — unabhängig davon, ob explizit danach gefragt wurde. Unfertige/experimentelle Arbeit ausdrücklich ausgenommen (z. B. auf explizite Nutzeranweisung "noch nicht committen"). Kein Task gilt als abgeschlossen, solange Änderungen nur im Arbeitsverzeichnis liegen.
+7. **Häufig committen.** Statt einer Aufgabe einen einzigen großen Commit am Ende zu geben, wird in kleinen, in sich abgeschlossenen Schritten committet (z. B. nach jedem funktionierenden Zwischenstand). Das erleichtert es, bei einem Fehlschlag gezielt auf einen früheren, funktionierenden Stand zurückzusetzen, statt die gesamte Aufgabe zu verwerfen.
 
 ## Services starten und stoppen
 
@@ -63,6 +64,10 @@ Agenten dürfen **nicht**:
 5. `uv run hk check --all` und relevante Tests lokal ausführen, bevor ein Commit vorgeschlagen wird.
 6. Commit-Nachricht beschreibt **was** und **warum**, nicht nur **was** (z. B. nicht nur "add wind module", sondern kurz die Berechnungsannahme benennen).
 
+## Sub-Agenten
+
+Wo sinnvoll werden Sub-Agenten eingesetzt, um unabhängige Teilaufgaben zu parallelisieren — z. B. Recherche über mehrere Module hinweg, unabhängige Bugfixes in getrennten Dateien, oder das parallele Einholen von Kontext, während der Hauptagent an der eigentlichen Implementierung weiterarbeitet. Voraussetzung: Die Teilaufgaben sind wirklich unabhängig (keine gemeinsam bearbeiteten Dateien, keine sequentielle Abhängigkeit), und ihre Ergebnisse werden vor der Übernahme geprüft statt ungesehen gemergt.
+
 ## Modulgrenzen
 
 - Kein Modul greift auf interne Implementierungsdetails eines anderen Moduls zu — nur auf dessen `models.py`-Datenstrukturen und öffentliche Funktionen/Klassen.
@@ -74,6 +79,11 @@ Agenten dürfen **nicht**:
 
 - Jede öffentliche Funktion/Methode hat vollständige Typannotationen (durch `mypy --strict` erzwungen) und einen Docstring im projektweit einheitlichen Stil (Google-Style, siehe `docs/04-repo-tooling-setup.md`).
 - Pydantic-Modelle sind die einzige zulässige Form für Datenstrukturen, die Modulgrenzen überqueren.
+
+## Sprache in Code, Kommentaren und Dokumentation
+
+- Neuer Code, neue Kommentare und neue Dokumentation (Docstrings, README-Abschnitte, `docs/`-Dateien, Commit-Nachrichten für Code-Inhalte) werden **immer auf Englisch** verfasst — unabhängig von der Sprache dieser AGENTS.md-Datei oder bestehender Altbestände im Repo.
+- Wird bestehender Code, ein bestehender Kommentar oder ein bestehender Dokumentationsabschnitt bearbeitet und ist der betroffene Teil noch auf Deutsch, fragt der Agent aktiv beim Nutzer nach, ob dieser Teil im Zuge der Änderung ins Englische übersetzt werden soll, statt ihn stillschweigend auf Deutsch zu belassen oder weiter auf Deutsch zu ergänzen.
 
 ## Koordinatenkonvention
 
