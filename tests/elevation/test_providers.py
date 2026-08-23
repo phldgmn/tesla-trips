@@ -55,11 +55,11 @@ class TestFakeDataSource:
         # (es ist theoretisch möglich, aber extrem unwahrscheinlich)
         assert val1 != val2 or abs(val1 - val2) > 0.001
 
-    def test_get_elevations_batch(self) -> None:
-        """Batch-Lookup funktioniert korrekt."""
+    @pytest.mark.asyncio
+    async def test_get_elevations_batch(self) -> None:
         source = FakeDataSource(baseline_elevation=100.0, noise_range=5.0)
         coords = [(47.0, 8.0), (47.1, 8.1), (47.2, 8.2)]
-        elevations = source.get_elevations_batch(coords)
+        elevations = await source.get_elevations_batch(coords)
 
         assert len(elevations) == 3
         for elev in elevations:
@@ -148,11 +148,13 @@ class TestCopernicusDEMDataSource:
         elevation = source.get_elevation(60.0, -10.0)
         assert elevation == 0.0
 
-    def test_get_elevations_batch_mixes_tile_hit_and_miss(self, copernicus_tile_dir: Path) -> None:
-        """Batch-Lookup verarbeitet Treffer und Fehltreffer in derselben Anfrage."""
+    @pytest.mark.asyncio
+    async def test_get_elevations_batch_mixes_tile_hit_and_miss(
+        self, copernicus_tile_dir: Path
+    ) -> None:
         source = CopernicusDEMDataSource(base_url=str(copernicus_tile_dir))
         coords = [(47.00001, 8.00001), (47.00014, 8.00014), (0.0, 0.0)]
-        elevations = source.get_elevations_batch(coords)
+        elevations = await source.get_elevations_batch(coords)
         assert len(elevations) == 3
         assert elevations[0] > 0.0
         assert elevations[2] == 0.0
