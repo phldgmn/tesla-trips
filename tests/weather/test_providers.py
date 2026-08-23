@@ -573,3 +573,91 @@ async def test_openweather_rate_limit_still_passes_unmodified() -> None:
     # Exactly one HTTP call
     assert call_count == 1
     await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_open_meteo_provider_cache_hit_returns_each_query_own_koordinate() -> None:
+    """Two queries at different coordinates in the same grid-cell get their own .koordinate.
+
+    Both queries round to (52.5, 13.4) and share the same clock hour → one HTTP call.
+    Each returned WeatherSample.koordinate must match ITS OWN query's coordinate,
+    not the coordinate of whichever query populated the cache slot first.
+    """
+    call_count = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(200, json=_open_meteo_json())
+
+    transport = httpx.MockTransport(handler)
+    http_client = httpx.AsyncClient(transport=transport)
+    meteo_client = OpenMeteoClient(client=http_client)
+    provider = OpenMeteoProvider(client=meteo_client)
+
+    # Both coords round to (52.5, 13.4); same hour → same cache key
+    q1 = WeatherQuery(koordinate=(52.51, 13.41), zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    q2 = WeatherQuery(koordinate=(52.54, 13.38), zeitpunkt=datetime(2026, 8, 2, 1, 0))
+
+    results = await provider.fetch_weather([q1, q2])
+
+    assert len(results) == 2
+    assert call_count == 1  # single HTTP call
+
+    # Each sample carries its own query's coordinate
+    coord_map = {r.koordinate for r in results}
+    assert q1.koordinate in coord_map
+    assert q2.koordinate in coord_map
+
+    # No cross-contamination: each result's koordinate equals its query's koordinate
+    for result in results:
+        if result.koordinate == q1.koordinate:
+            assert result.koordinate == q1.koordinate
+        if result.koordinate == q2.koordinate:
+            assert result.koordinate == q2.koordinate
+
+    # Second call: both hit cache — verify the label bug is fixed on cache hits too
+    results2 = await provider.fetch_weather([q1, q2])
+    assert len(results2) == 2
+    assert call_count == 1  # still only 1 HTTP call
+
+    for r in results2:
+        if r.koordinate == q1.koordinate:
+            assert r.koordinate == q1.koordinate
+        if r.koordinate == q2.koordinate:
+            assert r.koordinate == q2.koordinate
+
+    await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_open_meteo_provider_refetch_cache_hit_returns_each_query_own_koordinate() -> None:
+    """refetch_weather cache hits also label each sample with the requesting query's .koordinate."""
+    provider = OpenMeteoProvider()
+
+    # Populate the cache first
+    q1 = WeatherQuery(koordinate=(52.51, 13.41), zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    q2 = WeatherQuery(koordinate=(52.54, 13.38), zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    provider._cache[_cache_key(q1.koordinate, q1.zeitpunkt)] = WeatherSample(
+        koordinate=(52.5, 13.4),  # grid-rounded
+        zeitpunkt=datetime(2026, 8, 2, 1, 0),
+        temperatur_c=20.0,
+        windgeschwindigkeit_ms=5.0,
+        windrichtung_deg=180.0,
+        niederschlag_mm=0.0,
+        schneefall_cm=0.0,
+        luftdruck_hpa=1013.25,
+        luftfeuchtigkeit_pct=60.0,
+        globalstrahlung_wm2=400.0,
+        bewoelkung_pct=20.0,
+    )
+
+    # refetch both — both hit cache
+    results = await provider.refetch_weather([q1, q2], [q1, q2])
+
+    assert len(results) == 2
+    for r in results:
+        if r.koordinate == q1.koordinate:
+            assert r.koordinate == q1.koordinate
+        if r.koordinate == q2.koordinate:
+            assert r.koordinate == q2.koordinate

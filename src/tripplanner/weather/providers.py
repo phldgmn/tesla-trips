@@ -197,10 +197,9 @@ class OpenMeteoProvider:
                 # Return sample but with the query's original zeitpunkt
                 # (hourly data is identical across the same hour window)
                 cached = self._cache[ck]
-                if cached.zeitpunkt != query.zeitpunkt:
-                    results[idx] = cached.model_copy(update={"zeitpunkt": query.zeitpunkt})
-                else:
-                    results[idx] = cached
+                results[idx] = cached.model_copy(
+                    update={"koordinate": query.koordinate, "zeitpunkt": query.zeitpunkt}
+                )
             else:
                 uncached_queries.append((idx, query))
 
@@ -249,10 +248,9 @@ class OpenMeteoProvider:
             ck = _cache_key(query.koordinate, query.zeitpunkt)
             if ck in self._cache:
                 cached = self._cache[ck]
-                if cached.zeitpunkt != query.zeitpunkt:
-                    results[idx] = cached.model_copy(update={"zeitpunkt": query.zeitpunkt})
-                else:
-                    results[idx] = cached
+                results[idx] = cached.model_copy(
+                    update={"koordinate": query.koordinate, "zeitpunkt": query.zeitpunkt}
+                )
 
         # Für nicht-gecachte Queries neu abfragen
         uncached = [q for q in updated_queries if results[updated_queries.index(q)] is None]
@@ -1127,10 +1125,9 @@ class LoadBalancedWeatherProvider:
             ck = _cache_key(query.koordinate, query.zeitpunkt)
             cached = self._cache.get(ck)
             if cached is not None:
-                if cached.zeitpunkt != query.zeitpunkt:
-                    results[idx] = cached.model_copy(update={"zeitpunkt": query.zeitpunkt})
-                else:
-                    results[idx] = cached
+                results[idx] = cached.model_copy(
+                    update={"koordinate": query.koordinate, "zeitpunkt": query.zeitpunkt}
+                )
             else:
                 pending_indices.append(idx)
 
@@ -1198,7 +1195,12 @@ class LoadBalancedWeatherProvider:
                 if sample is None:
                     still_pending.append(i)
                 else:
-                    results[i] = sample
+                    results[i] = sample.model_copy(
+                        update={
+                            "koordinate": queries[i].koordinate,
+                            "zeitpunkt": queries[i].zeitpunkt,
+                        }
+                    )
                     # Store with original query time for this index
                     self._cache[ck] = sample
             pending = still_pending

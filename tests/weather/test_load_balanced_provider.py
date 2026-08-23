@@ -14,7 +14,11 @@ import pytest
 
 from tripplanner.geo import Coordinate
 from tripplanner.weather.models import WeatherQuery, WeatherSample
-from tripplanner.weather.providers import LoadBalancedWeatherProvider, WeatherProviderEntry
+from tripplanner.weather.providers import (
+    LoadBalancedWeatherProvider,
+    WeatherProviderEntry,
+    _cache_key,
+)
 
 BERLIN: Coordinate = (52.5200, 13.4050)
 COPENHAGEN: Coordinate = (55.6761, 12.5683)
@@ -325,3 +329,111 @@ async def test_load_balanced_provider_multiple_coordinates_dispatched_independen
     by_coord = {r.koordinate: r for r in results}
     assert by_coord[BERLIN].temperatur_c == 20.0
     assert by_coord[COPENHAGEN].temperatur_c in (18.0, 50.0)  # either eligible provider may win
+
+
+@pytest.mark.asyncio
+async def test_load_balanced_provider_cache_hit_returns_each_query_own_koordinate() -> None:
+    """Two queries at different coordinates in the same grid-cell get their own .koordinate.
+
+    Both queries round to (52.5, 13.4) and share the same clock hour → one HTTP call.
+    Each returned WeatherSample.koordinate must match ITS OWN query's coordinate,
+    not the coordinate of whichever query populated the cache slot first.
+    """
+    zeitpunkt = datetime(2026, 8, 2, 1, 0)
+    coord1: Coordinate = (52.51, 13.41)
+    coord2: Coordinate = (52.54, 13.38)
+
+    # Stub returns one sample per query, indexed by (koordinate, zeitpunkt)
+    stub = _StubProvider(
+        samples=[
+            _sample(coord1, zeitpunkt, 20.0),
+            _sample(coord2, zeitpunkt, 22.0),
+        ]
+    )
+
+    composite = LoadBalancedWeatherProvider(
+        [
+            WeatherProviderEntry("global", stub, None),
+        ]
+    )
+
+    q1 = WeatherQuery(koordinate=coord1, zeitpunkt=zeitpunkt)
+    q2 = WeatherQuery(koordinate=coord2, zeitpunkt=zeitpunkt)
+
+    results = await composite.fetch_weather([q1, q2])
+
+    assert len(results) == 2
+    # Each result carries its own query's coordinate
+    result_map = {r.koordinate: r for r in results}
+    assert result_map[coord1].koordinate == coord1
+    assert result_map[coord2].koordinate == coord2
+
+    # Second call: both hit composite cache — verify the label fix holds
+    results2 = await composite.fetch_weather([q1, q2])
+    assert len(results2) == 2
+    result_map2 = {r.koordinate: r for r in results2}
+    assert result_map2[coord1].koordinate == coord1
+    assert result_map2[coord2].koordinate == coord2
+
+
+@pytest.mark.asyncio
+async def test_load_balanced_provider_resolve_group_collision_same_cache_key() -> None:
+    """_resolve_group handles two pending sub-queries with different coords but same cache key.
+
+    When two pending queries share a rounded grid cell, _resolve_group builds
+    `by_key` from the provider's returned samples. Without the fix, `by_key`
+    would keep only the last sample and label both indices with that sample's
+    koordinate. The fix ensures each result is copied with its own query's
+    koordinate and zeitpunkt.
+    """
+    zeitpunkt = datetime(2026, 8, 2, 1, 0)
+    coord1: Coordinate = (52.51, 13.41)
+    coord2: Coordinate = (52.54, 13.38)
+
+    stub = _StubProvider(
+        samples=[
+            _sample(coord1, zeitpunkt, 20.0),
+            _sample(coord2, zeitpunkt, 22.0),
+        ]
+    )
+
+    composite = LoadBalancedWeatherProvider(
+        [
+            WeatherProviderEntry("global", stub, None),
+        ]
+    )
+
+    q1 = WeatherQuery(koordinate=coord1, zeitpunkt=zeitpunkt)
+    q2 = WeatherQuery(koordinate=coord2, zeitpunkt=zeitpunkt)
+
+    results = await composite.fetch_weather([q1, q2])
+
+    assert len(results) == 2
+    # Build a set of (result.koordinate, result.zeitpunkt) pairs
+    result_pairs = {(r.koordinate, r.zeitpunkt) for r in results}
+    assert (coord1, zeitpunkt) in result_pairs
+    assert (coord2, zeitpunkt) in result_pairs
+
+    # Now populate composite's internal cache with a single entry that has
+    # a DIFFERENT coordinate, then query both coords again — they'll hit
+    # the same cache slot but must return their own original coordinates.
+
+    composite._cache[_cache_key(coord1, zeitpunkt)] = WeatherSample(
+        koordinate=(52.5, 13.4),  # grid-rounded (not coord1 or coord2)
+        zeitpunkt=zeitpunkt,
+        temperatur_c=20.0,
+        windgeschwindigkeit_ms=5.0,
+        windrichtung_deg=180.0,
+        niederschlag_mm=0.0,
+        schneefall_cm=0.0,
+        luftdruck_hpa=1013.25,
+        luftfeuchtigkeit_pct=60.0,
+        globalstrahlung_wm2=400.0,
+        bewoelkung_pct=20.0,
+    )
+
+    results2 = await composite.fetch_weather([q1, q2])
+    assert len(results2) == 2
+    result_map2 = {r.koordinate: r for r in results2}
+    assert result_map2[coord1].koordinate == coord1
+    assert result_map2[coord2].koordinate == coord2
