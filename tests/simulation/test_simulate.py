@@ -128,7 +128,6 @@ class TestPositionsInterpolation:
             route=route_3_segments,
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
-
             start_soc_pct=80.0,
             output_resolution_seconds=4500,
             abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
@@ -158,7 +157,6 @@ class TestPositionsInterpolation:
             route=route_3_segments,
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
-
             start_soc_pct=80.0,
             output_resolution_seconds=100,
             abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
@@ -183,7 +181,6 @@ class TestPositionsInterpolation:
             route=route_3_segments,
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
-
             start_soc_pct=80.0,
             output_resolution_seconds=750,
             abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
@@ -224,7 +221,6 @@ class TestStateTransitions:
             route=route_3_segments,
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
-
             start_soc_pct=80.0,
             output_resolution_seconds=60,
             abfahrtszeit=base_time,
@@ -263,7 +259,6 @@ class TestStateTransitions:
             route=route_3_segments,
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
-
             start_soc_pct=80.0,
             output_resolution_seconds=600,
             abfahrtszeit=base_time,
@@ -294,7 +289,6 @@ class TestSocChanges:
             route=route_3_segments,
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
-
             start_soc_pct=80.0,
             output_resolution_seconds=60,
             abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
@@ -330,7 +324,6 @@ class TestSocChanges:
             route=route_3_segments,
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
-
             start_soc_pct=80.0,
             output_resolution_seconds=600,
             abfahrtszeit=base_time,
@@ -359,7 +352,6 @@ class TestTotals:
             route=route_3_segments,
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
-
             start_soc_pct=80.0,
             output_resolution_seconds=60,
             abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
@@ -381,7 +373,6 @@ class TestTotals:
             route=route_3_segments,
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
-
             start_soc_pct=80.0,
             output_resolution_seconds=60,
             abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
@@ -415,7 +406,6 @@ class TestTotals:
             route=route_3_segments,
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
-
             start_soc_pct=80.0,
             output_resolution_seconds=60,
             abfahrtszeit=base_time,
@@ -442,7 +432,6 @@ class TestResolution:
             route=route_3_segments,
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
-
             start_soc_pct=80.0,
             output_resolution_seconds=10,
             abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
@@ -464,7 +453,6 @@ class TestResolution:
             route=route_3_segments,
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
-
             start_soc_pct=80.0,
             output_resolution_seconds=600,
             abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
@@ -491,7 +479,6 @@ class TestNoChargingScenario:
             route=route_3_segments,
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
-
             start_soc_pct=80.0,
             abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
             output_resolution_seconds=60,
@@ -518,7 +505,6 @@ class TestDepartureTimeBasis:
             route=route_3_segments,
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
-
             start_soc_pct=80.0,
             abfahrtszeit=abfahrtszeit,
             output_resolution_seconds=60,
@@ -540,7 +526,6 @@ class TestDepartureTimeBasis:
             route=route_3_segments,
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
-
             start_soc_pct=80.0,
             abfahrtszeit=abfahrtszeit,
             output_resolution_seconds=60,
@@ -570,7 +555,6 @@ class TestSocDepletionPhysikalischKorrekt:
             route=route,
             charging_plan=plan,
             segment_energy=energy_results,
-
             start_soc_pct=80.0,
             abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
             output_resolution_seconds=3600,
@@ -594,7 +578,6 @@ class TestSocDepletionPhysikalischKorrekt:
             route=route_3_segments,
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
-
             start_soc_pct=80.0,
             abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
             output_resolution_seconds=60,
@@ -651,7 +634,6 @@ class TestSocBaselineAfterChargingStop:
             route=route_with_charging,
             charging_plan=plan_with_charging,
             segment_energy=energy_results_with_charging,
-
             start_soc_pct=80.0,
             abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
             output_resolution_seconds=60,

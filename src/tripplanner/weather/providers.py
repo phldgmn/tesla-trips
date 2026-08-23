@@ -133,7 +133,10 @@ class OpenMeteoClient:
             # Zeitindex lookup für jeden Query-Punkt
             time_to_idx = {t: i for i, t in enumerate(data.hourly["time"])}
             for idx, q in entries:
-                time_idx = time_to_idx.get(q.zeitpunkt.isoformat()[:16])
+                # Snap to the hour — Open-Meteo returns hourly data (:00 only)
+                # Strip timezone suffix to match Open-Meteo's "YYYY-MM-DDTHH:MM" format
+                snapped = q.zeitpunkt.replace(minute=0, second=0, microsecond=0)
+                time_idx = time_to_idx.get(snapped.isoformat(timespec="minutes").split("+")[0])
                 if time_idx is not None:
                     results[idx] = data
 
@@ -191,10 +194,15 @@ class OpenMeteoProvider:
                 # Extrahiere alle Samples aus der Response
                 # Jede Response enthält data für eine Koordinate
                 # Wir brauchen die Indexe aller queries für diese Koordinate
+                _COORD_TOLERANCE = 0.1  # ~11 km at equator
                 for _idx, query in enumerate(uncached_queries):
-                    if (query.koordinate[0], query.koordinate[1]) == (
-                        resp.latitude,
-                        resp.longitude,
+                    # Open-Meteo rounds coordinates (13.405 -> 13.4), use tolerance
+                    q_lat, q_lon = query.koordinate
+                    r_lat, r_lon = resp.latitude, resp.longitude
+                    # Match if within 0.1 degrees (about 11km at equator)
+                    if (
+                        abs(q_lat - r_lat) < _COORD_TOLERANCE
+                        and abs(q_lon - r_lon) < _COORD_TOLERANCE
                     ):
                         sample = _extract_sample_from_response(resp, query.zeitpunkt)
                         if sample is not None:
@@ -329,14 +337,13 @@ def _extract_sample_from_response(
         WeatherSample oder None, wenn der Zeitpunkt nicht gefunden wird.
     """
     time_to_idx = {t: i for i, t in enumerate(response.hourly["time"])}
-    iso_str = zeitpunkt.isoformat()
-    # Open-Meteo verwendet "YYYY-MM-DDTHH:MM", Query verwendet "YYYY-MM-DDTHH:MM:SS"
-    # Wir suchen nach Prefix-Match (erste 16 Zeichen)
+    # Open-Meteo returns hourly data on the hour (:00). Snap query time to
+    # the nearest hour and strip timezone suffix to match Open-Meteo format.
+    snapped = zeitpunkt.replace(minute=0, second=0, microsecond=0)
+    iso_hour = snapped.isoformat(timespec="minutes").split("+")[0]
     time_idx = None
-    for t, idx in time_to_idx.items():
-        if t == iso_str[:16]:  # "YYYY-MM-DDTHH:MM"
-            time_idx = idx
-            break
+    if iso_hour in time_to_idx:
+        time_idx = time_to_idx[iso_hour]
 
     if time_idx is None:
         return None

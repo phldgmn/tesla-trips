@@ -44,5 +44,3 @@ async def fetch_weather_for_route(
                     break
 
     return [r for r in results if r is not None]
-
-

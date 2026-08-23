@@ -297,5 +297,3 @@ def test_extract_sample_from_response_missing_time() -> None:
 
     # Then: None zurückgeben
     assert sample is None
-
-

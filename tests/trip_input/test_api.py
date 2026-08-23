@@ -2253,3 +2253,68 @@ async def test_convergence_loop_runs_at_least_2_iterations(
     # Result should be valid
     assert result.gesamt_distanz_km > 0
     assert result.gesamt_fahrzeit_min > 0
+
+
+@pytest.mark.asyncio
+async def test_convergence_loop_uses_refetch_weather_from_second_iteration(
+    valid_trip_request: dict,
+    fake_routing_provider: FakeRoutingProvider,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test: from the 2nd iteration onward, `refetch_weather` is used instead
+    of `fetch_weather` when the provider supports it, per plan Task E.2.
+
+    The loop never converges (ETA is force-shifted every iteration via a
+    monkeypatched `_step_9_update_eta`), guaranteeing `max_iterations`
+    iterations run, so `refetch_weather` is exercised on iterations 2 and 3.
+    """
+    real_update_eta = trip_api._step_9_update_eta
+
+    def _never_converging_update_eta(segment_eta_list: object, charging_plan: object) -> object:
+        updated = real_update_eta(segment_eta_list, charging_plan)  # type: ignore[arg-type]
+        return [(seg, eta + timedelta(hours=1)) for seg, eta in updated]  # type: ignore[union-attr]
+
+    monkeypatch.setattr(trip_api, "_step_9_update_eta", _never_converging_update_eta)
+
+    class _RefetchTrackingWeatherProvider(FakeWeatherProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.fetch_weather_call_count = 0
+            self.refetch_weather_calls: list[
+                tuple[Sequence[WeatherQuery], Sequence[WeatherQuery]]
+            ] = []
+
+        async def fetch_weather(self, queries: Sequence[WeatherQuery]) -> list[WeatherSample]:
+            self.fetch_weather_call_count += 1
+            return await super().fetch_weather(queries)
+
+        async def refetch_weather(
+            self,
+            original_queries: Sequence[WeatherQuery],
+            updated_queries: Sequence[WeatherQuery],
+        ) -> list[WeatherSample]:
+            self.refetch_weather_calls.append((original_queries, updated_queries))
+            return await self.fetch_weather(updated_queries)
+
+    provider = _RefetchTrackingWeatherProvider()
+    result = await create_trip_simulation(
+        valid_trip_request,
+        routing_provider=fake_routing_provider,
+        weather_provider=provider,
+        charging_provider=FakeChargingStationProvider(),
+        start_soc_pct=80.0,
+        destination_soc_pct=20.0,
+        max_iterations=3,
+        convergence_threshold_minutes=30.0,
+    )
+
+    # Iteration 0 has no previous_queries -> plain fetch_weather only.
+    # Iterations 1 and 2 must go through refetch_weather.
+    assert len(provider.refetch_weather_calls) == 2
+    # Each refetch_weather call's updated_queries must have the same
+    # coordinates as the original_queries (only the timestamps may differ).
+    for original_queries, updated_queries in provider.refetch_weather_calls:
+        original_coords = [q.koordinate for q in original_queries]
+        updated_coords = [q.koordinate for q in updated_queries]
+        assert original_coords == updated_coords
+    assert result.gesamt_distanz_km > 0

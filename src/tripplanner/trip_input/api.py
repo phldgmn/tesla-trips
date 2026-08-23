@@ -155,10 +155,27 @@ async def _step_5_fetch_weather(
     route: Route,
     segment_eta_list: list[tuple[RouteSegment, timedelta]],
     abfahrtszeit: datetime,
-) -> list[WeatherSample]:
-    """Schritt 5: Wetterdaten entlang der Route zu den initialen ETAs abrufen.
+    previous_queries: list[WeatherQuery] | None = None,
+) -> tuple[list[WeatherSample], list[WeatherQuery]]:
+    """Schritt 5: Wetterdaten entlang der Route zu den aktuellen ETAs abrufen.
 
     Default: `FakeWeatherProvider` für Tests ohne externe API-Aufrufe.
+
+    Args:
+        provider: Wetter-Provider. `None` verwendet `FakeWeatherProvider`.
+        route: Die berechnete Route (liefert die Segment-Geometrie).
+        segment_eta_list: Segment mit geschätzter Fahrzeit ab Abfahrt.
+        abfahrtszeit: Abfahrtszeitpunkt der gesamten Reise.
+        previous_queries: Queries der vorherigen Iteration (gleiche Koordinaten,
+            alte Zeitpunkte). Wenn gesetzt und der Provider `refetch_weather`
+            unterstützt (z. B. `OpenMeteoProvider`), wird dessen Cache für
+            unveränderte Koordinaten/Zeitpunkte genutzt statt jeden Punkt neu
+            abzufragen.
+
+    Returns:
+        Tuple aus den `WeatherSample`s und den dafür verwendeten `WeatherQuery`s
+        (Letztere werden vom Aufrufer als `previous_queries` der nächsten
+        Iteration übergeben).
     """
     if provider is None:
         provider = FakeWeatherProvider()
@@ -174,7 +191,13 @@ async def _step_5_fetch_weather(
         queries.append(WeatherQuery(koordinate=koordinate, zeitpunkt=current_time))
         current_time += dauer
 
-    return await provider.fetch_weather(queries)
+    refetch_weather = getattr(provider, "refetch_weather", None)
+    if previous_queries is not None and refetch_weather is not None:
+        samples = await refetch_weather(previous_queries, queries)
+    else:
+        samples = await provider.fetch_weather(queries)
+
+    return samples, queries
 
 
 async def _step_6_construction_sites(
@@ -672,18 +695,22 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
 
     # 10. Iterative ETA/weather convergence loop
     prev_segment_eta_list: list[tuple[RouteSegment, timedelta]] | None = None
+    weather_queries: list[WeatherQuery] | None = None
 
     for iteration in range(max_iterations):
         # Store previous iteration's ETA for convergence check
         if iteration > 0:
             prev_segment_eta_list = [(seg, eta) for seg, eta in segment_eta_list]
 
-        # Fetch weather with updated ETA-based timestamps
-        weather_samples = await _step_5_fetch_weather(
+        # Fetch weather with updated ETA-based timestamps; from the 2nd
+        # iteration onward, reuse the provider's cache for unchanged points
+        # via refetch_weather (if supported) instead of a full refetch.
+        weather_samples, weather_queries = await _step_5_fetch_weather(
             weather_provider,
             route,
             segment_eta_list,
             request.abfahrtszeit,
+            previous_queries=weather_queries,
         )
 
         # Construction sites (optional)

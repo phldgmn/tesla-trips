@@ -201,10 +201,13 @@ Applied by the phase noted in the "Phase" column, in the file noted. Names not l
 # trip_input/providers_factory.py
 class ProductionProviders(NamedTuple):
     routing: RoutingProvider
-    elevation_provider: ElevationProvider  # tripplanner.elevation.ElevationProvider, with a real data_source
+    elevation_provider: (
+        ElevationProvider  # tripplanner.elevation.ElevationProvider, with a real data_source
+    )
     weather: WeatherProvider
     construction: ConstructionProvider
     charging: ChargingStationProvider
+
 
 def build_production_providers() -> ProductionProviders: ...
 async def close_production_providers(providers: ProductionProviders) -> None: ...
@@ -313,11 +316,11 @@ async def close_production_providers(providers: ProductionProviders) -> None: ..
   def _build_se_request_xml(self, route: routing_models.Route) -> str:
       bbox = self._route_to_bounding_box(route)
       return (
-          '<REQUEST>'
+          "<REQUEST>"
           f'<LOGIN authenticationkey="{self._config.tv_api_key}"/>'
           '<QUERY objecttype="Situation" schemaversion="1.5">'
           f'<FILTER><WITHIN name="Deviation.GeometryWkt" shape="box" value="{bbox}"/></FILTER>'
-          '</QUERY></REQUEST>'
+          "</QUERY></REQUEST>"
       )
   ```
 
@@ -346,10 +349,18 @@ async def close_production_providers(providers: ProductionProviders) -> None: ..
 
 ```python
 segment_eta_list = _step_4_estimate_initial_eta(route, request.abfahrtszeit)
-for iteration in range(max_iterations):  # default 3, configurable (constant already present in the simulate_trip call)
-    weather_samples = await _step_5_fetch_weather(weather_provider, route, segment_eta_list, request.abfahrtszeit)
-    construction_zones = await _step_6_construction_sites(construction_provider, route, ["DE", "DK", "SE"])
-    energy_results = await _step_7_calculate_segment_energy(segments, segment_eta_list, weather_samples, ...)
+for iteration in range(
+    max_iterations
+):  # default 3, configurable (constant already present in the simulate_trip call)
+    weather_samples = await _step_5_fetch_weather(
+        weather_provider, route, segment_eta_list, request.abfahrtszeit
+    )
+    construction_zones = await _step_6_construction_sites(
+        construction_provider, route, ["DE", "DK", "SE"]
+    )
+    energy_results = await _step_7_calculate_segment_energy(
+        segments, segment_eta_list, weather_samples, ...
+    )
     charging_plan = await _step_8_optimize_charging_plan(route, energy_results, ...)
     new_eta_list = _step_9_update_eta(segment_eta_list, charging_plan)
     max_deviation_s = max(
@@ -400,53 +411,53 @@ Every phase follows TDD (test before implementation, per AGENTS.md Definition of
 
 ### Phase A: Provider Factory & Typing
 
-- [ ] Task A.1: Use the `WeatherProvider`/`ConstructionProvider` protocol types in `create_trip_simulation`'s signature (`api.py:604-605`)
-- [ ] Task A.2: Apply all Phase-A rows of the Section 4 rename table across `api.py` and `cli.py`, translating touched docstrings/comments to English
-- [ ] Task A.3: Create `src/tripplanner/trip_input/providers_factory.py` (`ProductionProviders`, `build_production_providers`, `close_production_providers`)
-- [ ] Task A.4: Switch `_lifespan` (`api.py:756-778`) to the factory; add `get_weather_provider`/`get_construction_provider`/`get_elevation_provider` dependencies
-- [ ] Task A.5: Switch `cli.py`'s `trips` command to the factory, add the `--offline` flag
-- [ ] Task A.6: Write `tests/trip_input/test_providers_factory.py`
+- [x] Task A.1: Use the `WeatherProvider`/`ConstructionProvider` protocol types in `create_trip_simulation`'s signature (`api.py:604-605`)
+- [x] Task A.2: Apply all Phase-A rows of the Section 4 rename table across `api.py` and `cli.py`, translating touched docstrings/comments to English
+- [x] Task A.3: Create `src/tripplanner/trip_input/providers_factory.py` (`ProductionProviders`, `build_production_providers`, `close_production_providers`)
+- [x] Task A.4: Switch `_lifespan` (`api.py:756-778`) to the factory; add `get_weather_provider`/`get_construction_provider`/`get_elevation_provider` dependencies
+- [x] Task A.5: Switch `cli.py`'s `trips` command to the factory, add the `--offline` flag
+- [x] Task A.6: Write `tests/trip_input/test_providers_factory.py`
 
 ### Phase B: Weather
 
-- [ ] Task B.1: Wire `OpenMeteoProvider` into the factory
-- [ ] Task B.2: Add the `weather_provider` dependency to `create_trip_endpoint`
-- [ ] Task B.3: Map 429/timeout errors to HTTP 502
-- [ ] Task B.4: Tests + manual smoke test via `./run.sh`
+- [x] Task B.1: Wire `OpenMeteoProvider` into the factory
+- [x] Task B.2: Add the `weather_provider` dependency to `create_trip_endpoint`
+- [x] Task B.3: Map 429/timeout errors to HTTP 502
+- [x] Task B.4: Tests + manual smoke test via `./run.sh`
 
 ### Phase C: Elevation
 
-- [ ] Task C.1: Verify real Copernicus DEM tile paths against the `copernicus-dem-30m` bucket (do not guess)
-- [ ] Task C.2: Implement `CopernicusDEMDataSource` (including the `0.0` fallback for uncovered points)
-- [ ] Task C.3: Actually thread `elevation_provider` through `_step_2_extract_elevation_profile`/`create_trip_simulation` (`api.py:99-110,655-656`)
-- [ ] Task C.4: Replace both hardcoded `steigung_prozent=0.0` locations (`api.py:229-238`, `:345-351`) with `elevation_provider.calculate_segment_gradients(...)`
-- [ ] Task C.5: Tests (local test tile) + integration test (Zugspitze regression value)
+- [x] Task C.1: Verify real Copernicus DEM tile paths against the `copernicus-dem-30m` bucket (do not guess)
+- [x] Task C.2: Implement `CopernicusDEMDataSource` (including the `0.0` fallback for uncovered points)
+- [x] Task C.3: Actually thread `elevation_provider` through `_step_2_extract_elevation_profile`/`create_trip_simulation` (`api.py:99-110,655-656`)
+- [x] Task C.4: Replace both hardcoded `steigung_prozent=0.0` locations (`api.py:229-238`, `:345-351`) with `elevation_provider.calculate_segment_gradients(...)`
+- [x] Task C.5: Tests (local test tile) + integration test (Zugspitze regression value)
 
 ### Phase D: Construction
 
-- [ ] Task D.1: Make `tv_api_key` optional; rename DK fields to `dk_client_id`/`dk_secret`; remove unused `mdm_username`/`mdm_password`; drop `Land.DE` from `DATEXII_ENDPOINTS`; add per-country credential check + skip logic (DK/SE only, DE needs none)
-- [ ] Task D.2: Implement `_fetch_de_roadworks`/`_extract_autobahn_ids`/`_parse_autobahn_roadwork` against the unauthenticated Autobahn GmbH API (`verkehr.autobahn.de`)
-- [ ] Task D.3: Wire DK HTTP Basic Auth (`httpx.BasicAuth(dk_client_id, dk_secret)`) — confirmed via the official REST protocol spec, no token endpoint
-- [ ] Task D.4: Fix the SE endpoint to `v2/data.json` + POST XML body with `LOGIN authenticationkey`
-- [ ] Task D.5: Differentiate exception handling (log auth failures instead of swallowing them)
-- [ ] Task D.6: Switch `ConstructionProviderImpl` from a mandatory context manager to a reusable client
-- [ ] Task D.7: Load `credentials.local.yaml` in `providers_factory.py` (env vars take precedence); wire `ConstructionProviderImpl` into the factory; add the dependency to `create_trip_endpoint`
-- [ ] Task D.8: Tests for skip-on-missing-credentials (DK/SE), auth-failure logging, SE body shape, DK Basic Auth header, DE Autobahn-ID extraction and roadwork JSON parsing (mocked HTTP, no live calls)
+- [x] Task D.1: Make `tv_api_key` optional; rename DK fields to `dk_client_id`/`dk_secret`; remove unused `mdm_username`/`mdm_password`; drop `Land.DE` from `DATEXII_ENDPOINTS`; add per-country credential check + skip logic (DK/SE only, DE needs none)
+- [x] Task D.2: Implement `_fetch_de_roadworks`/`_extract_autobahn_ids`/`_parse_autobahn_roadwork` against the unauthenticated Autobahn GmbH API (`verkehr.autobahn.de`)
+- [x] Task D.3: Wire DK HTTP Basic Auth (`httpx.BasicAuth(dk_client_id, dk_secret)`) — confirmed via the official REST protocol spec, no token endpoint
+- [x] Task D.4: Fix the SE endpoint to `v2/data.json` + POST XML body with `LOGIN authenticationkey`
+- [x] Task D.5: Differentiate exception handling (log auth failures instead of swallowing them)
+- [x] Task D.6: Switch `ConstructionProviderImpl` from a mandatory context manager to a reusable client
+- [x] Task D.7: Load `credentials.local.yaml` in `providers_factory.py` (env vars take precedence); wire `ConstructionProviderImpl` into the factory; add the dependency to `create_trip_endpoint`
+- [x] Task D.8: Tests for skip-on-missing-credentials (DK/SE), auth-failure logging, SE body shape, DK Basic Auth header, DE Autobahn-ID extraction and roadwork JSON parsing (mocked HTTP, no live calls)
 
 ### Phase E: Iterative Convergence
 
-- [ ] Task E.1: Implement the loop over steps 4/5/6/7/8/9 in `create_trip_simulation`
-- [ ] Task E.2: Use `refetch_weather` instead of `fetch_weather` from iteration 2 onward
-- [ ] Task E.3: Remove the `fetch_weather_iterative` stub (including its tests)
-- [ ] Task E.4: Remove the dead `weather_samples`/`max_iterations`/`convergence_threshold_minutes` parameters from `simulate_trip`
-- [ ] Task E.5: Convergence/termination-bound tests
+- [x] Task E.1: Implement the loop over steps 4/5/6/7/8/9 in `create_trip_simulation`
+- [x] Task E.2: Use `refetch_weather` instead of `fetch_weather` from iteration 2 onward
+- [x] Task E.3: Remove the `fetch_weather_iterative` stub (including its tests)
+- [x] Task E.4: Remove the dead `weather_samples`/`max_iterations`/`convergence_threshold_minutes` parameters from `simulate_trip`
+- [x] Task E.5: Convergence/termination-bound tests
 
 ### Phase F: Integration & Docs
 
-- [ ] Task F.1: `tests/integration/test_trip_end_to_end.py`
-- [ ] Task F.2: Update status in `docs/02-architektur.md`/`docs/03-modulspezifikationen.md`
-- [ ] Task F.3: Final `uv run hk check --all`, `uv run pytest -m "not integration"`, coverage gate check
-- [ ] Task F.4: Commit per phase (AGENTS.md item 6 — no single combined commit across all phases)
+- [x] Task F.1: `tests/integration/test_trip_end_to_end.py`
+- [x] Task F.2: Update status in `docs/02-architektur.md`/`docs/03-modulspezifikationen.md`
+- [x] Task F.3: Final `uv run hk check --all`, `uv run pytest -m "not integration"`, coverage gate check
+- [x] Task F.4: Commit per phase (AGENTS.md item 6 — no single combined commit across all phases)
 
 ---
 

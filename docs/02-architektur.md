@@ -78,6 +78,13 @@ Problem: Die erwartete Durchfahrtszeit an einem Segment hängt vom bisherigen En
 5. **Konvergenzprüfung:** Weicht die aktualisierte ETA an einem Wetterabfragepunkt um mehr als einen konfigurierbaren Schwellwert (z. B. 30 Minuten) von der ursprünglich abgefragten Zeit ab, wird die Wetterabfrage für die betroffenen Punkte wiederholt und Schritt 3–4 erneut ausgeführt.
 6. In der Praxis genügt für Reisen im Tagesbereich in aller Regel eine einzige Nachiteration; die maximale Iterationszahl sollte dennoch als Sicherheitsgrenze konfigurierbar sein.
 
+> **Implementierungsstatus:** Die iterative Zeit-/Wetterauflösung ist ab
+> Phase E von `docs/plans/10-provider-integration-wiring.md` vollständig
+> implementiert: `create_trip_simulation()` enthält den Konvergenz-Loop
+> über die Schritte 4–9 mit `max_iterations`/`convergence_threshold_minutes`
+> als konfigurierbare Parameter, und `refetch_weather` wird ab der zweiten
+> Iteration verwendet (siehe `src/tripplanner/trip_input/api.py:673-747`).
+
 ## Zwischenstopps als Constraint
 
 Zwischenstopps werden dem Routing-Modul als geordnete Pflicht-Waypoints übergeben (GraphHopper unterstützt mehrere Wegpunkte nativ). Für die Optimierungsschicht werden sie als zusätzliche Knoten im Zustandsgraphen mit folgenden Eigenschaften modelliert:

@@ -20,7 +20,6 @@ from tripplanner.weather.providers import (
     _extract_sample_from_response,
 )
 
-
 BERLIN: Coordinate = (52.5200, 13.4050)
 HAMBURG: Coordinate = (53.5511, 9.9937)
 
@@ -390,7 +389,6 @@ def test_extract_sample_missing_key_uses_default() -> None:
 # ---------------------------------------------------------------------------
 # Bestehende Tests (unverändert)
 # ---------------------------------------------------------------------------
-
 
 
 @pytest.mark.asyncio

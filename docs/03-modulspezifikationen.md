@@ -26,7 +26,11 @@ Jedes Modul ist ein eigenständiges Python-Package unter `src/tripplanner/<modul
 
 **Ausgaben:** Höhe je Koordinate, daraus abgeleitet Steigung/Gefälle je Segment.
 
-**Abhängigkeiten:** Lokale DEM-Kacheln (Copernicus DEM/SRTM), Zugriff via `rasterio`.
+**Abhängigkeiten:** `CopernicusDEMDataSource` aus der öffentlichen AWS Open
+Data S3-Bucket `copernicus-dem-30m` (Cloud-Optimized GeoTIFF, kein AWS-Access-
+Key erforderlich), Zugriff via `rasterio` mit GDAL `/vsicurl/` für HTTP-Range-
+Requests — keine lokalen Kachel-Downloads nötig, nur die tatsächlich benötigten
+Tile-Fenster werden pro Route geladen.
 
 **Testbarkeit:** Kleine synthetische Test-Kachel im Testfixture; keine Notwendigkeit, echte globale DEM-Daten im Testlauf vorzuhalten.
 
