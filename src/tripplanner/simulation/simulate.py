@@ -18,7 +18,6 @@ from tripplanner.simulation.models import (
     TripSimulationResult,
     TripState,
 )
-from tripplanner.weather.models import WeatherSample
 
 # Konstanten fuer maximale Werte
 _MAX_SOC_PCT = 100.0
@@ -112,14 +111,11 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     route: Route,
     charging_plan: ChargingPlan,
     segment_energy: list[SegmentEnergyResult],
-    weather_samples: list[WeatherSample],
     start_soc_pct: float,
     abfahrtszeit: datetime,
-    max_iterations: int = 3,
-    convergence_threshold_minutes: float = 30.0,
     output_resolution_seconds: int = 60,
     battery_capacity_kwh: float = 62.5,
-    ladehalt_detouren: dict[int, LadehaltDetour] | None = None,
+    charging_stop_detours: dict[int, LadehaltDetour] | None = None,
 ) -> TripSimulationResult:
     """Simuliert die komplette Reise entlang der Route unter Beruecksichtigung des Ladeplans.
 
@@ -127,18 +123,15 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         route: Route mit Segmente (feste Geometrie nach GraphHopper)
         charging_plan: Optimierter Ladeplan aus optimization.Modul
         segment_energy: Energiebedarf je Segment
-        weather_samples: Wetter pro Abfragepunkt (nicht verwendet)
         start_soc_pct: Start-SoC in %
-        max_iterations: Max. Anzahl Iterationen fuer ETA-Wetter-Konvergenz (nicht verwendet)
-        convergence_threshold_minutes: Schwelle in Minuten fuer Iterationserneuerung
         output_resolution_seconds: Zeitauflösung der Ausgabe (default: 60s)
         abfahrtszeit: Abfahrtszeitpunkt der Reise (timezone-aware datetime)
         battery_capacity_kwh: Nutzbare Batteriekapazitaet in kWh (default: 62.5 kWh)
-        ladehalt_detouren: Optionales, ueber GraphHopper geroutetes Detour-Ergebnis
+        charging_stop_detours: Optionales, ueber GraphHopper geroutetes Detour-Ergebnis
             je Ladehalt (Schluessel: `id()` des `ChargingStop`-Objekts aus
             `charging_plan.ladehalte`), fuer eine strassengetreue Kartendarstellung
             des Abstechers zur Ladestation (siehe
-            `tripplanner.trip_input.api._step_lade_detours_routen`). Fehlt ein
+            `tripplanner.trip_input.api._step_route_charging_detours`). Fehlt ein
             Eintrag, bleibt `ChargingStopSummary.detour_geometrie` leer.
 
     Returns:
@@ -343,7 +336,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
 
         current_time_s += output_resolution_seconds
 
-    detouren = ladehalt_detouren or {}
+    detouren = charging_stop_detours or {}
     charging_stops: list[ChargingStopSummary] = []
     for ladehalt in ladehalte_sortiert:
         detour = detouren.get(id(ladehalt))

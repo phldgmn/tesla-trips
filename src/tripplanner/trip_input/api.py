@@ -598,6 +598,8 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
     charging_provider: ChargingStationProvider | None = None,
     start_soc_pct: float = 80.0,
     destination_soc_pct: float = 20.0,
+    max_iterations: int = 3,
+    convergence_threshold_minutes: float = 30.0,
     route_observer: Callable[[Route], None] | None = None,
     ferry_observer: Callable[[list[FaehrSegment]], None] | None = None,
 ) -> TripSimulationResult:
@@ -613,6 +615,10 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
             (Default: FakeChargingStationProvider).
         start_soc_pct: Starting state of charge in percent (Default: 80%).
         destination_soc_pct: Target state of charge in percent (Default: 20%).
+        max_iterations: Max iterations for iterative ETA/weather convergence.
+            Default: 3.
+        convergence_threshold_minutes: Convergence threshold in minutes for early
+            termination of the iterative loop. Default: 30.0.
         route_observer: Optional callback called immediately after step 1 (routing)
             with the computed route (see `create_trip_endpoint`).
         ferry_observer: Optional callback called immediately after step 1 with the
@@ -716,24 +722,93 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
         request.fahrzeugprofil,
     )
 
-    # 10. Step 9: Update ETA
-    _ = _step_9_update_eta(segment_eta_list, charging_plan)
+    # 10. Iterative ETA/weather convergence loop
+    prev_segment_eta_list: list[tuple[RouteSegment, timedelta]] | None = None
+
+    for iteration in range(max_iterations):
+        # Store previous iteration's ETA for convergence check
+        if iteration > 0:
+            prev_segment_eta_list = [(seg, eta) for seg, eta in segment_eta_list]
+
+        # Fetch weather with updated ETA-based timestamps
+        weather_samples = await _step_5_fetch_weather(
+            weather_provider,
+            route,
+            segment_eta_list,
+            request.abfahrtszeit,
+        )
+
+        # Construction sites (optional)
+        construction_zones = await _step_6_construction_sites(
+            construction_provider, route, ["DE", "DK", "SE"]
+        )
+
+        # Calculate energy consumption
+        energy_results = await _step_7_calculate_segment_energy(
+            route,
+            segments,
+            segment_eta_list,
+            weather_samples,
+            request.fahrzeugprofil,
+            construction_zones,
+            request.abfahrtszeit,
+            elevation_provider,
+            elevation_points,
+        )
+
+        # Optimize charging plan
+        charging_plan = await _step_8_optimize_charging_plan(
+            route,
+            energy_results,
+            request.fahrzeugprofil,
+            start_soc_pct,
+            destination_soc_pct,
+            construction_zones,
+            request.abfahrtszeit,
+            elevation_provider,
+            elevation_points,
+            zwischenstopps=waypoints_with_wait_time,
+            charging_provider=charging_provider,
+            ladedauer_vorgaben=charging_duration_map,
+            faehr_zeitfenster=ferry_pins,
+        )
+
+        # Update ETA with charging plan
+        segment_eta_list = _step_9_update_eta(segment_eta_list, charging_plan)
+
+        # Recalculate detours based on the final charging plan
+        charging_stop_detours = await _step_route_charging_detours(
+            routing_provider,
+            route,
+            charging_plan,
+            request.abfahrtszeit,
+            request.fahrzeugprofil,
+        )
+
+        # Convergence check: compare with previous iteration's ETA
+        if iteration > 0 and prev_segment_eta_list is not None:
+            max_deviation_seconds = 0.0
+            for (_, eta_prev), (_, eta_curr) in zip(
+                prev_segment_eta_list, segment_eta_list, strict=True
+            ):
+                deviation = abs((eta_curr - eta_prev).total_seconds())
+                max_deviation_seconds = max(max_deviation_seconds, deviation)
+
+            # Early exit if converged
+            if max_deviation_seconds < convergence_threshold_minutes * 60:
+                break
 
     # 11. Step 10: Run simulation
     simulation_result = simulate_trip(
         route=route,
         charging_plan=charging_plan,
         segment_energy=energy_results,
-        weather_samples=weather_samples,
         start_soc_pct=start_soc_pct,
-        max_iterations=3,
-        convergence_threshold_minutes=30.0,
         output_resolution_seconds=60,
         abfahrtszeit=request.abfahrtszeit,
         battery_capacity_kwh=request.fahrzeugprofil.batteriekapazitaet_kwh,
-        ladehalt_detouren=charging_stop_detours,
+        charging_stop_detours=charging_stop_detours,
     )
-
     # 12. Step 11: Return result
     return simulation_result
 

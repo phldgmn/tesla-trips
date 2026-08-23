@@ -19,7 +19,7 @@ from tripplanner.weather.providers import (
     OpenMeteoProvider,
     _extract_sample_from_response,
 )
-from tripplanner.weather.weather import fetch_weather_iterative
+
 
 BERLIN: Coordinate = (52.5200, 13.4050)
 HAMBURG: Coordinate = (53.5511, 9.9937)
@@ -391,48 +391,6 @@ def test_extract_sample_missing_key_uses_default() -> None:
 # Bestehende Tests (unverändert)
 # ---------------------------------------------------------------------------
 
-
-@pytest.mark.asyncio
-@pytest.mark.integration
-async def test_fetch_weather_iterative_with_integration_provider() -> None:
-    """Integrationstest für fetch_weather_iterative mit echtem HTTP-Call.
-
-    Given: Lokale GraphHopper-Instanz mit echtem Open-Meteo-Provider.
-    When: fetch_weather_iterative auf einer 200 km-Strecke mit 5 Abfragen.
-    Then: Konvergenz nach ≤ 2 Iterationen (ETA-Abweichung < 30 Min), Gesamt-ETA < 20 Sekunden.
-    """
-    # This test requires actual HTTP access to Open-Meteo API
-    # Skip in this environment, but keep as template for future integration tests
-    pytest.skip("Integration test - requires actual Open-Meteo API access")
-
-
-@pytest.mark.asyncio
-async def test_fetch_weather_iterative_with_fake_provider() -> None:
-    """Test fetch_weather_iterative mit Fake-Provider.
-
-    Given: Fake-Provider mit simulierten Abweichungen.
-    When: fetch_weather_iterative mit 3 Queries aufrufen.
-    Then: Ergebnis hat 3 Samples, Iterationen konvergieren oder max_iterations erreichen.
-    """
-    now = datetime(2026, 8, 2, 10, 0)
-    queries = [
-        WeatherQuery(koordinate=BERLIN, zeitpunkt=now),
-        WeatherQuery(koordinate=BERLIN, zeitpunkt=now + timedelta(hours=1)),
-        WeatherQuery(koordinate=BERLIN, zeitpunkt=now + timedelta(hours=2)),
-    ]
-
-    provider = FakeWeatherProvider()
-    # When: fetch_weather_iterative aufrufen
-    results = await fetch_weather_iterative(
-        provider,
-        queries,
-        max_iterations=2,
-        convergence_threshold_s=1800,
-    )
-
-    # Then: Ergebnis hat 3 Samples
-    assert len(results) == 3
-    assert all(s.koordinate == BERLIN for s in results)
 
 
 @pytest.mark.asyncio

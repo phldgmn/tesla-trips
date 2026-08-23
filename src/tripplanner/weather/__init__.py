@@ -3,7 +3,6 @@
 Re-exportiert:
 - `WeatherProvider`: Protocol für Wetter-Datenprovider
 - `fetch_weather_for_route`: Abruf von Wetterdaten entlang einer Route
-- `fetch_weather_iterative`: Iterative Wetterabfrage gemäß 02-architektur.md
 - `OpenMeteoClient`: HTTP-Client für Open-Meteo (optional für DI in Tests)
 - `OpenMeteoProvider`: Implementierung des Providers über Open-Meteo
 """
@@ -15,7 +14,7 @@ from tripplanner.weather.providers import (
     OpenMeteoProvider,
     WeatherProvider,
 )
-from tripplanner.weather.weather import fetch_weather_for_route, fetch_weather_iterative
+from tripplanner.weather.weather import fetch_weather_for_route
 
 __all__ = [
     "FakeWeatherProvider",
@@ -26,5 +25,4 @@ __all__ = [
     "WeatherQuery",
     "WeatherSample",
     "fetch_weather_for_route",
-    "fetch_weather_iterative",
 ]
