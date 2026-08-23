@@ -8,14 +8,17 @@ enthält:
 
 from __future__ import annotations
 
+import inspect
 import math
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import polyline
 import pytest
+from fastapi import params as fastapi_params
 from fastapi.testclient import TestClient
 
 import tripplanner.trip_input.api as trip_api
@@ -26,10 +29,12 @@ from tripplanner.charging_infrastructure.providers import TeslaChargingStationPr
 from tripplanner.construction.providers import FakeConstructionProvider
 from tripplanner.elevation import ElevationProvider
 from tripplanner.elevation.providers import FakeDataSource
+from tripplanner.energy.models import SegmentEnergyResult
 from tripplanner.routing import FakeRoutingProvider, GraphHopperClient, GraphHopperRoutingProvider
 from tripplanner.routing.models import FaehrSegment, Route, RouteSegment
 from tripplanner.trip_input.api import (
     app,
+    create_trip_endpoint,
     create_trip_simulation,
     get_charging_provider,
     get_construction_provider,
@@ -45,7 +50,8 @@ from tripplanner.trip_input.models import (
     VehicleProfile,
     Waypoint,
 )
-from tripplanner.weather.providers import FakeWeatherProvider
+from tripplanner.weather.models import WeatherSample
+from tripplanner.weather.providers import FakeWeatherProvider, OpenMeteoProvider
 
 # =============================================================================
 # Fixtures
@@ -90,8 +96,12 @@ def client(
     app.dependency_overrides[get_elevation_provider] = lambda: ElevationProvider(
         data_source=FakeDataSource()
     )
-    app.dependency_overrides[get_weather_provider] = FakeWeatherProvider
-    app.dependency_overrides[get_construction_provider] = FakeConstructionProvider
+    # PLW0108: lambda ist erforderlich, nicht nur Stil - eine "nackte" Klasse
+    # als Override laesst FastAPI die __init__-Signatur der Fake-Klasse als
+    # zusaetzliche Body-Parameter re-analysieren (list[BaseModel]-Parameter
+    # wie `samples`/`test_zones`), was die /trips-Body-Validierung bricht.
+    app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
+    app.dependency_overrides[get_construction_provider] = lambda: FakeConstructionProvider()  # noqa: PLW0108
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.pop(get_routing_provider, None)
@@ -594,6 +604,120 @@ async def test_step_1_route_calculation_uses_calculate_route(
     await trip_api._step_1_route_calculate(anfrage, provider)
 
     assert provider.berechne_route_called_with is anfrage
+
+
+class _CoordinateElevationDataSource:
+    """Test-Double für DEMDataSourceProtocol: feste Höhe je exakter Koordinate.
+
+    Erlaubt es, ein kontrolliertes Höhenprofil (statt eines echten DEM-Tiles)
+    für Regressionstests der realen Gradientenberechnung (Plan 10 Phase C) zu
+    injizieren.
+    """
+
+    def __init__(self, elevations: dict[tuple[float, float], float]) -> None:
+        self._elevations = elevations
+
+    def get_elevation(self, lat: float, lon: float) -> float:
+        return self._elevations.get((lat, lon), 0.0)
+
+    def get_elevations_batch(self, coordinates: list[tuple[float, float]]) -> list[float]:
+        return [self.get_elevation(lat, lon) for lat, lon in coordinates]
+
+    def get_tile_at(self, lat: float, lon: float) -> None:
+        return None
+
+    def get_tiles_in_bbox(
+        self, min_lat: float, max_lat: float, min_lon: float, max_lon: float
+    ) -> list[object]:
+        return []
+
+
+class TestElevationGradientAffectsEnergy:
+    """Regressionstests für Plan 10 Phase C: `_step_7_calculate_segment_energy`
+    nutzt das reale Höhenprofil statt eines hartkodierten flachen Gradienten
+    (`steigung_prozent=0.0`)."""
+
+    def _make_segment(self) -> RouteSegment:
+        """5km-Segment (Nord-Süd, konstante Länge), Höhe wird pro Test variiert."""
+        return RouteSegment(
+            segment_index=0,
+            geometrie=[(48.0, 11.0), (48.0449, 11.0)],
+            laenge_m=5000.0,
+            strassenklasse="MOTORWAY",
+            bearing_deg=0.0,
+        )
+
+    def _make_vehicle_profile(self) -> VehicleProfile:
+        return VehicleProfile(
+            masse_kg=1800.0,
+            cw_wert=0.23,
+            stirnflaeche_m2=2.2,
+            rollwiderstandsbeiwert=0.01,
+            batteriekapazitaet_kwh=60.0,
+            nebenverbraucher_baseline_kw=0.34,
+            reifentyp="standard",
+            dachbox=False,
+        )
+
+    async def _energy_for_elevations(
+        self, segment: RouteSegment, elevations: dict[tuple[float, float], float]
+    ) -> SegmentEnergyResult:
+        source = _CoordinateElevationDataSource(elevations)
+        elevation_provider = ElevationProvider(data_source=source)
+        route = Route(
+            segments=[segment], gesamtlaenge_m=segment.laenge_m, geometrie=segment.geometrie
+        )
+        elevation_points = elevation_provider.get_elevation_profile(route)
+        abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0)
+        weather = WeatherSample(
+            koordinate=segment.geometrie[0],
+            zeitpunkt=abfahrtszeit,
+            temperatur_c=20.0,
+            windgeschwindigkeit_ms=0.0,
+            windrichtung_deg=0.0,
+            niederschlag_mm=0.0,
+            schneefall_cm=0.0,
+            luftdruck_hpa=1013.25,
+            luftfeuchtigkeit_pct=60.0,
+            globalstrahlung_wm2=400.0,
+            bewoelkung_pct=20.0,
+        )
+        results = await trip_api._step_7_calculate_segment_energy(
+            route,
+            [segment],
+            [(segment, timedelta(minutes=3))],
+            [weather],
+            self._make_vehicle_profile(),
+            [],
+            abfahrtszeit,
+            elevation_provider,
+            elevation_points,
+        )
+        assert len(results) == 1
+        return results[0]
+
+    async def test_uphill_segment_consumes_more_energy_than_flat(self) -> None:
+        """Ein Segment mit +500m Höhendifferenz verbraucht strikt mehr Energie
+        als dasselbe (aber flache) Segment - deckt den vormals hartkodierten
+        `steigung_prozent=0.0` ab."""
+        segment = self._make_segment()
+        start, end = segment.geometrie[0], segment.geometrie[-1]
+
+        flat = await self._energy_for_elevations(segment, {start: 0.0, end: 0.0})
+        uphill = await self._energy_for_elevations(segment, {start: 0.0, end: 500.0})
+
+        assert uphill.energiebedarf_kwh > flat.energiebedarf_kwh
+
+    async def test_downhill_segment_consumes_less_energy_than_flat(self) -> None:
+        """Ein Segment mit -500m Höhendifferenz verbraucht (durch Rekuperation)
+        strikt weniger Energie als dasselbe flache Segment."""
+        segment = self._make_segment()
+        start, end = segment.geometrie[0], segment.geometrie[-1]
+
+        flat = await self._energy_for_elevations(segment, {start: 0.0, end: 0.0})
+        downhill = await self._energy_for_elevations(segment, {start: 500.0, end: 0.0})
+
+        assert downhill.energiebedarf_kwh < flat.energiebedarf_kwh
 
 
 # =============================================================================
@@ -1431,6 +1555,13 @@ def test_fastapi_endpoint_preserves_curved_graphhopper_geometry() -> None:
 
     provider = _make_graphhopper_provider(handler)
     app.dependency_overrides[get_routing_provider] = lambda: provider
+    app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
+    app.dependency_overrides[get_construction_provider] = (
+        lambda: FakeConstructionProvider()  # noqa: PLW0108
+    )
+    app.dependency_overrides[get_elevation_provider] = lambda: ElevationProvider(
+        data_source=FakeDataSource()
+    )
     try:
         with TestClient(app) as test_client:
             api_request = {
@@ -1444,6 +1575,9 @@ def test_fastapi_endpoint_preserves_curved_graphhopper_geometry() -> None:
             response = test_client.post("/trips", json=api_request)
     finally:
         app.dependency_overrides.pop(get_routing_provider, None)
+        app.dependency_overrides.pop(get_weather_provider, None)
+        app.dependency_overrides.pop(get_construction_provider, None)
+        app.dependency_overrides.pop(get_elevation_provider, None)
 
     assert response.status_code == 201
     data = response.json()
@@ -1499,6 +1633,13 @@ def test_fastapi_endpoint_exposes_full_resolution_route_geometrie() -> None:
 
     provider = _make_graphhopper_provider(handler)
     app.dependency_overrides[get_routing_provider] = lambda: provider
+    app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
+    app.dependency_overrides[get_construction_provider] = (
+        lambda: FakeConstructionProvider()  # noqa: PLW0108
+    )
+    app.dependency_overrides[get_elevation_provider] = lambda: ElevationProvider(
+        data_source=FakeDataSource()
+    )
     try:
         with TestClient(app) as test_client:
             api_request = {
@@ -1512,6 +1653,9 @@ def test_fastapi_endpoint_exposes_full_resolution_route_geometrie() -> None:
             response = test_client.post("/trips", json=api_request)
     finally:
         app.dependency_overrides.pop(get_routing_provider, None)
+        app.dependency_overrides.pop(get_weather_provider, None)
+        app.dependency_overrides.pop(get_construction_provider, None)
+        app.dependency_overrides.pop(get_elevation_provider, None)
 
     assert response.status_code == 201
     data = response.json()
@@ -1581,6 +1725,191 @@ def test_fastapi_endpoint_graphhopper_unreachable_returns_502() -> None:
     assert response.status_code == 502
     detail = response.json()["detail"]
     assert "GraphHopper" in detail or "Routing" in detail
+
+
+def test_create_trip_endpoint_wires_weather_provider_dependency() -> None:
+    """`create_trip_endpoint`'s Depends list resolves `weather_provider` via
+    `get_weather_provider` - without this wiring `/trips` would silently keep
+    using `FakeWeatherProvider` for every production request regardless of the
+    configured `OpenMeteoProvider` (Plan 10 Section 6)."""
+    sig = inspect.signature(create_trip_endpoint)
+    weather_param = sig.parameters["weather_provider"]
+    assert isinstance(weather_param.default, fastapi_params.Depends)
+    assert weather_param.default.dependency is get_weather_provider
+
+
+def _open_meteo_mock_get(
+    self: httpx.AsyncClient, url: str, *args: object, **kwargs: object
+) -> httpx.Response:
+    """Simuliert die Open-Meteo Forecast API auf `httpx.AsyncClient.get`-Ebene
+    (kein Live-Call, siehe AGENTS.md) und liefert pro Koordinate/Minute
+    unterschiedliche Temperatur-/Windwerte, damit Tests eine echte
+    `OpenMeteoProvider`-Antwort von `FakeWeatherProvider`s Konstanten
+    (20.0°C/5.0 m/s) unterscheiden koennen.
+    """
+    qs = parse_qs(urlparse(str(url)).query)
+    lat = float(qs["latitude"][0])
+    lon = float(qs["longitude"][0])
+    start_date = datetime.fromisoformat(qs["start_date"][0])
+    end_date = datetime.fromisoformat(qs["end_date"][0])
+
+    times: list[str] = []
+    temps: list[float] = []
+    winds: list[float] = []
+    day = start_date
+    while day <= end_date:
+        for minute in range(24 * 60):
+            times.append((day + timedelta(minutes=minute)).strftime("%Y-%m-%dT%H:%M"))
+            temps.append(round(5.0 + lat * 0.3 + minute * 0.01, 2))
+            winds.append(round(1.0 + abs(lon) * 0.4 + minute * 0.005, 2))
+        day += timedelta(days=1)
+
+    n = len(times)
+    hourly = {
+        "time": times,
+        "temperature_2m": temps,
+        "wind_speed_10m": winds,
+        "wind_direction_10m": [90.0] * n,
+        "precipitation": [0.0] * n,
+        "snowfall": [0.0] * n,
+        "surface_pressure": [1013.0] * n,
+        "relative_humidity_2m": [55.0] * n,
+        "shortwave_radiation": [300.0] * n,
+        "cloud_cover": [10.0] * n,
+    }
+    return httpx.Response(
+        200,
+        request=httpx.Request("GET", str(url)),
+        json={
+            "latitude": lat,
+            "longitude": lon,
+            "timezone": "UTC",
+            "timezone_abbreviation": "UTC",
+            "elevation": 0.0,
+            "hourly": hourly,
+            "hourly_units": dict.fromkeys(hourly, ""),
+        },
+    )
+
+
+async def _async_open_meteo_mock_get(
+    self: httpx.AsyncClient, url: str, *args: object, **kwargs: object
+) -> httpx.Response:
+    return _open_meteo_mock_get(self, url, *args, **kwargs)
+
+
+def test_create_trip_endpoint_uses_open_meteo_provider_for_real_weather(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
+) -> None:
+    """`/trips` wired to a real `OpenMeteoProvider` (HTTP mocked at the
+    `httpx.AsyncClient.get` level per AGENTS.md, no live calls) produces
+    per-segment weather derived from the mocked Open-Meteo response instead of
+    `FakeWeatherProvider`'s constant 20.0°C/5.0 m/s - regression test for Plan
+    10 Phase B (weather wiring)."""
+    captured_weather_samples: list[list[WeatherSample]] = []
+    original_step_7 = trip_api._step_7_calculate_segment_energy
+
+    async def spy_step_7(
+        route: Route,
+        route_segments: list[RouteSegment],
+        segment_eta_list: list[tuple[RouteSegment, timedelta]],
+        weather_samples: list[WeatherSample],
+        *rest: object,
+    ) -> object:
+        captured_weather_samples.append(list(weather_samples))
+        return await original_step_7(
+            route, route_segments, segment_eta_list, weather_samples, *rest
+        )
+
+    monkeypatch.setattr(trip_api, "_step_7_calculate_segment_energy", spy_step_7)
+    monkeypatch.setattr(httpx.AsyncClient, "get", _async_open_meteo_mock_get)
+
+    app.dependency_overrides[get_routing_provider] = FakeRoutingProvider
+    app.dependency_overrides[get_charging_provider] = lambda: fake_charging_provider_berlin_munich
+    app.dependency_overrides[get_elevation_provider] = lambda: ElevationProvider(
+        data_source=FakeDataSource()
+    )
+    # PLW0108: lambda erforderlich (siehe `client`-Fixture oben) - vermeidet
+    # den FastAPI-Override-Introspektions-Bug bei list[BaseModel]-Konstruktorparametern.
+    app.dependency_overrides[get_weather_provider] = lambda: OpenMeteoProvider()  # noqa: PLW0108
+    app.dependency_overrides[get_construction_provider] = lambda: FakeConstructionProvider()  # noqa: PLW0108
+    try:
+        with TestClient(app) as test_client:
+            api_request = {
+                "start": (52.52, 13.405),
+                "ziel": (48.135, 11.582),
+                "zwischenstopps": [],
+                "abfahrtszeit": "2026-08-15T08:30:00",
+                "fahrzeugprofil": _make_fahrzeugprofil_dict(),
+                "praeferenzen": {},
+            }
+            response = test_client.post("/trips", json=api_request)
+    finally:
+        app.dependency_overrides.pop(get_routing_provider, None)
+        app.dependency_overrides.pop(get_charging_provider, None)
+        app.dependency_overrides.pop(get_elevation_provider, None)
+        app.dependency_overrides.pop(get_weather_provider, None)
+        app.dependency_overrides.pop(get_construction_provider, None)
+
+    assert response.status_code == 201
+    assert captured_weather_samples, "erwartete mindestens einen _step_7-Aufruf"
+    samples = captured_weather_samples[0]
+    assert samples, "erwartete mindestens ein WeatherSample aus OpenMeteoProvider"
+    temperatures = {s.temperatur_c for s in samples}
+    wind_speeds = {s.windgeschwindigkeit_ms for s in samples}
+    assert len(temperatures) > 1, "Temperaturen muessen je Segment variieren (echte API-Daten)"
+    assert all(t != 20.0 for t in temperatures), "duerfen nicht Fake-Konstante 20.0 sein"
+    assert all(w != 5.0 for w in wind_speeds), "duerfen nicht Fake-Konstante 5.0 sein"
+
+
+def test_fastapi_endpoint_weather_rate_limit_returns_502(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
+) -> None:
+    """Ein `httpx.HTTPStatusError` mit Status 429 (Rate-Limit) vom Wetter-
+    Provider liefert 502 statt eines generischen 500ers - mirrort den
+    bestehenden GraphHopper-Fehlerpfad (Plan 10 Section 6)."""
+
+    async def rate_limited_get(
+        self: httpx.AsyncClient, url: str, *args: object, **kwargs: object
+    ) -> httpx.Response:
+        request = httpx.Request("GET", str(url))
+        response = httpx.Response(429, request=request, json={"error": "rate limited"})
+        raise httpx.HTTPStatusError("429 Too Many Requests", request=request, response=response)
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", rate_limited_get)
+
+    app.dependency_overrides[get_routing_provider] = FakeRoutingProvider
+    app.dependency_overrides[get_charging_provider] = lambda: fake_charging_provider_berlin_munich
+    app.dependency_overrides[get_elevation_provider] = lambda: ElevationProvider(
+        data_source=FakeDataSource()
+    )
+    # PLW0108: lambda erforderlich (siehe `client`-Fixture oben) - vermeidet
+    # den FastAPI-Override-Introspektions-Bug bei list[BaseModel]-Konstruktorparametern.
+    app.dependency_overrides[get_weather_provider] = lambda: OpenMeteoProvider()  # noqa: PLW0108
+    app.dependency_overrides[get_construction_provider] = lambda: FakeConstructionProvider()  # noqa: PLW0108
+    try:
+        with TestClient(app) as test_client:
+            api_request = {
+                "start": (52.52, 13.405),
+                "ziel": (48.135, 11.582),
+                "zwischenstopps": [],
+                "abfahrtszeit": "2026-08-15T08:30:00",
+                "fahrzeugprofil": _make_fahrzeugprofil_dict(),
+                "praeferenzen": {},
+            }
+            response = test_client.post("/trips", json=api_request)
+    finally:
+        app.dependency_overrides.pop(get_routing_provider, None)
+        app.dependency_overrides.pop(get_charging_provider, None)
+        app.dependency_overrides.pop(get_elevation_provider, None)
+        app.dependency_overrides.pop(get_weather_provider, None)
+        app.dependency_overrides.pop(get_construction_provider, None)
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "Rate-Limit" in detail or "429" in detail
 
 
 # =============================================================================

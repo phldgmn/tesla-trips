@@ -31,7 +31,7 @@ from tripplanner.charging_infrastructure.providers import (
 )
 from tripplanner.construction.models import ConstructionProvider, ConstructionZone, Land
 from tripplanner.elevation import ElevationProvider
-from tripplanner.elevation.models import ElevationPoint, SegmentGradient
+from tripplanner.elevation.models import ElevationPoint
 from tripplanner.elevation.providers import FakeDataSource
 from tripplanner.energy import calculate_segment_consumption
 from tripplanner.energy.models import SegmentEnergyResult, VehicleEnergyParameters
@@ -196,12 +196,15 @@ async def _step_6_construction_sites(
 
 
 async def _step_7_calculate_segment_energy(  # noqa: PLR0913, PLR0917
+    route: Route,
     route_segments: list[RouteSegment],
     segment_eta_list: list[tuple[RouteSegment, timedelta]],
     weather_samples: list[WeatherSample],
     vehicle_profile: VehicleProfile,
     construction_zones: list[ConstructionZone],
     abfahrtszeit: datetime,
+    elevation_provider: ElevationProvider,
+    elevation_points: list[ElevationPoint],
 ) -> list[SegmentEnergyResult]:
     """Schritt 7: Energieverbrauch je Segment berechnen.
 
@@ -229,16 +232,8 @@ async def _step_7_calculate_segment_energy(  # noqa: PLR0913, PLR0917
         dachbox=vehicle_profile.dachbox,
     )
 
-    # Gradient und SegmentGradient für jedes Segment berechnen (vereinfacht)
-    gradients = [
-        SegmentGradient(
-            segment_index=s.segment_index,
-            steigung_prozent=0.0,  # Vereinfachung: flach
-            hoehendifferenz_m=0.0,
-            horizontale_distanz_m=s.laenge_m,
-        )
-        for s in route_segments
-    ]
+    # Reales Höhenprofil-basiertes Gradient je Segment
+    gradients = elevation_provider.calculate_segment_gradients(elevation_points, route)
 
     # Energieverbrauch pro Segment berechnen
     ergebnisse: list[SegmentEnergyResult] = []
@@ -296,6 +291,8 @@ async def _step_8_optimize_charging_plan(  # noqa: PLR0913, PLR0917
     ziel_soc_pct: float,
     construction_zones: list[ConstructionZone],
     abfahrtszeit: datetime,
+    elevation_provider: ElevationProvider,
+    elevation_points: list[ElevationPoint],
     zwischenstopps: list[Waypoint] | None = None,
     charging_provider: ChargingStationProvider | None = None,
     ladedauer_vorgaben: dict[str, int] | None = None,
@@ -344,16 +341,8 @@ async def _step_8_optimize_charging_plan(  # noqa: PLR0913, PLR0917
 
     waypoints = list(zwischenstopps) if zwischenstopps else []
 
-    # Gradients für Optimizer (vereinfacht)
-    gradients = [
-        SegmentGradient(
-            segment_index=s.segment_index,
-            steigung_prozent=0.0,
-            hoehendifferenz_m=0.0,
-            horizontale_distanz_m=s.laenge_m,
-        )
-        for s in route.segments
-    ]
+    # Reales Höhenprofil-basiertes Gradient je Segment
+    gradients = elevation_provider.calculate_segment_gradients(elevation_points, route)
 
     return optimizer.optimize(
         route=route,
@@ -654,7 +643,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
     # 3. Step 2: Extract elevation profile
     if elevation_provider is None:
         elevation_provider = ElevationProvider(data_source=FakeDataSource())
-    _ = _step_2_extract_elevation_profile(route, elevation_provider)
+    elevation_points = _step_2_extract_elevation_profile(route, elevation_provider)
 
     # 4. Step 3: Segment routing (already in route.segments)
     segments = _step_3_segment_route(route)
@@ -682,12 +671,15 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
 
     # 8. Step 7: Calculate energy consumption
     energy_results = await _step_7_calculate_segment_energy(
+        route,
         segments,
         segment_eta_list,
         weather_samples,
         request.fahrzeugprofil,
         construction_zones,
         request.abfahrtszeit,
+        elevation_provider,
+        elevation_points,
     )
 
     # Prepare ferry time windows as optimizer input
@@ -707,6 +699,8 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
         destination_soc_pct,
         construction_zones,
         request.abfahrtszeit,
+        elevation_provider,
+        elevation_points,
         zwischenstopps=waypoints_with_wait_time,
         charging_provider=charging_provider,
         ladedauer_vorgaben=charging_duration_map,
@@ -1173,12 +1167,15 @@ class TripSimulationResultAPI(BaseModel):
 
 
 @app.post("/trips", response_model=TripSimulationResultAPI, status_code=201)
-async def create_trip_endpoint(
+async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
     request: TripRequestAPI,
     # B008: Depends(...) im Default ist das FastAPI-Standardidiom für Dependency
     # Injection, kein veränderliches Objekt/kein echter Bug (siehe FastAPI-Doku).
     routing_provider: RoutingProvider = Depends(get_routing_provider),  # noqa: B008
     charging_provider: ChargingStationProvider = Depends(get_charging_provider),  # noqa: B008
+    weather_provider: WeatherProvider = Depends(get_weather_provider),  # noqa: B008
+    construction_provider: ConstructionProvider = Depends(get_construction_provider),  # noqa: B008
+    elevation_provider: ElevationProvider = Depends(get_elevation_provider),  # noqa: B008
 ) -> TripSimulationResultAPI:
     """Erstellt eine neue Reise-Simulation.
 
@@ -1243,6 +1240,9 @@ async def create_trip_endpoint(
             request_dict,
             routing_provider=routing_provider,
             charging_provider=charging_provider,
+            weather_provider=weather_provider,
+            construction_provider=construction_provider,
+            elevation_provider=elevation_provider,
             start_soc_pct=request.start_soc_pct,
             destination_soc_pct=request.ziel_soc_pct,
             ferry_observer=_faehren_erfassen,
@@ -1302,6 +1302,16 @@ async def create_trip_endpoint(
         raise HTTPException(
             status_code=422,
             detail=f"Route nicht durchführbar: {e!s}",
+        ) from e
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == httpx.codes.TOO_MANY_REQUESTS:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Wetter-Server (Open-Meteo) Rate-Limit erreicht: {e}",
+            ) from e
+        raise HTTPException(
+            status_code=502,
+            detail=f"Routing-Server (GraphHopper) nicht erreichbar oder lieferte einen Fehler: {e}",
         ) from e
     except httpx.HTTPError as e:
         raise HTTPException(
