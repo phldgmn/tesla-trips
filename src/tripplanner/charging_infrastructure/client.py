@@ -11,6 +11,7 @@ from typing import Any, ClassVar
 from urllib.parse import quote
 
 import httpx
+from curl_cffi import AsyncSession
 
 
 def _debug_log(log_path: Path | None, msg: str, label: str = "DEBUG") -> None:
@@ -126,20 +127,28 @@ class SuperchargeInfoClient:
 
 
 class TeslaLocationsClient:
-    """HTTP-Client fuer die oeffentliche Tesla Locations-API via System-curl.
+    """HTTP-Client fuer die oeffentliche Tesla Locations-API via curl_cffi.
 
-    Ruft die Tesla API ueber das systemeigene ``curl``-Binary auf (via
-    subprocess), weil Python-HTTP-Clients (httpx, curl_cffi) von Akamai WAF
-    anhand des TLS-Fingerprints als Bot erkannt werden. Der macOS-System-curl
-    verwendet SecureTransport und wird wie ein echter Browser behandelt.
+    Nutzt ``curl_cffi.AsyncSession`` mit JA3/TLS-Fingerprint-Impersonation
+    (Chrome 150), um den Akamai WAF von tesla.com zu umgehen. Der
+    ``impersonate``-Preset generiert automatisch die korrekten HTTP/2
+    Header-Sequenz und den User-Agent — manuell gesetzte Header (wie die
+    alten ``_CURL_HEADERS``) sind nicht mehr noetig, koennen aber zur
+    Ueberschreibung verwendet werden.
+
+    Ein ``AsyncSession``-Objekt wird pro Client-Instanz erzeugt und
+    ueber alle Requests hinweg wiederverwendet, was Cookie-Jar-Tracking,
+    TCP-Connection-Pooling und HTTP/2-Stream-Multiplexing aktiviert.
 
     Zwei Endpunkte:
-    - get-locations          -> Liste aller Standorte (UUID, Slug, Typ, Koordinaten)
-    - get-location-details   -> Detaildaten zu einem Standort (Slug-basiert)
+    - fetch_locations            -> Liste aller Standorte (UUID, Slug, Typ, Koordinaten)
+    - fetch_location_details     -> Detaildaten zu einem Standort (Slug-basiert)
+    - fetch_pricing_html         -> Roh-HTML der oeffentlichen Standortseite
 
     Usage:
         client = TeslaLocationsClient()
         details = await client.fetch_all_supercharger_details("DE")
+        await client.close()
     """
 
     BASE_URL: str = "https://www.tesla.com/api/findus"
@@ -151,73 +160,84 @@ class TeslaLocationsClient:
     `<script id="__NEXT_DATA__">`-JSON-Blob - siehe `pricing.parse_pricing_tiers`
     fuer das Parsing und `docs/Tesla-Supercharger-Detail-Scraping.md` fuer die
     Herkunft dieser Struktur (reverse-engineered vom Referenz-Tool `tesla-
-    pricing`, dort ueber echten Browser statt curl abgerufen)."""
+    pricing`)."""
 
-    # Exakte Header von der funktionierenden curl-Kommandozeile
-    _CURL_HEADERS: ClassVar[list[str]] = [
-        "-H",
-        "accept: application/json, text/plain, */*",
-        "-H",
-        "accept-language: de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
-        "-H",
-        "priority: u=1, i",
-        "-H",
-        'sec-ch-ua: "Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
-        "-H",
-        "sec-ch-ua-mobile: ?0",
-        "-H",
-        'sec-ch-ua-platform: "macOS"',
-        "-H",
-        "sec-fetch-dest: empty",
-        "-H",
-        "sec-fetch-mode: cors",
-        "-H",
-        "sec-fetch-site: same-origin",
-        "-H",
-        (
-            "referer: https://www.tesla.com/de_de/findus?"
+    _IMPERSONATE: str = "chrome150"
+    """curl_cffi Browser-Fingerprint-Preset, das dem macOS-System-curl mit
+    SecureTransport entspricht (TLS JA3/HTTP2 Fingerabdruck)."""
+
+    _BASE_HEADERS: ClassVar[dict[str, str]] = {
+        "accept": "application/json, text/plain, */*",
+        "accept-language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "referer": (
+            "https://www.tesla.com/de_de/findus?"
             "bounds=61.019610081973084%2C-61.13933008750001%2C"
             "6.759859256346627%2C-151.9303457125"
         ),
-        "-H",
-        (
-            "user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/150.0.0.0 Safari/537.36"
-        ),
-    ]
-
-    _CURL: str = "/usr/bin/curl"
+    }
+    """Zusaetzliche Header, die der Chrome 150-Preset nicht setzt, aber die
+    Tesla API erwartet (z.B. ``accept`` und ``accept-language``). Der
+    ``sec-ch-ua-*``, ``user-agent`` und ``priority`` Header werden vom
+    Impersonation-Preset automatisch injiziert."""
 
     class CurlError(Exception):
-        """System-curl Aufruf fehlgeschlagen."""
+        """HTTP-Request fehlgeschlagen."""
 
     def __init__(
         self,
         rate_limit_delay_s: float = 0.5,
         debug_log: Path | None = None,
+        client: AsyncSession | None = None,
     ) -> None:
         """Initialize the client.
 
         Args:
             rate_limit_delay_s: Delay in seconds between detail requests.
-            debug_log: Optional file path for debug logging (curl commands,
+            debug_log: Optional file path for debug logging (requests,
                 responses, errors).
+            client: Optional pre-configured AsyncSession (for tests). When
+                omitted, an owned session is created and closed by close().
         """
         self._delay = rate_limit_delay_s
         self._debug_log = debug_log
+        if client is None:
+            self._client: AsyncSession = AsyncSession(
+                impersonate=self._IMPERSONATE,
+                timeout=30.0,
+                headers=dict(self._BASE_HEADERS),
+            )
+            self._owns_client: bool = True
+        else:
+            self._client = client
+            self._owns_client = False
 
-    async def _curl_raw(
-        self,
-        url: str,
-    ) -> str:
-        """Fuehrt curl aus und liefert den validierten Response-Body als Text.
+    async def _log_request(self, method: str, url: str) -> None:
+        """Loggt eine Anfrage fuer Debug-Zwecke."""
+        if self._debug_log is None:
+            return
+        _debug_log(self._debug_log, f"{method} {url}", label="HTTP")
 
-        Erfasst den HTTP-Statuscode ueber '-w' und prueft ihn, um HTML-
-        FehlerSeiten (403, 429) zu erkennen, BEVOR der Body an den Aufrufer
-        zurueckgegeben wird - gemeinsame Basis fuer `_curl_json` (JSON-APIs)
-        und `fetch_pricing_html` (HTML-Seite, siehe `pricing.py`), da Akamais
-        WAF fuer beide Antwortformen identisch reagiert.
+    async def _log_response(self, response: Any, body_preview: str, label: str = "HTTP") -> None:
+        """Loggt eine HTTP-Antwort fuer Debug-Zwecke."""
+        if self._debug_log is None:
+            return
+        _debug_log(
+            self._debug_log,
+            f"{label} {response.request.method} "
+            f"{response.request.url} -> {response.status_code}\n"
+            f"  Body ({len(response.content)} bytes): {body_preview}",
+            label,
+        )
+
+    async def _fetch(self, url: str) -> str:
+        """Fuehrt GET aus und liefert den Response-Body als Text.
+
+        Wirft ``CurlError`` bei HTTP-Fehlern (403, 429, andere Nicht-200)
+        oder leeren Antworten. Network-Fehler (DNS, ConnectionRefused,
+        Timeout) werden als ``CurlError`` mit der Originalnachricht weitergegeben.
 
         Args:
             url: Vollstaendige URL mit Query-Parametern
@@ -226,80 +246,30 @@ class TeslaLocationsClient:
             Response-Body als Text
 
         Raises:
-            CurlError: Bei curl-Fehlern, leeren Antworten oder HTTP-Fehlern
+            CurlError: Bei HTTP-Fehlern, leeren Antworten oder Netzwerkfehlern
         """
-        cmd = [
-            self._CURL,
-            "-s",
-            "-w",
-            "\n%{http_code}",
-            *self._CURL_HEADERS,
-            url,
-        ]
+        try:
+            response = await self._client.get(url)
+        except Exception as e:
+            raise self.CurlError(f"request failed: {e}") from e
 
-        _debug_log(self._debug_log, f"curl {' '.join(cmd)}", label="CURL")
+        body = response.text
+        await self._log_response(response, body[:2000])
 
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-
-        raw = stdout.decode()
-        err_output = stderr.decode().strip()
-
-        _debug_log(
-            self._debug_log,
-            f"exit={proc.returncode} stdout={len(raw)}B stderr={err_output or '(none)'}",
-            label="CURL",
-        )
-
-        if proc.returncode != 0:
-            msg = err_output or "unknown error"
-            _debug_log(self._debug_log, f"curl error: {msg}", label="ERROR")
-            raise self.CurlError(f"curl exit {proc.returncode}: {msg}")
-
-        raw_stripped: str = raw.strip()
-        if not raw_stripped:
-            _debug_log(self._debug_log, "empty response", label="ERROR")
+        if not body.strip():
             raise self.CurlError("empty response")
 
-        # Letzte Zeile ist der HTTP-Statuscode (von -w)
-        *body_lines, status_str = raw_stripped.rsplit("\n", 1)
-        body = "\n".join(body_lines)
-        try:
-            status_code = int(status_str.strip())
-        except (ValueError, TypeError):
-            status_code = 0
-
-        _debug_log(
-            self._debug_log,
-            f"HTTP {status_code} body={len(body)}B",
-            label="CURL",
-        )
-
-        if status_code == HTTPStatus.FORBIDDEN:
-            _debug_log(self._debug_log, f"403 body: {body[:500]}", label="ERROR")
+        if response.status_code == HTTPStatus.FORBIDDEN:
             raise self.CurlError("Tesla API: 403 Access Denied (mglw. rate-limited)")
-        if status_code == HTTPStatus.TOO_MANY_REQUESTS:
-            _debug_log(self._debug_log, f"429 body: {body[:500]}", label="ERROR")
+        if response.status_code == HTTPStatus.TOO_MANY_REQUESTS:
             raise self.CurlError("Tesla API: 429 Too Many Requests (Rate-Limit)")
-        if status_code != HTTPStatus.OK:
-            _debug_log(
-                self._debug_log,
-                f"HTTP {status_code} body: {body[:500]}",
-                label="ERROR",
-            )
-            raise self.CurlError(f"Tesla API: HTTP {status_code}")
+        if response.status_code != HTTPStatus.OK:
+            raise self.CurlError(f"Tesla API: HTTP {response.status_code}")
 
         return body
 
-    async def _curl_json(
-        self,
-        url: str,
-    ) -> dict[str, Any]:
-        """Fuehrt curl aus und parst JSON-Antwort (siehe `_curl_raw`).
+    async def _fetch_json(self, url: str) -> dict[str, Any]:
+        """Fuehrt GET aus und parst JSON-Antwort (siehe ``_fetch``).
 
         Args:
             url: Vollstaendige URL mit Query-Parametern
@@ -308,10 +278,9 @@ class TeslaLocationsClient:
             Geparstes JSON-Dict
 
         Raises:
-            CurlError: Bei curl-Fehlern, leeren Antworten, HTTP-Fehlern oder
-                ungueltigem JSON
+            CurlError: Bei HTTP-Fehlern, leeren Antworten oder ungültigem JSON
         """
-        body = await self._curl_raw(url)
+        body = await self._fetch(url)
         try:
             parsed = json.loads(body)
             _debug_log(
@@ -328,6 +297,12 @@ class TeslaLocationsClient:
                 label="ERROR",
             )
             raise self.CurlError(f"invalid JSON: {e}"[:200]) from e
+
+    async def close(self) -> None:
+        """Close the underlying curl_cffi session if owned by this instance."""
+        if self._owns_client:
+            await self._client.close()
+            self._owns_client = False
 
     async def fetch_locations(
         self,
@@ -347,7 +322,7 @@ class TeslaLocationsClient:
             CurlError: Bei curl-Fehlern oder WAF-Block
         """
         url = f"{self.BASE_URL}/get-locations?country={country}&view={view}"
-        data = await self._curl_json(url)
+        data = await self._fetch_json(url)
         return data.get("data", {}).get("data", [])  # type: ignore[no-any-return]
 
     async def fetch_location_details(
@@ -376,7 +351,7 @@ class TeslaLocationsClient:
             f"&locale={locale}&isInHkMoTw={str(in_hk_mo_tw).lower()}"
         )
         try:
-            data = await self._curl_json(url)
+            data = await self._fetch_json(url)
             return data.get("data", {})  # type: ignore[no-any-return]
         except (json.JSONDecodeError, self.CurlError):
             return {}
@@ -435,12 +410,6 @@ class TeslaLocationsClient:
     async def fetch_pricing_html(self, slug: str) -> str:
         """Fetches the raw HTML of a Supercharger's public detail page.
 
-        Anders als `fetch_location_details()` (JSON-API, keine Preisdaten,
-        siehe `PRICING_BASE_URL`-Docstring) ist diese Seite die einzige
-        oeffentliche Quelle fuer kWh-Preise. Nutzt denselben System-curl-
-        Mechanismus wie alle anderen Requests dieser Klasse (siehe `_curl_raw`)
-        - dieselbe Akamai-WAF-Umgehung gilt fuer HTML- wie fuer JSON-Antworten.
-
         Args:
             slug: Der location_url_slug aus fetch_locations() /
                 tesla_location_id aus der lokalen DB.
@@ -455,4 +424,4 @@ class TeslaLocationsClient:
         """
         encoded_slug = quote(slug, safe="")
         url = f"{self.PRICING_BASE_URL}/{encoded_slug}"
-        return await self._curl_raw(url)
+        return await self._fetch(url)
