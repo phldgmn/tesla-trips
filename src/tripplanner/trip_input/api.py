@@ -350,13 +350,26 @@ async def _step_8_optimize_charging_plan(  # noqa: PLR0913, PLR0917
         max_ladezeit_s=3600,
     )
 
-    # Ladeinfrastruktur entlang der Route abrufen (Fake-Provider für Tests)
+    # Ladeinfrastruktur entlang der Route abrufen (Fake-Provider für Tests).
+    # Suchradius bewusst 25 km statt der Straßenbreite (nicht 1-2 km): auf
+    # Fernstrecken durch duenner mit Superchargern erschlossene Regionen
+    # (z. B. laendliche Schwedenrouten abseits von E4/E6) liegt der naechste
+    # Supercharger regelmaessig 10-25 km abseits der von GraphHopper gewaehlten
+    # Fahrbahn - ein zu enger Radius liefert dort GAR KEINEN Kandidaten fuer
+    # ein ganzes Segment, wodurch `NetworkXOptimizer.optimize()` faelschlich
+    # "Kein erreichbarer Zielknoten gefunden" wirft, obwohl die Strecke mit
+    # einem realistischen Ladestopp-Abstecher fahrbar ist (siehe
+    # Repro: Gummersbach -> Hagfors kommun, Schweden - der einzige Kandidat
+    # in der Luecke, Ulricehamn, liegt ca. 25 km von der Route entfernt).
+    # 25 km ist bewusst grosszuegig (deckt auch den 20 km entfernten
+    # Jönköping-Supercharger ab) und trotzdem klein genug, um die
+    # Zustandsgraph-Groesse (siehe unten) nicht unnoetig aufzublaehen.
     charging_provider = charging_provider or FakeChargingStationProvider()
-    stations_dict = await charging_provider.get_stations_along_route(route, search_radius_km=2.0)
+    stations_dict = await charging_provider.get_stations_along_route(route, search_radius_km=25.0)
     # `get_stations_along_route()` mappt pro (feingranularem) Segment die
     # Stationen im Suchradius - bei sehr kurzen Segmenten (z. B. ein Segment
     # pro GraphHopper-Polyline-Punktpaar, oft <200 m) liegt dieselbe
-    # physische Station meist innerhalb des 2-km-Radius mehrerer
+    # physische Station meist innerhalb des Suchradius mehrerer
     # aufeinanderfolgender Segmente und taucht entsprechend oft doppelt auf.
     # Ohne Deduplizierung nach `station_id` würde der Optimierer dieselbe
     # Station an vielen benachbarten Segment-Indizes als eigene Lade-

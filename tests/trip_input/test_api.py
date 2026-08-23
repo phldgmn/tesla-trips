@@ -9,6 +9,7 @@ enthält:
 from __future__ import annotations
 
 import inspect
+import json
 import logging
 import math
 from collections.abc import Callable, Iterator, Sequence
@@ -27,11 +28,15 @@ import tripplanner.trip_input.api as trip_api
 from tripplanner.charging_infrastructure import FakeChargingStationProvider
 from tripplanner.charging_infrastructure.client import TeslaLocationsClient
 from tripplanner.charging_infrastructure.models import ChargingStation, ConnectorType, StallType
-from tripplanner.charging_infrastructure.providers import TeslaChargingStationProvider
+from tripplanner.charging_infrastructure.providers import (
+    LocalFileChargingStationProvider,
+    TeslaChargingStationProvider,
+)
 from tripplanner.construction.providers import FakeConstructionProvider
 from tripplanner.elevation import ElevationProvider
 from tripplanner.elevation.providers import FakeDataSource
 from tripplanner.energy.models import SegmentEnergyResult
+from tripplanner.geo import haversine_distance_m
 from tripplanner.routing import FakeRoutingProvider, GraphHopperClient, GraphHopperRoutingProvider
 from tripplanner.routing.models import FaehrSegment, Route, RouteSegment
 from tripplanner.simulation.models import (
@@ -1224,6 +1229,80 @@ async def test_create_trip_simulation_handles_unreachable_charging_detour_gracef
     assert stop.route_index_vor is None
     assert stop.route_index_nach is None
     assert stop.detour_station_index is None
+
+
+async def test_create_trip_simulation_findet_station_ausserhalb_des_alten_2km_radius(
+    valid_trip_request: dict,
+    fake_routing_provider: FakeRoutingProvider,
+    fake_weather_provider: FakeWeatherProvider,
+    tmp_path: Path,
+) -> None:
+    """Regressionstest: Der einzige verfuegbare Ladestopp liegt 20 km abseits
+    der (geraden) Berlin->Muenchen-Route - ausserhalb des frueheren, zu engen
+    2-km-Suchradius von `_step_8_optimize_charging_plan`, aber innerhalb des
+    aktuellen 25-km-Radius.
+
+    Bildet den real gemeldeten Bug nach (Gummersbach -> Hagfors kommun,
+    Schweden): auf duenn mit Superchargern erschlossenen Strecken (z. B.
+    laendliche Riksvaeg-Abschnitte in Schweden abseits von E4/E6) liegt der
+    naechste Supercharger oft 10-25 km von der GraphHopper-Route entfernt.
+    Mit dem alten 2-km-Radius fand der Optimierer fuer das komplette
+    Segment ZWISCHEN Start und Ziel keinen einzigen Ladekandidaten und wies
+    die Reise faelschlich mit "Kein erreichbarer Zielknoten gefunden.
+    Route nicht fahrbar." ab, obwohl ein Ladestopp mit realistischem
+    Abstecher die Reise fahrbar macht. Mit `LocalFileChargingStationProvider`
+    (statt `FakeChargingStationProvider`, die `search_radius_km` ignoriert)
+    wird die tatsaechliche, produktiv genutzte Radius-Filterung geprueft.
+    """
+    # 20 km oestlich (senkrecht zur Fahrtrichtung) des geometrischen
+    # Mittelpunkts von Berlin/Muenchen - siehe Docstring fuer die Herleitung
+    # (Grosskreis-Zielpunkt-Formel, verifiziert per `haversine_distance_m`).
+    station_coord = (50.3754642065061, 12.221822056150774)
+    route_mittelpunkt = (50.3275, 12.4935)
+    entfernung_zur_route_km = haversine_distance_m(route_mittelpunkt, station_coord) / 1000.0
+    assert entfernung_zur_route_km == pytest.approx(20.0, abs=0.1)
+
+    stations_json = {
+        "stations": [
+            {
+                "station_id": "abseits-der-route",
+                "name": "Tesla Supercharger - 20km abseits",
+                "lat": station_coord[0],
+                "lon": station_coord[1],
+                "stalls": {"V3": 8},
+                "connector_types": ["CCS2"],
+                "country": "DE",
+            }
+        ]
+    }
+    data_path = tmp_path / "stations.json"
+    data_path.write_text(json.dumps(stations_json))
+    provider = LocalFileChargingStationProvider(data_path=data_path)
+
+    route = await fake_routing_provider.berechne_route(TripRequest(**{**valid_trip_request}))
+
+    # Sanity check: der alte 2-km-Radius findet die Station fuer KEIN
+    # Segment, der neue 25-km-Radius fuer mindestens eines.
+    old_radius_result = await provider.get_stations_along_route(route, search_radius_km=2.0)
+    new_radius_result = await provider.get_stations_along_route(route, search_radius_km=25.0)
+    assert old_radius_result == {}
+    assert any(
+        s.station_id == "abseits-der-route"
+        for stations in new_radius_result.values()
+        for s in stations
+    )
+
+    result = await create_trip_simulation(
+        valid_trip_request,
+        routing_provider=fake_routing_provider,
+        weather_provider=fake_weather_provider,
+        charging_provider=provider,
+        start_soc_pct=80.0,
+        destination_soc_pct=20.0,
+    )
+
+    assert len(result.charging_stops) == 1
+    assert result.charging_stops[0].station_id == "abseits-der-route"
 
 
 def test_fastapi_endpoint_akzeptiert_faehr_zeitfenster_und_ladedauer_vorgaben(
