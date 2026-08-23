@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 import traceback
 from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
@@ -1021,6 +1022,29 @@ def _attach_charging_pricing(
 logger = logging.getLogger(__name__)
 
 
+def _configure_logging() -> None:
+    """Attaches a console handler to the `tripplanner` logger namespace.
+
+    Without this, `uvicorn --reload` (see `run.sh`) never installs a handler
+    for application loggers - only `uvicorn.*` loggers get one. Python's
+    logging module then falls back to `logging.lastResort`, which only ever
+    emits records at WARNING level or above, silently dropping every
+    `logger.info(...)` pipeline-step log (see `_log_step`). The level is
+    configurable via the `TRIPPLANNER_LOG_LEVEL` environment variable
+    (default: `INFO`) so a slower/quieter deployment can raise it without a
+    code change. Idempotent: safe to call multiple times (e.g. once per
+    FastAPI TestClient lifespan cycle in tests) without installing duplicate
+    handlers or duplicate log lines.
+    """
+    package_logger = logging.getLogger(__name__.split(".")[0])
+    level_name = os.environ.get("TRIPPLANNER_LOG_LEVEL", "INFO")
+    package_logger.setLevel(level_name)
+    if not any(isinstance(h, logging.StreamHandler) for h in package_logger.handlers):
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        package_logger.addHandler(handler)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Verwaltet den Lebenszyklus der prozessweiten Provider-Ressourcen.
@@ -1031,6 +1055,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     GraphHopper-Basis-URL ist über die Umgebungsvariable `GRAPHHOPPER_URL`
     konfigurierbar (Default: `http://localhost:8989`, siehe README.md).
     """
+    _configure_logging()
     providers = await build_production_providers()
     app.state.providers = providers
     try:

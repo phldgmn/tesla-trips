@@ -1573,6 +1573,56 @@ def test_lifespan_respects_graphhopper_url_env_var(monkeypatch: pytest.MonkeyPat
         assert gh_client.base_url == "http://gh.internal:9999"
 
 
+def test_lifespan_configures_info_level_console_handler(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`_lifespan` installs a `StreamHandler` on the `tripplanner` logger so
+    INFO-level pipeline-step logs (see `_log_step`) actually reach the
+    console under `uvicorn --reload`, instead of being silently dropped by
+    `logging.lastResort` (which only handles WARNING+).
+    """
+    monkeypatch.delenv("TRIPPLANNER_LOG_LEVEL", raising=False)
+    package_logger = logging.getLogger("tripplanner")
+    previous_handlers = list(package_logger.handlers)
+    previous_level = package_logger.level
+    for h in previous_handlers:
+        package_logger.removeHandler(h)
+    package_logger.setLevel(logging.NOTSET)
+    try:
+        with TestClient(app):
+            assert package_logger.level == logging.INFO
+            assert any(isinstance(h, logging.StreamHandler) for h in package_logger.handlers)
+            handler_count = len(package_logger.handlers)
+        # Re-entering the lifespan (e.g. a second TestClient) must not add
+        # a second handler and thus must not duplicate log lines.
+        with TestClient(app):
+            assert len(package_logger.handlers) == handler_count
+    finally:
+        for h in list(package_logger.handlers):
+            package_logger.removeHandler(h)
+        for h in previous_handlers:
+            package_logger.addHandler(h)
+        package_logger.setLevel(previous_level)
+
+
+def test_lifespan_respects_log_level_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`TRIPPLANNER_LOG_LEVEL` overrides the default `INFO` console level."""
+    monkeypatch.setenv("TRIPPLANNER_LOG_LEVEL", "WARNING")
+    package_logger = logging.getLogger("tripplanner")
+    previous_handlers = list(package_logger.handlers)
+    previous_level = package_logger.level
+    for h in previous_handlers:
+        package_logger.removeHandler(h)
+    package_logger.setLevel(logging.NOTSET)
+    try:
+        with TestClient(app):
+            assert package_logger.level == logging.WARNING
+    finally:
+        for h in list(package_logger.handlers):
+            package_logger.removeHandler(h)
+        for h in previous_handlers:
+            package_logger.addHandler(h)
+        package_logger.setLevel(previous_level)
+
+
 def _make_graphhopper_provider(
     route_handler: Callable[[httpx.Request], httpx.Response],
 ) -> GraphHopperRoutingProvider:
