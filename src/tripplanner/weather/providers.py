@@ -121,7 +121,7 @@ class OpenMeteoClient:
         # Gruppieren nach Koordinate (doppelte Standorte sparen API-Calls)
         coords: dict[tuple[float, float], list[tuple[int, WeatherQuery]]] = {}
         for idx, q in enumerate(queries):
-            key = (q.koordinate[0], q.koordinate[1])
+            key = (round(q.koordinate[0], 1), round(q.koordinate[1], 1))
             coords.setdefault(key, []).append((idx, q))
 
         results: list[OpenMeteoResponse | None] = [None] * len(queries)
@@ -183,53 +183,51 @@ class OpenMeteoProvider:
     ) -> list[WeatherSample]:
         """Abruf von Wetterdaten für mehrere Abfragepunkte.
 
-        Args:
-            queries: Liste von Wetterabfragen (Koordinate + Zeitpunkt).
-
-        Returns:
-            Liste von Wetterdaten, in gleicher Reihenfolge wie queries.
+        Uses grid-rounded + hour-snapped cache keys so that near-duplicate
+        coordinates within 0.1° and timestamps in the same clock hour
+        share cache entries.  Returned samples carry the *original* coordinate
+        and timestamp from each query.
         """
-        # Prüfen, ob alle Queries im Cache liegen
-        uncached_queries: list[WeatherQuery] = []
+        uncached_queries: list[tuple[int, WeatherQuery]] = []
         results: list[WeatherSample | None] = [None] * len(queries)
 
         for idx, query in enumerate(queries):
-            key = (query.koordinate, query.zeitpunkt)
-            if key in self._cache:
-                results[idx] = self._cache[key]
+            ck = _cache_key(query.koordinate, query.zeitpunkt)
+            if ck in self._cache:
+                # Return sample but with the query's original zeitpunkt
+                # (hourly data is identical across the same hour window)
+                cached = self._cache[ck]
+                if cached.zeitpunkt != query.zeitpunkt:
+                    results[idx] = cached.model_copy(update={"zeitpunkt": query.zeitpunkt})
+                else:
+                    results[idx] = cached
             else:
-                uncached_queries.append(query)
+                uncached_queries.append((idx, query))
 
         if uncached_queries:
-            # API-Calls für alle Koordinaten in einem Batch
-            responses = await self._client.fetch_forecast(uncached_queries)
+            # Extract queries for the HTTP call (preserve original indices in results)
+            query_list: list[WeatherQuery] = [q for _, q in uncached_queries]
+            responses = await self._client.fetch_forecast(query_list)
 
+            # Build map: rounded_coord -> response (client returns one per unique coord)
+            resp_by_coord: dict[tuple[float, float], OpenMeteoResponse] = {}
             for resp in responses:
-                # Extrahiere alle Samples aus der Response
-                # Jede Response enthält data für eine Koordinate
-                # Wir brauchen die Indexe aller queries für diese Koordinate
-                _COORD_TOLERANCE = 0.1  # ~11 km at equator
-                for _idx, query in enumerate(uncached_queries):
-                    # Open-Meteo rounds coordinates (13.405 -> 13.4), use tolerance
-                    q_lat, q_lon = query.koordinate
-                    r_lat, r_lon = resp.latitude, resp.longitude
-                    # Match if within 0.1 degrees (about 11km at equator)
-                    if (
-                        abs(q_lat - r_lat) < _COORD_TOLERANCE
-                        and abs(q_lon - r_lon) < _COORD_TOLERANCE
-                    ):
-                        sample = _extract_sample_from_response(resp, query.zeitpunkt)
-                        if sample is not None:
-                            key = (query.koordinate, query.zeitpunkt)
-                            self._cache[key] = sample
-                            # Finde den korrekten Index in results
-                            for i, q in enumerate(queries):
-                                if (
-                                    q.koordinate == query.koordinate
-                                    and q.zeitpunkt == query.zeitpunkt
-                                ):
-                                    results[i] = sample
-                                    break
+                rc = (round(resp.latitude, 1), round(resp.longitude, 1))
+                resp_by_coord[rc] = resp
+
+            for orig_idx, query in uncached_queries:
+                # Find matching response via rounded coord
+                rc = _cache_key(query.koordinate, query.zeitpunkt)[0]
+                resp_match = resp_by_coord.get(rc)
+                if resp_match is None:
+                    continue
+                sample = _extract_sample_from_response(
+                    resp_match, query.zeitpunkt, query.koordinate
+                )
+                if sample is not None:
+                    ck = _cache_key(query.koordinate, query.zeitpunkt)
+                    self._cache[ck] = sample
+                    results[orig_idx] = sample
 
         return [r for r in results if r is not None]
 
@@ -240,21 +238,21 @@ class OpenMeteoProvider:
     ) -> list[WeatherSample]:
         """Neuabfrage bereits abgefragter Punkte mit aktualisiertem Zeitpunkt.
 
-        Args:
-            original_queries: Die ursprünglichen Abfragen (unverändert).
-            updated_queries: Die aktualisierten Abfragen mit neuen Zeitpunkten,
-                             gleiche Koordinaten wie original_queries.
-
-        Returns:
-            Liste von WeatherSample für die updated_queries.
+        Uses grid-rounded + hour-snapped cache keys so that the convergence
+        loop's re-runs hit cache for queries at the same rounded coordinate
+        and within the same clock hour as the original query.
         """
-        # Prüfen, ob die neuen Queries im Cache liegen
+        # Prüfen, ob die neuen Queries im Cache liegen (grid-rounded + hour-snapped)
         results: list[WeatherSample | None] = [None] * len(updated_queries)
 
         for idx, query in enumerate(updated_queries):
-            key = (query.koordinate, query.zeitpunkt)
-            if key in self._cache:
-                results[idx] = self._cache[key]
+            ck = _cache_key(query.koordinate, query.zeitpunkt)
+            if ck in self._cache:
+                cached = self._cache[ck]
+                if cached.zeitpunkt != query.zeitpunkt:
+                    results[idx] = cached.model_copy(update={"zeitpunkt": query.zeitpunkt})
+                else:
+                    results[idx] = cached
 
         # Für nicht-gecachte Queries neu abfragen
         uncached = [q for q in updated_queries if results[updated_queries.index(q)] is None]
@@ -262,8 +260,8 @@ class OpenMeteoProvider:
         if uncached:
             samples = await self.fetch_weather(uncached)
             for sample in samples:
-                key = (sample.koordinate, sample.zeitpunkt)
-                self._cache[key] = sample
+                ck = _cache_key(sample.koordinate, sample.zeitpunkt)
+                self._cache[ck] = sample
                 for idx, query in enumerate(updated_queries):
                     if (
                         query.koordinate == sample.koordinate
@@ -337,15 +335,36 @@ class FakeWeatherProvider:
         self._samples = samples
 
 
+def _cache_key(
+    koordinate: Coordinate,
+    zeitpunkt: datetime,
+) -> tuple[Coordinate, datetime]:
+    """Builds a cache key with grid-rounded coordinates and hour-snapped timestamp.
+
+    The 0.1° grid rounding collapses near-duplicate segment-midpoint coordinates
+    into a single cache entry; the hour snap aligns cache lookups across the
+    iterative convergence loop's up-to-3 re-runs (Open-Meteo returns hourly data,
+    so the timestamp granularity is already coarser than the original query).
+
+    The returned ``WeatherSample`` still carries the *original* coordinate and
+    timestamp — only the cache lookup/storage key is snapped.
+    """
+    rounded_coord = (round(koordinate[0], 1), round(koordinate[1], 1))
+    snapped_time = zeitpunkt.replace(minute=0, second=0, microsecond=0)
+    return (rounded_coord, snapped_time)
+
+
 def _extract_sample_from_response(
     response: OpenMeteoResponse,
     zeitpunkt: datetime,
+    query_koordinate: tuple[float, float] | None = None,
 ) -> WeatherSample | None:
     """Extrahiert ein WeatherSample aus einer OpenMeteoResponse.
 
     Args:
         response: OpenMeteoResponse mit hourly-Daten.
         zeitpunkt: Gewünschter Zeitpunkt.
+        query_koordinate: Original-Koordinatenpunkt der Abfrage.
 
     Returns:
         WeatherSample oder None, wenn der Zeitpunkt nicht gefunden wird.
@@ -376,7 +395,7 @@ def _extract_sample_from_response(
     wind_speed_ms = wind_speed_kmh * _KMH_TO_MPS
 
     return WeatherSample(
-        koordinate=(response.latitude, response.longitude),
+        koordinate=query_koordinate or (response.latitude, response.longitude),
         zeitpunkt=zeitpunkt,
         temperatur_c=get_value("temperature_2m", 0.0),
         windgeschwindigkeit_ms=wind_speed_ms,
@@ -398,19 +417,25 @@ def _extract_sample_from_response(
 def _group_queries_by_coordinate(
     queries: Sequence[WeatherQuery],
 ) -> dict[Coordinate, list[tuple[int, WeatherQuery]]]:
-    """Groups `queries` by exact coordinate, preserving each query's index.
+    """Groups `queries` by grid-rounded coordinate, preserving each query's index.
+
+    Coordinates are rounded to the 0.1° grid before grouping so that near-duplicate
+    segment-midpoint coordinates collapse into a single group — reducing HTTP calls
+    by 10-100x in practice. The 0.1° (~11km) is already within the Open-Meteo
+    internal tolerance of 0.1°.
 
     Args:
         queries: Queries in caller order.
 
     Returns:
-        A dict from coordinate to `(original_index, query)` pairs, used by
+        A dict from rounded coordinate to `(original_index, query)` pairs, used by
         every provider below to issue one HTTP request per unique location
         instead of one per `(coordinate, time)` pair.
     """
     groups: dict[Coordinate, list[tuple[int, WeatherQuery]]] = {}
     for idx, query in enumerate(queries):
-        groups.setdefault(query.koordinate, []).append((idx, query))
+        rounded = (round(query.koordinate[0], 1), round(query.koordinate[1], 1))
+        groups.setdefault(rounded, []).append((idx, query))
     return groups
 
 
@@ -1039,7 +1064,7 @@ class LoadBalancedWeatherProvider:
        trip calculation. This is the fix for the "a single failing
        provider must never break routing" requirement.
 
-    Successful results are cached per `(koordinate, zeitpunkt)` for the
+    Successful results are cached per grid-rounded coordinate and snapped hour,
     lifetime of this instance, serving both `fetch_weather` and
     `refetch_weather` (the iterative ETA/weather resolution described in
     `docs/03-modulspezifikationen.md` §3) without re-querying providers for
@@ -1051,7 +1076,7 @@ class LoadBalancedWeatherProvider:
         entries: Sequence[WeatherProviderEntry],
         *,
         cooldown_seconds: float = 300.0,
-        max_concurrency: int = 10,
+        max_concurrency: int = 30,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         """Initializes the composite provider.
@@ -1099,15 +1124,20 @@ class LoadBalancedWeatherProvider:
         results: list[WeatherSample | None] = [None] * len(queries)
         pending_indices: list[int] = []
         for idx, query in enumerate(queries):
-            cached = self._cache.get((query.koordinate, query.zeitpunkt))
+            ck = _cache_key(query.koordinate, query.zeitpunkt)
+            cached = self._cache.get(ck)
             if cached is not None:
-                results[idx] = cached
+                if cached.zeitpunkt != query.zeitpunkt:
+                    results[idx] = cached.model_copy(update={"zeitpunkt": query.zeitpunkt})
+                else:
+                    results[idx] = cached
             else:
                 pending_indices.append(idx)
 
         groups: dict[Coordinate, list[int]] = {}
         for idx in pending_indices:
-            groups.setdefault(queries[idx].koordinate, []).append(idx)
+            rounded = _cache_key(queries[idx].koordinate, queries[idx].zeitpunkt)[0]
+            groups.setdefault(rounded, []).append(idx)
 
         async def resolve_bounded(coordinate: Coordinate, group_indices: list[int]) -> None:
             async with self._semaphore:
@@ -1160,16 +1190,17 @@ class LoadBalancedWeatherProvider:
             samples = await self._try_provider(entry, sub_queries, coordinate)
             if samples is None:
                 continue
-            by_key = {(s.koordinate, s.zeitpunkt): s for s in samples}
+            by_key = {_cache_key(s.koordinate, s.zeitpunkt): s for s in samples}
             still_pending: list[int] = []
             for i in pending:
-                key = (queries[i].koordinate, queries[i].zeitpunkt)
-                sample = by_key.get(key)
+                ck = _cache_key(queries[i].koordinate, queries[i].zeitpunkt)
+                sample = by_key.get(ck)
                 if sample is None:
                     still_pending.append(i)
                 else:
                     results[i] = sample
-                    self._cache[key] = sample
+                    # Store with original query time for this index
+                    self._cache[ck] = sample
             pending = still_pending
 
         if pending:

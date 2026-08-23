@@ -68,7 +68,8 @@ async def test_dmi_provider_fetch_weather_maps_fields() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert "harmonie_dini_sf/position" in str(request.url)
-        assert request.url.params["coords"] == "POINT(12.5683 55.6761)"
+        # Grid-rounded to 0.1° before dispatch to upstream API
+        assert request.url.params["coords"] == "POINT(12.6 55.7)"
         return httpx.Response(200, json=_dmi_coveragejson())
 
     provider = DmiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))

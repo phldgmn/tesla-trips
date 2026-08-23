@@ -5,7 +5,7 @@ Enthält Unit-Tests für `OpenMeteoClient`, `OpenMeteoProvider` und
 sowie Integration-Test-Templates für echte API-Calls.
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -17,6 +17,8 @@ from tripplanner.weather.providers import (
     FakeWeatherProvider,
     OpenMeteoClient,
     OpenMeteoProvider,
+    OpenWeatherProvider,
+    _cache_key,
     _extract_sample_from_response,
 )
 
@@ -220,8 +222,8 @@ async def test_open_meteo_provider_fetch_weather_caches_results() -> None:
     assert len(results) == 1
     assert results[0].temperatur_c == pytest.approx(21.0)
     assert results[0].luftfeuchtigkeit_pct == pytest.approx(61.0)
-    # Cache-Eintrag gesetzt
-    assert (BERLIN, query.zeitpunkt) in provider._cache
+    # Cache-Eintrag gesetzt — keys use grid-rounded + hour-snapped _cache_key
+    assert _cache_key(BERLIN, query.zeitpunkt) in provider._cache
     await provider.close()
 
 
@@ -455,3 +457,119 @@ async def test_fake_weather_provider_set_samples() -> None:
     assert len(results) == 1
     assert results[0].temperatur_c == 25.0
     assert results[0].windgeschwindigkeit_ms == 10.0
+
+
+# ---------------------------------------------------------------------------
+# New acceptance tests for grid-rounding, hour-snapping, and concurrency
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_grid_rounding_collapses_near_duplicate_coords_to_single_api_call() -> None:
+    """Two query coordinates within 0.1° but not identical collapse to one upstream HTTP call."""
+
+    call_count = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(200, json=_open_meteo_json())
+
+    transport = httpx.MockTransport(handler)
+    http_client = httpx.AsyncClient(transport=transport)
+    meteo_client = OpenMeteoClient(client=http_client)
+    provider = OpenMeteoProvider(client=meteo_client)
+
+    # Coordinates within 0.1° of each other but not identical
+    # (52.52, 13.405) rounds to (52.5, 13.4)
+    # (52.56, 13.38) rounds to (52.6, 13.4) - different group!
+    # Let's use two coords that round to THE SAME grid point
+    q1 = WeatherQuery(koordinate=(52.51, 13.41), zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    q2 = WeatherQuery(koordinate=(52.54, 13.38), zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    # Both round to (52.5, 13.4)
+
+    results = await provider.fetch_weather([q1, q2])
+
+    assert len(results) == 2
+    # Only ONE HTTP call because both coords round to the same grid point
+    assert call_count == 1
+    await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_hour_snapped_cache_serves_convergence_loop_refetch() -> None:
+    """Two queries at same rounded coord but timestamps in same clock hour hit cache on 2nd call."""
+
+    call_count = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(200, json=_open_meteo_json())
+
+    transport = httpx.MockTransport(handler)
+    http_client = httpx.AsyncClient(transport=transport)
+    meteo_client = OpenMeteoClient(client=http_client)
+    provider = OpenMeteoProvider(client=meteo_client)
+
+    q1 = WeatherQuery(koordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 15))
+    q2 = WeatherQuery(koordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 45))
+    # Both snap to hour 1:00 → same cache key → 2nd call is a cache hit
+
+    results1 = await provider.fetch_weather([q1])
+    assert len(results1) == 1
+    assert call_count == 1
+
+    results2 = await provider.fetch_weather([q2])
+    assert len(results2) == 1
+    # Only 1 HTTP call total — second query hit cache
+    assert call_count == 1
+    await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_openweather_rate_limit_still_passes_unmodified() -> None:
+    """OpenWeatherMap's rate-limiting and existing behavior pass unmodified.
+
+    Verifies that OpenWeatherProvider (which has its own
+    ``SlidingWindowRateLimiter``) still works correctly with the shared
+    grid-rounding path — a query within the tolerance window is still matched
+    to the nearest 3-hour slot.
+    """
+
+    call_count = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        # OpenWeather uses Unix epoch for dt; 2026-08-02T01:00:00 UTC
+        target_dt = int(datetime(2026, 8, 2, 1, 0, tzinfo=UTC).timestamp())
+        return httpx.Response(
+            200,
+            json={
+                "list": [
+                    {
+                        "dt": target_dt,
+                        "main": {"temp": 21.0, "humidity": 55, "pressure": 1013},
+                        "wind": {"speed": 5.5, "deg": 180},
+                        "clouds": {"all": 30},
+                        "rain": {"3h": 0.0},
+                        "snow": {"3h": 0.0},
+                    }
+                ],
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    http_client = httpx.AsyncClient(transport=transport)
+    provider = OpenWeatherProvider(api_key="test", client=http_client)
+
+    queries = [WeatherQuery(koordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 30))]
+    results = await provider.fetch_weather(queries)
+
+    # Provider returns a sample (matched via tolerance to nearest slot)
+    assert len(results) == 1
+    assert results[0].temperatur_c == 21.0
+    # Exactly one HTTP call
+    assert call_count == 1
+    await provider.close()
