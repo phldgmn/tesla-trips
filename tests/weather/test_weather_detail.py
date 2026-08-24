@@ -115,13 +115,12 @@ class TestFetchHigh:
 
     @pytest.mark.asyncio
     async def test_high_one_query_per_segment(self) -> None:
-        route, segments = _make_route(5)
+        _route, segments = _make_route(5)
         segment_eta = _make_segment_eta(segments)
         provider = FakeWeatherProvider()
 
         result = await fetch_weather_by_detail(
             provider=provider,
-            route=route,
             segment_eta_list=segment_eta,
             abfahrtszeit=ABFAHRTSZEIT,
             detail="high",
@@ -133,13 +132,12 @@ class TestFetchHigh:
 
     @pytest.mark.asyncio
     async def test_high_query_coordinates_are_midpoints(self) -> None:
-        route, segments = _make_route(3)
+        _route, segments = _make_route(3)
         segment_eta = _make_segment_eta(segments)
         provider = FakeWeatherProvider()
 
         await fetch_weather_by_detail(
             provider=provider,
-            route=route,
             segment_eta_list=segment_eta,
             abfahrtszeit=ABFAHRTSZEIT,
             detail="high",
@@ -152,14 +150,13 @@ class TestFetchHigh:
 
     @pytest.mark.asyncio
     async def test_high_query_timestamps_accumulate(self) -> None:
-        route, segments = _make_route(3)
+        _route, segments = _make_route(3)
         durations = [timedelta(hours=1), timedelta(hours=2), timedelta(hours=0.5)]
         eta_list = list(zip(segments, durations, strict=False))
         provider = FakeWeatherProvider()
 
         await fetch_weather_by_detail(
             provider=provider,
-            route=route,
             segment_eta_list=eta_list,
             abfahrtszeit=ABFAHRTSZEIT,
             detail="high",
@@ -183,13 +180,12 @@ class TestFetchLow:
 
     @pytest.mark.asyncio
     async def test_low_single_provider_call(self) -> None:
-        route, segments = _make_route(10)
+        _route, segments = _make_route(10)
         segment_eta = _make_segment_eta(segments)
         provider = FakeWeatherProvider()
 
         result = await fetch_weather_by_detail(
             provider=provider,
-            route=route,
             segment_eta_list=segment_eta,
             abfahrtszeit=ABFAHRTSZEIT,
             detail="low",
@@ -201,13 +197,12 @@ class TestFetchLow:
 
     @pytest.mark.asyncio
     async def test_low_returned_length_equals_segment_count(self) -> None:
-        route, segments = _make_route(7)
+        _route, segments = _make_route(7)
         segment_eta = _make_segment_eta(segments)
         provider = FakeWeatherProvider()
 
         result = await fetch_weather_by_detail(
             provider=provider,
-            route=route,
             segment_eta_list=segment_eta,
             abfahrtszeit=ABFAHRTSZEIT,
             detail="low",
@@ -217,13 +212,12 @@ class TestFetchLow:
 
     @pytest.mark.asyncio
     async def test_low_sample_has_segment_own_coordinate(self) -> None:
-        route, segments = _make_route(3)
+        _route, segments = _make_route(3)
         segment_eta = _make_segment_eta(segments)
         provider = FakeWeatherProvider()
 
         result = await fetch_weather_by_detail(
             provider=provider,
-            route=route,
             segment_eta_list=segment_eta,
             abfahrtszeit=ABFAHRTSZEIT,
             detail="low",
@@ -236,14 +230,13 @@ class TestFetchLow:
 
     @pytest.mark.asyncio
     async def test_low_sample_has_segment_own_timestamp(self) -> None:
-        route, segments = _make_route(3)
+        _route, segments = _make_route(3)
         durations = [timedelta(hours=1), timedelta(hours=2), timedelta(hours=0.5)]
         eta_list = list(zip(segments, durations, strict=False))
         provider = FakeWeatherProvider()
 
         result = await fetch_weather_by_detail(
             provider=provider,
-            route=route,
             segment_eta_list=eta_list,
             abfahrtszeit=ABFAHRTSZEIT,
             detail="low",
@@ -263,13 +256,12 @@ class TestFetchMedium:
     @pytest.mark.asyncio
     async def test_medium_query_count_bound(self) -> None:
         for n_segments in [5, 10, 20, 50]:
-            route, segments = _make_route(n_segments)
+            _route, segments = _make_route(n_segments)
             segment_eta = _make_segment_eta(segments)
             provider = FakeWeatherProvider()
 
             await fetch_weather_by_detail(
                 provider=provider,
-                route=route,
                 segment_eta_list=segment_eta,
                 abfahrtszeit=ABFAHRTSZEIT,
                 detail="medium",
@@ -281,13 +273,12 @@ class TestFetchMedium:
 
     @pytest.mark.asyncio
     async def test_medium_first_last_always_sampled(self) -> None:
-        route, segments = _make_route(12)
+        _route, segments = _make_route(12)
         segment_eta = _make_segment_eta(segments)
         provider = FakeWeatherProvider()
 
         await fetch_weather_by_detail(
             provider=provider,
-            route=route,
             segment_eta_list=segment_eta,
             abfahrtszeit=ABFAHRTSZEIT,
             detail="medium",
@@ -304,13 +295,12 @@ class TestFetchMedium:
 
     @pytest.mark.asyncio
     async def test_medium_fanout_length_equals_segment_count(self) -> None:
-        route, segments = _make_route(10)
+        _route, segments = _make_route(10)
         segment_eta = _make_segment_eta(segments)
         provider = FakeWeatherProvider()
 
         result = await fetch_weather_by_detail(
             provider=provider,
-            route=route,
             segment_eta_list=segment_eta,
             abfahrtszeit=ABFAHRTSZEIT,
             detail="medium",
@@ -333,7 +323,7 @@ class TestFetchMedium:
             seg 8-10  -> 10 (temperatur_c=10.0)
             seg 11    -> 11 (temperatur_c=11.0)
         """
-        route, segments = _make_route(12)
+        _route, segments = _make_route(12)
         segment_eta = _make_segment_eta(segments)
 
         # Build 4 distinguishable samples for the 4 sampled queries
@@ -365,7 +355,6 @@ class TestFetchMedium:
 
         result = await fetch_weather_by_detail(
             provider=provider,
-            route=route,
             segment_eta_list=segment_eta,
             abfahrtszeit=ABFAHRTSZEIT,
             detail="medium",
@@ -394,12 +383,11 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_empty_high_returns_empty(self) -> None:
-        route, _ = _make_route(0)
+        _route, _ = _make_route(0)
         provider = FakeWeatherProvider()
 
         result = await fetch_weather_by_detail(
             provider=provider,
-            route=route,
             segment_eta_list=[],
             abfahrtszeit=ABFAHRTSZEIT,
             detail="high",
@@ -412,7 +400,6 @@ class TestEdgeCases:
     async def test_empty_low_returns_empty(self) -> None:
         result = await fetch_weather_by_detail(
             provider=FakeWeatherProvider(),
-            route=Route(segments=[], gesamtlaenge_m=0, geometrie=[]),
             segment_eta_list=[],
             abfahrtszeit=ABFAHRTSZEIT,
             detail="low",
@@ -423,7 +410,6 @@ class TestEdgeCases:
     async def test_empty_medium_returns_empty(self) -> None:
         result = await fetch_weather_by_detail(
             provider=FakeWeatherProvider(),
-            route=Route(segments=[], gesamtlaenge_m=0, geometrie=[]),
             segment_eta_list=[],
             abfahrtszeit=ABFAHRTSZEIT,
             detail="medium",
@@ -432,13 +418,12 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_single_segment_high(self) -> None:
-        route, segments = _make_route(1)
+        _route, segments = _make_route(1)
         segment_eta = _make_segment_eta(segments)
         provider = FakeWeatherProvider()
 
         result = await fetch_weather_by_detail(
             provider=provider,
-            route=route,
             segment_eta_list=segment_eta,
             abfahrtszeit=ABFAHRTSZEIT,
             detail="high",
@@ -450,13 +435,12 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_single_segment_low(self) -> None:
-        route, segments = _make_route(1)
+        _route, segments = _make_route(1)
         segment_eta = _make_segment_eta(segments)
         provider = FakeWeatherProvider()
 
         result = await fetch_weather_by_detail(
             provider=provider,
-            route=route,
             segment_eta_list=segment_eta,
             abfahrtszeit=ABFAHRTSZEIT,
             detail="low",
@@ -467,13 +451,12 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_single_segment_medium(self) -> None:
-        route, segments = _make_route(1)
+        _route, segments = _make_route(1)
         segment_eta = _make_segment_eta(segments)
         provider = FakeWeatherProvider()
 
         result = await fetch_weather_by_detail(
             provider=provider,
-            route=route,
             segment_eta_list=segment_eta,
             abfahrtszeit=ABFAHRTSZEIT,
             detail="medium",
@@ -484,14 +467,13 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_off_level_raises_for_nonempty(self) -> None:
-        route, segments = _make_route(3)
+        _route, segments = _make_route(3)
         segment_eta = _make_segment_eta(segments)
         provider = FakeWeatherProvider()
 
         with pytest.raises(ValueError, match='"off"'):
             await fetch_weather_by_detail(
                 provider=provider,
-                route=route,
                 segment_eta_list=segment_eta,
                 abfahrtszeit=ABFAHRTSZEIT,
                 detail="off",
@@ -499,14 +481,13 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_unknown_detail_level_raises(self) -> None:
-        route, segments = _make_route(3)
+        _route, segments = _make_route(3)
         segment_eta = _make_segment_eta(segments)
         provider = FakeWeatherProvider()
 
         with pytest.raises(ValueError, match="Unknown detail"):
             await fetch_weather_by_detail(
                 provider=provider,
-                route=route,
                 segment_eta_list=segment_eta,
                 abfahrtszeit=ABFAHRTSZEIT,
                 detail="super_high",  # type: ignore[arg-type]

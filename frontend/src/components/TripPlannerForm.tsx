@@ -1348,7 +1348,7 @@ export function TripPlannerForm({
       {/* 2b. Wetter/Baustellen einzeln deaktivierbar: umgeht KEINEN Bug, gibt
           dem Nutzer aber die Kontrolle, einen langsamen/ratenlimitierten
           Provider für eine schnellere Berechnung zu überspringen (siehe
-          `wetter_beruecksichtigen`/`baustellen_beruecksichtigen` im Backend). */}
+          `wetter_detailgrad`/`baustellen_beruecksichtigen` im Backend). */}
       <div
         style={{
           display: "flex",

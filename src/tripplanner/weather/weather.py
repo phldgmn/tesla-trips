@@ -21,7 +21,7 @@ from tripplanner.weather.models import (
 from tripplanner.weather.providers import WeatherProvider
 
 if TYPE_CHECKING:
-    from tripplanner.routing.models import Route
+    pass
 
 # Every N-th segment is sampled for medium detail (first and last always included).
 MEDIUM_DETAIL_SEGMENT_STRIDE: int = 5
@@ -75,7 +75,6 @@ def _nearest_sample_assignment(
 
 async def fetch_weather_by_detail(
     provider: WeatherProvider,
-    route: Route,
     segment_eta_list: Sequence[tuple[RouteSegment, timedelta]],
     abfahrtszeit: datetime,
     detail: WeatherDetailLevel,
@@ -88,7 +87,6 @@ async def fetch_weather_by_detail(
 
     Args:
         provider: Weather provider to use for fetching data.
-        route: The computed route (provides segment geometries).
         segment_eta_list: Pairs of ``(segment, elapsed_timedelta)`` where the
             timedelta is the accumulated ETA since *abfahrtszeit* at the start
             of that segment.
@@ -114,11 +112,11 @@ async def fetch_weather_by_detail(
         )
 
     if detail == "high":
-        return await _fetch_high(provider, route, segment_eta_list, abfahrtszeit)
+        return await _fetch_high(provider, segment_eta_list, abfahrtszeit)
     elif detail == "low":
-        return await _fetch_low(provider, route, segment_eta_list, abfahrtszeit)
+        return await _fetch_low(provider, segment_eta_list, abfahrtszeit)
     elif detail == "medium":
-        return await _fetch_medium(provider, route, segment_eta_list, abfahrtszeit)
+        return await _fetch_medium(provider, segment_eta_list, abfahrtszeit)
     else:
         raise ValueError(f"Unknown detail level: {detail!r}")
 
@@ -141,7 +139,6 @@ def _compute_segment_time(
 
 async def _fetch_high(
     provider: WeatherProvider,
-    route: Route,
     segment_eta_list: Sequence[tuple[RouteSegment, timedelta]],
     abfahrtszeit: datetime,
 ) -> list[WeatherSample]:
@@ -160,7 +157,6 @@ async def _fetch_high(
 
 async def _fetch_low(
     provider: WeatherProvider,
-    route: Route,
     segment_eta_list: Sequence[tuple[RouteSegment, timedelta]],
     abfahrtszeit: datetime,
 ) -> list[WeatherSample]:
@@ -206,7 +202,6 @@ async def _fetch_low(
 
 async def _fetch_medium(
     provider: WeatherProvider,
-    route: Route,
     segment_eta_list: Sequence[tuple[RouteSegment, timedelta]],
     abfahrtszeit: datetime,
 ) -> list[WeatherSample]:

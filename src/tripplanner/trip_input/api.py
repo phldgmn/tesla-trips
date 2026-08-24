@@ -200,7 +200,7 @@ async def _step_5_fetch_weather(  # noqa: PLR0913, PLR0917
 
     if weather_detail in ("low", "medium"):
         samples = await fetch_weather_by_detail(
-            provider, route, segment_eta_list, abfahrtszeit, weather_detail
+            provider, segment_eta_list, abfahrtszeit, weather_detail
         )
         return samples, []
 
