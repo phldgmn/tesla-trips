@@ -725,7 +725,7 @@ class TestCliWetterDetailgrad:
             ],
         )
         assert result.exit_code != 0
-        assert "Ungültiges Wetter-Detailgrad" in result.stderr or result.stdout
+        assert "Ungültiges Wetter-Detailgrad" in (result.stderr + result.stdout)
 
     def test_cli_wetter_detailgrad_help_shows_option(self) -> None:
         """Test: --help shows the --wetter-detailgrad option."""
