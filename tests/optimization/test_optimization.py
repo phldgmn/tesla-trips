@@ -32,6 +32,7 @@ from tripplanner.optimization.discretizer import (
     time_to_bucket,
 )
 from tripplanner.optimization.models import (
+    DetourKosten,
     OptimizationConstraints,
 )
 from tripplanner.routing.models import Route, RouteSegment
@@ -1199,13 +1200,18 @@ class TestDominanzPruningVerhindertKombinatorischeExplosion:
         dauer_s = time.perf_counter() - start
 
         assert plan.ladehalte  # Plausibilitaet: Route mit vielen Stationen braucht Ladehalte
-        # Grosszuegige Grenze (gemessen: ~6-8s auf Entwicklerhardware) - haelt
-        # robust Puffer fuer langsamere CI-Maschinen, waehrend sie eine
-        # Rueckkehr zur alten, minutenlangen Kombinatorik zuverlaessig faengt.
-        assert dauer_s < 30.0, (
+        # Grosszuegige Grenze (gemessen nach dem ChargingCurve-Fastpath-Fix,
+        # siehe `battery.models._evaluate_fast_path`/`_ChargingCurveFastPath`,
+        # und der reduzierten Bisektions-Iterationszahl in
+        # `_soc_nach_fester_ladezeit`: ~6s auf dieser Entwicklerhardware,
+        # zuvor > 120s) - haelt robust Puffer fuer langsamere CI-Maschinen,
+        # waehrend sie sowohl eine Rueckkehr zur alten Kombinatorik als auch
+        # eine Rueckkehr zur scipy-Pro-Aufruf-Ladekurvenauswertung faengt.
+        assert dauer_s < 15.0, (
             f"Optimierung brauchte {dauer_s:.1f}s fuer {anzahl_stationen} Stationen - "
             "deutet auf eine Regression der Dominanz-Pruning-Optimierung in "
-            "_generate_graph hin (siehe Klassen-Docstring)."
+            "_generate_graph ODER der ChargingCurve-Fastpath-Optimierung hin "
+            "(siehe Klassen-Docstring bzw. battery.models.ChargingCurve)."
         )
 
 
@@ -1486,3 +1492,79 @@ class TestMindestLadedauerVerhindertKurzeLadehalte:
         # `_extract_charging_stops` (kein Runden) - bis zu 1s unter der
         # exakten Mindestdauer ist daher normal, kein Bug.
         assert all(dauer_s >= 599 for dauer_s in mit_mindestdauer)
+
+
+class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
+    """Tests for `_detour_kosten`'s real-vs-heuristic fallback logic (see
+    `optimization.detour_routing`)."""
+
+    def test_nutzt_reale_kosten_wenn_station_in_map(self) -> None:
+        optimizer = create_networkx_optimizer()
+        real_kosten = DetourKosten(distanz_m=2000.0, zeit_s=180.0, energie_kwh=0.4)
+
+        zeit_s, _soc_pct = optimizer._detour_kosten(
+            station_id="real-station",
+            offroute_distance_m=999_999.0,  # would give a wildly different heuristic result
+            vehicle_profile=VehicleProfile(
+                masse_kg=1800.0,
+                cw_wert=0.23,
+                stirnflaeche_m2=2.2,
+                rollwiderstandsbeiwert=0.01,
+                batteriekapazitaet_kwh=60.0,
+                nebenverbraucher_baseline_kw=0.34,
+                reifentyp="standard",
+                dachbox=False,
+            ),
+            detour_kosten={"real-station": real_kosten},
+        )
+
+        assert zeit_s == 180.0
+
+    def test_faellt_auf_heuristik_zurueck_wenn_station_fehlt(self) -> None:
+        optimizer = create_networkx_optimizer()
+        vehicle_profile = VehicleProfile(
+            masse_kg=1800.0,
+            cw_wert=0.23,
+            stirnflaeche_m2=2.2,
+            rollwiderstandsbeiwert=0.01,
+            batteriekapazitaet_kwh=60.0,
+            nebenverbraucher_baseline_kw=0.34,
+            reifentyp="standard",
+            dachbox=False,
+        )
+        optimizer._avg_verbrauch_kwh_pro_m = 0.0002  # set as optimize() normally would
+
+        zeit_s, _ = optimizer._detour_kosten(
+            station_id="missing-station",
+            offroute_distance_m=1000.0,
+            vehicle_profile=vehicle_profile,
+            detour_kosten={
+                "other-station": DetourKosten(distanz_m=1.0, zeit_s=1.0, energie_kwh=0.0)
+            },
+        )
+
+        # Heuristic: 1000m * 1.6 / (70 km/h) = ~82.3s
+        assert zeit_s == pytest.approx(82.3, abs=0.5)
+
+    def test_faellt_auf_heuristik_zurueck_wenn_detour_kosten_none(self) -> None:
+        optimizer = create_networkx_optimizer()
+        vehicle_profile = VehicleProfile(
+            masse_kg=1800.0,
+            cw_wert=0.23,
+            stirnflaeche_m2=2.2,
+            rollwiderstandsbeiwert=0.01,
+            batteriekapazitaet_kwh=60.0,
+            nebenverbraucher_baseline_kw=0.34,
+            reifentyp="standard",
+            dachbox=False,
+        )
+        optimizer._avg_verbrauch_kwh_pro_m = 0.0002
+
+        zeit_s, _ = optimizer._detour_kosten(
+            station_id="any-station",
+            offroute_distance_m=1000.0,
+            vehicle_profile=vehicle_profile,
+            detour_kosten=None,
+        )
+
+        assert zeit_s == pytest.approx(82.3, abs=0.5)

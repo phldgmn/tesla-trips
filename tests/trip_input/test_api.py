@@ -1169,56 +1169,6 @@ async def test_create_trip_simulation_charge_duration_specification_applies_to_c
     assert result.charging_stops[0].ladedauer_s == vorgabe_s
 
 
-def test_find_edges_walk_at_least_margin_in_both_directions() -> None:
-    """`_find_bracket_points` liefert zwei Punkte, die zusammen mindestens
-    `margin_m` vor UND nach dem Abzweigpunkt liegen - fixiert die
-    Fahrtrichtung fuer das Detour-Routing (siehe `_step_route_charging_detours`).
-    """
-    # 10 gleich lange 100m-Segmente entlang eines Meridians (11 Punkte).
-    geometrie = [(52.0 + i * 0.0009, 13.0) for i in range(11)]
-    segments = [
-        RouteSegment(
-            segment_index=i,
-            geometrie=[geometrie[i], geometrie[i + 1]],
-            laenge_m=100.0,
-            strassenklasse="MOTORWAY",
-            bearing_deg=0.0,
-        )
-        for i in range(10)
-    ]
-    route = Route(segments=segments, gesamtlaenge_m=1000.0, geometrie=geometrie)
-
-    vor_index, nach_index = trip_api._find_bracket_points(route, segment_index=5, margin_m=250.0)
-
-    assert vor_index < 5 < nach_index
-    distanz_zurueck = sum(seg.laenge_m for seg in segments[vor_index:5])
-    distanz_vor = sum(seg.laenge_m for seg in segments[5:nach_index])
-    assert distanz_zurueck >= 250.0
-    assert distanz_vor >= 250.0
-
-
-def test_finde_klammerpunkte_clamped_an_routenraendern() -> None:
-    """Nahe am Start/Ende der Route werden die Klammerpunkte an den
-    tatsaechlichen Rand geklemmt statt einen Index-Fehler zu werfen."""
-    geometrie = [(52.0 + i * 0.0009, 13.0) for i in range(5)]
-    segments = [
-        RouteSegment(
-            segment_index=i,
-            geometrie=[geometrie[i], geometrie[i + 1]],
-            laenge_m=100.0,
-            strassenklasse="MOTORWAY",
-            bearing_deg=0.0,
-        )
-        for i in range(4)
-    ]
-    route = Route(segments=segments, gesamtlaenge_m=400.0, geometrie=geometrie)
-
-    vor_index, nach_index = trip_api._find_bracket_points(route, segment_index=1, margin_m=10_000.0)
-
-    assert vor_index == 0
-    assert nach_index == len(geometrie) - 1
-
-
 async def test_create_trip_simulation_populates_charging_stop_distanz_m_and_detour_geometrie(
     valid_trip_request: dict,
     fake_routing_provider: FakeRoutingProvider,
@@ -1257,7 +1207,7 @@ async def test_create_trip_simulation_populates_charging_stop_distanz_m_and_deto
     assert stop.distanz_m < result.gesamt_distanz_km * 1000
     # Echte, ueber `FakeRoutingProvider` geroutete Geometrie von einem
     # Klammerpunkt VOR bis einem Klammerpunkt NACH dem Abzweigpunkt (siehe
-    # `_find_bracket_points`) statt einer leeren Liste.
+    # `find_bracket_points`) statt einer leeren Liste.
     assert len(stop.detour_geometrie) >= 2
     assert stop.route_index_vor is not None
     assert stop.route_index_nach is not None
@@ -3341,3 +3291,40 @@ async def test_create_trip_simulation_emits_iteration_logging(
     assert any("optimize_charging_plan" in m for m in iteration_msgs), (
         f"Expected iteration-tagged optimize_charging_plan log; got: {iteration_msgs}"
     )
+
+
+@pytest.mark.asyncio
+async def test_create_trip_simulation_fetches_charging_stations_once_not_per_iteration(
+    valid_trip_request: dict,
+    fake_routing_provider: FakeRoutingProvider,
+    fake_weather_provider: FakeWeatherProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
+) -> None:
+    """`get_stations_along_route` must be called exactly once per
+    `create_trip_simulation()` call, regardless of `max_iterations` - the
+    route (and therefore the station list) never changes between
+    convergence iterations, and re-fetching would also redo the expensive
+    detour-cost precomputation for nothing."""
+    call_count = 0
+    original = fake_charging_provider_berlin_munich.get_stations_along_route
+
+    async def counting_get_stations_along_route(*args: object, **kwargs: object) -> object:
+        nonlocal call_count
+        call_count += 1
+        return await original(*args, **kwargs)
+
+    fake_charging_provider_berlin_munich.get_stations_along_route = (  # type: ignore[method-assign]
+        counting_get_stations_along_route
+    )
+
+    await create_trip_simulation(
+        valid_trip_request,
+        routing_provider=fake_routing_provider,
+        weather_provider=fake_weather_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
+        start_soc_pct=80.0,
+        destination_soc_pct=20.0,
+        max_iterations=3,
+    )
+
+    assert call_count == 1

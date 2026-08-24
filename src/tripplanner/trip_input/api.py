@@ -41,12 +41,15 @@ from tripplanner.energy import calculate_segment_consumption
 from tripplanner.energy.models import SegmentEnergyResult, VehicleEnergyParameters
 from tripplanner.geo import haversine_distance_m
 from tripplanner.optimization import create_networkx_optimizer
-from tripplanner.optimization.models import ChargingPlan, OptimizationConstraints
+from tripplanner.optimization.detour_routing import precompute_detour_costs
+from tripplanner.optimization.models import ChargingPlan, DetourKosten, OptimizationConstraints
+from tripplanner.optimization.station_mapping import map_stations_to_segments
 from tripplanner.routing import (
     FakeRoutingProvider,
     RoutingProvider,
     erkenne_faehren,
 )
+from tripplanner.routing.detour_geometry import find_bracket_points
 from tripplanner.routing.models import Coordinate, FaehrSegment, Route, RouteSegment
 from tripplanner.simulation import simulate_trip
 from tripplanner.simulation.models import (
@@ -330,6 +333,57 @@ async def _step_7_calculate_segment_energy(  # noqa: PLR0913, PLR0917
     return ergebnisse
 
 
+async def _step_8a_fetch_charging_stations(
+    charging_provider: ChargingStationProvider | None,
+    route: Route,
+) -> list[ChargingStation]:
+    """Step 8a: Fetch and deduplicate candidate charging stations along the route.
+
+    Extracted out of `_step_8_optimize_charging_plan` so `create_trip_
+    simulation` can call it ONCE (before the weather/ETA convergence loop)
+    instead of once per iteration - the route never changes between
+    iterations, so the station list never changes either, and this call
+    also feeds `optimization.detour_routing.precompute_detour_costs`, which
+    must not be redone per iteration (it's a batch of routing/elevation
+    calls, not free).
+
+    Search radius deliberately 25 km, not the road width (1-2 km): on long-
+    distance trips through regions with sparser Supercharger coverage
+    (e.g. rural Sweden routes off the E4/E6), the nearest Supercharger
+    regularly sits 10-25 km off the GraphHopper-chosen road - too tight a
+    radius delivers ZERO candidates for an entire segment there, which
+    makes `NetworkXOptimizer.optimize()` incorrectly raise "no reachable
+    target node found" even though the route IS drivable with a realistic
+    charging detour (repro: Gummersbach -> Hagfors kommun, Sweden - the only
+    candidate in the gap, Ulricehamn, sits ~25 km off the route). 25 km is
+    deliberately generous (also covers the 20 km distant Jönköping
+    Supercharger) while still small enough not to needlessly bloat the
+    state-graph size (see docs/plans/07-optimization.md).
+
+    `get_stations_along_route()` maps stations per (fine-grained) route
+    segment - with very short segments (e.g. one segment per GraphHopper
+    polyline point pair, often < 200 m), the same physical station usually
+    falls within the search radius of several consecutive segments and
+    shows up repeatedly. Without deduplication by `station_id`, the
+    optimizer would model the same station at many neighboring segment
+    indices as separate charging opportunities, needlessly bloating the
+    state graph (see docs/plans/07-optimization.md) and slowing the search.
+    """
+    provider = charging_provider or FakeChargingStationProvider()
+    stations_dict = await provider.get_stations_along_route(route, search_radius_km=25.0)
+
+    charging_stations: list[ChargingStation] = []
+    seen_station_ids: set[str] = set()
+    for station_list in stations_dict.values():
+        for station in station_list:
+            if station.station_id in seen_station_ids:
+                continue
+            seen_station_ids.add(station.station_id)
+            charging_stations.append(station)
+
+    return charging_stations
+
+
 async def _step_8_optimize_charging_plan(  # noqa: PLR0913, PLR0917
     route: Route,
     segment_energy: list[SegmentEnergyResult],
@@ -340,28 +394,25 @@ async def _step_8_optimize_charging_plan(  # noqa: PLR0913, PLR0917
     abfahrtszeit: datetime,
     elevation_provider: ElevationProvider,
     elevation_points: list[ElevationPoint],
+    charging_stations: list[ChargingStation],
+    detour_kosten: dict[str, DetourKosten],
     zwischenstopps: list[Waypoint] | None = None,
-    charging_provider: ChargingStationProvider | None = None,
     ladedauer_vorgaben: dict[str, int] | None = None,
     faehr_zeitfenster: dict[int, tuple[int, datetime, datetime]] | None = None,
     mindest_ankunfts_soc_pct: float = 5.0,
     mindest_ladezeit_s: int = 600,
 ) -> ChargingPlan:
-    """Schritt 8: Optimalen Ladeplan bestimmen.
+    """Step 8: Determine the optimal charging plan.
 
-    Nutzt `create_networkx_optimizer()` als Prototyp-Optimizer.
+    Uses `create_networkx_optimizer()` as the prototype optimizer.
+    `charging_stations` and `detour_kosten` are precomputed ONCE by
+    `create_trip_simulation` (see `_step_8a_fetch_charging_stations` and
+    `optimization.detour_routing.precompute_detour_costs`) - not fetched or
+    computed here, so they stay identical (and are only computed once)
+    across every weather/ETA-convergence iteration.
     """
     optimizer = create_networkx_optimizer()
 
-    # Hinweis: `OptimizationConstraints` kennt nur `min_soc_pct`, `ziel_soc_pct`,
-    # `max_etappenlaenge_km`, `sicherheitsreserve_pct`, `max_ladezeit_s`
-    # (siehe optimization/models.py). Frühere Aufrufe übergaben zusätzlich
-    # `start_soc_pct`, `max_ladepausen`, `min_ladezeit_min`, `max_ladezeit_min`
-    # - nicht existierende Feldnamen, die Pydantic per Default still verwirft
-    # (kein Validierungsfehler), wodurch diese "Constraints" wirkungslos
-    # blieben. `start_soc_pct` wird bereits direkt an `optimizer.optimize()`
-    # übergeben; `max_ladezeit_min=60` entspricht dem echten Feld
-    # `max_ladezeit_s` (in Sekunden).
     constraints = OptimizationConstraints(
         ziel_soc_pct=ziel_soc_pct,
         max_ladezeit_s=3600,
@@ -369,43 +420,8 @@ async def _step_8_optimize_charging_plan(  # noqa: PLR0913, PLR0917
         mindest_ladezeit_s=mindest_ladezeit_s,
     )
 
-    # Ladeinfrastruktur entlang der Route abrufen (Fake-Provider für Tests).
-    # Suchradius bewusst 25 km statt der Straßenbreite (nicht 1-2 km): auf
-    # Fernstrecken durch duenner mit Superchargern erschlossene Regionen
-    # (z. B. laendliche Schwedenrouten abseits von E4/E6) liegt der naechste
-    # Supercharger regelmaessig 10-25 km abseits der von GraphHopper gewaehlten
-    # Fahrbahn - ein zu enger Radius liefert dort GAR KEINEN Kandidaten fuer
-    # ein ganzes Segment, wodurch `NetworkXOptimizer.optimize()` faelschlich
-    # "Kein erreichbarer Zielknoten gefunden" wirft, obwohl die Strecke mit
-    # einem realistischen Ladestopp-Abstecher fahrbar ist (siehe
-    # Repro: Gummersbach -> Hagfors kommun, Schweden - der einzige Kandidat
-    # in der Luecke, Ulricehamn, liegt ca. 25 km von der Route entfernt).
-    # 25 km ist bewusst grosszuegig (deckt auch den 20 km entfernten
-    # Jönköping-Supercharger ab) und trotzdem klein genug, um die
-    # Zustandsgraph-Groesse (siehe unten) nicht unnoetig aufzublaehen.
-    charging_provider = charging_provider or FakeChargingStationProvider()
-    stations_dict = await charging_provider.get_stations_along_route(route, search_radius_km=25.0)
-    # `get_stations_along_route()` mappt pro (feingranularem) Segment die
-    # Stationen im Suchradius - bei sehr kurzen Segmenten (z. B. ein Segment
-    # pro GraphHopper-Polyline-Punktpaar, oft <200 m) liegt dieselbe
-    # physische Station meist innerhalb des Suchradius mehrerer
-    # aufeinanderfolgender Segmente und taucht entsprechend oft doppelt auf.
-    # Ohne Deduplizierung nach `station_id` würde der Optimierer dieselbe
-    # Station an vielen benachbarten Segment-Indizes als eigene Lade-
-    # Gelegenheit modellieren, was den Zustandsgraphen unnötig aufbläht
-    # (siehe docs/plans/07-optimization.md) und die Suche stark verlangsamt.
-    charging_stations: list[ChargingStation] = []
-    seen_station_ids: set[str] = set()
-    for station_list in stations_dict.values():
-        for station in station_list:
-            if station.station_id in seen_station_ids:
-                continue
-            seen_station_ids.add(station.station_id)
-            charging_stations.append(station)
-
     waypoints = list(zwischenstopps) if zwischenstopps else []
 
-    # Reales Höhenprofil-basiertes Gradient je Segment
     gradients = elevation_provider.calculate_segment_gradients(elevation_points, route)
 
     return optimizer.optimize(
@@ -421,6 +437,7 @@ async def _step_8_optimize_charging_plan(  # noqa: PLR0913, PLR0917
         abfahrtszeit=abfahrtszeit,
         ladedauer_vorgaben=ladedauer_vorgaben,
         faehr_zeitfenster=faehr_zeitfenster,
+        detour_kosten=detour_kosten,
     )
 
 
@@ -460,50 +477,6 @@ def _step_9_update_eta(
     return neue_eta_liste
 
 
-def _find_bracket_points(
-    route: Route, segment_index: int, margin_m: float = 3000.0
-) -> tuple[int, int]:
-    """Findet zwei Punkte auf `route.geometrie` deutlich VOR/NACH `segment_index`.
-
-    Ein Detour-Request mit `start == ziel` (derselbe Punkt) ist fuer
-    GraphHopper richtungsmehrdeutig: der Router snappt den Punkt auf die
-    naeheliegende Fahrbahn OHNE zu wissen, in welche Richtung die Reise
-    eigentlich verlaeuft, und kann dadurch an der richtigen Ausfahrt vorbei
-    bis zur naechsten fahren muessen, nur um zu wenden. Zwei
-    UNTERSCHIEDLICHE, bereits auf der Hauptroute in korrekter Fahrtrichtung
-    liegende Punkte (mindestens `margin_m` vor bzw. nach dem eigentlichen
-    Abzweigpunkt) legen die Fahrtrichtung dagegen von vornherein eindeutig
-    fest - kein Heading-Parameter noetig. `margin_m` muss dabei grosszuegig
-    genug sein, um eine tatsaechlich nutzbare Autobahn-Ausfahrt in beide
-    Richtungen einzuschliessen: bei zu knappem Rand (empirisch getestet mit
-    500 m) landen beide Klammerpunkte oft VOR der naechsten echten Ausfahrt,
-    wodurch GraphHopper einen Umweg von mehreren Kilometern ueber die
-    naechstgelegene Ausfahrt UND wieder zurueck einschlagen muss, statt der
-    kurzen, direkten Anbindung zur Ladestation - live gegen den Projekt-
-    GraphHopper-Server verifiziert (Detour/Luftlinie-Verhaeltnis sank von bis
-    zu 20x bei 500 m auf ca. 1.2-2x bei 3000 m).
-
-    Returns:
-        (vor_index, nach_index): Indizes in `route.geometrie`.
-    """
-    last_index = len(route.geometrie) - 1
-    segment_index = min(segment_index, len(route.segments) - 1)
-
-    vor_index = segment_index
-    distanz_zurueck = 0.0
-    while vor_index > 0 and distanz_zurueck < margin_m:
-        vor_index -= 1
-        distanz_zurueck += route.segments[vor_index].laenge_m
-
-    after_index = segment_index
-    distanz_vor = 0.0
-    while after_index < last_index and distanz_vor < margin_m:
-        distanz_vor += route.segments[after_index].laenge_m
-        after_index += 1
-
-    return vor_index, after_index
-
-
 async def _step_route_charging_detours(
     routing_provider: RoutingProvider | None,
     route: Route,
@@ -530,7 +503,7 @@ async def _step_route_charging_detours(
     (oder ueber die gesamte Rueckfahrt verschmiert) gezeigt. Start-/Zielpunkt
     der beiden Beine sind bewusst zwei unterschiedliche, auf der Hauptroute
     liegende Klammerpunkte statt desselben Abzweigpunkts (siehe
-    `_find_bracket_points`), um Richtungsmehrdeutigkeit bei GraphHopper zu
+    `find_bracket_points`), um Richtungsmehrdeutigkeit bei GraphHopper zu
     vermeiden.
 
     Returns:
@@ -553,7 +526,7 @@ async def _step_route_charging_detours(
         ]
     ] = []
     for stop_idx, ladehalt in enumerate(charging_plan.ladehalte):
-        vor_index, after_index = _find_bracket_points(route, ladehalt.segment_index)
+        vor_index, after_index = find_bracket_points(route, ladehalt.segment_index)
         hinweg_anfrage = TripRequest(
             start=route.geometrie[vor_index],
             ziel=ladehalt.station.coordinate,
@@ -604,8 +577,8 @@ async def _step_route_charging_detours(
         station_index = len(hinweg_route.geometrie) - 1
         detouren[stop_id] = LadehaltDetour(
             geometrie=hinweg_route.geometrie + rueckweg_route.geometrie[1:],
-            route_index_vor=_find_bracket_points(route, ladehalt.segment_index)[0],
-            route_index_nach=_find_bracket_points(route, ladehalt.segment_index)[1],
+            route_index_vor=find_bracket_points(route, ladehalt.segment_index)[0],
+            route_index_nach=find_bracket_points(route, ladehalt.segment_index)[1],
             station_index=station_index,
         )
 
@@ -739,7 +712,7 @@ def _log_step(
 # =============================================================================
 
 
-async def create_trip_simulation(  # noqa: PLR0913, PLR0917, PLR0915
+async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
     request_dict: dict[str, object],
     routing_provider: RoutingProvider | None = None,
     elevation_provider: ElevationProvider | None = None,
@@ -857,6 +830,25 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917, PLR0915
     prev_segment_eta_list: list[tuple[RouteSegment, timedelta]] | None = None
     weather_queries: list[WeatherQuery] | None = None
 
+    # 8a. Fetch candidate charging stations and precompute their real,
+    # routed detour costs ONCE - both depend only on `route`, which is
+    # already final at this point, and must not be redone per iteration
+    # (station fetch is cheap but repeated 1-3x for nothing; detour
+    # precomputation is a batch of routing/elevation calls and must not be
+    # repeated at all).
+    with _log_step("fetch_charging_stations"):
+        charging_stations = await _step_8a_fetch_charging_stations(charging_provider, route)
+
+    with _log_step("precompute_detour_costs"):
+        station_segments = map_stations_to_segments(charging_stations, route.segments)
+        detour_kosten = await precompute_detour_costs(
+            routing_provider=routing_provider or FakeRoutingProvider(),
+            elevation_provider=elevation_provider,
+            vehicle_profile=request.fahrzeugprofil,
+            route=route,
+            station_segments=station_segments,
+            abfahrtszeit=request.abfahrtszeit,
+        )
     for iteration in range(loop_max_iterations):
         # Store previous iteration's ETA for convergence check
         if iteration > 0:
@@ -908,7 +900,8 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917, PLR0915
                 elevation_provider,
                 elevation_points,
                 zwischenstopps=waypoints_with_wait_time,
-                charging_provider=charging_provider,
+                charging_stations=charging_stations,
+                detour_kosten=detour_kosten,
                 ladedauer_vorgaben=charging_duration_map,
                 faehr_zeitfenster=ferry_pins,
                 mindest_ankunfts_soc_pct=mindest_ankunfts_soc_pct,

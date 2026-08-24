@@ -8,6 +8,7 @@ mit NetworkX (Prototyp) oder OR-Tools (spätere Ausbaustufe).
 from tripplanner.optimization.models import (
     ChargingPlan,
     ChargingStop,
+    DetourKosten,
     OptimizationConstraints,
     OptimizerInterface,
 )
@@ -19,6 +20,7 @@ from tripplanner.optimization.optimizer import (
 __all__ = [
     "ChargingPlan",
     "ChargingStop",
+    "DetourKosten",
     "OptimizationConstraints",
     "OptimizerInterface",
     "create_networkx_optimizer",

@@ -282,12 +282,13 @@ class CopernicusDEMDataSource:
 
         self._max_open_tiles = max_open_tiles
         self._datasets: OrderedDict[str, rasterio.io.DatasetReader | None] = OrderedDict()
-        # Guards all `_datasets` mutations (pop/insert/evict-close). Without
-        # this, concurrent `asyncio.to_thread` workers can corrupt the LRU
-        # dict or — worse — one thread can `.close()` a dataset another
-        # thread is still `dataset.read()`-ing, which can hang/crash the
-        # whole process (GDAL's C layer is not safe against that race).
+        # Guards all `_datasets` mutations (pop/insert/evict). Never closes a
+        # dataset unconditionally - see `_get_tile_lock`/`_evict_over_cap` for
+        # why eviction is lock-guarded instead.
         self._lock = threading.Lock()
+        # Per-tile locks serializing ALL access (open-or-reuse, read, index)
+        # to one tile's dataset - see `_get_tile_lock`.
+        self._tile_locks: dict[str, threading.Lock] = {}
         # Bounds how many GDAL calls (open/read) run concurrently across
         # worker threads. GDAL/PROJ thread-safety under very high fan-out
         # is not fully guaranteed; this trades a little theoretical
@@ -414,39 +415,82 @@ class CopernicusDEMDataSource:
                 exc_info=True,
             )
 
-    def _dataset_for(self, lat: float, lon: float) -> rasterio.io.DatasetReader | None:
-        """Liefere ein offenes Dataset für die Kachel an (lat, lon), oder None.
+    def _get_tile_lock(self, uri: str) -> threading.Lock:
+        """Per-tile lock serializing all read access to one tile's dataset.
 
-        Datasets werden in einem LRU von maximal `max_open_tiles` Einträgen
-        gecacht (auch fehlgeschlagene Lookups, als None gecacht, damit nicht
-        für jeden Punkt derselben fehlenden Kachel erneut ein Request
-        versucht wird).
+        Held for the ENTIRE open-or-reuse + `read()` + index duration in
+        `_read_tile_bulk` / `get_elevation` / `get_tile_at`. Guarantees:
+
+        1. No two threads ever call `.read()` on the same tile's dataset
+           concurrently (rasterio/GDAL `DatasetReader` objects are not
+           documented thread-safe for concurrent reads).
+        2. Eviction (`_evict_over_cap`) only `.close()`s a tile whose lock it
+           can acquire WITHOUT blocking - i.e. no thread is currently
+           reading it - so a dataset can never be closed out from under an
+           in-flight `read()`.
+
+        Before this, `get_elevations_batch` only protected a batch's OWN
+        tiles from eviction (by growing `_max_open_tiles` to cover them).
+        That was safe as long as elevation lookups ran as a single logical
+        batch per trip (the main route's `_step_2_extract_elevation_profile`
+        call). Once `precompute_detour_costs` started firing ~60 concurrent,
+        overlapping `get_elevations_batch` calls (one per detour leg), a
+        DIFFERENT batch's eviction could `.close()` a tile THIS batch was
+        mid-`read()` on - a use-after-close that crashed the process
+        (SIGSEGV/SIGABRT) on the Gummersbach->Hagfors repro route.
         """
-        uri = self._tile_uri(lat, lon)
         with self._lock:
-            if uri in self._datasets:
-                dataset = self._datasets.pop(uri)
-                self._datasets[uri] = dataset
-                return dataset
+            lock = self._tile_locks.get(uri)
+            if lock is None:
+                lock = threading.Lock()
+                self._tile_locks[uri] = lock
+            return lock
 
+    def _evict_over_cap(self, skip_uri: str) -> None:
+        """Evict LRU-oldest tiles until at/under `_max_open_tiles`.
+
+        Called under `self._lock` (from `_dataset_for_tile`, right after
+        inserting `skip_uri`). Only closes a tile whose per-tile lock it can
+        acquire WITHOUT blocking - i.e. nothing is currently reading it (see
+        `_get_tile_lock`). A tile with an in-flight read is left in the
+        cache and simply reconsidered on the next insertion; this is safe
+        (bounded by however many tiles are concurrently in flight) and is
+        what prevents the close-under-read crash.
+        """
+        for candidate_uri in list(self._datasets):
+            if len(self._datasets) <= self._max_open_tiles:
+                return
+            if candidate_uri == skip_uri:
+                continue
+            lock = self._tile_locks.get(candidate_uri)
+            if lock is not None and not lock.acquire(blocking=False):
+                continue  # a reader is mid-read on this tile - never evict it
             try:
-                dataset = rasterio.open(uri)
-            except Exception:
-                logger.warning("DEM-Kachel %s konnte nicht geöffnet werden - Fallback 0.0m", uri)
-                dataset = None
+                dataset = self._datasets.pop(candidate_uri, None)
+                if dataset is not None:
+                    dataset.close()
+            finally:
+                if lock is not None:
+                    lock.release()
 
-            self._datasets[uri] = dataset
-            if len(self._datasets) > self._max_open_tiles:
-                _, evicted = self._datasets.popitem(last=False)
-                if evicted is not None:
-                    evicted.close()
-            return dataset
+    def _dataset_for(self, lat: float, lon: float) -> rasterio.io.DatasetReader | None:
+        """Return an open dataset for the tile at (lat, lon), or None.
+
+        Datasets are cached in an LRU of at most `max_open_tiles` entries
+        (failed lookups are cached as None too, so a request is not retried
+        for every point in the same missing tile). Delegates to
+        `_dataset_for_tile` - see there for the eviction logic. Callers MUST
+        hold `self._get_tile_lock(uri)` for the duration of any subsequent
+        read (see `_get_tile_lock`).
+        """
+        return self._dataset_for_tile(self._tile_uri(lat, lon))
 
     def _dataset_for_tile(self, uri: str) -> rasterio.io.DatasetReader | None:
         """Open or return cached dataset for a tile URI (thread-safe for batch).
 
-        Same LRU caching logic as `_dataset_for` but takes a URI directly
-        to avoid constructing one in the thread per call.
+        Callers MUST hold `self._get_tile_lock(uri)` for the duration of any
+        subsequent read - this method only guards the LRU dict itself, not
+        the dataset's contents (see `_get_tile_lock`).
 
         Args:
             uri: Tile URI to open or look up in the LRU cache.
@@ -467,10 +511,7 @@ class CopernicusDEMDataSource:
                 dataset = None
 
             self._datasets[uri] = dataset
-            if len(self._datasets) > self._max_open_tiles:
-                _, evicted = self._datasets.popitem(last=False)
-                if evicted is not None:
-                    evicted.close()
+            self._evict_over_cap(skip_uri=uri)
             return dataset
 
     # ── Fix 1: private bulk-read helper ──────────────────────────────
@@ -479,28 +520,23 @@ class CopernicusDEMDataSource:
         self,
         uri: str,
         points: list[tuple[int, float, float]],
-        nodata: float | None,
     ) -> list[float]:
         """Read elevation values for *points* via one bulk ``dataset.read(1)``.
 
-        This is the heart of Fix 1.  It runs *inside* ``asyncio.to_thread``
-        from ``get_elevations_batch`` and is responsible for:
-
-        1. Opening (or reusing from the LRU) the tile dataset.
-        2. Reading the **entire band** in a single ``read(1)`` call.
-        3. Indexing every point with pure numpy array lookup — zero further
-           I/O.
-        4. **Eviction self-heal**: if the LRU dataset was evicted (closed)
-           between step 1 and the bulk read, open a temporary dataset
-           directly (bypassing the LRU), do one bulk ``read(1)`` on it,
-           use it for all points in this tile, then ``close()`` it.
-        5. Writing the tile to disk cache (Fix 3) after success.
+        Runs under `self._get_tile_lock(uri)` for its ENTIRE duration -
+        open-or-reuse, the bulk read, and per-point indexing - so no other
+        thread can ever be mid-`read()` on the same dataset (no concurrent-
+        read race) and eviction can never close it out from under this read
+        (no close-under-read race; see `_get_tile_lock`). This makes the
+        prior "eviction self-heal" (reopen a bypass temp dataset if the LRU
+        one got closed mid-flight) unnecessary - a `_dataset_for_tile`
+        result returned while holding this lock cannot be concurrently
+        closed - so that fallback path was removed.
 
         Args:
             uri: GDAL-readable tile URI (``/vsicurl/...`` or local path).
             points: ``[(result_index, lat, lon), ...]`` per coordinate
                 that falls into this tile.
-            nodata: The dataset's nodata sentinel value, or ``None``.
 
         Returns:
             List of elevation floats — one per entry in *points*.
@@ -511,110 +547,95 @@ class CopernicusDEMDataSource:
             return []
 
         results: list[float] = [0.0] * len(points)
-        dataset: rasterio.io.DatasetReader | None = None
-        temp_dataset: rasterio.io.DatasetReader | None = None
-
-        # ── Step A: Open or reuse from LRU ────────────────────────────
-        try:
+        with self._get_tile_lock(uri):
             dataset = self._dataset_for_tile(uri)
-        except Exception:
-            # LRU itself is broken — fall through to temp open.
-            dataset = None
+            if dataset is None:
+                return results
+            nodata = dataset.nodata
 
-        if dataset is None or getattr(dataset, "closed", False):
-            # ── Eviction self-heal (Fix 1): open temp, bypass LRU ────
+            # ── Single bulk read of the whole band (Fix 1) ────────────
             try:
-                temp_dataset = rasterio.open(uri)
-                dataset = temp_dataset
+                band = dataset.read(1)
             except Exception:
                 logger.warning(
-                    "DEM-Tile %s konnte nicht geöffnet werden - Fallback 0.0m",
+                    "DEM-Tile %s konnte nicht gelesen werden - Fallback 0.0m",
                     uri,
                 )
                 return results
 
-        # ── Step B: Single bulk read of the whole band (Fix 1) ───────
-        try:
-            band = dataset.read(1)
-        except Exception:
-            logger.warning(
-                "DEM-Tile %s konnte nicht gelesen werden - Fallback 0.0m",
-                uri,
-            )
-            return results
+            # ── Per-point indexing — pure numpy, zero further I/O ─────
+            for local_idx, (_global_idx, lat, lon) in enumerate(points):
+                try:
+                    row, col = dataset.index(lon, lat)
+                    if not (0 <= row < dataset.height and 0 <= col < dataset.width):
+                        continue
+                    value = band[row, col]
+                    value_f = float(value)
+                    if nodata is not None and value_f == nodata:
+                        continue
+                    results[local_idx] = value_f
+                except Exception:
+                    # Out-of-bounds index, etc. → leave 0.0.
+                    pass
 
-        # ── Step C: Per-point indexing — pure numpy, zero I/O ────────
-        for local_idx, (_global_idx, lat, lon) in enumerate(points):
-            try:
-                row, col = dataset.index(lon, lat)
-                if not (0 <= row < dataset.height and 0 <= col < dataset.width):
-                    continue
-                value = band[row, col]
-                value_f = float(value)
-                if nodata is not None and value_f == nodata:
-                    continue
-                results[local_idx] = value_f
-            except Exception:
-                # Out-of-bounds index, etc. → leave 0.0.
-                pass
-
-        # ── Fix 3: Schedule disk-cache write from the in-memory band ──
-        # (fire-and-forget background thread, never blocks the response)
-        self._schedule_cache_write(uri, dataset, band, points[0][1], points[0][2])
-
-        # ── Close temporary dataset (not the LRU one) ────────────────
-        if temp_dataset is not None and dataset is temp_dataset:
-            temp_dataset.close()
+            # ── Fix 3: Schedule disk-cache write from the in-memory band ──
+            # (fire-and-forget background thread, never blocks the response)
+            self._schedule_cache_write(uri, dataset, band, points[0][1], points[0][2])
 
         return results
 
     def get_elevation(self, lat: float, lon: float) -> float:
-        """Höhenwert an einer Koordinate abfragen.
+        """Query the elevation value at one coordinate.
 
         Args:
-            lat: Breitengrad (WGS84)
-            lon: Längengrad (WGS84)
+            lat: Latitude (WGS84)
+            lon: Longitude (WGS84)
 
         Returns:
-            Höhenwert in Metern, oder 0.0 falls keine Kachel verfügbar ist
-            oder der Range-Request fehlschlägt (siehe Docstring der Klasse).
+            Elevation in meters, or 0.0 if no tile is available or the range
+            request fails (see the class docstring).
         """
-        dataset = self._dataset_for(lat, lon)
-        if dataset is None:
-            return 0.0
-        try:
-            row, col = dataset.index(lon, lat)
-            if not (0 <= row < dataset.height and 0 <= col < dataset.width):
+        uri = self._tile_uri(lat, lon)
+        with self._get_tile_lock(uri):
+            dataset = self._dataset_for_tile(uri)
+            if dataset is None:
                 return 0.0
-            value = dataset.read(1, window=Window(col, row, 1, 1))[0, 0]
-        except Exception:
-            logger.warning(
-                "DEM-Range-Request für (%s, %s) fehlgeschlagen - Fallback 0.0m", lat, lon
-            )
-            return 0.0
-        value_f = float(value)
-        if dataset.nodata is not None and value_f == dataset.nodata:
-            return 0.0
-        return value_f
+            try:
+                row, col = dataset.index(lon, lat)
+                if not (0 <= row < dataset.height and 0 <= col < dataset.width):
+                    return 0.0
+                value = dataset.read(1, window=Window(col, row, 1, 1))[0, 0]
+            except Exception:
+                logger.warning(
+                    "DEM-Range-Request für (%s, %s) fehlgeschlagen - Fallback 0.0m", lat, lon
+                )
+                return 0.0
+            value_f = float(value)
+            if dataset.nodata is not None and value_f == dataset.nodata:
+                return 0.0
+            return value_f
 
     async def get_elevations_batch(self, coordinates: list[tuple[float, float]]) -> list[float]:
-        """Höhenwerte für mehrere Koordinaten abfragen (optimiert für Batch-Lookup).
+        """Query elevation values for multiple coordinates (optimized batch lookup).
 
-        Gruppiert Koordinaten nach 1°-DEM-Kachel, öffnet die benötigten Kacheln
-        concurrent via ``asyncio.to_thread`` (GDAL/rasterio ist blockierend),
-        liest pro Kachel **genau einen** Bulk-``read(1)`` und indexiert
-        danach alle Pixelwerte mit reinem Numpy-Zugriff — null weitere I/O.
+        Groups coordinates by 1° DEM tile, reads each tile concurrently via
+        ``asyncio.to_thread`` (GDAL/rasterio is blocking) - one bulk
+        ``read(1)`` per tile, then indexes every pixel value with pure numpy
+        array access, zero further I/O. `_read_tile_bulk` does the
+        open-or-reuse AND the read under one per-tile lock (see its
+        docstring), so a tile is never opened by one call and read by
+        another.
 
-        Fix 1 — der alte Pfad machte ``dataset.read(window=Window(...))``
-        für *jeden* einzelnen Punkt (118 s).  Jetzt macht jede Kachel
-        genau **einen** Bulk-``read(1)`` (ca. 3600x3600 int16-Pixel),
-        gestartet parallel über ``asyncio.gather``.
+        Fix 1 - the old path did ``dataset.read(window=Window(...))`` for
+        *every single* point (118 s). Now each tile does exactly **one**
+        bulk ``read(1)`` (roughly 3600x3600 int16 pixels), started
+        concurrently via ``asyncio.gather``.
 
         Args:
-            coordinates: Liste von (lat, lon)-Tupeln
+            coordinates: List of (lat, lon) tuples
 
         Returns:
-            Liste von Höhenwerten in derselben Reihenfolge wie `coordinates`
+            List of elevation values in the same order as `coordinates`
         """
         if not coordinates:
             return []
@@ -628,46 +649,28 @@ class CopernicusDEMDataSource:
         if not tile_coords:
             return []
 
-        # Never evict a tile that's part of *this* batch: raise the LRU cap
-        # to cover every distinct tile touched here (monotonic, cheap - an
-        # open local-file rasterio handle is just a file descriptor + header,
-        # not the pixel data). This guarantees no dataset this batch is using
-        # gets `.close()`-d by another thread's eviction while a `read()` on
-        # it is in flight — that race was a genuine hang/crash risk (GDAL's
-        # C layer is not safe against closing a dataset another thread is
-        # actively reading).
+        # Grow the cap to cover this batch's own distinct tiles, so a single
+        # large batch (e.g. the main route, which touches every tile it
+        # needs in ONE call) doesn't evict-and-reopen its own tiles
+        # mid-flight. Purely a perf nicety now, not a safety requirement:
+        # eviction of ANY tile - this batch's or a concurrent batch's - is
+        # always lock-guarded against an in-flight read (see
+        # `_get_tile_lock`).
         self._max_open_tiles = max(self._max_open_tiles, len(tile_coords))
 
-        # 2. Open each distinct tile concurrently (rasterio/GDAL is blocking).
-        # Bounded by `_gdal_semaphore`: GDAL/PROJ thread-safety under very
-        # high fan-out is not fully guaranteed, so concurrency is capped
-        # rather than unbounded across however many tiles a route touches.
-        async def _load_dataset(uri: str) -> rasterio.io.DatasetReader | None:
+        # 2. Read each distinct tile concurrently (rasterio/GDAL is
+        # blocking). Bounded by `_gdal_semaphore`: GDAL/PROJ thread-safety
+        # under very high fan-out is not fully guaranteed, so concurrency is
+        # capped rather than unbounded across however many tiles a route
+        # touches. `_read_tile_bulk` does the open-or-reuse AND the read
+        # under one per-tile lock (see its docstring) - a single phase, not
+        # two, so a tile is never opened by one call and read by another.
+        async def _read_one(uri: str, points: list[tuple[int, float, float]]) -> list[float]:
             async with self._gdal_semaphore:
-                return await asyncio.to_thread(self._dataset_for_tile, uri)
-
-        datasets = await asyncio.gather(
-            *[_load_dataset(uri) for uri in tile_coords],
-        )
-
-        # 3. For each tile, do ONE bulk read inside a worker thread,
-        #    all tiles' bulk reads running concurrently via asyncio.gather
-        #    (still bounded by `_gdal_semaphore`).
-        async def _read_tile_and_collect(
-            uri: str,
-            points: list[tuple[int, float, float]],
-            dataset: rasterio.io.DatasetReader | None,
-        ) -> list[float]:
-            """Run bulk read for one tile and return per-point results."""
-            nodata = dataset.nodata if dataset is not None else None
-            async with self._gdal_semaphore:
-                return await asyncio.to_thread(self._read_tile_bulk, uri, points, nodata)
+                return await asyncio.to_thread(self._read_tile_bulk, uri, points)
 
         gathered = await asyncio.gather(
-            *[
-                _read_tile_and_collect(uri, pts, ds)
-                for (uri, pts), ds in zip(tile_coords.items(), datasets, strict=True)
-            ],
+            *[_read_one(uri, pts) for uri, pts in tile_coords.items()],
         )
 
         # Scatter per-tile result lists back into flat coordinate order.
@@ -679,49 +682,53 @@ class CopernicusDEMDataSource:
         return results
 
     def get_tile_at(self, lat: float, lon: float) -> DEMTile | None:
-        """Ermittle die DEM-Kachel für eine Koordinate.
+        """Determine the DEM tile for a coordinate.
 
         Args:
-            lat: Breitengrad
-            lon: Längengrad
+            lat: Latitude
+            lon: Longitude
 
         Returns:
-            DEMTile mit den echten Rasterdaten, oder None falls keine Kachel
-            verfügbar ist oder das Lesen fehlschlägt.
+            DEMTile with the real raster data, or None if no tile is
+            available or the read fails.
         """
-        dataset = self._dataset_for(lat, lon)
-        if dataset is None:
-            return None
-        try:
-            data = dataset.read(1)
-        except Exception:
-            logger.warning("DEM-Kachel-Raster für (%s, %s) konnte nicht gelesen werden", lat, lon)
-            return None
+        uri = self._tile_uri(lat, lon)
+        with self._get_tile_lock(uri):
+            dataset = self._dataset_for_tile(uri)
+            if dataset is None:
+                return None
+            try:
+                data = dataset.read(1)
+            except Exception:
+                logger.warning(
+                    "DEM-Kachel-Raster für (%s, %s) konnte nicht gelesen werden", lat, lon
+                )
+                return None
 
-        raster_data = b"".join(struct.pack("<f", float(v)) for v in data.flatten())
-        transform = dataset.transform
-        bounds = dataset.bounds
-        transform_list = [
-            transform.a,
-            transform.b,
-            transform.c,
-            transform.d,
-            transform.e,
-            transform.f,
-        ]
-        return DEMTile(
-            key=DEMTileKey(
-                min_lat=bounds.bottom,
-                max_lat=bounds.top,
-                min_lon=bounds.left,
-                max_lon=bounds.right,
-            ),
-            raster_data=raster_data,
-            transform=transform_list,
-            width=dataset.width,
-            height=dataset.height,
-            nodata_value=dataset.nodata if dataset.nodata is not None else -9999.0,
-        )
+            raster_data = b"".join(struct.pack("<f", float(v)) for v in data.flatten())
+            transform = dataset.transform
+            bounds = dataset.bounds
+            transform_list = [
+                transform.a,
+                transform.b,
+                transform.c,
+                transform.d,
+                transform.e,
+                transform.f,
+            ]
+            return DEMTile(
+                key=DEMTileKey(
+                    min_lat=bounds.bottom,
+                    max_lat=bounds.top,
+                    min_lon=bounds.left,
+                    max_lon=bounds.right,
+                ),
+                raster_data=raster_data,
+                transform=transform_list,
+                width=dataset.width,
+                height=dataset.height,
+                nodata_value=dataset.nodata if dataset.nodata is not None else -9999.0,
+            )
 
     def get_tiles_in_bbox(
         self, min_lat: float, max_lat: float, min_lon: float, max_lon: float
