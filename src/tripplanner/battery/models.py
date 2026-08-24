@@ -230,10 +230,10 @@ class LadekurveReferenz:
         )
 
     @staticmethod
-    def model_3_lr_v3_measured() -> ChargingCurve:
-        """Feingranulare, realistische Referenzladekurve für Model 3 LR (V3-Supercharger).
+    def model_3_sr() -> ChargingCurve:
+        """Feingranulare, realistische Referenzladekurve für Model 3 SR (V3-Supercharger).
 
-        25 Stützpunkte statt der groben 6-Punkte-Näherung in `model_3_lr_v3()`,
+        25 Stützpunkte,
         verbunden per PCHIP (`InterpolationMethod.HERMITE`) statt linear. Bildet
         insbesondere den anfänglichen Leistungsanstieg durch Batterie-
         Vorkonditionierung ab: Rampe von ~50 kW bei 0% SoC auf einen Peak von

@@ -168,7 +168,7 @@ class NetworkXOptimizer(OptimizerInterface):
         station_segments = self._map_stations_to_segments(charging_stations, segments)
 
         # Erstelle Ladekurve für das Fahrzeug (V3-Standard)
-        ladekurve = LadekurveReferenz.model_3_lr_v3()
+        ladekurve = LadekurveReferenz.model_3_sr()
 
         # Setze Basiszeit für Zeit-Bucket Berechnungen
         self._base_time = abfahrtszeit
