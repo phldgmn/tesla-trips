@@ -4,13 +4,24 @@ Diese Module definieren die offiziellen Typen aus dem Register:
 - `WeatherQuery`: Abfrage für einen einzelnen Wetterereignis
 - `WeatherSample`: Wetterdaten für einen Zeitpunkt an einer Koordinate
 - `OpenMeteoResponse`: Raw-Response von Open-Meteo Forecast API (intern)
+- `WeatherDetailLevel`: Steuerungsgrad der Wetterauflösung ("off" | "low" | "medium" | "high")
 """
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from tripplanner.geo import Coordinate
+
+WeatherDetailLevel = Literal["off", "low", "medium", "high"]
+"""Weather detail granularity level.
+
+- ``"off"``: No weather data (placeholder samples).
+- ``"low"``: Single representative point (trip midpoint).
+- ``"medium"``: Samples every N-th segment (N=5).
+- ``"high"``: One sample per segment (current full-resolution behavior).
+"""
 
 
 class WeatherQuery(BaseModel):

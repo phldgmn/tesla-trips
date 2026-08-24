@@ -3,6 +3,7 @@
 Re-exports:
 - `WeatherProvider`: Protocol for weather data providers
 - `fetch_weather_for_route`: fetches weather along a route
+- `fetch_weather_by_detail`: detail-level-aware weather fetching
 - `OpenMeteoClient` / `OpenMeteoProvider`: Open-Meteo Forecast API (global, keyless)
 - `MetNorwayProvider`: MET Norway Locationforecast 2.0 API (global, keyless)
 - `OpenWeatherProvider`: OpenWeather forecast API (global, API key,
@@ -13,10 +14,16 @@ Re-exports:
 - `LoadBalancedWeatherProvider` / `WeatherProviderEntry`: country-aware,
   load-balanced composite with automatic failover
 - `detect_country`: best-effort DE/DK/SE coordinate classification
+- `WeatherDetailLevel`: weather granularity control ("off" | "low" | "medium" | "high")
 """
 
 from tripplanner.weather.coverage import detect_country
-from tripplanner.weather.models import OpenMeteoResponse, WeatherQuery, WeatherSample
+from tripplanner.weather.models import (
+    OpenMeteoResponse,
+    WeatherDetailLevel,
+    WeatherQuery,
+    WeatherSample,
+)
 from tripplanner.weather.providers import (
     DmiProvider,
     FakeWeatherProvider,
@@ -30,7 +37,7 @@ from tripplanner.weather.providers import (
     WeatherProvider,
     WeatherProviderEntry,
 )
-from tripplanner.weather.weather import fetch_weather_for_route
+from tripplanner.weather.weather import fetch_weather_by_detail, fetch_weather_for_route
 
 __all__ = [
     "DmiProvider",
@@ -43,10 +50,12 @@ __all__ = [
     "OpenWeatherProvider",
     "SlidingWindowRateLimiter",
     "SmhiProvider",
+    "WeatherDetailLevel",
     "WeatherProvider",
     "WeatherProviderEntry",
     "WeatherQuery",
     "WeatherSample",
     "detect_country",
+    "fetch_weather_by_detail",
     "fetch_weather_for_route",
 ]
