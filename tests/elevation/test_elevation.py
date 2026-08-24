@@ -260,13 +260,21 @@ class TestAsyncGatherCallsToThreadPerTile:
                 asyncio.to_thread = real_to_thread
 
         await patch_and_run()
-        # 2 tiles x 2 phases (open + read) = 4 calls
-        assert len(to_thread_calls) == 4
+        # 2 distinct tiles, ONE to_thread call each (open-or-reuse + read
+        # merged into a single `_read_tile_bulk` call under the tile's lock -
+        # see `_get_tile_lock`), not one for opening and one for reading.
+        assert len(to_thread_calls) == 2
 
     @pytest.mark.asyncio
-    async def test_tile_opening_is_concurrent_via_to_thread(self) -> None:
-        """If tile-opening has a small delay, concurrent opens finish in
-        ~1x the delay, not Nx the delay."""
+    async def test_tile_reads_are_concurrent_via_to_thread(self) -> None:
+        """If a tile's (open-or-reuse + read) has a small delay, concurrent
+        distinct tiles finish in ~1x the delay, not Nx the delay.
+
+        Open and read used to be two separate `to_thread` phases; they are
+        now merged into one call per tile, held under that tile's lock for
+        its whole duration (see `_get_tile_lock`) - this test now measures
+        that single phase's concurrency across distinct tiles instead of
+        distinguishing an "open phase" from a "read phase"."""
         coords = [
             (47.0, 8.0),
             (47.0001, 8.0),
@@ -277,19 +285,11 @@ class TestAsyncGatherCallsToThreadPerTile:
         source._datasets = OrderedDict()
 
         call_count = [0]
-        open_delays: list[float] = []
-        read_delays: list[float] = []
         real_to_thread = asyncio.to_thread
 
         async def slow_to_thread(fn, *args, **kwargs):  # type: ignore[no-untyped-def]
             call_count[0] += 1
-            is_open_phase = "_dataset_for_tile" in str(fn)
-            delay = 0.02 if is_open_phase else 0.001
-            if is_open_phase:
-                open_delays.append(delay)
-            else:
-                read_delays.append(delay)
-            await asyncio.sleep(delay)
+            await asyncio.sleep(0.02)
             return await real_to_thread(fn, *args, **kwargs)
 
         async def patch_and_measure():
@@ -298,18 +298,16 @@ class TestAsyncGatherCallsToThreadPerTile:
                 start = asyncio.get_event_loop().time()
                 await source.get_elevations_batch(coords)
                 elapsed = asyncio.get_event_loop().time() - start
-                return call_count[0], elapsed, len(open_delays), len(read_delays)
+                return call_count[0], elapsed
             finally:
                 asyncio.to_thread = real_to_thread
 
-        _count, elapsed, n_opens, n_reads = await patch_and_measure()
+        count, elapsed = await patch_and_measure()
 
-        # 2 distinct tiles, open phase calls to_thread concurrently
-        assert n_opens == 2
-        # Read phase also calls to_thread (bulk read per tile)
-        assert n_reads == 2
-        # Concurrent opens: total ~0.02s, not 0.04s (sequential)
-        assert elapsed < 0.06, f"Expected concurrent (~0.02s opens), got {elapsed:.3f}s"
+        # 2 distinct tiles, one to_thread call each.
+        assert count == 2
+        # Concurrent: total ~0.02s, not 0.04s (sequential).
+        assert elapsed < 0.06, f"Expected concurrent (~0.02s), got {elapsed:.3f}s"
 
     @pytest.mark.asyncio
     async def test_results_preserve_original_order(self) -> None:
@@ -383,19 +381,21 @@ class TestElevationTileEviction:
     """Regression tests for LRU tile eviction during batched elevation reads."""
 
     @pytest.mark.asyncio
-    async def test_batched_elevation_survives_pre_closed_dataset(self) -> None:
-        """If a dataset already in the LRU is closed when a batch begins
-        (e.g. evicted by an earlier, larger call, or closed externally),
-        the self-heal path re-opens it directly (bypassing the LRU) so
-        elevations are correct instead of silently 0.0.
+    async def test_batched_elevation_degrades_gracefully_on_externally_closed_dataset(
+        self,
+    ) -> None:
+        """A dataset closed by something OUTSIDE this class (adversarial /
+        defensive case - not reachable via the public API) must not crash
+        the batch or corrupt OTHER tiles' results; it degrades to 0.0 for
+        just its own tile.
 
-        Note: `get_elevations_batch` raises `_max_open_tiles` to cover
-        every distinct tile touched by the batch itself, so eviction can
-        no longer happen *during* a single batch call (that was a genuine
-        hang/crash risk: one thread `.close()`-ing a dataset another
-        thread was still `dataset.read()`-ing). This test instead seeds
-        the LRU with already-closed datasets up front, simulating tiles
-        evicted by a *previous* call, to exercise the same self-heal path.
+        Previously this scenario "self-healed" by reopening a bypass temp
+        dataset. That path was removed: it's now structurally unreachable
+        in normal operation because eviction is lock-guarded (see
+        `_get_tile_lock`/`_evict_over_cap`) - a dataset present in
+        `self._datasets` is never closed by THIS class while anything might
+        still be reading it. What remains is graceful degradation for the
+        genuinely-external-interference case this test constructs.
         """
         source = CopernicusDEMDataSource(base_url="file:///nonexistent")
         source._max_open_tiles = 16
@@ -416,14 +416,9 @@ class TestElevationTileEviction:
         def make_dataset(path: str) -> _MockDataset:
             return _MockDataset(tile_values[path])
 
-        reopened: list[str] = []
-
-        def patched_open(path: str) -> _MockDataset:
-            reopened.append(path)
-            return make_dataset(path)
-
         # Pre-seed the LRU with already-closed datasets for tiles 0 and 2,
-        # simulating eviction by an earlier call.
+        # simulating external interference (this class alone can never
+        # produce this state - see docstring above).
         closed_0 = make_dataset(tile_uris[0])
         closed_0.close()
         source._datasets[tile_uris[0]] = closed_0
@@ -432,21 +427,20 @@ class TestElevationTileEviction:
         source._datasets[tile_uris[2]] = closed_2
 
         orig_open = rasterio.open
-        rasterio.open = patched_open  # type: ignore[assignment]
+        rasterio.open = make_dataset  # type: ignore[assignment]
 
         try:
             coords = [
-                (47.0, 8.0),  # tile 0 -> 100.0 (pre-closed, must self-heal)
-                (48.0, 9.0),  # tile 1 -> 200.0
-                (49.0, 10.0),  # tile 2 -> 300.0 (pre-closed, must self-heal)
-                (50.0, 11.0),  # tile 3 -> 400.0
+                (47.0, 8.0),  # tile 0 -> pre-closed, degrades to 0.0
+                (48.0, 9.0),  # tile 1 -> 200.0, unaffected
+                (49.0, 10.0),  # tile 2 -> pre-closed, degrades to 0.0
+                (50.0, 11.0),  # tile 3 -> 400.0, unaffected
             ]
             results = await source.get_elevations_batch(coords)
-            assert results == [100.0, 200.0, 300.0, 400.0], (
-                f"Elevations should not be zeroed by a pre-closed dataset: got {results}"
+            assert results == [0.0, 200.0, 0.0, 400.0], (
+                f"Pre-closed tiles must degrade to 0.0 without affecting other "
+                f"tiles or raising: got {results}"
             )
-            assert tile_uris[0] in reopened, "tile 0 should have been re-opened via self-heal"
-            assert tile_uris[2] in reopened, "tile 2 should have been re-opened via self-heal"
         finally:
             rasterio.open = orig_open  # type: ignore[assignment]
 
@@ -693,10 +687,9 @@ class TestReadConcurrency:
                 self: CopernicusDEMDataSource,
                 uri: str,
                 points: list[tuple[int, float, float]],
-                nodata: float | None,
             ) -> list[float]:
                 time.sleep(delay)
-                return original_read_tile_bulk(self, uri, points, nodata)
+                return original_read_tile_bulk(self, uri, points)
 
             CopernicusDEMDataSource._read_tile_bulk = delayed_read_tile_bulk  # type: ignore[assignment]
 
