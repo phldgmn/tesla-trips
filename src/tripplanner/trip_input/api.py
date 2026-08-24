@@ -15,11 +15,11 @@ import traceback
 from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from tripplanner.charging_infrastructure import (
     ChargingStation,
@@ -66,7 +66,7 @@ from tripplanner.trip_input.providers_factory import (
     build_production_providers,
     close_production_providers,
 )
-from tripplanner.weather import FakeWeatherProvider
+from tripplanner.weather import FakeWeatherProvider, WeatherDetailLevel, fetch_weather_by_detail
 from tripplanner.weather.models import WeatherQuery, WeatherSample
 from tripplanner.weather.providers import WeatherProvider
 from tripplanner.wind import compute_wind_components_for_route
@@ -159,37 +159,52 @@ def _step_4_estimate_initial_eta(
     return segment_eta_list
 
 
-async def _step_5_fetch_weather(
+async def _step_5_fetch_weather(  # noqa: PLR0913, PLR0917
     provider: WeatherProvider | None,
     route: Route,
     segment_eta_list: list[tuple[RouteSegment, timedelta]],
     abfahrtszeit: datetime,
     previous_queries: list[WeatherQuery] | None = None,
+    weather_detail: WeatherDetailLevel = "high",
 ) -> tuple[list[WeatherSample], list[WeatherQuery]]:
-    """Schritt 5: Wetterdaten entlang der Route zu den aktuellen ETAs abrufen.
+    """Step 5: Fetch weather data along the route at the current ETAs.
 
-    Default: `FakeWeatherProvider` für Tests ohne externe API-Aufrufe.
+    For ``high`` (the default), the existing per-segment loop with
+    refetch is preserved.  For ``low``/``medium``, ``fetch_weather_by_detail``
+    is used to fetch a coarser set of weather points with a single provider
+    call; the returned ``queries`` tuple element is ``[]`` because low/medium
+    never refetch (the convergence loop is capped to 1 iteration).
 
     Args:
-        provider: Wetter-Provider. `None` verwendet `FakeWeatherProvider`.
-        route: Die berechnete Route (liefert die Segment-Geometrie).
-        segment_eta_list: Segment mit geschätzter Fahrzeit ab Abfahrt.
-        abfahrtszeit: Abfahrtszeitpunkt der gesamten Reise.
-        previous_queries: Queries der vorherigen Iteration (gleiche Koordinaten,
-            alte Zeitpunkte). Wenn gesetzt und der Provider `refetch_weather`
-            unterstützt (z. B. `OpenMeteoProvider`), wird dessen Cache für
-            unveränderte Koordinaten/Zeitpunkte genutzt statt jeden Punkt neu
-            abzufragen.
+        provider: Weather provider. ``None`` falls back to
+            ``FakeWeatherProvider``.
+        route: The computed route (provides segment geometries).
+        segment_eta_list: Segments with estimated travel time from departure.
+        abfahrtszeit: Departure time of the entire trip.
+        previous_queries: Queries from the previous iteration (same
+            coordinates, old timestamps).  Only used when
+            ``weather_detail == "high"`` and the provider supports
+            ``refetch_weather``.
+        weather_detail: Weather granularity level.  ``"high"`` uses the
+            per-segment loop with refetch as today.  ``"low"`` and
+            ``"medium"`` call :func:`fetch_weather_by_detail` once;
+            ``"off"`` is handled upstream by passing ``provider=None``.
 
     Returns:
-        Tuple aus den `WeatherSample`s und den dafür verwendeten `WeatherQuery`s
-        (Letztere werden vom Aufrufer als `previous_queries` der nächsten
-        Iteration übergeben).
+        Tuple of ``WeatherSample`` list (one per segment) and
+        ``WeatherQuery`` list.  For ``"low"``/``"medium"`` the query
+        list is empty because no refetch is needed.
     """
     if provider is None:
         provider = FakeWeatherProvider()
 
-    # Queries erzeugen: Koordinate + ETA pro Segment
+    if weather_detail in ("low", "medium"):
+        samples = await fetch_weather_by_detail(
+            provider, route, segment_eta_list, abfahrtszeit, weather_detail
+        )
+        return samples, []
+
+    # high: exact today's code path
     queries: list[WeatherQuery] = []
     current_time = abfahrtszeit
 
@@ -724,7 +739,7 @@ def _log_step(
 # =============================================================================
 
 
-async def create_trip_simulation(  # noqa: PLR0913, PLR0917
+async def create_trip_simulation(  # noqa: PLR0913, PLR0917, PLR0915
     request_dict: dict[str, object],
     routing_provider: RoutingProvider | None = None,
     elevation_provider: ElevationProvider | None = None,
@@ -739,6 +754,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
     convergence_threshold_minutes: float = 30.0,
     route_observer: Callable[[Route], None] | None = None,
     ferry_observer: Callable[[list[FaehrSegment]], None] | None = None,
+    weather_detail: WeatherDetailLevel = "high",
 ) -> TripSimulationResult:
     """Orchestrates the 11 data flow steps for trip planning.
 
@@ -768,6 +784,11 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
         ferry_observer: Optional callback called immediately after step 1 with the
             detected ferries enriched with `request.faehr_zeitfenster` - same list
             used for optimizer input (see `create_trip_endpoint`).
+        weather_detail: Weather granularity level.  ``"low"`` and ``"medium"``
+            fetch weather once and never refetch, so charging-plan
+            re-optimization against updated weather in later iterations would
+            have no effect — the convergence loop is capped to 1 iteration for
+            these levels.
 
     Returns:
         TripSimulationResult: Complete simulation result.
@@ -831,11 +852,12 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
     }
     charging_duration_map = {v.station_id: v.ladedauer_s for v in request.ladedauer_vorgaben}
 
+    loop_max_iterations = 1 if weather_detail in ("low", "medium") else max_iterations
     # 10. Iterative ETA/weather convergence loop
     prev_segment_eta_list: list[tuple[RouteSegment, timedelta]] | None = None
     weather_queries: list[WeatherQuery] | None = None
 
-    for iteration in range(max_iterations):
+    for iteration in range(loop_max_iterations):
         # Store previous iteration's ETA for convergence check
         if iteration > 0:
             prev_segment_eta_list = [(seg, eta) for seg, eta in segment_eta_list]
@@ -850,6 +872,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
                 segment_eta_list,
                 request.abfahrtszeit,
                 previous_queries=weather_queries,
+                weather_detail=weather_detail,
             )
 
         # Construction sites (optional)
@@ -1394,14 +1417,45 @@ class TripRequestAPI(BaseModel):
         default_factory=list,
         description="Vom Nutzer vorgegebene feste Ladedauern für einzelne Ladehalte",
     )
-    wetter_beruecksichtigen: bool = Field(
-        default=True,
+    wetter_detailgrad: Literal["off", "low", "medium", "high"] = Field(
+        default="high",
         description=(
-            "Falls False, wird der Wetter-Provider für diese Berechnung übersprungen "
-            "(Fallback auf neutrale Platzhalterwerte statt Live-Abfrage), um die "
-            "Berechnungsdauer zu reduzieren."
+            "Weather detail level: 'off', 'low', 'medium', or 'high'. "
+            "'low'/'medium' use coarser weather resolution and complete faster; "
+            "'off' skips weather entirely (placeholder values); 'high' uses "
+            "per-segment weather (default, exact behavior matching the legacy "
+            "wetter_beruecksichtigen=True)."
         ),
     )
+
+    @model_validator(mode="before")
+    @staticmethod
+    def _map_legacy_wetter_boolean(data: dict[str, object]) -> dict[str, object]:
+        """Map legacy wetter_beruecksichtigen boolean to wetter_detailgrad.
+
+        Handles both the old field name (wetter_beruecksichtigen: bool) and
+        defensively: the new field name with a boolean value from clients
+        that send the new field with the old type.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        # Legacy field name: wetter_beruecksichtigen -> wetter_detailgrad
+        if "wetter_beruecksichtigen" in data and "wetter_detailgrad" not in data:
+            raw = data.pop("wetter_beruecksichtigen")
+            if isinstance(raw, bool):
+                data["wetter_detailgrad"] = "high" if raw else "off"
+            else:
+                data["wetter_detailgrad"] = "high"
+
+        # Defensive: wetter_detailgrad sent as a raw JSON boolean
+        if data.get("wetter_detailgrad") is True:
+            data["wetter_detailgrad"] = "high"
+        elif data.get("wetter_detailgrad") is False:
+            data["wetter_detailgrad"] = "off"
+
+        return data
+
     baustellen_beruecksichtigen: bool = Field(
         default=True,
         description=(
@@ -1593,12 +1647,12 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
     Routing erfolgt über den echten GraphHopper-Server (`get_routing_provider`);
     ohne laufenden Server (siehe README.md) schlägt der Request mit 502 fehl.
 
-    `request.wetter_beruecksichtigen`/`request.baustellen_beruecksichtigen` steuern,
-    ob der jeweilige Provider überhaupt aufgerufen wird (`None` statt der
-    injizierten Instanz an `create_trip_simulation` übergeben) - das lässt dem
-    Nutzer die Wahl, einen langsamen/ratenlimitierten Provider für eine schnellere
-    Berechnung zu überspringen, ohne die zugrunde liegende Performance-Ursache zu
-    beheben.
+    ``request.wetter_detailgrad`` (``"off"``, ``"low"``, ``"medium"``,
+    ``"high"``) drives weather resolution.  ``"off"`` skips the weather
+    provider (``None``); ``"high"`` passes it through unchanged;
+    ``"low"``/``"medium"`` also pass the provider but with reduced
+    query granularity.  ``request.baustellen_beruecksichtigen`` controls
+    construction-site detection independently.
     """
     # TripRequestAPI nach TripRequest konvertieren
     request_dict: dict[str, object] = {
@@ -1657,7 +1711,8 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
             request_dict,
             routing_provider=routing_provider,
             charging_provider=charging_provider,
-            weather_provider=(weather_provider if request.wetter_beruecksichtigen else None),
+            weather_provider=(weather_provider if request.wetter_detailgrad != "off" else None),
+            weather_detail=request.wetter_detailgrad,
             construction_provider=(
                 construction_provider if request.baustellen_beruecksichtigen else None
             ),

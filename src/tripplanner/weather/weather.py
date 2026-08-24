@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
+from tripplanner.geo import Coordinate
 from tripplanner.routing.models import RouteSegment
 from tripplanner.weather.models import (
     WeatherDetailLevel,
@@ -47,9 +48,9 @@ def _nearest_sample_assignment(
 
     Examples:
         >>> _nearest_sample_assignment(12, [0, 5, 10, 11])
-        [0, 0, 0, 0, 5, 5, 5, 5, 10, 10, 10, 11]
+        [0, 0, 0, 5, 5, 5, 5, 5, 10, 10, 10, 11]
         >>> _nearest_sample_assignment(5, [0, 4])
-        [0, 0, 0, 0, 4]
+        [0, 0, 0, 4, 4]
         >>> _nearest_sample_assignment(1, [0])
         [0]
     """
@@ -182,8 +183,11 @@ async def _fetch_low(
     query = WeatherQuery(koordinate=mid_coord, zeitpunkt=mid_time)
     samples = await provider.fetch_weather([query])
 
-    if not samples:
-        return []
+    if len(samples) != 1:
+        raise RuntimeError(
+            f"Expected 1 sample from provider for low-detail query, "
+            f"got {len(samples)} — provider dropped an entry"
+        )
 
     original = samples[0]
     result: list[WeatherSample] = []
@@ -228,15 +232,27 @@ async def _fetch_medium(
 
     samples = await provider.fetch_weather(queries)
 
-    assignment = _nearest_sample_assignment(segment_count, sampled_indices)
+    if len(samples) != len(queries):
+        raise RuntimeError(
+            f"Expected {len(queries)} samples from provider for medium-detail queries, "
+            f"got {len(samples)} — provider dropped an entry"
+        )
 
-    # Map sampled segment index -> position in the queries/samples list
-    sampled_pos: dict[int, int] = {s: i for i, s in enumerate(sampled_indices)}
+    # Key samples by query coordinate+time for robust lookup
+    query_to_sample: dict[tuple[Coordinate, datetime], WeatherSample] = {}
+    for query, sample in zip(queries, samples, strict=False):
+        query_to_sample[(query.koordinate, query.zeitpunkt)] = sample
+
+    assignment = _nearest_sample_assignment(segment_count, sampled_indices)
 
     result: list[WeatherSample] = []
     for seg_idx in range(segment_count):
         sampled_seg = assignment[seg_idx]
-        src_sample = samples[sampled_pos[sampled_seg]]
+        sampled_segment, _ = segment_eta_list[sampled_seg]
+        geo = sampled_segment.geometrie
+        src_coord = geo[len(geo) // 2]
+        src_time = _compute_segment_time(sampled_seg, abfahrtszeit, segment_eta_list)
+        src_sample = query_to_sample[(src_coord, src_time)]
         segment, _ = segment_eta_list[seg_idx]
         seg_geo = segment.geometrie
         seg_coord = seg_geo[len(seg_geo) // 2]

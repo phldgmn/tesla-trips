@@ -9,6 +9,7 @@ import pytest
 
 from tripplanner.geo import Coordinate
 from tripplanner.routing.models import Route, RouteSegment
+from tripplanner.weather.models import WeatherSample
 from tripplanner.weather.providers import FakeWeatherProvider
 from tripplanner.weather.weather import (
     MEDIUM_DETAIL_SEGMENT_STRIDE,
@@ -319,14 +320,48 @@ class TestFetchMedium:
 
     @pytest.mark.asyncio
     async def test_medium_nearest_neighbor_assignment(self) -> None:
-        """Verify nearest-neighbor assignment on 12-segment fixture.
+        """Verify nearest-neighbor assignment by weather values, not just coordinates.
 
         stride=5 -> sampled indices {0, 5, 10, 11}.
-        Fan-out: seg 0-2 -> 0, seg 3-7 -> 5, seg 8-10 -> 10, seg 11 -> 11.
+        We seed the provider with 4 distinguishable samples (one per sampled query)
+        carrying unique temperatur_c. Then assert that each segment's returned sample
+        has the temperatur_c of its correctly-assigned nearest sample.
+
+        Fan-out mapping (12 segments, sampled [0,5,10,11]):
+            seg 0-2   -> 0 (temperatur_c=0.0)
+            seg 3-7   -> 5 (temperatur_c=5.0)
+            seg 8-10  -> 10 (temperatur_c=10.0)
+            seg 11    -> 11 (temperatur_c=11.0)
         """
         route, segments = _make_route(12)
         segment_eta = _make_segment_eta(segments)
-        provider = FakeWeatherProvider()
+
+        # Build 4 distinguishable samples for the 4 sampled queries
+        sampled_indices = sorted({0, 5, 10, 11})
+        # Compute what coordinates/times the provider will be queried with
+        sampled_samples: list[WeatherSample] = []
+        for idx in sampled_indices:
+            seg, _ = segment_eta[idx]
+            geo = seg.geometrie
+            coord = geo[len(geo) // 2]
+            t = _compute_segment_time(idx, ABFAHRTSZEIT, segment_eta)
+            # temperatur_c uniquely identifies which sample this segment's weather came from
+            sampled_samples.append(
+                WeatherSample(
+                    koordinate=coord,
+                    zeitpunkt=t,
+                    temperatur_c=float(idx),
+                    windgeschwindigkeit_ms=5.0,
+                    windrichtung_deg=180.0,
+                    niederschlag_mm=0.0,
+                    schneefall_cm=0.0,
+                    luftdruck_hpa=1013.25,
+                    luftfeuchtigkeit_pct=60.0,
+                    globalstrahlung_wm2=400.0,
+                    bewoelkung_pct=20.0,
+                )
+            )
+        provider = FakeWeatherProvider(samples=sampled_samples)
 
         result = await fetch_weather_by_detail(
             provider=provider,
@@ -338,11 +373,15 @@ class TestFetchMedium:
 
         assert len(result) == 12
 
-        sampled = sorted({0, 5, 10, 11})
-        expected_assignment = _nearest_sample_assignment(12, sampled)
-
+        assignment = _nearest_sample_assignment(12, sampled_indices)
         for seg_idx, sample in enumerate(result):
-            _ = expected_assignment[seg_idx]
+            assigned_src = assignment[seg_idx]
+            expected_temp = float(assigned_src)
+            assert sample.temperatur_c == expected_temp, (
+                f"seg {seg_idx} should get sample from src {assigned_src} "
+                f"(temp={expected_temp}), got {sample.temperatur_c}"
+            )
+            # Also verify coordinate override happened
             expected_coord = segments[seg_idx].geometrie[len(segments[seg_idx].geometrie) // 2]
             assert sample.koordinate == expected_coord
 

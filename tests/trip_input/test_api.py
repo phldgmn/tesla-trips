@@ -1538,54 +1538,118 @@ def test_fastapi_endpoint_accepts_ferry_avoidance_fields(
     assert response.status_code == 201
 
 
-def test_fastapi_endpoint_wetter_beruecksichtigen_false_skips_weather_provider(
+def test_fastapi_endpoint_wetter_detailgrad_off_skips_weather_provider(
     client: TestClient, valid_trip_request: dict
 ) -> None:
-    """wetter_beruecksichtigen=False überspringt den injizierten Wetter-Provider
-    vollständig (kein Aufruf von fetch_weather/refetch_weather)."""
-    spy_weather_provider = FakeWeatherProvider()
-    app.dependency_overrides[get_weather_provider] = lambda: spy_weather_provider
+    """wetter_detailgrad='off' skips the weather provider entirely."""
+    spy = FakeWeatherProvider()
+    app.dependency_overrides[get_weather_provider] = lambda: spy
     try:
         api_request = {
-            "start": valid_trip_request["start"],
-            "ziel": valid_trip_request["ziel"],
-            "zwischenstopps": [],
+            **valid_trip_request,
             "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
             "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-            "praeferenzen": {},
-            "wetter_beruecksichtigen": False,
+            "wetter_detailgrad": "off",
         }
-
         response = client.post("/trips", json=api_request)
-
         assert response.status_code == 201
-        assert spy_weather_provider.fetch_weather_calls == []
-        assert spy_weather_provider.refetch_weather_calls == []
+        assert spy.fetch_weather_calls == []
+        assert spy.refetch_weather_calls == []
     finally:
         app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
 
 
-def test_fastapi_endpoint_wetter_beruecksichtigen_default_true_calls_weather_provider(
+def test_fastapi_endpoint_wetter_detailgrad_default_is_high(
     client: TestClient, valid_trip_request: dict
 ) -> None:
-    """Ohne explizites wetter_beruecksichtigen (Default True) wird der injizierte
-    Wetter-Provider weiterhin aufgerufen (Rückwärtskompatibilität)."""
-    spy_weather_provider = FakeWeatherProvider()
-    app.dependency_overrides[get_weather_provider] = lambda: spy_weather_provider
+    """No wetter_detailgrad sent -> defaults to 'high'; provider is called."""
+    spy = FakeWeatherProvider()
+    app.dependency_overrides[get_weather_provider] = lambda: spy
     try:
         api_request = {
-            "start": valid_trip_request["start"],
-            "ziel": valid_trip_request["ziel"],
-            "zwischenstopps": [],
+            **valid_trip_request,
             "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
             "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-            "praeferenzen": {},
         }
-
         response = client.post("/trips", json=api_request)
-
         assert response.status_code == 201
-        assert len(spy_weather_provider.fetch_weather_calls) > 0
+        assert len(spy.fetch_weather_calls) > 0
+    finally:
+        app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
+
+
+def test_fastapi_endpoint_wetter_beruecksichtigen_legacy_boolean(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """Legacy 'wetter_beruecksichtigen' boolean maps to detail levels."""
+    # false -> off (no provider calls)
+    spy = FakeWeatherProvider()
+    app.dependency_overrides[get_weather_provider] = lambda: spy
+    try:
+        api_request = {
+            **valid_trip_request,
+            "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+            "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "wetter_beruecksichtigen": False,
+        }
+        response = client.post("/trips", json=api_request)
+        assert response.status_code == 201
+        assert spy.fetch_weather_calls == []
+    finally:
+        app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
+
+    # true -> high (provider called)
+    spy2 = FakeWeatherProvider()
+    app.dependency_overrides[get_weather_provider] = lambda: spy2
+    try:
+        api_request["wetter_beruecksichtigen"] = True
+        response = client.post("/trips", json=api_request)
+        assert response.status_code == 201
+        assert len(spy2.fetch_weather_calls) > 0
+    finally:
+        app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
+
+
+def test_fastapi_endpoint_wetter_detailgrad_low_one_fetch(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """wetter_detailgrad='low' makes exactly one fetch_weather call."""
+    spy = FakeWeatherProvider()
+    app.dependency_overrides[get_weather_provider] = lambda: spy
+    try:
+        api_request = {
+            **valid_trip_request,
+            "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+            "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "wetter_detailgrad": "low",
+        }
+        response = client.post("/trips", json=api_request)
+        assert response.status_code == 201
+        assert len(spy.fetch_weather_calls) == 1
+        data = response.json()
+        assert len(data["frames"]) > 0
+    finally:
+        app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
+
+
+def test_fastapi_endpoint_wetter_detailgrad_medium_one_fetch(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """wetter_detailgrad='medium' makes exactly one fetch_weather call."""
+    spy = FakeWeatherProvider()
+    app.dependency_overrides[get_weather_provider] = lambda: spy
+    try:
+        api_request = {
+            **valid_trip_request,
+            "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+            "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "wetter_detailgrad": "medium",
+        }
+        response = client.post("/trips", json=api_request)
+        assert response.status_code == 201
+        assert len(spy.fetch_weather_calls) == 1
+        data = response.json()
+        assert len(data["frames"]) > 0
     finally:
         app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
 
