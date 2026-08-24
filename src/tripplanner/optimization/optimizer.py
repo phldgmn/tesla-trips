@@ -468,6 +468,28 @@ class NetworkXOptimizer(OptimizerInterface):
         # korrekt: der erste Pop eines Knotens liefert garantiert dessen
         # minimale Gesamtkosten.
         visited: set[tuple[int, int, int]] = set()
+        # Dominanz-Pruning: fuer dieselbe Position+SoC (`seg_idx, soc_bucket`)
+        # ist ein SPAETERER Ankunftszeitpunkt bei GLEICHEN oder hoeheren
+        # Gesamtkosten NIE von Vorteil - `total_cost` ist in diesem Modell
+        # ueberall exakt die seit Abfahrt verstrichene Zeit (jede Kante ist
+        # eine Zeitdauer: Fahrzeit/Ladezeit/Wartezeit/Faehr-Wartezeit), und
+        # saemtliche Folgekosten (Energieverbrauch, Ladekurve, `max_time_
+        # buckets`-Limit, sogar Faehr-Abfahrtsfenster - frueher ankommen
+        # heisst dort hoechstens laenger warten, nie eine Faehre verpassen,
+        # die ein spaeterer Zustand noch erreicht haette) haengen NUR vom
+        # weiterhin identischen SoC und der (monoton) verstrichenen Zeit ab,
+        # nie vom Kalenderzeitpunkt selbst. Der erste (Heap-Reihenfolge:
+        # guenstigste) besuchte Knoten je `(seg_idx, soc_bucket)` erweitert
+        # daher IMMER mindestens so guenstige Folgezustaende wie jeder
+        # spaetere - dessen eigene ausgehende Kanten sind somit ueberfluessig
+        # und werden uebersprungen. Ohne dieses Pruning haelt der Zustands-
+        # graph pro Entscheidungspunkt bis zu O(SoC-Buckets x Zeit-Buckets)
+        # tatsaechlich erweiterte Knoten statt O(SoC-Buckets) - bei Routen
+        # mit vielen Ladestationen (z. B. lange Auslandsstrecken mit dichtem
+        # Schnelllader-Netz) der dominante Faktor fuer eine quadratisch statt
+        # linear mit der Stationsanzahl wachsende Laufzeit (siehe Nutzer-
+        # Report: > 100s Optimierungszeit).
+        dominanz_erweitert: set[tuple[int, int]] = set()
         self._push_seq = itertools.count()
         heap: list[tuple[float, int, tuple[int, int, int]]] = []
         self._schedule(heap, start_node, 0.0)
@@ -493,6 +515,14 @@ class NetworkXOptimizer(OptimizerInterface):
             visited.add(current)
 
             seg_idx, soc_bucket, time_bucket = current
+
+            # Dominanz-Check (siehe Kommentar oben): pro `(seg_idx, soc_bucket)`
+            # wird NUR der zuerst (= guenstigste, Heap-Reihenfolge) besuchte
+            # Knoten tatsaechlich erweitert.
+            dominanz_key = (seg_idx, soc_bucket)
+            if dominanz_key in dominanz_erweitert:
+                continue
+            dominanz_erweitert.add(dominanz_key)
 
             # Prüfe, ob Ziel erreicht (alle Segmente abgefahren)
             if seg_idx == len(segments) and soc_bucket >= ziel_soc_bucket:

@@ -6,6 +6,8 @@ Alle Tests sind deterministisch und verwenden kleine, synthetische Szenarien.
 from __future__ import annotations
 
 import itertools
+import random
+import time
 from datetime import UTC, datetime, timedelta
 
 import networkx as nx
@@ -1075,6 +1077,136 @@ class TestFaehrZeitfenster:
                 abfahrtszeit=abfahrtszeit,
                 faehr_zeitfenster={1: (2, faehr_abfahrt, faehr_ankunft)},
             )
+
+
+class TestDominanzPruningVerhindertKombinatorischeExplosion:
+    """Regressionstest: Bug - jeder Zustandsknoten war ueber das volle Tripel
+    `(segment_index, soc_bucket, time_bucket)` eindeutig, obwohl `total_cost`
+    in diesem Modell ueberall EXAKT der seit Abfahrt verstrichenen Zeit
+    entspricht (jede Kante ist eine Zeitdauer - Fahrzeit/Ladezeit/Wartezeit)
+    und kein Folgezustand je von einer SPAETEREN Ankunft bei GLEICHER
+    Position+SoC profitiert (weder Energieverbrauch noch Ladekurve noch
+    `max_time_buckets` noch Fähr-Abfahrtsfenster haengen vom Kalenderzeit-
+    punkt ab - fruehere Ankunft heisst hoechstens laenger warten, nie eine
+    Faehre verpassen). Ohne Pruning wurden pro Entscheidungspunkt bis zu
+    O(SoC-Buckets x Zeit-Buckets) tatsaechlich erweiterte (dominierte)
+    Knoten gehalten statt O(SoC-Buckets) - bei Routen mit vielen
+    Ladestationen UND einer teuren Kandidaten-Bewertung pro Knoten (siehe
+    `_lade_ziel_kandidaten`/`_kandidaten_mit_mindestladedauer`, beide mit
+    Bisektionen ueber die Ladekurve) eskalierte das von einigen Sekunden
+    zu einem praktischen Haenger (Nutzer-Report: > 100s fuer die reale
+    Optimierung einer Deutschland->Schweden-Route mit vielen Ladestationen).
+    """
+
+    def test_grosse_stationsanzahl_optimiert_in_angemessener_zeit(self) -> None:
+        """Eine synthetische Route mit 150 Ladestationen-Entscheidungspunkten
+        MUSS mit den Produktions-Defaults (inkl. Kandidaten-Anreicherung und
+        Mindestladedauer) in wenigen Sekunden optimieren - nicht in Minuten.
+        Ohne das Dominanz-Pruning uebersteigt dieselbe Route (verifiziert
+        manuell gegen den Stand vor diesem Fix) bereits bei 200 Stationen
+        180s, ohne innerhalb dieser Zeit ueberhaupt fertigzuwerden.
+        """
+        anzahl_stationen = 150
+        segment_laenge_m = 20_000.0
+        rng = random.Random(1)  # nolint: deterministisch, kein Sicherheits-RNG
+
+        segments = []
+        energy_results = []
+        lat, lon = BERLIN_COORD
+        dlat = 30.0 / anzahl_stationen
+        for i in range(anzahl_stationen):
+            naechste_lat = lat + dlat
+            naechste_lon = lon + dlat * 0.5
+            energie_kwh = rng.uniform(10.0, 30.0)
+            segments.append(
+                RouteSegment(
+                    segment_index=i,
+                    geometrie=[
+                        (lat, lon),
+                        ((lat + naechste_lat) / 2, (lon + naechste_lon) / 2),
+                        (naechste_lat, naechste_lon),
+                    ],
+                    laenge_m=segment_laenge_m,
+                    strassenklasse="MOTORWAY",
+                    tempolimit_kmh=110,
+                    steigung_rohdaten=0.0,
+                    bearing_deg=45.0,
+                )
+            )
+            energy_results.append(
+                SegmentEnergyResult(
+                    segment_index=i,
+                    energiebedarf_kwh=energie_kwh,
+                    rekuperation_kwh=0.0,
+                    energiebedarf_brutto_kwh=energie_kwh,
+                    geschwindigkeit_m_s=30.0,
+                    fahrzeit_s=segment_laenge_m / 30.0,
+                    streckenlaenge_m=segment_laenge_m,
+                )
+            )
+            lat, lon = naechste_lat, naechste_lon
+
+        stations = [
+            ChargingStation(
+                station_id=f"station-{i}",
+                name=f"Supercharger {i}",
+                coordinate=segments[i].geometrie[1],
+                stalls={StallType.V3: 4},
+                max_ladeleistung_kw=250.0,
+                connector_types=[ConnectorType.CCS2],
+                country="DE",
+            )
+            for i in range(1, anzahl_stationen)
+        ]
+
+        route = Route(
+            segments=segments,
+            gesamtlaenge_m=sum(s.laenge_m for s in segments),
+            geometrie=[s.geometrie[0] for s in segments] + [segments[-1].geometrie[-1]],
+        )
+        vehicle_profile = VehicleProfile(
+            masse_kg=1706.0,
+            cw_wert=0.23,
+            stirnflaeche_m2=2.22,
+            rollwiderstandsbeiwert=0.011,
+            batteriekapazitaet_kwh=75.0,
+        )
+        constraints = OptimizationConstraints(min_soc_pct=10.0, ziel_soc_pct=5.0)
+        gradients = [
+            SegmentGradient(
+                segment_index=i,
+                steigung_prozent=0.0,
+                hoehendifferenz_m=0.0,
+                horizontale_distanz_m=segment_laenge_m,
+            )
+            for i in range(anzahl_stationen)
+        ]
+        optimizer = create_networkx_optimizer()  # Produktions-Defaults
+
+        start = time.perf_counter()
+        plan = optimizer.optimize(
+            route=route,
+            segments=route.segments,
+            gradients=gradients,
+            energy_results=energy_results,
+            charging_stations=stations,
+            waypoints=[],
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+            start_soc_pct=100.0,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+        )
+        dauer_s = time.perf_counter() - start
+
+        assert plan.ladehalte  # Plausibilitaet: Route mit vielen Stationen braucht Ladehalte
+        # Grosszuegige Grenze (gemessen: ~6-8s auf Entwicklerhardware) - haelt
+        # robust Puffer fuer langsamere CI-Maschinen, waehrend sie eine
+        # Rueckkehr zur alten, minutenlangen Kombinatorik zuverlaessig faengt.
+        assert dauer_s < 30.0, (
+            f"Optimierung brauchte {dauer_s:.1f}s fuer {anzahl_stationen} Stationen - "
+            "deutet auf eine Regression der Dominanz-Pruning-Optimierung in "
+            "_generate_graph hin (siehe Klassen-Docstring)."
+        )
 
 
 class TestGraphKonstruktionFindetDijkstraOptimum:
