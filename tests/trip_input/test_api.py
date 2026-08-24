@@ -1610,6 +1610,21 @@ def test_fastapi_endpoint_wetter_beruecksichtigen_legacy_boolean(
         app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
 
 
+def test_fastapi_endpoint_legacy_non_bool_rejected(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """A non-bool legacy 'wetter_beruecksichtigen' is not silently coerced;
+    it produces a 422 validation error."""
+    api_request = {
+        **valid_trip_request,
+        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "wetter_beruecksichtigen": "yes",
+    }
+    response = client.post("/trips", json=api_request)
+    assert response.status_code == 422
+
+
 def test_fastapi_endpoint_wetter_detailgrad_low_one_fetch(
     client: TestClient, valid_trip_request: dict
 ) -> None:

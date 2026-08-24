@@ -1446,7 +1446,10 @@ class TripRequestAPI(BaseModel):
             if isinstance(raw, bool):
                 data["wetter_detailgrad"] = "high" if raw else "off"
             else:
-                data["wetter_detailgrad"] = "high"
+                raise ValueError(
+                    f"wetter_beruecksichtigen must be a boolean (True/False), "
+                    f"got {raw!r}. Use wetter_detailgrad instead."
+                )
 
         # Defensive: wetter_detailgrad sent as a raw JSON boolean
         if data.get("wetter_detailgrad") is True:
@@ -1641,11 +1644,11 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
     construction_provider: ConstructionProvider = Depends(get_construction_provider),  # noqa: B008
     elevation_provider: ElevationProvider = Depends(get_elevation_provider),  # noqa: B008
 ) -> TripSimulationResultAPI:
-    """Erstellt eine neue Reise-Simulation.
+    """Create a new trip simulation.
 
-    Nutzt `create_trip_simulation()` zur Orchestrierung aller 11 Datenfluss-Schritte.
-    Routing erfolgt über den echten GraphHopper-Server (`get_routing_provider`);
-    ohne laufenden Server (siehe README.md) schlägt der Request mit 502 fehl.
+    Uses :func:`create_trip_simulation` to orchestrate all 11 data-flow steps.
+    Routing uses the real GraphHopper server (via ``get_routing_provider``);
+    without a running server the request fails with 502 (see README.md).
 
     ``request.wetter_detailgrad`` (``"off"``, ``"low"``, ``"medium"``,
     ``"high"``) drives weather resolution.  ``"off"`` skips the weather
