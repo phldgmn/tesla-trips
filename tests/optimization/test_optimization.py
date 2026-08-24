@@ -5,7 +5,7 @@ Alle Tests sind deterministisch und verwenden kleine, synthetische Szenarien.
 
 from __future__ import annotations
 
-from collections import deque
+import itertools
 from datetime import UTC, datetime, timedelta
 
 import networkx as nx
@@ -713,7 +713,8 @@ class TestLadehaltUeberlebtKnotenKollision:
             parent=None,
         )
 
-        queue: deque[tuple[int, int, int]] = deque()
+        optimizer._push_seq = itertools.count()
+        heap: list[tuple[float, int, tuple[int, int, int]]] = []
         optimizer._fuege_ladekante_hinzu(
             G=G,
             current=current,
@@ -725,7 +726,7 @@ class TestLadehaltUeberlebtKnotenKollision:
             detour_zeit_s_je_richtung=0.0,
             detour_soc_pct_je_richtung=0.0,
             max_time_buckets=10_000,
-            queue=queue,
+            heap=heap,
         )
 
         # Vorbedingung des Bugs bestaetigt: der Knoten wurde NICHT neu
@@ -1073,3 +1074,142 @@ class TestFaehrZeitfenster:
                 abfahrtszeit=abfahrtszeit,
                 faehr_zeitfenster={1: (2, faehr_abfahrt, faehr_ankunft)},
             )
+
+
+class TestGraphKonstruktionFindetDijkstraOptimum:
+    """Regressionstest: Bug - `_generate_graph` erweiterte den Zustandsgraphen
+    per FIFO-BFS (`deque`/`popleft`) statt per Dijkstra-Min-Heap. Dabei konnte
+    ein Knoten als "final" markiert (und seine ausgehenden Kanten erzeugt)
+    werden, WAEHREND `total_cost`/`soc_pct` dieses Knotens durch einen
+    spaeter entdeckten, tatsaechlich guenstigeren Pfad noch verbessert
+    wurden (siehe Kommentar in `_generate_graph`) - die ausgehenden Kanten
+    blieben dabei auf dem VERALTETEN (schlechteren) Zustand basiert. Das
+    fuehrte dazu, dass der A*-Suchraum den wahren guenstigsten Pfad gar
+    nicht erst enthielt, obwohl er physikalisch fahrbar gewesen waere -
+    sichtbar u. a. als unnoetig lang dauernder Ladehalt (Nutzer-Report:
+    Ladehalt in Kamen von 70% auf 80%, obwohl der naechste Halt in Holdorf
+    ohnehin mit 24% SoC erreicht wurde - die 10 Prozentpunkte Ladung in
+    Kamen waren komplett unnoetig und kosteten nur Zeit).
+    """
+
+    def _sechs_segmente_szenario(
+        self,
+    ) -> tuple[
+        Route,
+        list[SegmentGradient],
+        list[SegmentEnergyResult],
+        list[ChargingStation],
+        VehicleProfile,
+    ]:
+        # 6 gleich lange Segmente mit unterschiedlichem Energiebedarf -
+        # erzeugt an den Ladestationen mehrere SoC-/Zeit-Diskretisierungs-
+        # Buckets, die sich je nach gewaehltem Ladeziel an einer FRUEHEREN
+        # Station spaeter wieder ueberschneiden koennen (Voraussetzung fuer
+        # den oben beschriebenen FIFO-Bug).
+        energie_je_segment_kwh = [39.0, 21.7, 20.6, 20.9, 28.2, 33.3]
+        segments = []
+        energy_results = []
+        lat, lon = BERLIN_COORD
+        for i, energie_kwh in enumerate(energie_je_segment_kwh):
+            naechste_lat = lat + 1.0
+            naechste_lon = lon + 1.0
+            segments.append(
+                RouteSegment(
+                    segment_index=i,
+                    geometrie=[
+                        (lat, lon),
+                        ((lat + naechste_lat) / 2, (lon + naechste_lon) / 2),
+                        (naechste_lat, naechste_lon),
+                    ],
+                    laenge_m=100_000.0,
+                    strassenklasse="MOTORWAY",
+                    tempolimit_kmh=110,
+                    steigung_rohdaten=0.0,
+                    bearing_deg=45.0,
+                )
+            )
+            energy_results.append(
+                SegmentEnergyResult(
+                    segment_index=i,
+                    energiebedarf_kwh=energie_kwh,
+                    rekuperation_kwh=0.0,
+                    energiebedarf_brutto_kwh=energie_kwh,
+                    geschwindigkeit_m_s=30.0,
+                    fahrzeit_s=100_000.0 / 30.0,
+                    streckenlaenge_m=100_000.0,
+                )
+            )
+            lat, lon = naechste_lat, naechste_lon
+
+        # Eine Ladestation nach jedem Segment (ausser dem letzten) - jeweils
+        # nahe am Mittelpunkt des NAECHSTEN Segments platziert, damit sie
+        # dem Segment NACH der bereits gefahrenen Teilstrecke zugeordnet
+        # wird (siehe `_station_to_segment`).
+        stations = [
+            ChargingStation(
+                station_id=f"station-{i}",
+                name=f"Supercharger {i}",
+                coordinate=segments[i].geometrie[1],
+                stalls={StallType.V3: 4},
+                max_ladeleistung_kw=250.0,
+                connector_types=[ConnectorType.CCS2],
+                country="DE",
+            )
+            for i in range(1, len(segments))
+        ]
+
+        route = Route(
+            segments=segments,
+            gesamtlaenge_m=sum(s.laenge_m for s in segments),
+            geometrie=[s.geometrie[0] for s in segments] + [segments[-1].geometrie[-1]],
+        )
+        vehicle_profile = VehicleProfile(
+            masse_kg=1706.0,
+            cw_wert=0.23,
+            stirnflaeche_m2=2.22,
+            rollwiderstandsbeiwert=0.011,
+            batteriekapazitaet_kwh=100.0,
+        )
+        gradients = [
+            SegmentGradient(
+                segment_index=i,
+                steigung_prozent=0.0,
+                hoehendifferenz_m=0.0,
+                horizontale_distanz_m=100_000.0,
+            )
+            for i in range(len(segments))
+        ]
+        return route, gradients, energy_results, stations, vehicle_profile
+
+    def test_optimierer_findet_das_globale_zeitoptimum_ueber_ladehalte_hinweg(self) -> None:
+        """Bei identischer Auswahl an Ladehalten MUSS die Gesamtreisezeit dem
+        echten Dijkstra-Optimum entsprechen (21942s) - nicht dem laenger
+        dauernden Pfad (21975s), den die alte FIFO-BFS-Graphkonstruktion
+        lieferte, weil sie einen bereits "besuchten" Knoten trotz spaeter
+        gefundenem guenstigeren Vorgaenger nicht neu expandierte.
+        """
+        route, gradients, energy_results, stations, vehicle_profile = (
+            self._sechs_segmente_szenario()
+        )
+        constraints = OptimizationConstraints(min_soc_pct=10.0, ziel_soc_pct=10.0)
+        # Bewusst grobe Diskretisierung: begünstigt die Bucket-Kollisionen,
+        # die den FIFO-Bug ueberhaupt erst sichtbar machen (bei der feinen
+        # Produktions-Default-Aufloesung von 1%/15min faellt die
+        # Kollision fuer dieses konkrete Szenario nicht ins Gewicht).
+        optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=20)
+
+        plan = optimizer.optimize(
+            route=route,
+            segments=route.segments,
+            gradients=gradients,
+            energy_results=energy_results,
+            charging_stations=stations,
+            waypoints=[],
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+            start_soc_pct=100.0,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+        )
+
+        assert [s.station.station_id for s in plan.ladehalte] == ["station-1", "station-4"]
+        assert plan.gesamtreisezeit_s == 21942

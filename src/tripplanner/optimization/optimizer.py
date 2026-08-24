@@ -7,8 +7,9 @@ ORToolsOptimizer: Platzhalter für zukünftige CP-SAT Implementierung.
 from __future__ import annotations
 
 import bisect
+import heapq
+import itertools
 import math
-from collections import deque
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -77,6 +78,7 @@ class NetworkXOptimizer(OptimizerInterface):
         self._base_time: datetime
         self._cum_time_s: list[float]
         self._avg_verbrauch_kwh_pro_m: float = 0.0
+        self._push_seq: itertools.count[int]
 
     def optimize(  # noqa: PLR0913, PLR0917 -- vollständiger Zustand des Optimierungsproblems, siehe docs/plans/07-optimization.md Abschnitt 4
         self,
@@ -408,6 +410,23 @@ class NetworkXOptimizer(OptimizerInterface):
 
         return int((total_time_min + ladezeit_puffer_min) / self.time_step_min) + 5
 
+    def _schedule(
+        self,
+        heap: list[tuple[float, int, tuple[int, int, int]]],
+        node: tuple[int, int, int],
+        total_cost: float,
+    ) -> None:
+        """Plant `node` mit `total_cost` auf dem Dijkstra-Min-Heap ein.
+
+        Ein Knoten kann mehrfach eingeplant werden (einmal je Verbesserung
+        seiner Gesamtkosten) - veraltete, teurere Eintraege werden beim Pop in
+        `_generate_graph` per `visited`-Check ignoriert ("lazy deletion").
+        `self._push_seq` (ein `itertools.count()`, pro `_generate_graph`-Lauf
+        neu initialisiert) dient als Tie-Breaker, damit `heapq` bei gleichen
+        Kosten NIEMALS die Knoten-Tupel selbst vergleicht.
+        """
+        heapq.heappush(heap, (total_cost, next(self._push_seq), node))
+
     def _generate_graph(  # noqa: PLR0913, PLR0917 -- Graph-Konstruktion braucht den vollen Kontext (Route, Energie, Laden, Zwischenstopps, Constraints)
         self,
         G: DiGraph,
@@ -427,13 +446,31 @@ class NetworkXOptimizer(OptimizerInterface):
         ferry_pins: dict[int, tuple[int, datetime, datetime]],
     ) -> None:
         """Generiere Knoten und Kanten für den Zustandsgraphen."""
-        # Nutze BFS/DFS-artige Erweiterung: nur erreichbare Knoten erzeugen
+        # Dijkstra-artige Erweiterung mit Min-Heap statt FIFO-BFS: nur
+        # erreichbare Knoten erzeugen. Eine reine FIFO-Reihenfolge (frueher:
+        # `deque`/`popleft`) verletzt die Dijkstra-Invariante, dass ein Knoten
+        # erst dann als "final" markiert (und seine ausgehenden Kanten erzeugt)
+        # werden darf, wenn er mit MINIMALEN Gesamtkosten aus der Warteschlange
+        # entnommen wird. Bei FIFO kann ein Knoten mit einem zuerst entdeckten,
+        # aber teureren/pessimistischeren SoC verarbeitet werden, WAEHREND ein
+        # spaeterer, guenstigerer Pfad zu demselben Knoten `total_cost`/`soc_pct`
+        # zwar noch aktualisiert (siehe Kommentare in `_add_drive_edge` etc.),
+        # dessen ausgehende Kanten aber NIE (er ist ja schon "visited") neu
+        # erzeugt werden. Ergebnis: nachgelagerte Kanten (z. B. "Ladestation
+        # ueberspringen, weiterfahren") werden mit einem zu niedrigen SoC
+        # geplant und faelschlich als unzulaessig verworfen - das erzwingt
+        # unnoetige Zwischenladestopps, obwohl der tatsaechlich guenstigste
+        # (spaeter gefundene) Zustand ausgereicht haette (siehe Nutzer-Report:
+        # unnoetiger 70%->80%-Ladestopp in Kamen vor Holdorf-Ankunft mit 24%).
+        # Ein Min-Heap mit "lazy deletion" (veraltete Eintraege werden beim Pop
+        # anhand von `visited` uebersprungen) behebt das bei nichtnegativen
+        # Kantengewichten (Fahrzeit/Ladezeit/Wartezeit sind stets >= 0)
+        # korrekt: der erste Pop eines Knotens liefert garantiert dessen
+        # minimale Gesamtkosten.
         visited: set[tuple[int, int, int]] = set()
-        # deque statt list: `pop(0)` auf einer Python-Liste ist O(n) (Shift
-        # aller Folgeelemente), macht die BFS bei feingranularen Routen mit
-        # zehntausenden Zustandsknoten quadratisch. `popleft()` auf `deque`
-        # ist O(1).
-        queue: deque[tuple[int, int, int]] = deque([start_node])
+        self._push_seq = itertools.count()
+        heap: list[tuple[float, int, tuple[int, int, int]]] = []
+        self._schedule(heap, start_node, 0.0)
         G.nodes[start_node]["total_cost"] = 0.0
         G.nodes[start_node]["parent"] = None
 
@@ -449,10 +486,10 @@ class NetworkXOptimizer(OptimizerInterface):
         # Ladestationen) der entscheidende Faktor (docs/plans/07-optimization.md).
         checkpoints: list[int] = sorted(set(waypoint_map) | set(station_segments) | set(ferry_pins))
 
-        while queue:
-            current = queue.popleft()
+        while heap:
+            _, _, current = heapq.heappop(heap)
             if current in visited:
-                continue
+                continue  # Veralteter Heap-Eintrag (Kosten wurden inzwischen unterboten)
             visited.add(current)
 
             seg_idx, soc_bucket, time_bucket = current
@@ -475,7 +512,7 @@ class NetworkXOptimizer(OptimizerInterface):
                         current=current,
                         pin=ferry_pins[seg_idx],
                         max_time_buckets=max_time_buckets,
-                        queue=queue,
+                        heap=heap,
                     )
                 else:
                     idx = bisect.bisect_right(checkpoints, seg_idx)
@@ -490,7 +527,7 @@ class NetworkXOptimizer(OptimizerInterface):
                         max_time_buckets=max_time_buckets,
                         constraints=constraints,
                         vehicle_profile=vehicle_profile,
-                        queue=queue,
+                        heap=heap,
                     )
 
             # 2. Ladekante: An dieser Station laden (wenn verfügbar)
@@ -507,7 +544,7 @@ class NetworkXOptimizer(OptimizerInterface):
                     time_bucket=time_bucket,
                     max_time_buckets=max_time_buckets,
                     constraints=constraints,
-                    queue=queue,
+                    heap=heap,
                     ladedauer_vorgaben=ladedauer_vorgaben,
                 )
 
@@ -522,7 +559,7 @@ class NetworkXOptimizer(OptimizerInterface):
                             waypoint=wp,
                             time_bucket=time_bucket,
                             max_time_buckets=max_time_buckets,
-                            queue=queue,
+                            heap=heap,
                         )
 
     def _add_drive_edge(  # noqa: PLR0913, PLR0917 -- Fahrtkanten-Konstruktion braucht den vollen Kantenkontext
@@ -536,7 +573,7 @@ class NetworkXOptimizer(OptimizerInterface):
         max_time_buckets: int,
         constraints: OptimizationConstraints,
         vehicle_profile: VehicleProfile,
-        queue: deque[tuple[int, int, int]],
+        heap: list[tuple[float, int, tuple[int, int, int]]],
     ) -> None:
         """Füge eine aggregierte Fahrtkante von `seg_idx` bis `target_seg_idx` hinzu.
 
@@ -603,7 +640,6 @@ class NetworkXOptimizer(OptimizerInterface):
                 total_cost=COST_INF,
                 parent=None,
             )
-            queue.append(next_node)
 
         # Kante hinzufügen mit Kosten
         current_cost = G.nodes[current].get("total_cost", 0.0)
@@ -622,6 +658,7 @@ class NetworkXOptimizer(OptimizerInterface):
             # gewaehlte Kante einen anderen kontinuierlichen SoC erreicht (siehe
             # `TestLadehaltUeberlebtKnotenKollision` in test_optimization.py).
             G.nodes[next_node]["soc_pct"] = new_soc_pct
+            self._schedule(heap, next_node, new_total_cost)
 
     def _add_ferry_edge(
         self,
@@ -629,7 +666,7 @@ class NetworkXOptimizer(OptimizerInterface):
         current: tuple[int, int, int],
         pin: tuple[int, datetime, datetime],
         max_time_buckets: int,
-        queue: deque[tuple[int, int, int]],
+        heap: list[tuple[float, int, tuple[int, int, int]]],
     ) -> None:
         """Fügt eine Kante für eine terminierte Fährüberfahrt hinzu.
 
@@ -673,7 +710,6 @@ class NetworkXOptimizer(OptimizerInterface):
                 total_cost=COST_INF,
                 parent=None,
             )
-            queue.append(next_node)
 
         current_cost = G.nodes[current].get("total_cost", 0.0)
         new_total_cost = current_cost + kosten
@@ -684,6 +720,7 @@ class NetworkXOptimizer(OptimizerInterface):
             G.nodes[next_node]["parent"] = current
             G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
             G.nodes[next_node]["soc_pct"] = G.nodes[current]["soc_pct"]
+            self._schedule(heap, next_node, new_total_cost)
 
     def _add_charging_edges(  # noqa: PLR0913, PLR0917 -- Ladekanten-Konstruktion braucht den vollen Kantenkontext
         self,
@@ -698,7 +735,7 @@ class NetworkXOptimizer(OptimizerInterface):
         time_bucket: int,
         max_time_buckets: int,
         constraints: OptimizationConstraints,
-        queue: deque[tuple[int, int, int]],
+        heap: list[tuple[float, int, tuple[int, int, int]]],
         ladedauer_vorgaben: dict[str, int],
     ) -> None:
         """Füge Ladekanten zu allen Stationen in diesem Segment hinzu.
@@ -756,7 +793,7 @@ class NetworkXOptimizer(OptimizerInterface):
                     detour_zeit_s_je_richtung=detour_zeit_s,
                     detour_soc_pct_je_richtung=detour_soc_pct,
                     max_time_buckets=max_time_buckets,
-                    queue=queue,
+                    heap=heap,
                 )
                 continue
 
@@ -804,7 +841,7 @@ class NetworkXOptimizer(OptimizerInterface):
                     detour_zeit_s_je_richtung=detour_zeit_s,
                     detour_soc_pct_je_richtung=detour_soc_pct,
                     max_time_buckets=max_time_buckets,
-                    queue=queue,
+                    heap=heap,
                 )
 
     def _detour_kosten(
@@ -846,7 +883,7 @@ class NetworkXOptimizer(OptimizerInterface):
         detour_zeit_s_je_richtung: float,
         detour_soc_pct_je_richtung: float,
         max_time_buckets: int,
-        queue: deque[tuple[int, int, int]],
+        heap: list[tuple[float, int, tuple[int, int, int]]],
     ) -> None:
         """Fügt eine Ladekante hinzu (Knoten-/Kanten-/Kosten-Buchhaltung).
 
@@ -895,7 +932,6 @@ class NetworkXOptimizer(OptimizerInterface):
                 total_cost=COST_INF,
                 parent=None,
             )
-            queue.append(next_node)
 
         current_cost = G.nodes[current].get("total_cost", 0.0)
         new_total_cost = current_cost + kosten
@@ -930,6 +966,7 @@ class NetworkXOptimizer(OptimizerInterface):
             G.nodes[next_node]["parent"] = current
             G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
             G.nodes[next_node]["soc_pct"] = route_soc_pct
+            self._schedule(heap, next_node, new_total_cost)
 
     def _soc_nach_fester_ladezeit(
         self,
@@ -981,7 +1018,7 @@ class NetworkXOptimizer(OptimizerInterface):
         waypoint: Waypoint,
         time_bucket: int,
         max_time_buckets: int,
-        queue: deque[tuple[int, int, int]],
+        heap: list[tuple[float, int, tuple[int, int, int]]],
     ) -> None:
         """Füge Kante hinzu, um Zwischenstopp-Aufenthaltsdauer zu warten."""
         if not waypoint.aufenthaltsdauer:
@@ -1010,7 +1047,6 @@ class NetworkXOptimizer(OptimizerInterface):
                 total_cost=COST_INF,
                 parent=None,
             )
-            queue.append(next_node)
 
         current_cost = G.nodes[current].get("total_cost", 0.0)
         new_total_cost = current_cost + kosten
@@ -1021,6 +1057,7 @@ class NetworkXOptimizer(OptimizerInterface):
             G.nodes[next_node]["parent"] = current
             G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
             G.nodes[next_node]["soc_pct"] = G.nodes[current]["soc_pct"]
+            self._schedule(heap, next_node, new_total_cost)
 
     def _calc_soc_verbrauch_pct(
         self,
