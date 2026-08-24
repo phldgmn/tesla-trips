@@ -1171,7 +1171,17 @@ class NetworkXOptimizer(OptimizerInterface):
             return MAX_SOC_PCT  # Batterie ist vor Ablauf der Ladedauer voll
 
         lo, hi = 0.0, max_delta
-        for _ in range(40):  # 40 Iterationen: Präzision weit unter 1e-9 %-Punkte
+        # 20 Iterationen: Praezision `max_delta / 2^20` <= 100 / ~1.05e6 ~= 1e-4
+        # %-Punkte - weit unter der SoC-Bucket-Granularitaet (`soc_step_pct`,
+        # Standard 1.0%, siehe `discretizer.soc_to_bucket`), auf die das
+        # Ergebnis ohnehin gerundet wird. Frueher 40 Iterationen (Praezision
+        # ~9e-11 %-Punkte) - bei Routen mit vielen Ladestationen UND vielen
+        # zu kurzen Kandidaten (siehe `_kandidaten_mit_mindestladedauer`)
+        # dominierte diese ungenutzte Ueberpraezision (je Iteration ein
+        # `_calc_ladezeit_s`-Aufruf mit 10 Stichproben, siehe
+        # `_mittlere_ladeleistung_kw`) einen Grossteil der Optimierungszeit
+        # (siehe Nutzer-Report: ~58s fuer `optimize_charging_plan`).
+        for _ in range(20):
             mid = (lo + hi) / 2.0
             dauer = self._calc_ladezeit_s(
                 start_soc_pct=start_soc_pct,
@@ -1298,16 +1308,17 @@ class NetworkXOptimizer(OptimizerInterface):
         if start_soc_pct >= end_soc_pct:
             return 0.0
 
-        # Stichproben entlang der Kurve
+        # Stichproben entlang der Kurve - EIN Batch-Aufruf statt `sample_points`
+        # einzelner `ladeleistung_bei_soc`-Aufrufe (siehe `ChargingCurve.
+        # ladeleistung_bei_soc_batch`-Docstring: amortisiert den Pydantic-
+        # `PrivateAttr`-Zugriff über alle Stichproben statt pro Punkt - bei
+        # Millionen Aufrufen pro Optimierung der dominante Restanteil).
         sample_points = 10
-        total_power = 0.0
+        delta = end_soc_pct - start_soc_pct
+        socs = [start_soc_pct + delta * i / sample_points for i in range(sample_points)]
+        leistungen = ladekurve.ladeleistung_bei_soc_batch(socs)
 
-        for i in range(sample_points):
-            soc = start_soc_pct + (end_soc_pct - start_soc_pct) * i / sample_points
-            leistung = ladekurve.ladeleistung_bei_soc(soc)
-            total_power += leistung
-
-        return total_power / sample_points
+        return sum(leistungen) / sample_points
 
     def _heuristik(
         self,

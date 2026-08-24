@@ -1200,13 +1200,18 @@ class TestDominanzPruningVerhindertKombinatorischeExplosion:
         dauer_s = time.perf_counter() - start
 
         assert plan.ladehalte  # Plausibilitaet: Route mit vielen Stationen braucht Ladehalte
-        # Grosszuegige Grenze (gemessen: ~6-8s auf Entwicklerhardware) - haelt
-        # robust Puffer fuer langsamere CI-Maschinen, waehrend sie eine
-        # Rueckkehr zur alten, minutenlangen Kombinatorik zuverlaessig faengt.
-        assert dauer_s < 30.0, (
+        # Grosszuegige Grenze (gemessen nach dem ChargingCurve-Fastpath-Fix,
+        # siehe `battery.models._evaluate_fast_path`/`_ChargingCurveFastPath`,
+        # und der reduzierten Bisektions-Iterationszahl in
+        # `_soc_nach_fester_ladezeit`: ~6s auf dieser Entwicklerhardware,
+        # zuvor > 120s) - haelt robust Puffer fuer langsamere CI-Maschinen,
+        # waehrend sie sowohl eine Rueckkehr zur alten Kombinatorik als auch
+        # eine Rueckkehr zur scipy-Pro-Aufruf-Ladekurvenauswertung faengt.
+        assert dauer_s < 15.0, (
             f"Optimierung brauchte {dauer_s:.1f}s fuer {anzahl_stationen} Stationen - "
             "deutet auf eine Regression der Dominanz-Pruning-Optimierung in "
-            "_generate_graph hin (siehe Klassen-Docstring)."
+            "_generate_graph ODER der ChargingCurve-Fastpath-Optimierung hin "
+            "(siehe Klassen-Docstring bzw. battery.models.ChargingCurve)."
         )
 
 

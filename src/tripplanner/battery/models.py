@@ -7,6 +7,7 @@ Fahrzeugparameter für die Berechnung von Ladezeiten.
 from __future__ import annotations
 
 from bisect import bisect_right
+from collections.abc import Sequence
 from enum import Enum
 from math import isfinite
 
@@ -15,6 +16,75 @@ from scipy.interpolate import PchipInterpolator
 
 _MIN_KURVENPUNKTE = 4
 _MAX_SOC_PCT = 100
+
+
+class _ChargingCurveFastPath:
+    """Reines Python-Objekt (kein Pydantic-Modell) für die Hot-Path-Auswertung.
+
+    Ein `PrivateAttr` auf einem Pydantic-`BaseModel` läuft für jeden Zugriff
+    durch Pydantics generischen `__getattr__`-Fallback statt eines direkten
+    `__dict__`/Slot-Zugriffs - gemessen ~500 ns pro Zugriff, gegenüber ~25 ns
+    für ein Attribut auf einem `__slots__`-Objekt wie diesem (siehe
+    Kommentar bei `ChargingCurve._fast`). `ladeleistung_bei_soc` und die
+    beiden Interpolationsmethoden griffen vorher pro Aufruf auf bis zu vier
+    separate `PrivateAttr`s zu - bei den 10^5-10^6 Aufrufen pro
+    `optimize_charging_plan`-Lauf (siehe `optimization.optimizer.
+    _mittlere_ladeleistung_kw`/`battery.compute_charge_duration`) ein
+    spürbarer Anteil der Gesamtlaufzeit. Diese Bündelung reduziert das auf
+    GENAU EINEN `PrivateAttr`-Zugriff (`self._fast`) pro Aufruf.
+    """
+
+    __slots__ = (
+        "hermite_breaks",
+        "hermite_coeffs",
+        "intercepts",
+        "is_hermite",
+        "power",
+        "slopes",
+        "soc",
+    )
+
+    def __init__(  # noqa: PLR0913, PLR0917 -- alle 7 Felder sind die vollstaendigen, unteilbaren Hot-Path-Vorberechnungen einer ChargingCurve
+        self,
+        soc: tuple[float, ...],
+        power: tuple[float, ...],
+        slopes: tuple[float, ...],
+        intercepts: tuple[float, ...],
+        hermite_breaks: tuple[float, ...],
+        hermite_coeffs: tuple[tuple[float, float, float, float], ...],
+        is_hermite: bool,
+    ) -> None:
+        self.soc = soc
+        self.power = power
+        self.slopes = slopes
+        self.intercepts = intercepts
+        self.hermite_breaks = hermite_breaks
+        self.hermite_coeffs = hermite_coeffs
+        self.is_hermite = is_hermite
+
+
+def _evaluate_fast_path(fast: _ChargingCurveFastPath, soc_pct: float) -> float:
+    """Wertet die Ladekurve für einen bereits auf [0,100] geklemmten SoC aus.
+
+    Modulebene statt Methode, damit `ChargingCurve.ladeleistung_bei_soc_batch`
+    `fast = self._fast` NUR EINMAL vor der Schleife abrufen und diese
+    Funktion danach ohne weitere `PrivateAttr`-/Pydantic-Zugriffe pro Punkt
+    aufrufen kann (siehe `_ChargingCurveFastPath`-Docstring).
+    """
+    if soc_pct <= fast.soc[0]:
+        return max(fast.power[0], 0.0)
+
+    if soc_pct >= fast.soc[-1]:
+        return max(fast.power[-1], 0.0)
+
+    if fast.is_hermite:
+        i = min(bisect_right(fast.hermite_breaks, soc_pct) - 1, len(fast.hermite_coeffs) - 1)
+        s = soc_pct - fast.hermite_breaks[i]
+        a, b, c, d = fast.hermite_coeffs[i]
+        return max(((a * s + b) * s + c) * s + d, 0.0)
+
+    i = bisect_right(fast.soc, soc_pct) - 1
+    return max(fast.slopes[i] * soc_pct + fast.intercepts[i], 0.0)
 
 
 class SoCState(BaseModel):
@@ -84,18 +154,11 @@ class ChargingCurve(BaseModel):
         description="Interpolationsmethode für Punktezwischenräume",
     )
 
-    # Vorgefertigte numerische Werte für den Hot Path.
-    # Keine Pydantic-Objekte mehr bei der eigentlichen Interpolation.
-    _soc: tuple[float, ...] = PrivateAttr()
-    _power: tuple[float, ...] = PrivateAttr()
-
-    # Für lineare Interpolation vorab berechnete Geradengleichungen:
-    # power = slope * soc + intercept
-    _slopes: tuple[float, ...] = PrivateAttr()
-    _intercepts: tuple[float, ...] = PrivateAttr()
-
-    # Lazily gebaute und gecachte PCHIP-Interpolationsfunktion.
-    _pchip: PchipInterpolator | None = PrivateAttr(default=None)
+    # Reines Python-Objekt (kein Pydantic-`PrivateAttr`) mit allen für die
+    # Hot-Path-Auswertung (`ladeleistung_bei_soc`) vorberechneten Werten -
+    # siehe `_ChargingCurveFastPath`-Docstring für das "warum" (EIN
+    # `PrivateAttr`-Zugriff statt vier pro Aufruf).
+    _fast: _ChargingCurveFastPath = PrivateAttr()
 
     @field_validator("points")
     @classmethod
@@ -123,52 +186,57 @@ class ChargingCurve(BaseModel):
         return sorted_points
 
     def model_post_init(self, __context: object) -> None:
-        """Extrahiert die Pydantic-Werte und berechnet lineare Koeffizienten."""
-        self._soc = tuple(p.soc_pct for p in self.points)
-        self._power = tuple(p.ladeleistung_kw for p in self.points)
+        """Berechnet Interpolations-Koeffizienten und baut das Hot-Path-Bündel."""
+        soc = tuple(p.soc_pct for p in self.points)
+        power = tuple(p.ladeleistung_kw for p in self.points)
 
         slopes = []
         intercepts = []
 
-        for i in range(len(self._soc) - 1):
-            delta_soc = self._soc[i + 1] - self._soc[i]
-            slope = (self._power[i + 1] - self._power[i]) / delta_soc
-            intercept = self._power[i] - slope * self._soc[i]
+        for i in range(len(soc) - 1):
+            delta_soc = soc[i + 1] - soc[i]
+            slope = (power[i + 1] - power[i]) / delta_soc
+            intercept = power[i] - slope * soc[i]
 
             slopes.append(slope)
             intercepts.append(intercept)
 
-        self._slopes = tuple(slopes)
-        self._intercepts = tuple(intercepts)
+        is_hermite = self.interpolation is InterpolationMethod.HERMITE
+        hermite_breaks: tuple[float, ...] = ()
+        hermite_coeffs: tuple[tuple[float, float, float, float], ...] = ()
 
-    def _get_pchip(self) -> PchipInterpolator:
-        """Baut die PCHIP-Interpolationsfunktion einmalig und cached sie."""
-        if self._pchip is None:
-            self._pchip = PchipInterpolator(
-                self._soc,
-                self._power,
-                extrapolate=False,
+        if is_hermite:
+            pchip = PchipInterpolator(soc, power, extrapolate=False)
+            # `pchip.c` ist ein (4, n-1)-Array: je Segment i die Koeffizienten
+            # [a, b, c, d] eines kubischen Polynoms in POTENZBASIS relativ zum
+            # linken Stützpunkt `pchip.x[i]`, d. h.
+            # power(soc) = a*s^3 + b*s^2 + c*s + d mit s = soc - pchip.x[i]
+            # (scipy-Konvention für `PPoly`/`CubicHermiteSpline`, siehe
+            # scipy.interpolate._interpolate.PPoly). Einmalig hier extrahiert
+            # und als reine Python-Tupel gecacht, damit `_ladeleistung_hermite`
+            # jeden Punkt per Horner-Schema auswerten kann, statt bei jedem
+            # Aufruf durch `PchipInterpolator.__call__` (Numpy-Array-
+            # Erzeugung/-Validierung pro Skalar) zu gehen.
+            hermite_breaks = tuple(float(v) for v in pchip.x)
+            hermite_coeffs = tuple(
+                (
+                    float(pchip.c[0, i]),
+                    float(pchip.c[1, i]),
+                    float(pchip.c[2, i]),
+                    float(pchip.c[3, i]),
+                )
+                for i in range(pchip.c.shape[1])
             )
 
-        return self._pchip
-
-    def _ladeleistung_linear(self, soc_pct: float) -> float:
-        """Schnelle stückweise lineare Interpolation."""
-        # Unterhalb des ersten Punktes:
-        # Leistung des niedrigsten SoC verwenden.
-        if soc_pct <= self._soc[0]:
-            return self._power[0]
-
-        # Oberhalb des letzten Punktes:
-        # Leistung des höchsten SoC verwenden.
-        if soc_pct >= self._soc[-1]:
-            return self._power[-1]
-
-        # Passendes Intervall in O(log n) finden.
-        i = bisect_right(self._soc, soc_pct) - 1
-
-        # Bereits vorkalkulierte Geradengleichung auswerten.
-        return self._slopes[i] * soc_pct + self._intercepts[i]
+        self._fast = _ChargingCurveFastPath(
+            soc=soc,
+            power=power,
+            slopes=tuple(slopes),
+            intercepts=tuple(intercepts),
+            hermite_breaks=hermite_breaks,
+            hermite_coeffs=hermite_coeffs,
+            is_hermite=is_hermite,
+        )
 
     def ladeleistung_bei_soc(self, soc_pct: float) -> float:
         """Berechnet die Ladeleistung (kW) für einen gegebenen SoC.
@@ -185,21 +253,21 @@ class ChargingCurve(BaseModel):
             Ladeleistung in kW.
         """
         soc_clamped = min(max(soc_pct, 0.0), 100.0)
+        # EIN `PrivateAttr`-Zugriff - siehe `_ChargingCurveFastPath`-Docstring.
+        return _evaluate_fast_path(self._fast, soc_clamped)
 
-        # Explizite Randbehandlung:
-        # 0 % -> Leistung des niedrigsten SoC-Punktes
-        # 100 % -> Leistung des höchsten SoC-Punktes
-        if soc_clamped <= self._soc[0]:
-            return max(self._power[0], 0.0)
+    def ladeleistung_bei_soc_batch(self, soc_values: Sequence[float]) -> list[float]:
+        """Wie `ladeleistung_bei_soc`, aber für mehrere SoC-Werte in EINEM Aufruf.
 
-        if soc_clamped >= self._soc[-1]:
-            return max(self._power[-1], 0.0)
-
-        if self.interpolation is InterpolationMethod.HERMITE:
-            power = float(self._get_pchip()(soc_clamped))
-            return max(power, 0.0)
-
-        return max(self._ladeleistung_linear(soc_clamped), 0.0)
+        Holt `self._fast` NUR EINMAL statt einmal pro SoC-Wert - für Aufrufer,
+        die die Kurve über mehrere Punkte auswerten (z. B. numerische
+        Integration in `optimization.optimizer._mittlere_ladeleistung_kw`,
+        Größenordnung 10^5-10^6 Punktauswertungen pro `optimize_charging_
+        plan`-Lauf). Ergebnis identisch zu
+        `[self.ladeleistung_bei_soc(s) for s in soc_values]`.
+        """
+        fast = self._fast
+        return [_evaluate_fast_path(fast, min(max(s, 0.0), 100.0)) for s in soc_values]
 
 
 class VehicleBatteryParameters(BaseModel):
