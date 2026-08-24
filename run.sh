@@ -295,7 +295,18 @@ start_backend() {
     err "BACKEND: GraphHopper nicht bereit — Backend-Start abgebrochen."
     return 1
   }
-  info "BACKEND: starting uvicorn on :$PORT_BACKEND …"
+  # Use exec -a so the process has a recognisable name.
+  # `--reload-dir` restricts the reload watcher to the backend source tree.
+  # Without watchfiles installed, uvicorn falls back to the StatReload
+  # supervisor, which does not honour --reload-exclude; it only scans the
+  # given directories. Restricting to src/tripplanner means a change to any
+  # file outside the app source (e.g. anything under tests/) does not
+  # trigger a backend reload.
+  uv run uvicorn tripplanner.trip_input.api:app \
+    --host 0.0.0.0 --port "$PORT_BACKEND" \
+    --reload \
+    --reload-dir src/tripplanner \
+    >"$LOG_BACKEND" 2>&1 &
   # Use exec -a so the process has a recognisable name
   uv run uvicorn tripplanner.trip_input.api:app \
     --host 0.0.0.0 --port "$PORT_BACKEND" \
