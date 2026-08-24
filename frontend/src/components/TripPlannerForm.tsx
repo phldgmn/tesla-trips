@@ -904,9 +904,9 @@ export function TripPlannerForm({
         praeferenzen: {},
         alleFaehrenVermeiden: alleFaehren,
         vermiedeneFaehren: vermiedene,
-        wetterDetailgrad,
+        faehrZeitfenster: zeitfenster,
         ladedauerVorgaben: ladedauern,
-        baustellenBeruecksichtigen,
+        wetterDetailgrad,
       });
       onSubmit(payload);
     } catch (error) {
