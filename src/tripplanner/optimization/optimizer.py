@@ -32,6 +32,7 @@ from tripplanner.optimization.models import (
     OptimizationConstraints,
     OptimizerInterface,
 )
+from tripplanner.optimization.station_mapping import map_stations_to_segments
 from tripplanner.routing.models import Route, RouteSegment
 from tripplanner.trip_input.models import VehicleProfile, Waypoint
 
@@ -318,41 +319,14 @@ class NetworkXOptimizer(OptimizerInterface):
     def _map_stations_to_segments(
         self, stations: list[ChargingStation], segments: list[RouteSegment]
     ) -> dict[int, list[tuple[ChargingStation, float]]]:
-        """Mappe Ladestationen auf nahegelegene Segmente.
+        """Maps charging stations onto their nearest route segment.
 
-        Jeder Eintrag traegt zusaetzlich die Luftlinien-Entfernung (Meter)
-        zwischen Station und dem naechstgelegenen Routenpunkt - Basis fuer die
-        Abstecher-Kosten in `_detour_kosten` (siehe dort). Ohne diese Distanz
-        wuerde die Optimierung eine Station, die zwar dem naechsten
-        Segment-Index zugeordnet ist aber viele Kilometer abseits der Route
-        liegt, faelschlich als kostenlos erreichbar behandeln.
+        Delegates to `station_mapping.map_stations_to_segments` - see there
+        for the shared implementation (also used by
+        `optimization.detour_routing.precompute_detour_costs`, which needs
+        the same mapping BEFORE `optimize()` runs).
         """
-        station_map: dict[int, list[tuple[ChargingStation, float]]] = {}
-
-        for station in stations:
-            best_seg_idx, offroute_distance_m = self._station_to_segment(station, segments)
-            station_map.setdefault(best_seg_idx, []).append((station, offroute_distance_m))
-
-        return station_map
-
-    def _station_to_segment(
-        self, station: ChargingStation, segments: list[RouteSegment]
-    ) -> tuple[int, float]:
-        """Ermittle das naechstgelegene Segment und den Abstand dorthin (Meter)."""
-        station_coord = station.coordinate
-
-        min_dist = float("inf")
-        closest_seg_idx = 0
-
-        for idx, seg in enumerate(segments):
-            # Prüfe alle Punkte des Segments
-            for coord in seg.geometrie:
-                dist = self._haversine_distance(station_coord, coord)
-                if dist < min_dist:
-                    min_dist = dist
-                    closest_seg_idx = idx
-
-        return closest_seg_idx, min_dist
+        return map_stations_to_segments(stations, segments)
 
     def _haversine_distance(self, a: tuple[float, float], b: tuple[float, float]) -> float:
         """Berechne Haversine-Distanz zwischen zwei Koordinaten."""
