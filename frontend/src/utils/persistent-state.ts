@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
+import type { WeatherDetailLevel } from "../types/trip-request";
 
 /** Präfix für alle in `localStorage` abgelegten App-Zustände, versioniert,
  *  damit ein zukünftiger inkompatibler Schema-Wechsel nicht an alten,
@@ -57,4 +58,27 @@ export function usePersistentState<T>(
   }, [key, state]);
 
   return [state, setState];
+}
+
+/** Migrated den alten booleschen Wetter-Toggle (`wetter-beruecksichtigen`)
+ *  auf den neuen 4-stufigen `WeatherDetailLevel`-Wert. Liest den alten
+ *  localStorage-Schlüssel (mit demselben `STORAGE_PREFIX`), mapped
+ *  `true` -> `"high"`, `false` -> `"off"`, und entfernt danach den
+ *  alten Schlüssel. Fällt bei fehlendem/beschädigtem Wert auf
+ *  `"high"` zurück (Standard aus dem Plan §4.2). */
+export function migrateWetterBeruecksichtigen(): WeatherDetailLevel {
+  if (typeof window === "undefined") return "high";
+  try {
+    const raw = window.localStorage.getItem(
+      STORAGE_PREFIX + "wetter-beruecksichtigen",
+    );
+    if (raw === null) return "high";
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== "boolean") return "high";
+    const result: WeatherDetailLevel = parsed ? "high" : "off";
+    window.localStorage.removeItem(STORAGE_PREFIX + "wetter-beruecksichtigen");
+    return result;
+  } catch {
+    return "high";
+  }
 }
