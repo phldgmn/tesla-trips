@@ -2,6 +2,7 @@
 DEMDataSourceProtocol.
 """
 
+import asyncio
 import importlib.util
 import shutil
 import time
@@ -199,6 +200,64 @@ class TestCopernicusDEMDataSource:
         _ = source.get_elevation(0.0, 0.0)
         second = source.get_elevation(47.000075, 8.000075)
         assert first == pytest.approx(second)
+
+    @pytest.mark.asyncio
+    async def test_concurrent_overlapping_batches_do_not_race_on_lru_eviction(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Viele nebenläufige `get_elevations_batch`-Aufrufe, die sich ein paar
+        Kacheln bei winzigem LRU-Cap teilen, dürfen kein Dataset schließen,
+        das ein anderer Aufruf gerade noch liest.
+
+        Regression für den SIGSEGV/SIGABRT, den `precompute_detour_costs`'
+        ~60-fache nebenläufige Fan-out gegen `providers.py`s LRU auslöste:
+        Eviction hat bisher die älteste Kachel bedingungslos `.close()`-t,
+        selbst während ein anderer nebenläufiger `get_elevations_batch`-Aufruf
+        gerade einen `dataset.read(1)` für exakt diese Kachel in Flug hatte
+        (siehe `providers.py`s `_get_tile_lock`-Docstring). Jeder Batch fragt
+        nur 2 der 5 Kacheln ab (die reale plus eine rotierende "Churn"-Kachel) -
+        fragte ein Batch alle 5 ab, würde `get_elevations_batch`s eigene
+        "nie die Kacheln dieses Batches verdrängen"-Regel den Cap sofort auf 5
+        anheben und jede Eviction verhindern, was den Race unerreichbar machen
+        würde.
+
+        Die 5x5-Pixel-Test-Kacheln werden in Mikrosekunden gelesen - zu schnell,
+        um das Race-Fenster in-process zuverlässig zu öffnen (anders als die
+        echten ca. 3600x3600 Copernicus-Kacheln, deren ca. 40MB-`read(1)`
+        zig Millisekunden dauert - lang genug, damit eine nebenläufige
+        Eviction mitten in den Read fällt). Eine kleine gemonkeypatchte
+        Verzögerung auf `DatasetReader.read` stellt dieses Fenster
+        deterministisch wieder her, ohne echte DEM-Kacheln zu benötigen.
+        """
+        original_read = rasterio.io.DatasetReader.read
+
+        def _slow_read(self: rasterio.io.DatasetReader, *args: object, **kwargs: object) -> object:
+            time.sleep(0.02)
+            return original_read(self, *args, **kwargs)
+
+        monkeypatch.setattr(rasterio.io.DatasetReader, "read", _slow_read)
+
+        src = tmp_path / "_src.tif"
+        _create_test_dem_tile.create_synthetic_dem_tile(src)
+        for lon_deg in range(8, 13):  # E008..E012 - 5 distinct, real, openable files
+            name = f"Copernicus_DSM_COG_10_N47_00_E0{lon_deg:02d}_00_DEM"
+            folder = tmp_path / name
+            folder.mkdir()
+            shutil.copy(src, folder / f"{name}.tif")
+
+        source = CopernicusDEMDataSource(base_url=str(tmp_path), max_open_tiles=1)
+        real_point = (47.000075, 8.000075)  # falls within E008's actual embedded bounds
+        churn_points = [(47.5, 8.5 + i) for i in range(4)]  # E009..E012, one per batch
+        batches = [[real_point, churn_points[i % len(churn_points)]] for i in range(30)]
+
+        results = await asyncio.gather(*[source.get_elevations_batch(b) for b in batches])
+
+        for elevations in results:
+            assert len(elevations) == 2
+            # Mitte des 100-120m-Gradienten-Tiles (siehe copernicus_tile_dir) ->
+            # ca. 110m, exakt wie in test_get_elevation_reads_local_tile. Ein
+            # close-under-read-Race würde dies auf 0.0 verfälschen oder werfen.
+            assert 105.0 <= elevations[0] <= 115.0
 
     @pytest.mark.integration
     def test_real_vsicurl_read_zugspitze_summit(self) -> None:
