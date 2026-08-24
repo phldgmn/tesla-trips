@@ -474,14 +474,14 @@ class CopernicusDEMDataSource:
                     lock.release()
 
     def _dataset_for(self, lat: float, lon: float) -> rasterio.io.DatasetReader | None:
-        """Liefere ein offenes Dataset für die Kachel an (lat, lon), oder None.
+        """Return an open dataset for the tile at (lat, lon), or None.
 
-        Datasets werden in einem LRU von maximal `max_open_tiles` Einträgen
-        gecacht (auch fehlgeschlagene Lookups, als None gecacht, damit nicht
-        für jeden Punkt derselben fehlenden Kachel erneut ein Request
-        versucht wird). Delegiert an `_dataset_for_tile` - siehe dort für die
-        Eviction-Logik. Caller MUSS `self._get_tile_lock(uri)` für die
-        Dauer eines nachfolgenden Reads halten (siehe `_get_tile_lock`).
+        Datasets are cached in an LRU of at most `max_open_tiles` entries
+        (failed lookups are cached as None too, so a request is not retried
+        for every point in the same missing tile). Delegates to
+        `_dataset_for_tile` - see there for the eviction logic. Callers MUST
+        hold `self._get_tile_lock(uri)` for the duration of any subsequent
+        read (see `_get_tile_lock`).
         """
         return self._dataset_for_tile(self._tile_uri(lat, lon))
 
@@ -585,15 +585,15 @@ class CopernicusDEMDataSource:
         return results
 
     def get_elevation(self, lat: float, lon: float) -> float:
-        """Höhenwert an einer Koordinate abfragen.
+        """Query the elevation value at one coordinate.
 
         Args:
-            lat: Breitengrad (WGS84)
-            lon: Längengrad (WGS84)
+            lat: Latitude (WGS84)
+            lon: Longitude (WGS84)
 
         Returns:
-            Höhenwert in Metern, oder 0.0 falls keine Kachel verfügbar ist
-            oder der Range-Request fehlschlägt (siehe Docstring der Klasse).
+            Elevation in meters, or 0.0 if no tile is available or the range
+            request fails (see the class docstring).
         """
         uri = self._tile_uri(lat, lon)
         with self._get_tile_lock(uri):
@@ -616,23 +616,26 @@ class CopernicusDEMDataSource:
             return value_f
 
     async def get_elevations_batch(self, coordinates: list[tuple[float, float]]) -> list[float]:
-        """Höhenwerte für mehrere Koordinaten abfragen (optimiert für Batch-Lookup).
+        """Query elevation values for multiple coordinates (optimized batch lookup).
 
-        Gruppiert Koordinaten nach 1°-DEM-Kachel, öffnet die benötigten Kacheln
-        concurrent via ``asyncio.to_thread`` (GDAL/rasterio ist blockierend),
-        liest pro Kachel **genau einen** Bulk-``read(1)`` und indexiert
-        danach alle Pixelwerte mit reinem Numpy-Zugriff — null weitere I/O.
+        Groups coordinates by 1° DEM tile, reads each tile concurrently via
+        ``asyncio.to_thread`` (GDAL/rasterio is blocking) - one bulk
+        ``read(1)`` per tile, then indexes every pixel value with pure numpy
+        array access, zero further I/O. `_read_tile_bulk` does the
+        open-or-reuse AND the read under one per-tile lock (see its
+        docstring), so a tile is never opened by one call and read by
+        another.
 
-        Fix 1 — der alte Pfad machte ``dataset.read(window=Window(...))``
-        für *jeden* einzelnen Punkt (118 s).  Jetzt macht jede Kachel
-        genau **einen** Bulk-``read(1)`` (ca. 3600x3600 int16-Pixel),
-        gestartet parallel über ``asyncio.gather``.
+        Fix 1 - the old path did ``dataset.read(window=Window(...))`` for
+        *every single* point (118 s). Now each tile does exactly **one**
+        bulk ``read(1)`` (roughly 3600x3600 int16 pixels), started
+        concurrently via ``asyncio.gather``.
 
         Args:
-            coordinates: Liste von (lat, lon)-Tupeln
+            coordinates: List of (lat, lon) tuples
 
         Returns:
-            Liste von Höhenwerten in derselben Reihenfolge wie `coordinates`
+            List of elevation values in the same order as `coordinates`
         """
         if not coordinates:
             return []
@@ -679,15 +682,15 @@ class CopernicusDEMDataSource:
         return results
 
     def get_tile_at(self, lat: float, lon: float) -> DEMTile | None:
-        """Ermittle die DEM-Kachel für eine Koordinate.
+        """Determine the DEM tile for a coordinate.
 
         Args:
-            lat: Breitengrad
-            lon: Längengrad
+            lat: Latitude
+            lon: Longitude
 
         Returns:
-            DEMTile mit den echten Rasterdaten, oder None falls keine Kachel
-            verfügbar ist oder das Lesen fehlschlägt.
+            DEMTile with the real raster data, or None if no tile is
+            available or the read fails.
         """
         uri = self._tile_uri(lat, lon)
         with self._get_tile_lock(uri):
