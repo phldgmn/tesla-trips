@@ -51,8 +51,13 @@ def compute_charge_duration(  # noqa: PLR0913, PLR0917 -- alle 6 Parameter sind 
     2. Integriere über den SoC-Bereich: ∫ dQ / eff_leistung(soc)
     3. Multipliziere mit dem Wirkungsgrad der Ladeelektronik und Temperaturfaktor
 
-    Für stückweise lineare Kurven kann das Integral analytisch gelöst werden,
-    hier wird eine numerische Rechteckregel mit feiner Diskretisierung verwendet.
+    Die Kurve selbst kann stückweise linear oder (Standard) als shape-preserving
+    cubic Hermite-Interpolation (PCHIP) vorliegen, siehe `ChargingCurve` in
+    models.py - für Letztere ist das Integral nicht mehr analytisch geschlossen
+    lösbar, daher wird durchgehend eine numerische Rechteckregel mit feiner
+    Diskretisierung verwendet. Diese funktioniert unverändert für beide
+    Interpolationsarten, da sie nur `charging_curve.ladeleistung_bei_soc()`
+    punktweise auswertet.
 
     Args:
         start_soc_pct: Start-SoC in Prozent (0-100)
