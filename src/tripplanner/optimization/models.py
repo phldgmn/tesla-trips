@@ -193,6 +193,7 @@ class OptimizerInterface(Protocol):
         iteration: int = 1,
         ladedauer_vorgaben: dict[str, int] | None = None,
         faehr_zeitfenster: dict[int, tuple[int, datetime, datetime]] | None = None,
+        detour_kosten: dict[str, DetourKosten] | None = None,
     ) -> ChargingPlan:
         """Optimierungsmethode, die von beiden Backend-Implementierungen bereitgestellt wird.
 
@@ -203,5 +204,9 @@ class OptimizerInterface(Protocol):
         `segment_index_start -> (segment_index_end, abfahrt, ankunft)`, siehe
         `tripplanner.routing.models.FaehrSegment`) lässt Segmente in diesem
         Bereich als fixe Fährüberfahrt statt als normale Fahrtkanten modellieren.
+        `detour_kosten` (optional, real routed detour costs per station, see
+        `optimization.detour_routing.precompute_detour_costs`) is looked up
+        before falling back to the straight-line heuristic when computing
+        off-route detour cost.
         """
         ...

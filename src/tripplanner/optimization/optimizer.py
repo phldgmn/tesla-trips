@@ -29,6 +29,7 @@ from tripplanner.optimization.discretizer import (
 from tripplanner.optimization.models import (
     ChargingPlan,
     ChargingStop,
+    DetourKosten,
     OptimizationConstraints,
     OptimizerInterface,
 )
@@ -52,7 +53,7 @@ DETOUR_ROUTENFAKTOR: float = 1.6
 realistische Straßendistanz zu schätzen (echte Straßen sind selten
 geradlinig - kalibriert an den 1.2x-2x, die `_step_route_charging_detours`
 live gegen GraphHopper für Abstecher zu Ladestationen beobachtet, siehe
-`_find_bracket_points`-Docstring in `trip_input/api.py`)."""
+`find_bracket_points`-Docstring in `tripplanner.routing.detour_geometry`)."""
 
 DETOUR_GESCHWINDIGKEIT_KMH: float = 70.0
 """Angenommene Durchschnittsgeschwindigkeit auf dem Abstecher zur Ladestation
@@ -96,6 +97,7 @@ class NetworkXOptimizer(OptimizerInterface):
         iteration: int = 1,
         ladedauer_vorgaben: dict[str, int] | None = None,
         faehr_zeitfenster: dict[int, tuple[int, datetime, datetime]] | None = None,
+        detour_kosten: dict[str, DetourKosten] | None = None,
     ) -> ChargingPlan:
         """Optimiert Ladeplan unter Verwendung eines diskretisierten Zustandsgraphen.
 
@@ -118,6 +120,8 @@ class NetworkXOptimizer(OptimizerInterface):
             ladedauer_vorgaben: Optionale feste Ladedauern (Sekunden) je Stations-ID.
             faehr_zeitfenster: Optionale feste Fährfahrpläne je
                 `segment_index_start -> (segment_index_end, abfahrt, ankunft)`.
+            detour_kosten: Optionale real routed detour costs per station, see
+                `optimization.detour_routing.precompute_detour_costs`.
 
         Returns:
             ChargingPlan mit Ladehalten und Gesamtreisezeit.
@@ -231,6 +235,7 @@ class NetworkXOptimizer(OptimizerInterface):
             ),
             ladedauer_vorgaben=ladedauer_vorgaben or {},
             ferry_pins=faehr_zeitfenster or {},
+            detour_kosten=detour_kosten,
         )
 
         # A*-Suche zum Zielknoten
@@ -418,6 +423,7 @@ class NetworkXOptimizer(OptimizerInterface):
         max_time_buckets: int,
         ladedauer_vorgaben: dict[str, int],
         ferry_pins: dict[int, tuple[int, datetime, datetime]],
+        detour_kosten: dict[str, DetourKosten] | None = None,
     ) -> None:
         """Generiere Knoten und Kanten für den Zustandsgraphen."""
         # Dijkstra-artige Erweiterung mit Min-Heap statt FIFO-BFS: nur
@@ -555,6 +561,7 @@ class NetworkXOptimizer(OptimizerInterface):
                     station_segments=station_segments,
                     cum_energy_kwh=cum_energy_kwh,
                     ziel_soc_target=ziel_soc_target,
+                    detour_kosten=detour_kosten,
                 )
 
             # 3. Zwischenstopp-Zwang: Aufenthaltsdauer einhalten
@@ -763,6 +770,7 @@ class NetworkXOptimizer(OptimizerInterface):
         station_segments: dict[int, list[tuple[ChargingStation, float]]],
         cum_energy_kwh: list[float],
         ziel_soc_target: float,
+        detour_kosten: dict[str, DetourKosten] | None = None,
     ) -> None:
         """Füge Ladekanten zu allen Stationen in diesem Segment hinzu.
 
@@ -793,8 +801,10 @@ class NetworkXOptimizer(OptimizerInterface):
 
         for station, offroute_distance_m in stations:
             detour_zeit_s, detour_soc_pct = self._detour_kosten(
+                station_id=station.station_id,
                 offroute_distance_m=offroute_distance_m,
                 vehicle_profile=vehicle_profile,
+                detour_kosten=detour_kosten,
             )
             ankunft_soc_pct = current_soc_pct - detour_soc_pct
             if ankunft_soc_pct < 0.0:
@@ -1002,21 +1012,30 @@ class NetworkXOptimizer(OptimizerInterface):
 
     def _detour_kosten(
         self,
+        station_id: str,
         offroute_distance_m: float,
         vehicle_profile: VehicleProfile,
+        detour_kosten: dict[str, DetourKosten] | None,
     ) -> tuple[float, float]:
-        """Schätzt Zeit (s) und SoC-Verbrauch (%) für die einfache Strecke.
+        """Estimates one-way detour time (s) and SoC cost (%) for a station.
 
-        Betrifft die einfache Fahrtstrecke zwischen Route und Ladestation.
+        Uses the REAL, GraphHopper-routed cost from `detour_kosten` (see
+        `optimization.detour_routing.precompute_detour_costs`) whenever the
+        station is present there. Falls back to the straight-line heuristic
+        (`DETOUR_ROUTENFAKTOR`/`DETOUR_GESCHWINDIGKEIT_KMH`) only when
+        `detour_kosten` is `None` (caller didn't precompute - e.g. some
+        tests) or the station is missing from it (real routing failed for
+        this specific station, see `precompute_detour_costs`'s docstring).
 
-        `offroute_distance_m` ist die Luftlinie (siehe `_station_to_segment`);
-        `DETOUR_ROUTENFAKTOR` approximiert die tatsächliche, nicht-geradlinige
-        Straßendistanz daraus, `DETOUR_GESCHWINDIGKEIT_KMH` die Fahrzeit. Der
-        Energiebedarf nutzt den über die Gesamtroute gemittelten Verbrauch je
-        Meter (`self._avg_verbrauch_kwh_pro_m`, siehe `optimize()`) - eine
-        Station direkt AUF der Route (`offroute_distance_m == 0`) hat
-        dementsprechend keine Zusatzkosten.
+        `offroute_distance_m` is the straight-line distance (see
+        `station_mapping.map_station_to_segment`); it is only used by the
+        fallback heuristic.
         """
+        if detour_kosten is not None and station_id in detour_kosten:
+            kosten = detour_kosten[station_id]
+            soc_pct = self._calc_soc_verbrauch_pct(kosten.energie_kwh, vehicle_profile)
+            return kosten.zeit_s, soc_pct
+
         if offroute_distance_m <= 0.0:
             return 0.0, 0.0
 
@@ -1474,6 +1493,7 @@ class ORToolsOptimizer(OptimizerInterface):
         iteration: int = 1,
         ladedauer_vorgaben: dict[str, int] | None = None,
         faehr_zeitfenster: dict[int, tuple[int, datetime, datetime]] | None = None,
+        detour_kosten: dict[str, DetourKosten] | None = None,
     ) -> ChargingPlan:
         """Optimiert Ladeplan mittels Constraint-Programmierung (CP-SAT) oder Routing-Solver.
 
