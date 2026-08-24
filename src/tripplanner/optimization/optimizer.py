@@ -45,6 +45,18 @@ COST_INF: float = 1e9  # Unendlich für unzulässige Kanten
 MAX_SOC_PCT: float = 100.0
 """Maximaler SoC in Prozent."""
 
+DETOUR_ROUTENFAKTOR: float = 1.6
+"""Multiplikator, um aus der Luftlinien-Entfernung Station<->Route eine
+realistische Straßendistanz zu schätzen (echte Straßen sind selten
+geradlinig - kalibriert an den 1.2x-2x, die `_step_route_charging_detours`
+live gegen GraphHopper für Abstecher zu Ladestationen beobachtet, siehe
+`_find_bracket_points`-Docstring in `trip_input/api.py`)."""
+
+DETOUR_GESCHWINDIGKEIT_KMH: float = 70.0
+"""Angenommene Durchschnittsgeschwindigkeit auf dem Abstecher zur Ladestation
+(oft Landstraße/Zubringer, nicht die Haupttrasse - konservativ niedriger als
+ein Autobahn-Tempolimit)."""
+
 
 class NetworkXOptimizer(OptimizerInterface):
     """A*/Dijkstra-Optimierung mit NetworkX (Prototyp)."""
@@ -64,6 +76,7 @@ class NetworkXOptimizer(OptimizerInterface):
         self.time_step_min = time_step_min
         self._base_time: datetime
         self._cum_time_s: list[float]
+        self._avg_verbrauch_kwh_pro_m: float = 0.0
 
     def optimize(  # noqa: PLR0913, PLR0917 -- vollständiger Zustand des Optimierungsproblems, siehe docs/plans/07-optimization.md Abschnitt 4
         self,
@@ -180,6 +193,19 @@ class NetworkXOptimizer(OptimizerInterface):
             cum_time_s[i + 1] = cum_time_s[i] + er.fahrzeit_s
         self._cum_time_s = cum_time_s
 
+        # Durchschnittlicher Verbrauch (kWh/m) ueber die GESAMTE Route - dient
+        # als Naeherung fuer den Energiebedarf eines Abstechers abseits der
+        # Route zu einer Ladestation (siehe `_detour_kosten`). Exakte
+        # Segment-fuer-Segment-Energie fuer eine Strecke, die GraphHopper nie
+        # berechnet hat, existiert nicht - der Routendurchschnitt ist die
+        # naheliegende Naeherung (Topografie/Tempolimit der Route selbst sind
+        # ohnehin die beste verfuegbare Schaetzung fuer eine nahegelegene
+        # Nebenstrecke).
+        gesamtlaenge_m = route.gesamtlaenge_m or sum(seg.laenge_m for seg in segments)
+        self._avg_verbrauch_kwh_pro_m = (
+            cum_energy_kwh[-1] / gesamtlaenge_m if gesamtlaenge_m > 0.0 else 0.0
+        )
+
         # Generiere Knoten und Kanten
         self._generate_graph(
             G=G,
@@ -289,20 +315,28 @@ class NetworkXOptimizer(OptimizerInterface):
 
     def _map_stations_to_segments(
         self, stations: list[ChargingStation], segments: list[RouteSegment]
-    ) -> dict[int, list[ChargingStation]]:
-        """Mappe Ladestationen auf nahegelegene Segmente."""
-        station_map: dict[int, list[ChargingStation]] = {}
+    ) -> dict[int, list[tuple[ChargingStation, float]]]:
+        """Mappe Ladestationen auf nahegelegene Segmente.
+
+        Jeder Eintrag traegt zusaetzlich die Luftlinien-Entfernung (Meter)
+        zwischen Station und dem naechstgelegenen Routenpunkt - Basis fuer die
+        Abstecher-Kosten in `_detour_kosten` (siehe dort). Ohne diese Distanz
+        wuerde die Optimierung eine Station, die zwar dem naechsten
+        Segment-Index zugeordnet ist aber viele Kilometer abseits der Route
+        liegt, faelschlich als kostenlos erreichbar behandeln.
+        """
+        station_map: dict[int, list[tuple[ChargingStation, float]]] = {}
 
         for station in stations:
-            best_seg_idx = self._station_to_segment(station, segments)
-            if best_seg_idx not in station_map:
-                station_map[best_seg_idx] = []
-            station_map[best_seg_idx].append(station)
+            best_seg_idx, offroute_distance_m = self._station_to_segment(station, segments)
+            station_map.setdefault(best_seg_idx, []).append((station, offroute_distance_m))
 
         return station_map
 
-    def _station_to_segment(self, station: ChargingStation, segments: list[RouteSegment]) -> int:
-        """Ermittle das Segment, das einer Ladestation am nächsten liegt."""
+    def _station_to_segment(
+        self, station: ChargingStation, segments: list[RouteSegment]
+    ) -> tuple[int, float]:
+        """Ermittle das naechstgelegene Segment und den Abstand dorthin (Meter)."""
         station_coord = station.coordinate
 
         min_dist = float("inf")
@@ -316,7 +350,7 @@ class NetworkXOptimizer(OptimizerInterface):
                     min_dist = dist
                     closest_seg_idx = idx
 
-        return closest_seg_idx
+        return closest_seg_idx, min_dist
 
     def _haversine_distance(self, a: tuple[float, float], b: tuple[float, float]) -> float:
         """Berechne Haversine-Distanz zwischen zwei Koordinaten."""
@@ -381,7 +415,7 @@ class NetworkXOptimizer(OptimizerInterface):
         cum_time_s: list[float],
         cum_energy_kwh: list[float],
         waypoint_map: dict[int, list[Waypoint]],
-        station_segments: dict[int, list[ChargingStation]],
+        station_segments: dict[int, list[tuple[ChargingStation, float]]],
         vehicle_profile: VehicleProfile,
         ladekurve: ChargingCurve,
         constraints: OptimizationConstraints,
@@ -656,7 +690,7 @@ class NetworkXOptimizer(OptimizerInterface):
         G: DiGraph,
         current: tuple[int, int, int],
         seg_idx: int,
-        stations: list[ChargingStation],
+        stations: list[tuple[ChargingStation, float]],
         segments: list[RouteSegment],
         vehicle_profile: VehicleProfile,
         ladekurve: ChargingCurve,
@@ -669,6 +703,20 @@ class NetworkXOptimizer(OptimizerInterface):
     ) -> None:
         """Füge Ladekanten zu allen Stationen in diesem Segment hinzu.
 
+        `stations` enthält je Station auch deren Luftlinien-Abstand (Meter)
+        zum naechstgelegenen Routenpunkt (siehe `_map_stations_to_segments`).
+        Stationen, die nicht direkt AUF der Route liegen (der Regelfall - der
+        Suchradius `search_radius_km` in `trip_input/api.py` erlaubt bewusst
+        Kandidaten mehrere Kilometer abseits der Route), erfordern einen
+        Hin- und Rückweg-Abstecher. Dessen Zeit-/Energiekosten werden über
+        `_detour_kosten` geschätzt und der Ladekante aufgeschlagen - ohne
+        das würde die Optimierung eine weit abseits liegende, aber
+        geografisch zufällig dem "billigsten" Segment zugeordnete Station als
+        KOSTENLOS erreichbar behandeln und z. B. einen 90-minütigen Abstecher
+        nur fürs Laden waehlen, obwohl eine naehere Station denselben SoC-
+        Bedarf gedeckt haette (siehe Nutzer-Report: Jönköping -> Ödeshög und
+        zurück statt direkt in Jönköping/Mariestad zu laden).
+
         Für Stationen mit einer vom Nutzer vorgegebenen festen Ladedauer
         (`ladedauer_vorgaben`, Schlüssel = `station_id`) wird GENAU EINE Kante
         mit dieser Dauer erzeugt (resultierender SoC per Bisektion über die
@@ -680,11 +728,19 @@ class NetworkXOptimizer(OptimizerInterface):
         """
         current_soc_pct = G.nodes[current]["soc_pct"]
 
-        for station in stations:
+        for station, offroute_distance_m in stations:
+            detour_zeit_s, detour_soc_pct = self._detour_kosten(
+                offroute_distance_m=offroute_distance_m,
+                vehicle_profile=vehicle_profile,
+            )
+            ankunft_soc_pct = current_soc_pct - detour_soc_pct
+            if ankunft_soc_pct < 0.0:
+                continue  # Reichweite reicht nicht einmal bis zur Station
+
             vorgabe_s = ladedauer_vorgaben.get(station.station_id)
             if vorgabe_s is not None:
                 ziel_soc = self._soc_nach_fester_ladezeit(
-                    start_soc_pct=current_soc_pct,
+                    start_soc_pct=ankunft_soc_pct,
                     ladezeit_s=float(vorgabe_s),
                     ladekurve=ladekurve,
                     batteriekapazitaet_kwh=vehicle_profile.batteriekapazitaet_kwh,
@@ -694,8 +750,11 @@ class NetworkXOptimizer(OptimizerInterface):
                     current=current,
                     seg_idx=seg_idx,
                     station=station,
+                    ankunfts_soc_pct=ankunft_soc_pct,
                     ziel_soc_pct=ziel_soc,
                     ladezeit_s=float(vorgabe_s),
+                    detour_zeit_s_je_richtung=detour_zeit_s,
+                    detour_soc_pct_je_richtung=detour_soc_pct,
                     max_time_buckets=max_time_buckets,
                     queue=queue,
                 )
@@ -719,13 +778,13 @@ class NetworkXOptimizer(OptimizerInterface):
                 Ziel_soc_pct,
             ]
             for Ziel_soc in Ziel_soc_values:
-                if Ziel_soc <= current_soc_pct:
+                if Ziel_soc <= ankunft_soc_pct:
                     continue  # Bereits höher als Ziel
 
                 # Ladezeit berechnen (echtes Start-/End-SoC-Fenster, siehe
                 # `_calc_ladezeit_s`)
                 ladezeit_s = self._calc_ladezeit_s(
-                    start_soc_pct=current_soc_pct,
+                    start_soc_pct=ankunft_soc_pct,
                     end_soc_pct=Ziel_soc,
                     ladekurve=ladekurve,
                     batteriekapazitaet_kwh=vehicle_profile.batteriekapazitaet_kwh,
@@ -739,11 +798,41 @@ class NetworkXOptimizer(OptimizerInterface):
                     current=current,
                     seg_idx=seg_idx,
                     station=station,
+                    ankunfts_soc_pct=ankunft_soc_pct,
                     ziel_soc_pct=Ziel_soc,
                     ladezeit_s=ladezeit_s,
+                    detour_zeit_s_je_richtung=detour_zeit_s,
+                    detour_soc_pct_je_richtung=detour_soc_pct,
                     max_time_buckets=max_time_buckets,
                     queue=queue,
                 )
+
+    def _detour_kosten(
+        self,
+        offroute_distance_m: float,
+        vehicle_profile: VehicleProfile,
+    ) -> tuple[float, float]:
+        """Schätzt Zeit (s) und SoC-Verbrauch (%) für die einfache Strecke.
+
+        Betrifft die einfache Fahrtstrecke zwischen Route und Ladestation.
+
+        `offroute_distance_m` ist die Luftlinie (siehe `_station_to_segment`);
+        `DETOUR_ROUTENFAKTOR` approximiert die tatsächliche, nicht-geradlinige
+        Straßendistanz daraus, `DETOUR_GESCHWINDIGKEIT_KMH` die Fahrzeit. Der
+        Energiebedarf nutzt den über die Gesamtroute gemittelten Verbrauch je
+        Meter (`self._avg_verbrauch_kwh_pro_m`, siehe `optimize()`) - eine
+        Station direkt AUF der Route (`offroute_distance_m == 0`) hat
+        dementsprechend keine Zusatzkosten.
+        """
+        if offroute_distance_m <= 0.0:
+            return 0.0, 0.0
+
+        strecke_m = offroute_distance_m * DETOUR_ROUTENFAKTOR
+        detour_geschwindigkeit_m_s = DETOUR_GESCHWINDIGKEIT_KMH * 1000.0 / 3600.0
+        zeit_s = strecke_m / detour_geschwindigkeit_m_s
+        energie_kwh = strecke_m * self._avg_verbrauch_kwh_pro_m
+        soc_pct = self._calc_soc_verbrauch_pct(energie_kwh, vehicle_profile)
+        return zeit_s, soc_pct
 
     def _fuege_ladekante_hinzu(  # noqa: PLR0913, PLR0917 -- Ladekanten-Buchhaltung braucht den vollen Kantenkontext
         self,
@@ -751,28 +840,48 @@ class NetworkXOptimizer(OptimizerInterface):
         current: tuple[int, int, int],
         seg_idx: int,
         station: ChargingStation,
+        ankunfts_soc_pct: float,
         ziel_soc_pct: float,
         ladezeit_s: float,
+        detour_zeit_s_je_richtung: float,
+        detour_soc_pct_je_richtung: float,
         max_time_buckets: int,
         queue: deque[tuple[int, int, int]],
     ) -> None:
         """Fügt eine Ladekante hinzu (Knoten-/Kanten-/Kosten-Buchhaltung).
 
         Erzeugt (falls günstiger als ein bestehender Pfad) eine Ladekante von
-        `current` zu einem Knoten mit `ziel_soc_pct` nach `ladezeit_s` Sekunden
-        Ladezeit an `station` - gemeinsame Buchhaltung für sowohl die
+        `current` zu einem Knoten, der wieder AUF der Route liegt (derselbe
+        `seg_idx`) - dazwischen liegen Hinweg-Abstecher
+        (`detour_zeit_s_je_richtung`/`detour_soc_pct_je_richtung`, siehe
+        `_detour_kosten`), die eigentliche Ladung (`ankunfts_soc_pct` ->
+        `ziel_soc_pct` in `ladezeit_s`) und der Rückweg-Abstecher. Der neue
+        Knoten-SoC ist daher `ziel_soc_pct` MINUS den Rückweg-Verbrauch, nicht
+        `ziel_soc_pct` selbst - ein Ladehalt abseits der Route "kostet" auch
+        auf dem Rückweg noch Reichweite. `ankunfts_soc_pct`/`ziel_soc_pct`
+        (Zustand AN der Station) werden zusätzlich als Kanten-Attribute
+        hinterlegt, damit `_extract_charging_stops` den tatsächlichen
+        Lade-Ablauf (nicht den um die Abstecher-Fahrt verfälschten
+        Routen-SoC) berichten kann - gemeinsame Buchhaltung für sowohl die
         automatische SoC-Ziel-Iteration als auch eine vom Nutzer vorgegebene
         feste Ladedauer (siehe `_add_charging_edges`).
         """
-        new_soc_bucket = soc_to_bucket(ziel_soc_pct, self.soc_step_pct)
-        neuer_zeitpunkt = G.nodes[current]["zeitpunkt"] + timedelta(seconds=ladezeit_s)
+        route_soc_pct = ziel_soc_pct - detour_soc_pct_je_richtung
+        if route_soc_pct < 0.0:
+            return  # Reichweite reicht nicht für den Rückweg zur Route
+        new_soc_bucket = soc_to_bucket(route_soc_pct, self.soc_step_pct)
+
+        ankunftszeit = G.nodes[current]["zeitpunkt"] + timedelta(seconds=detour_zeit_s_je_richtung)
+        abfahrtszeit = ankunftszeit + timedelta(seconds=ladezeit_s)
+        neuer_zeitpunkt = abfahrtszeit + timedelta(seconds=detour_zeit_s_je_richtung)
         new_time_bucket = time_to_bucket(neuer_zeitpunkt, self._base_time, self.time_step_min)
 
         if new_time_bucket > max_time_buckets:
             return  # Zeitlimit überschritten
 
-        # Kosten: Nur Ladezeit zählt (Fahrzeit war schon bezahlt)
-        kosten = ladezeit_s
+        # Kosten: Ladezeit PLUS Hin-/Rückweg-Fahrzeit des Abstechers (0 für
+        # Stationen direkt auf der Route).
+        kosten = ladezeit_s + 2.0 * detour_zeit_s_je_richtung
         next_node = (seg_idx, new_soc_bucket, new_time_bucket)
 
         if next_node not in G.nodes:
@@ -780,7 +889,7 @@ class NetworkXOptimizer(OptimizerInterface):
                 next_node,
                 type="charge",
                 station_id=station.station_id,
-                soc_pct=ziel_soc_pct,
+                soc_pct=route_soc_pct,
                 zeitpunkt=neuer_zeitpunkt,
                 segment_index=seg_idx,
                 total_cost=COST_INF,
@@ -806,11 +915,21 @@ class NetworkXOptimizer(OptimizerInterface):
             # obwohl seine Kosten/Zeit sehr wohl im Pfad stecken - sichtbar als
             # Diskrepanz zwischen `gesamtreisezeit_s` und der Summe der
             # tatsaechlich zurueckgegebenen `ChargingStop`-Ladedauern).
-            G.add_edge(current, next_node, cost=kosten, station_id=station.station_id)
+            G.add_edge(
+                current,
+                next_node,
+                cost=kosten,
+                station_id=station.station_id,
+                ankunfts_soc_pct=ankunfts_soc_pct,
+                ziel_soc_pct=ziel_soc_pct,
+                ladezeit_s=ladezeit_s,
+                ankunftszeit=ankunftszeit,
+                abfahrtszeit=abfahrtszeit,
+            )
             G.nodes[next_node]["total_cost"] = new_total_cost
             G.nodes[next_node]["parent"] = current
             G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
-            G.nodes[next_node]["soc_pct"] = ziel_soc_pct
+            G.nodes[next_node]["soc_pct"] = route_soc_pct
 
     def _soc_nach_fester_ladezeit(
         self,
@@ -1060,31 +1179,26 @@ class NetworkXOptimizer(OptimizerInterface):
             if station is None:
                 continue  # Sollte nicht vorkommen (station_id stets gueltig)
 
-            # Zeitpunkte direkt aus den Knoten lesen statt die Ladezeit
-            # erneut ueber die Ladekurve zu berechnen: `zeitpunkt` ist
-            # exakt der Wert, der beim Erzeugen dieser Kante in
-            # `_fuege_ladekante_hinzu` gesetzt wurde - fuer eine vom
-            # Nutzer per `ladedauer_vorgaben` fest vorgegebene Ladedauer
-            # (siehe `_add_charging_edges`) waere eine Neuberechnung ueber
-            # `_calc_ladezeit_s(delta_soc, ...)` NICHT die vorgegebene
-            # Dauer, sondern die (durch Bisektion nur angenaeherte)
-            # automatische Herleitung - und selbst im Normalfall vermeidet
-            # dies eine unnoetige zweite, rundungsbehaftete Berechnung.
-            prev_soc_pct = G.nodes[prev_node]["soc_pct"]
-            curr_soc_pct = G.nodes[curr_node]["soc_pct"]
-            start_zeit = G.nodes[prev_node]["zeitpunkt"]
-            end_zeit = G.nodes[curr_node]["zeitpunkt"]
-            ladezeit_s = (end_zeit - start_zeit).total_seconds()
-
+            # `ankunfts_soc_pct`/`ziel_soc_pct`/`ladezeit_s`/`ankunftszeit`/
+            # `abfahrtszeit` direkt aus den Kanten-Attributen lesen (siehe
+            # `_fuege_ladekante_hinzu`) statt aus den Knoten-`soc_pct`/
+            # `zeitpunkt`-Werten: bei einer Station abseits der Route
+            # enthaelt der Knoten-SoC/-Zeitpunkt bereits den Rueckweg-
+            # Abstecher (siehe `_fuege_ladekante_hinzu`) - der tatsaechliche
+            # Ladevorgang (Ankunft/Abfahrt AN der Station) waere daraus nicht
+            # mehr rekonstruierbar. Fuer eine vom Nutzer per
+            # `ladedauer_vorgaben` fest vorgegebene Ladedauer (siehe
+            # `_add_charging_edges`) ist das zugleich die exakte, dort
+            # hinterlegte Dauer statt einer angenaeherten Neuberechnung.
             ladehalte.append(
                 ChargingStop(
                     station=station,
                     segment_index=curr_node[0],
-                    ankunfts_soc_pct=prev_soc_pct,
-                    ziel_soc_pct=curr_soc_pct,
-                    geschaetzte_ladedauer_s=int(ladezeit_s),
-                    ankunftszeit=start_zeit,
-                    abfahrtszeit=end_zeit,
+                    ankunfts_soc_pct=edge_data["ankunfts_soc_pct"],
+                    ziel_soc_pct=edge_data["ziel_soc_pct"],
+                    geschaetzte_ladedauer_s=int(edge_data["ladezeit_s"]),
+                    ankunftszeit=edge_data["ankunftszeit"],
+                    abfahrtszeit=edge_data["abfahrtszeit"],
                 )
             )
 

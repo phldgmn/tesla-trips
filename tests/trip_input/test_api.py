@@ -1033,7 +1033,7 @@ async def test_create_trip_simulation_charge_duration_specification_applies_to_c
             ChargingStation(
                 station_id="einzige-station",
                 name="Tesla Supercharger - Nuernberg",
-                coordinate=(49.45, 11.08),  # ~mittig auf der Berlin-Muenchen-Route
+                coordinate=(50.3275, 12.4935),  # Mittelpunkt der linear interpolierten Fake-Route
                 stalls={StallType.V3: 8},
                 max_ladeleistung_kw=2500.0,
                 connector_types=[ConnectorType.CCS2],
@@ -1137,7 +1137,7 @@ async def test_create_trip_simulation_populates_charging_stop_distanz_m_and_deto
             ChargingStation(
                 station_id="einzige-station",
                 name="Tesla Supercharger - Nuernberg",
-                coordinate=(49.45, 11.08),  # ~mittig auf der Berlin-Muenchen-Route
+                coordinate=(50.3275, 12.4935),  # Mittelpunkt der linear interpolierten Fake-Route
                 stalls={StallType.V3: 8},
                 max_ladeleistung_kw=2500.0,
                 connector_types=[ConnectorType.CCS2],
@@ -1191,7 +1191,7 @@ async def test_create_trip_simulation_handles_unreachable_charging_detour_gracef
         Ladestation ist - nur `_step_route_charging_detours` routet Hin-/Rueckweg-
         Beine mit der Stationskoordinate als Start bzw. Ziel)."""
 
-        _STATION_KOORDINATE = (49.45, 11.08)
+        _STATION_KOORDINATE = (50.3275, 12.4935)
 
         async def berechne_route(self, anfrage: TripRequest) -> Route:
             if self._STATION_KOORDINATE in (anfrage.start, anfrage.ziel):
@@ -1203,7 +1203,7 @@ async def test_create_trip_simulation_handles_unreachable_charging_detour_gracef
             ChargingStation(
                 station_id="einzige-station",
                 name="Tesla Supercharger - Nuernberg",
-                coordinate=(49.45, 11.08),
+                coordinate=(50.3275, 12.4935),
                 stalls={StallType.V3: 8},
                 max_ladeleistung_kw=2500.0,
                 connector_types=[ConnectorType.CCS2],

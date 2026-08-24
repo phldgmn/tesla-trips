@@ -565,7 +565,11 @@ class TestZeitbudgetBeruecksichtigtLadezeit:
             segments.append(
                 RouteSegment(
                     segment_index=i,
-                    geometrie=[(lat, lon), (naechste_lat, naechste_lon)],
+                    geometrie=[
+                        (lat, lon),
+                        ((lat + naechste_lat) / 2, (lon + naechste_lon) / 2),
+                        (naechste_lat, naechste_lon),
+                    ],
                     laenge_m=segment_laenge_m,
                     strassenklasse="MOTORWAY",
                     tempolimit_kmh=110,
@@ -599,7 +603,7 @@ class TestZeitbudgetBeruecksichtigtLadezeit:
         route = Route(
             segments=segments,
             gesamtlaenge_m=anzahl_segmente * segment_laenge_m,
-            geometrie=[s.geometrie[0] for s in segments] + [segments[-1].geometrie[1]],
+            geometrie=[s.geometrie[0] for s in segments] + [segments[-1].geometrie[-1]],
         )
 
         vehicle_profile = VehicleProfile(
@@ -715,8 +719,11 @@ class TestLadehaltUeberlebtKnotenKollision:
             current=current,
             seg_idx=5,
             station=station,
+            ankunfts_soc_pct=15.0,
             ziel_soc_pct=ziel_soc_pct,
             ladezeit_s=ladezeit_s,
+            detour_zeit_s_je_richtung=0.0,
+            detour_soc_pct_je_richtung=0.0,
             max_time_buckets=10_000,
             queue=queue,
         )
