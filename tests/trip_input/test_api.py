@@ -3212,3 +3212,40 @@ async def test_create_trip_simulation_emits_iteration_logging(
     assert any("optimize_charging_plan" in m for m in iteration_msgs), (
         f"Expected iteration-tagged optimize_charging_plan log; got: {iteration_msgs}"
     )
+
+
+@pytest.mark.asyncio
+async def test_create_trip_simulation_fetches_charging_stations_once_not_per_iteration(
+    valid_trip_request: dict,
+    fake_routing_provider: FakeRoutingProvider,
+    fake_weather_provider: FakeWeatherProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
+) -> None:
+    """`get_stations_along_route` must be called exactly once per
+    `create_trip_simulation()` call, regardless of `max_iterations` - the
+    route (and therefore the station list) never changes between
+    convergence iterations, and re-fetching would also redo the expensive
+    detour-cost precomputation for nothing."""
+    call_count = 0
+    original = fake_charging_provider_berlin_munich.get_stations_along_route
+
+    async def counting_get_stations_along_route(*args: object, **kwargs: object) -> object:
+        nonlocal call_count
+        call_count += 1
+        return await original(*args, **kwargs)
+
+    fake_charging_provider_berlin_munich.get_stations_along_route = (  # type: ignore[method-assign]
+        counting_get_stations_along_route
+    )
+
+    await create_trip_simulation(
+        valid_trip_request,
+        routing_provider=fake_routing_provider,
+        weather_provider=fake_weather_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
+        start_soc_pct=80.0,
+        destination_soc_pct=20.0,
+        max_iterations=3,
+    )
+
+    assert call_count == 1
