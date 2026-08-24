@@ -50,6 +50,9 @@ export function createEmptyStop(): Stop {
 export type ReifenTyp =
   "standard" | "winter" | "low_rolling_resistance" | "performance";
 
+/** Wetter-Detailgrad – siehe `tripplanner.weather.models.WeatherDetailLevel`. */
+export type WeatherDetailLevel = "off" | "low" | "medium" | "high";
+
 /** Fahrzeugprofil-Payload (`VehicleProfile`). */
 export interface VehicleProfileInput {
   masse_kg: number;
@@ -126,9 +129,10 @@ export interface TripRequestPayload {
   vermiedene_faehren: FerryExclusion[];
   faehr_zeitfenster: FaehrZeitfenster[];
   ladedauer_vorgaben: LadedauerVorgabe[];
-  /** Falls false, wird der Wetter-Provider für diese Berechnung übersprungen,
-   *  um sie zu beschleunigen (siehe `TripPlannerForm`-Toggle "Wetter"). */
-  wetter_beruecksichtigen: boolean;
+  /** Steuert die räumliche/zeitliche Auflösung der Wetterabfrage
+   *  (siehe `TripPlannerForm`-Kontrolle "Routendetails"). `"off"` entspricht
+   *  dem alten `wetter_beruecksichtigen: false`, `"high"` dem alten `true`. */
+  wetter_detailgrad: WeatherDetailLevel;
   /** Falls false, wird der Baustellen-Provider für diese Berechnung
    *  übersprungen, um sie zu beschleunigen (Toggle "Baustellen"). */
   baustellen_beruecksichtigen: boolean;
@@ -154,7 +158,7 @@ export function buildTripRequestPayload(args: {
   vermiedeneFaehren?: FerryExclusion[];
   faehrZeitfenster?: FaehrZeitfenster[];
   ladedauerVorgaben?: LadedauerVorgabe[];
-  wetterBeruecksichtigen?: boolean;
+  wetterDetailgrad?: WeatherDetailLevel;
   mindestLadezeitS: number;
   baustellenBeruecksichtigen?: boolean;
 }): TripRequestPayload {
@@ -203,7 +207,7 @@ export function buildTripRequestPayload(args: {
     vermiedene_faehren: args.vermiedeneFaehren ?? [],
     faehr_zeitfenster: args.faehrZeitfenster ?? [],
     ladedauer_vorgaben: args.ladedauerVorgaben ?? [],
-    wetter_beruecksichtigen: args.wetterBeruecksichtigen ?? true,
+    wetter_detailgrad: args.wetterDetailgrad ?? "high",
     mindest_ladezeit_s: args.mindestLadezeitS,
     baustellen_beruecksichtigen: args.baustellenBeruecksichtigen ?? true,
   };

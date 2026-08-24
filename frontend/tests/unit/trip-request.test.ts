@@ -96,8 +96,8 @@ describe("buildTripRequestPayload faehr_zeitfenster/ladedauer_vorgaben fields", 
   });
 });
 
-describe("buildTripRequestPayload wetter_beruecksichtigen/baustellen_beruecksichtigen fields", () => {
-  it("defaults wetter_beruecksichtigen and baustellen_beruecksichtigen to true", () => {
+describe("buildTripRequestPayload wetter_detailgrad/baustellen_beruecksichtigen fields", () => {
+  it("defaults wetter_detailgrad to high and baustellen_beruecksichtigen to true", () => {
     const payload = buildTripRequestPayload({
       stops: makeStops(),
       fahrzeugprofil: vehicleProfile,
@@ -105,21 +105,33 @@ describe("buildTripRequestPayload wetter_beruecksichtigen/baustellen_beruecksich
       zielSocPct: 20,
     });
 
-    expect(payload.wetter_beruecksichtigen).toBe(true);
+    expect(payload.wetter_detailgrad).toBe("high");
     expect(payload.baustellen_beruecksichtigen).toBe(true);
   });
 
-  it("passes through explicit false values to disable providers", () => {
+  it("passes through explicit wetter_detailgrad and baustellen false value", () => {
     const payload = buildTripRequestPayload({
       stops: makeStops(),
       fahrzeugprofil: vehicleProfile,
       startSocPct: 80,
       zielSocPct: 20,
-      wetterBeruecksichtigen: false,
+      wetterDetailgrad: "off",
       baustellenBeruecksichtigen: false,
     });
 
-    expect(payload.wetter_beruecksichtigen).toBe(false);
+    expect(payload.wetter_detailgrad).toBe("off");
     expect(payload.baustellen_beruecksichtigen).toBe(false);
+  });
+
+  it("passes through wetter_detailgrad medium value", () => {
+    const payload = buildTripRequestPayload({
+      stops: makeStops(),
+      fahrzeugprofil: vehicleProfile,
+      startSocPct: 80,
+      zielSocPct: 20,
+      wetterDetailgrad: "medium",
+    });
+
+    expect(payload.wetter_detailgrad).toBe("medium");
   });
 });
