@@ -47,6 +47,7 @@ from tripplanner.routing import (
     RoutingProvider,
     erkenne_faehren,
 )
+from tripplanner.routing.detour_geometry import find_bracket_points
 from tripplanner.routing.models import Coordinate, FaehrSegment, Route, RouteSegment
 from tripplanner.simulation import simulate_trip
 from tripplanner.simulation.models import (
@@ -445,50 +446,6 @@ def _step_9_update_eta(
     return neue_eta_liste
 
 
-def _find_bracket_points(
-    route: Route, segment_index: int, margin_m: float = 3000.0
-) -> tuple[int, int]:
-    """Findet zwei Punkte auf `route.geometrie` deutlich VOR/NACH `segment_index`.
-
-    Ein Detour-Request mit `start == ziel` (derselbe Punkt) ist fuer
-    GraphHopper richtungsmehrdeutig: der Router snappt den Punkt auf die
-    naeheliegende Fahrbahn OHNE zu wissen, in welche Richtung die Reise
-    eigentlich verlaeuft, und kann dadurch an der richtigen Ausfahrt vorbei
-    bis zur naechsten fahren muessen, nur um zu wenden. Zwei
-    UNTERSCHIEDLICHE, bereits auf der Hauptroute in korrekter Fahrtrichtung
-    liegende Punkte (mindestens `margin_m` vor bzw. nach dem eigentlichen
-    Abzweigpunkt) legen die Fahrtrichtung dagegen von vornherein eindeutig
-    fest - kein Heading-Parameter noetig. `margin_m` muss dabei grosszuegig
-    genug sein, um eine tatsaechlich nutzbare Autobahn-Ausfahrt in beide
-    Richtungen einzuschliessen: bei zu knappem Rand (empirisch getestet mit
-    500 m) landen beide Klammerpunkte oft VOR der naechsten echten Ausfahrt,
-    wodurch GraphHopper einen Umweg von mehreren Kilometern ueber die
-    naechstgelegene Ausfahrt UND wieder zurueck einschlagen muss, statt der
-    kurzen, direkten Anbindung zur Ladestation - live gegen den Projekt-
-    GraphHopper-Server verifiziert (Detour/Luftlinie-Verhaeltnis sank von bis
-    zu 20x bei 500 m auf ca. 1.2-2x bei 3000 m).
-
-    Returns:
-        (vor_index, nach_index): Indizes in `route.geometrie`.
-    """
-    last_index = len(route.geometrie) - 1
-    segment_index = min(segment_index, len(route.segments) - 1)
-
-    vor_index = segment_index
-    distanz_zurueck = 0.0
-    while vor_index > 0 and distanz_zurueck < margin_m:
-        vor_index -= 1
-        distanz_zurueck += route.segments[vor_index].laenge_m
-
-    after_index = segment_index
-    distanz_vor = 0.0
-    while after_index < last_index and distanz_vor < margin_m:
-        distanz_vor += route.segments[after_index].laenge_m
-        after_index += 1
-
-    return vor_index, after_index
-
-
 async def _step_route_charging_detours(
     routing_provider: RoutingProvider | None,
     route: Route,
@@ -515,7 +472,7 @@ async def _step_route_charging_detours(
     (oder ueber die gesamte Rueckfahrt verschmiert) gezeigt. Start-/Zielpunkt
     der beiden Beine sind bewusst zwei unterschiedliche, auf der Hauptroute
     liegende Klammerpunkte statt desselben Abzweigpunkts (siehe
-    `_find_bracket_points`), um Richtungsmehrdeutigkeit bei GraphHopper zu
+    `find_bracket_points`), um Richtungsmehrdeutigkeit bei GraphHopper zu
     vermeiden.
 
     Returns:
@@ -538,7 +495,7 @@ async def _step_route_charging_detours(
         ]
     ] = []
     for stop_idx, ladehalt in enumerate(charging_plan.ladehalte):
-        vor_index, after_index = _find_bracket_points(route, ladehalt.segment_index)
+        vor_index, after_index = find_bracket_points(route, ladehalt.segment_index)
         hinweg_anfrage = TripRequest(
             start=route.geometrie[vor_index],
             ziel=ladehalt.station.coordinate,
@@ -589,8 +546,8 @@ async def _step_route_charging_detours(
         station_index = len(hinweg_route.geometrie) - 1
         detouren[stop_id] = LadehaltDetour(
             geometrie=hinweg_route.geometrie + rueckweg_route.geometrie[1:],
-            route_index_vor=_find_bracket_points(route, ladehalt.segment_index)[0],
-            route_index_nach=_find_bracket_points(route, ladehalt.segment_index)[1],
+            route_index_vor=find_bracket_points(route, ladehalt.segment_index)[0],
+            route_index_nach=find_bracket_points(route, ladehalt.segment_index)[1],
             station_index=station_index,
         )
 
