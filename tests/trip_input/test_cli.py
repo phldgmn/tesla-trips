@@ -329,6 +329,25 @@ class TestCliCommand:
 
         assert result.exit_code != 0
 
+    def test_cli_invalid_mindest_ladezeit_s(self) -> None:
+        """Test: Mindestladedauer außerhalb Bereich -> Exit Code != 0."""
+        result = runner.invoke(
+            app,
+            [
+                "trips",
+                "--start",
+                "52.5200,13.4050",
+                "--destination",
+                "53.5511,9.9937",
+                "--departure-time",
+                "2026-08-15T08:00:00",
+                "--mindest-ladezeit-s",
+                "5000",  # > 1800
+            ],
+        )
+
+        assert result.exit_code != 0
+
     def test_cli_missing_required_args(self) -> None:
         """Test: Fehlende Pflichtargumente -> Exit Code != 0 (Typer usage error)."""
         result = runner.invoke(

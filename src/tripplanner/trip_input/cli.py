@@ -92,6 +92,14 @@ def trips(  # noqa: PLR0913, PLR0917
             help="Minimal zulässiger SoC beim Ankommen an einer Ladestation",
         ),
     ] = 5.0,
+    mindest_ladezeit_s: Annotated[
+        int,
+        typer.Option(
+            min=0,
+            max=1800,
+            help="Minimale Dauer eines Ladevorgangs in Sekunden, wenn geladen wird",
+        ),
+    ] = 600,
     vehicle_profile: Annotated[
         str,
         typer.Option(help="Fahrzeugprofilname currently unused"),
@@ -158,6 +166,7 @@ def trips(  # noqa: PLR0913, PLR0917
                     start_soc_pct=start_soc_pct,
                     destination_soc_pct=destination_soc_pct,
                     mindest_ankunfts_soc_pct=mindest_ankunfts_soc_pct,
+                    mindest_ladezeit_s=mindest_ladezeit_s,
                 )
             providers = await build_production_providers()
             return await create_trip_simulation(
@@ -170,6 +179,7 @@ def trips(  # noqa: PLR0913, PLR0917
                 start_soc_pct=start_soc_pct,
                 destination_soc_pct=destination_soc_pct,
                 mindest_ankunfts_soc_pct=mindest_ankunfts_soc_pct,
+                mindest_ladezeit_s=mindest_ladezeit_s,
             )
 
         result = asyncio.run(_run_trip())

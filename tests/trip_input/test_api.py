@@ -556,6 +556,11 @@ async def test_create_trip_simulation_mindest_ankunfts_soc_pct_erlaubt_niedriger
         start_soc_pct=80.0,
         destination_soc_pct=20.0,
         mindest_ankunfts_soc_pct=5.0,
+        # Isoliert von der SEPARATEN Mindestladedauer-Funktionalitaet (siehe
+        # `test_create_trip_simulation_mindest_ladezeit_s_verhindert_kurze_ladehalte`),
+        # die mit ihrem eigenen Produktions-Default (600s) sonst die Anzahl/
+        # Reihenfolge der Ladehalte in diesem Szenario mitveraendern wuerde.
+        mindest_ladezeit_s=0,
     )
     streng = await create_trip_simulation(
         valid_trip_request,
@@ -565,11 +570,56 @@ async def test_create_trip_simulation_mindest_ankunfts_soc_pct_erlaubt_niedriger
         start_soc_pct=80.0,
         destination_soc_pct=20.0,
         mindest_ankunfts_soc_pct=20.0,
+        mindest_ladezeit_s=0,
     )
 
     assert grosszuegig.gesamt_ladezeit_min < streng.gesamt_ladezeit_min
     assert min(s.ankunfts_soc_pct for s in grosszuegig.charging_stops) < 20.0
     assert all(s.ankunfts_soc_pct >= 20.0 for s in streng.charging_stops)
+
+
+@pytest.mark.asyncio
+async def test_create_trip_simulation_mindest_ladezeit_s_verhindert_kurze_ladehalte(
+    valid_trip_request: dict,
+    fake_routing_provider: FakeRoutingProvider,
+    fake_weather_provider: FakeWeatherProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
+) -> None:
+    """`mindest_ladezeit_s` steuert die Mindestdauer eines Ladehalts, WENN
+    geladen wird (siehe `OptimizationConstraints.mindest_ladezeit_s`).
+
+    Mit deaktivierter Mindestladedauer (0s) kann ein einzelner Ladehalt
+    kürzer als die Produktions-Default-Mindestdauer (600s) ausfallen. Mit
+    der Default-Mindestdauer MUSS JEDER tatsächliche Ladehalt mindestens so
+    lange dauern (Nutzer-Report: ein 1-Minuten-Ladehalt, gefolgt von einem
+    weiteren Halt nach nur gut 10 Minuten Fahrt).
+    """
+    ohne_mindestdauer = await create_trip_simulation(
+        valid_trip_request,
+        routing_provider=fake_routing_provider,
+        weather_provider=fake_weather_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
+        start_soc_pct=80.0,
+        destination_soc_pct=20.0,
+        mindest_ladezeit_s=0,
+    )
+    assert any(stop.ladedauer_s < 600 for stop in ohne_mindestdauer.charging_stops), (
+        "Testpraemisse nicht erfuellt: Szenario muss ohne Mindestladedauer "
+        "einen kurzen Ladehalt erzeugen, sonst testet dieser Test nichts."
+    )
+
+    mit_mindestdauer = await create_trip_simulation(
+        valid_trip_request,
+        routing_provider=fake_routing_provider,
+        weather_provider=fake_weather_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
+        start_soc_pct=80.0,
+        destination_soc_pct=20.0,
+        mindest_ladezeit_s=600,
+    )
+    # `int()`-Rundung der Ladedauer (siehe `_extract_charging_stops`) kann bis
+    # zu 1s unter der exakten Mindestdauer liegen - kein Bug.
+    assert all(stop.ladedauer_s >= 599 for stop in mit_mindestdauer.charging_stops)
 
 
 @pytest.mark.asyncio
@@ -1653,6 +1703,48 @@ def test_fastapi_endpoint_mindest_ankunfts_soc_pct_out_of_range_rejected(
         "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
         "praeferenzen": {},
         "mindest_ankunfts_soc_pct": 150.0,
+    }
+
+    response = client.post("/trips", json=api_request)
+
+    assert response.status_code == 422
+
+
+def test_fastapi_endpoint_custom_mindest_ladezeit_s(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """Test: FastAPI-Endpunkt akzeptiert `mindest_ladezeit_s` und reicht ihn
+    bis zur Optimierung durch (siehe `TripRequestAPI.mindest_ladezeit_s`,
+    Default 600)."""
+    api_request = {
+        "start": valid_trip_request["start"],
+        "ziel": valid_trip_request["ziel"],
+        "zwischenstopps": [],
+        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "praeferenzen": {},
+        "mindest_ladezeit_s": 300,
+    }
+
+    response = client.post("/trips", json=api_request)
+
+    assert response.status_code == 201
+    for stop in response.json()["charging_stops"]:
+        assert stop["ladedauer_s"] >= 299  # int()-Rundung, siehe Kommentar oben
+
+
+def test_fastapi_endpoint_mindest_ladezeit_s_out_of_range_rejected(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """Test: `mindest_ladezeit_s` außerhalb [0, 1800] liefert 422."""
+    api_request = {
+        "start": valid_trip_request["start"],
+        "ziel": valid_trip_request["ziel"],
+        "zwischenstopps": [],
+        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "praeferenzen": {},
+        "mindest_ladezeit_s": 5000,
     }
 
     response = client.post("/trips", json=api_request)

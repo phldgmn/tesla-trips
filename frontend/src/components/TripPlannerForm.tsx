@@ -146,6 +146,7 @@ export function validateForm(args: {
   stops: Stop[];
   startSoc: number;
   mindestAnkunftsSocPct: number;
+  mindestLadezeitMin: number;
   zielSoc: number;
 }): string[] {
   const errors: string[] = [];
@@ -169,6 +170,14 @@ export function validateForm(args: {
     args.zielSoc > 100
   ) {
     errors.push("Ziel-SoC muss zwischen 0 und 100 % liegen.");
+  }
+  if (
+    typeof args.mindestLadezeitMin !== "number" ||
+    isNaN(args.mindestLadezeitMin) ||
+    args.mindestLadezeitMin < 0 ||
+    args.mindestLadezeitMin > 30
+  ) {
+    errors.push("Min. Ladedauer muss zwischen 0 und 30 Minuten liegen.");
   }
   if (
     typeof args.mindestAnkunftsSocPct !== "number" ||
@@ -569,6 +578,10 @@ export function TripPlannerForm({
     5,
   );
   const [zielSoc, setZielSoc] = usePersistentState("ziel-soc", 20);
+  const [mindestLadezeitMin, setMindestLadezeitMin] = usePersistentState(
+    "mindest-ladezeit-s",
+    10,
+  );
   const [alleFaehrenVermeiden, setAlleFaehrenVermeiden] = usePersistentState(
     "alle-faehren-vermeiden",
     false,
@@ -867,6 +880,7 @@ export function TripPlannerForm({
       startSoc,
       zielSoc,
       mindestAnkunftsSocPct,
+      mindestLadezeitMin,
     });
 
     if (errors.length > 0) {
@@ -879,6 +893,7 @@ export function TripPlannerForm({
         fahrzeugprofil: vehicleProfile,
         startSocPct: startSoc,
         zielSocPct: zielSoc,
+        mindestLadezeitS: mindestLadezeitMin * 60,
         mindestAnkunftsSocPct,
         praeferenzen: {},
         alleFaehrenVermeiden: alleFaehren,
@@ -912,6 +927,7 @@ export function TripPlannerForm({
     stops,
     startSoc,
     zielSoc,
+    mindestLadezeitMin,
     mindestAnkunftsSocPct,
   });
 
@@ -1227,6 +1243,34 @@ export function TripPlannerForm({
               Ermöglicht, den SoC an Ladestationen niedriger sinken zu lassen
               als die allgemeine Sicherheitsreserve, um die schnellere
               Ladeleistung im unteren SoC-Bereich zu nutzen.
+            </small>
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={{ display: "block", marginBottom: "0.25rem" }}>
+              Min. Ladedauer (min)
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="30"
+              step="1"
+              value={mindestLadezeitMin}
+              onChange={(e) =>
+                setMindestLadezeitMin(parseInt(e.target.value, 10) || 0)
+              }
+              style={{ width: "100%", padding: "0.4rem" }}
+            />
+            <small
+              style={{
+                display: "block",
+                fontSize: "0.75rem",
+                color: "#6b7280",
+                marginTop: "0.25rem",
+                lineHeight: "1.3",
+              }}
+            >
+              Verhindert unnötig kurze Ladehalte - ein Halt dauert entweder gar
+              nicht oder mindestens so lange.
             </small>
           </div>
         </div>

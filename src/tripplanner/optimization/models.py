@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
 from tripplanner.charging_infrastructure.models import ChargingStation
@@ -100,6 +100,30 @@ class OptimizationConstraints(BaseModel):
         le=7200,
         description="Maximale Dauer eines einzelnen Ladevorgangs (optional)",
     )
+    mindest_ladezeit_s: int = Field(
+        default=600,
+        ge=0,
+        le=1800,
+        description=(
+            "Minimale Dauer eines einzelnen Ladevorgangs, WENN geladen wird. "
+            "Ein Kandidat-Ladeziel, dessen Ladezeit darunter läge, wird auf "
+            "genau diese Mindestdauer gestreckt statt verworfen - verhindert "
+            "unnötig kurze Ladehalte (z. B. 1 Minute), ohne den Ladehalt an "
+            "sich zu erzwingen (die parallele 'Station überspringen'-Option "
+            "bleibt unverändert verfügbar, siehe `_add_drive_edge`)."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_mindest_ladezeit_unter_max(self) -> OptimizationConstraints:
+        """Validiert, dass die Mindest- die Maximaldauer nicht überschreitet."""
+        if self.mindest_ladezeit_s > self.max_ladezeit_s:
+            raise PydanticCustomError(
+                "mindest_ladezeit_zu_hoch",
+                "mindest_ladezeit_s ({mindest}) darf max_ladezeit_s ({max}) nicht überschreiten",
+                {"mindest": self.mindest_ladezeit_s, "max": self.max_ladezeit_s},
+            )
+        return self
 
 
 class ChargingPlan(BaseModel):

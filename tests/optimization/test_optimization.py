@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 import networkx as nx
 import pytest
 
+from tripplanner.battery.models import LadekurveReferenz
 from tripplanner.charging_infrastructure.models import (
     ChargingStation,
     ConnectorType,
@@ -1204,7 +1205,16 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
         route, gradients, energy_results, stations, vehicle_profile = (
             self._sechs_segmente_szenario()
         )
-        constraints = OptimizationConstraints(min_soc_pct=10.0, ziel_soc_pct=10.0)
+        constraints = OptimizationConstraints(
+            min_soc_pct=10.0,
+            ziel_soc_pct=10.0,
+            # Explizit 0: dieser Test isoliert Dijkstra + Reichweiten-/Kurven-
+            # Kandidaten von der SEPARATEN Mindestladedauer-Funktionalitaet
+            # (siehe `TestMindestLadedauerVerhindertKurzeLadehalte`), die mit
+            # ihrem eigenen Produktions-Default (600s) sonst den kurzen
+            # 376s-Halt an station-4 aus diesem Szenario entfernen wuerde.
+            mindest_ladezeit_s=0,
+        )
         # Bewusst grobe Diskretisierung: begünstigt die Bucket-Kollisionen,
         # die den (mittlerweile behobenen) FIFO-Bug ueberhaupt erst sichtbar
         # gemacht haetten (bei der feinen Produktions-Default-Aufloesung von
@@ -1236,3 +1246,111 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
         # unteren SoC-Bereich statt unnoetig frueher Teilladung).
         assert [round(s.ankunfts_soc_pct, 1) for s in plan.ladehalte][-2:] == [5.0, 5.0]
         assert plan.gesamtreisezeit_s == 21014
+
+
+class TestMindestLadedauerVerhindertKurzeLadehalte:
+    """Tests für `OptimizationConstraints.mindest_ladezeit_s`: ein Kandidat-
+    Ladeziel, dessen Ladezeit darunter läge, wird auf die Mindestdauer
+    gestreckt statt verworfen (siehe `_kandidaten_mit_mindestladedauer`) -
+    ein tatsächlicher Ladehalt dauert dadurch entweder gar nicht oder
+    mindestens `mindest_ladezeit_s` (Nutzer-Report: 1-Minuten-Ladehalt,
+    gefolgt von einem weiteren Halt nach nur gut 10 Minuten Fahrt).
+    """
+
+    def test_kandidaten_werden_auf_mindestladedauer_gestreckt(self) -> None:
+        """Direkter Test der Kandidaten-Transformation: ein Kandidat, dessen
+        Ladezeit unter der Mindestdauer läge, wird auf das SoC angehoben,
+        das GENAU die Mindestdauer ergibt; ein bereits ausreichend langer
+        Kandidat bleibt unverändert; mehrere zu kurze Kandidaten, die auf
+        dasselbe gestreckte Ziel abgebildet werden, sind im Ergebnis nur
+        einmal enthalten (Deduplizierung)."""
+        optimizer = create_networkx_optimizer()
+        ladekurve = LadekurveReferenz.model_3_lr_v3()
+        batteriekapazitaet_kwh = 75.0
+
+        # 70% -> 71%/72% laden dauert bei dieser Kurve deutlich unter 600s
+        # (siehe Kurvenpunkt 50-80% bei 150kW); 70% -> 95% dauert deutlich
+        # laenger als 600s und bleibt daher unveraendert.
+        ergebnis = optimizer._kandidaten_mit_mindestladedauer(
+            kandidaten=[71.0, 72.0, 95.0],
+            ankunft_soc_pct=70.0,
+            ladekurve=ladekurve,
+            batteriekapazitaet_kwh=batteriekapazitaet_kwh,
+            mindest_ladezeit_s=600.0,
+        )
+
+        # Die beiden zu kurzen Kandidaten (71%/72%) wurden auf dasselbe,
+        # per `_soc_nach_fester_ladezeit` bestimmte SoC gestreckt.
+        gestrecktes_soc = optimizer._soc_nach_fester_ladezeit(
+            start_soc_pct=70.0,
+            ladezeit_s=600.0,
+            ladekurve=ladekurve,
+            batteriekapazitaet_kwh=batteriekapazitaet_kwh,
+        )
+        assert ergebnis == [pytest.approx(gestrecktes_soc), 95.0]
+
+        # Das gestreckte Ziel dauert tatsaechlich (rund) die Mindestdauer.
+        gestreckte_ladezeit_s = optimizer._calc_ladezeit_s(
+            start_soc_pct=70.0,
+            end_soc_pct=ergebnis[0],
+            ladekurve=ladekurve,
+            batteriekapazitaet_kwh=batteriekapazitaet_kwh,
+        )
+        assert gestreckte_ladezeit_s == pytest.approx(600.0, abs=1.0)
+
+    def test_deaktivierte_mindestladedauer_laesst_kandidaten_unveraendert(self) -> None:
+        """`mindest_ladezeit_s=0` (deaktiviert) darf Kandidaten nicht verändern."""
+        optimizer = create_networkx_optimizer()
+        ladekurve = LadekurveReferenz.model_3_lr_v3()
+        kandidaten = [71.0, 72.0, 95.0]
+
+        ergebnis = optimizer._kandidaten_mit_mindestladedauer(
+            kandidaten=kandidaten,
+            ankunft_soc_pct=70.0,
+            ladekurve=ladekurve,
+            batteriekapazitaet_kwh=75.0,
+            mindest_ladezeit_s=0.0,
+        )
+
+        assert ergebnis == kandidaten
+
+    def test_end_to_end_verhindert_zu_kurzen_ladehalt(self) -> None:
+        """End-to-end (gleiches Szenario wie
+        `TestGraphKonstruktionFindetDijkstraOptimum`): mit deaktivierter
+        Mindestladedauer waehlt die Optimierung einen 376s-Kurzhalt an
+        station-4. Mit der Produktions-Default-Mindestladedauer (600s) MUSS
+        dieser Kurzhalt verschwinden - JEDER verbleibende Ladehalt dauert
+        entweder gar nicht (uebersprungen) oder mindestens 600s."""
+        szenario = TestGraphKonstruktionFindetDijkstraOptimum()
+        route, gradients, energy_results, stations, vehicle_profile = (
+            szenario._sechs_segmente_szenario()
+        )
+        optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=20)
+        abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
+
+        def _optimiere(mindest_ladezeit_s: int) -> list[int]:
+            constraints = OptimizationConstraints(
+                min_soc_pct=10.0, ziel_soc_pct=10.0, mindest_ladezeit_s=mindest_ladezeit_s
+            )
+            plan = optimizer.optimize(
+                route=route,
+                segments=route.segments,
+                gradients=gradients,
+                energy_results=energy_results,
+                charging_stations=stations,
+                waypoints=[],
+                vehicle_profile=vehicle_profile,
+                constraints=constraints,
+                start_soc_pct=100.0,
+                abfahrtszeit=abfahrtszeit,
+            )
+            return [s.geschaetzte_ladedauer_s for s in plan.ladehalte]
+
+        ohne_mindestdauer = _optimiere(0)
+        assert min(ohne_mindestdauer) < 600  # Bestaetigt die Kurzhalt-Praemisse
+
+        mit_mindestdauer = _optimiere(600)
+        # `ChargingStop.geschaetzte_ladedauer_s` truncated per `int()` von
+        # `_extract_charging_stops` (kein Runden) - bis zu 1s unter der
+        # exakten Mindestdauer ist daher normal, kein Bug.
+        assert all(dauer_s >= 599 for dauer_s in mit_mindestdauer)

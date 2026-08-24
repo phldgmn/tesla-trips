@@ -831,6 +831,13 @@ class NetworkXOptimizer(OptimizerInterface):
                 ladekurve=ladekurve,
                 ziel_soc_target=ziel_soc_target,
             )
+            Ziel_soc_values = self._kandidaten_mit_mindestladedauer(
+                kandidaten=Ziel_soc_values,
+                ankunft_soc_pct=ankunft_soc_pct,
+                ladekurve=ladekurve,
+                batteriekapazitaet_kwh=vehicle_profile.batteriekapazitaet_kwh,
+                mindest_ladezeit_s=float(constraints.mindest_ladezeit_s),
+            )
             for Ziel_soc in Ziel_soc_values:
                 if Ziel_soc <= ankunft_soc_pct:
                     continue  # Bereits höher als Ziel
@@ -939,6 +946,55 @@ class NetworkXOptimizer(OptimizerInterface):
                 kandidaten.add(punkt.soc_pct)
 
         return sorted(v for v in kandidaten if ankunft_soc_pct < v <= MAX_SOC_PCT)
+
+    def _kandidaten_mit_mindestladedauer(
+        self,
+        kandidaten: list[float],
+        ankunft_soc_pct: float,
+        ladekurve: ChargingCurve,
+        batteriekapazitaet_kwh: float,
+        mindest_ladezeit_s: float,
+    ) -> list[float]:
+        """Hebt Kandidaten, deren Ladezeit unter `mindest_ladezeit_s` läge, auf das SoC an.
+
+        Statt sie zu verwerfen, wird GENAU auf die Mindestdauer gestreckt.
+
+        Eine echte Teilladung dauert danach entweder GAR NICHT (die parallele
+        "Station überspringen"-Fahrtkante in `_add_drive_edge` bleibt
+        unberührt) oder mindestens `mindest_ladezeit_s`. Verhindert unnötig
+        kurze Ladehalte (siehe Nutzer-Report: ein 1-Minuten-Stopp, gefolgt
+        von einem weiteren Halt nach nur gut 10 Minuten Fahrt - beide Halte
+        zusammen kosten durch Ein-/Ausparken, Stecker anschließen etc. mehr
+        Zeit als eine einzelne, etwas längere Ladung), ohne den Ladehalt an
+        sich zu erzwingen.
+
+        Mehrere zu kurze Roh-Kandidaten können dabei auf DASSELBE gestreckte
+        Ziel-SoC abgebildet werden - per `set` dedupliziert, damit nicht
+        mehrfach identische Ladekanten erzeugt werden.
+        """
+        if mindest_ladezeit_s <= 0.0:
+            return kandidaten
+
+        angepasst: set[float] = set()
+        for ziel in kandidaten:
+            ladezeit_s = self._calc_ladezeit_s(
+                start_soc_pct=ankunft_soc_pct,
+                end_soc_pct=ziel,
+                ladekurve=ladekurve,
+                batteriekapazitaet_kwh=batteriekapazitaet_kwh,
+            )
+            ziel_gestreckt = ziel
+            if 0.0 < ladezeit_s < mindest_ladezeit_s:
+                ziel_gestreckt = self._soc_nach_fester_ladezeit(
+                    start_soc_pct=ankunft_soc_pct,
+                    ladezeit_s=mindest_ladezeit_s,
+                    ladekurve=ladekurve,
+                    batteriekapazitaet_kwh=batteriekapazitaet_kwh,
+                )
+            if ziel_gestreckt > ankunft_soc_pct:
+                angepasst.add(min(ziel_gestreckt, MAX_SOC_PCT))
+
+        return sorted(angepasst)
 
     def _detour_kosten(
         self,
