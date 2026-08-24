@@ -10,7 +10,7 @@ import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import typer
 from pydantic import ValidationError
@@ -28,6 +28,7 @@ from tripplanner.routing.providers import FakeRoutingProvider
 from tripplanner.simulation.models import TripSimulationResult
 from tripplanner.trip_input.api import create_trip_simulation
 from tripplanner.trip_input.providers_factory import build_production_providers
+from tripplanner.weather.models import WeatherDetailLevel
 from tripplanner.weather.providers import FakeWeatherProvider
 
 # Konstanten für CLI
@@ -108,6 +109,10 @@ def trips(  # noqa: PLR0913, PLR0917
         Path | None, typer.Option(help="Pfad zur JSON-Ausgabe default stdout")
     ] = None,
     offline: Annotated[bool, typer.Option(help="Offline-Modus ohne Produktionsserver")] = False,
+    wetter_detailgrad: Annotated[
+        str,
+        typer.Option(help="Wetter-Detailgrad: off, low, medium oder high"),
+    ] = "high",
 ) -> None:
     """Berechnet eine Reise und simuliert sie vollständig (inkl. Ladeplanung).
 
@@ -135,6 +140,12 @@ def trips(  # noqa: PLR0913, PLR0917
                 waypoints_list.append({"koordinate": coord, "aufenthaltsdauer": duration})
 
         departure_time_dt = datetime.fromisoformat(departure_time)
+        if wetter_detailgrad not in {"off", "low", "medium", "high"}:
+            raise ValueError(
+                f"Ungültiges Wetter-Detailgrad: {wetter_detailgrad}. "
+                "Muss 'off', 'low', 'medium' oder 'high' sein.",
+            )
+        weather_detail: WeatherDetailLevel = cast(WeatherDetailLevel, wetter_detailgrad)
 
         request = {
             "start": start_coord,
@@ -167,6 +178,7 @@ def trips(  # noqa: PLR0913, PLR0917
                     destination_soc_pct=destination_soc_pct,
                     mindest_ankunfts_soc_pct=mindest_ankunfts_soc_pct,
                     mindest_ladezeit_s=mindest_ladezeit_s,
+                    weather_detail=weather_detail,
                 )
             providers = await build_production_providers()
             return await create_trip_simulation(
@@ -180,6 +192,7 @@ def trips(  # noqa: PLR0913, PLR0917
                 destination_soc_pct=destination_soc_pct,
                 mindest_ankunfts_soc_pct=mindest_ankunfts_soc_pct,
                 mindest_ladezeit_s=mindest_ladezeit_s,
+                weather_detail=weather_detail,
             )
 
         result = asyncio.run(_run_trip())

@@ -604,6 +604,159 @@ class TestCliOfflineFlag:
             assert call_kwargs["routing_provider"] is mock_providers.routing
 
 
+class TestCliWetterDetailgrad:
+    """Tests for --wetter-detailgrad CLI option."""
+
+    def test_cli_wetter_detailgrad_off_exits_zero(self, mock_trip_result: MagicMock) -> None:
+        """Test: --wetter-detailgrad off with --offline yields exit code 0."""
+        with patch(
+            "tripplanner.trip_input.cli.create_trip_simulation",
+            new_callable=AsyncMock,
+            return_value=mock_trip_result,
+        ) as mock_simulate:
+            result = runner.invoke(
+                app,
+                [
+                    "trips",
+                    "--start",
+                    "52.5200,13.4050",
+                    "--destination",
+                    "53.5511,9.9937",
+                    "--departure-time",
+                    "2026-08-15T08:00:00",
+                    "--offline",
+                    "--wetter-detailgrad",
+                    "off",
+                ],
+            )
+            assert result.exit_code == 0, f"stderr: {result.stderr}"
+            assert mock_simulate.call_args.kwargs["weather_detail"] == "off"
+
+    def test_cli_wetter_detailgrad_low_exits_zero(self, mock_trip_result: MagicMock) -> None:
+        """Test: --wetter-detailgrad low with --offline yields exit code 0."""
+        with patch(
+            "tripplanner.trip_input.cli.create_trip_simulation",
+            new_callable=AsyncMock,
+            return_value=mock_trip_result,
+        ) as mock_simulate:
+            result = runner.invoke(
+                app,
+                [
+                    "trips",
+                    "--start",
+                    "52.5200,13.4050",
+                    "--destination",
+                    "53.5511,9.9937",
+                    "--departure-time",
+                    "2026-08-15T08:00:00",
+                    "--offline",
+                    "--wetter-detailgrad",
+                    "low",
+                ],
+            )
+            assert result.exit_code == 0, f"stderr: {result.stderr}"
+            assert mock_simulate.call_args.kwargs["weather_detail"] == "low"
+
+    def test_cli_wetter_detailgrad_medium_exits_zero(self, mock_trip_result: MagicMock) -> None:
+        """Test: --wetter-detailgrad medium with --offline yields exit code 0."""
+        with patch(
+            "tripplanner.trip_input.cli.create_trip_simulation",
+            new_callable=AsyncMock,
+            return_value=mock_trip_result,
+        ) as mock_simulate:
+            result = runner.invoke(
+                app,
+                [
+                    "trips",
+                    "--start",
+                    "52.5200,13.4050",
+                    "--destination",
+                    "53.5511,9.9937",
+                    "--departure-time",
+                    "2026-08-15T08:00:00",
+                    "--offline",
+                    "--wetter-detailgrad",
+                    "medium",
+                ],
+            )
+            assert result.exit_code == 0, f"stderr: {result.stderr}"
+            assert mock_simulate.call_args.kwargs["weather_detail"] == "medium"
+
+    def test_cli_wetter_detailgrad_high_exits_zero(self, mock_trip_result: MagicMock) -> None:
+        """Test: --wetter-detailgrad high with --offline yields exit code 0."""
+        with patch(
+            "tripplanner.trip_input.cli.create_trip_simulation",
+            new_callable=AsyncMock,
+            return_value=mock_trip_result,
+        ) as mock_simulate:
+            result = runner.invoke(
+                app,
+                [
+                    "trips",
+                    "--start",
+                    "52.5200,13.4050",
+                    "--destination",
+                    "53.5511,9.9937",
+                    "--departure-time",
+                    "2026-08-15T08:00:00",
+                    "--offline",
+                    "--wetter-detailgrad",
+                    "high",
+                ],
+            )
+            assert result.exit_code == 0, f"stderr: {result.stderr}"
+            assert mock_simulate.call_args.kwargs["weather_detail"] == "high"
+
+    def test_cli_wetter_detailgrad_invalid_rejects(self) -> None:
+        """Test: invalid value (--wetter-detailgrad bogus) yields non-zero exit code."""
+        result = runner.invoke(
+            app,
+            [
+                "trips",
+                "--start",
+                "52.5200,13.4050",
+                "--destination",
+                "53.5511,9.9937",
+                "--departure-time",
+                "2026-08-15T08:00:00",
+                "--offline",
+                "--wetter-detailgrad",
+                "bogus",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "Ungültiges Wetter-Detailgrad" in result.stderr or result.stdout
+
+    def test_cli_wetter_detailgrad_help_shows_option(self) -> None:
+        """Test: --help shows the --wetter-detailgrad option."""
+        result = runner.invoke(app, ["trips", "--help"], env={"COLUMNS": "200"})
+        assert result.exit_code == 0
+        assert "--wetter-detailgrad" in result.stdout
+
+    def test_cli_wetter_detailgrad_default_is_high(self, mock_trip_result: MagicMock) -> None:
+        """Test: without --wetter-detailgrad the default 'high' is used."""
+        with patch(
+            "tripplanner.trip_input.cli.create_trip_simulation",
+            new_callable=AsyncMock,
+            return_value=mock_trip_result,
+        ) as mock_simulate:
+            result = runner.invoke(
+                app,
+                [
+                    "trips",
+                    "--start",
+                    "52.5200,13.4050",
+                    "--destination",
+                    "53.5511,9.9937",
+                    "--departure-time",
+                    "2026-08-15T08:00:00",
+                    "--offline",
+                ],
+            )
+            assert result.exit_code == 0, f"stderr: {result.stderr}"
+            assert mock_simulate.call_args.kwargs["weather_detail"] == "high"
+
+
 # =============================================================================
 # charger pricing-queue / charger scrape-pricing
 # =============================================================================
