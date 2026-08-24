@@ -383,12 +383,22 @@ class TestElevationTileEviction:
     """Regression tests for LRU tile eviction during batched elevation reads."""
 
     @pytest.mark.asyncio
-    async def test_batched_elevation_survives_tile_eviction(self) -> None:
-        """When a batch spans more than _max_open_tiles distinct tiles,
-        evicted datasets are re-opened during the pixel-read phase (step 3)
-        so elevations are correct instead of silently 0.0."""
+    async def test_batched_elevation_survives_pre_closed_dataset(self) -> None:
+        """If a dataset already in the LRU is closed when a batch begins
+        (e.g. evicted by an earlier, larger call, or closed externally),
+        the self-heal path re-opens it directly (bypassing the LRU) so
+        elevations are correct instead of silently 0.0.
+
+        Note: `get_elevations_batch` raises `_max_open_tiles` to cover
+        every distinct tile touched by the batch itself, so eviction can
+        no longer happen *during* a single batch call (that was a genuine
+        hang/crash risk: one thread `.close()`-ing a dataset another
+        thread was still `dataset.read()`-ing). This test instead seeds
+        the LRU with already-closed datasets up front, simulating tiles
+        evicted by a *previous* call, to exercise the same self-heal path.
+        """
         source = CopernicusDEMDataSource(base_url="file:///nonexistent")
-        source._max_open_tiles = 2
+        source._max_open_tiles = 16
         source._datasets = OrderedDict()
 
         # URIs must match what _tile_uri produces for a non-remote base_url:
@@ -406,36 +416,37 @@ class TestElevationTileEviction:
         def make_dataset(path: str) -> _MockDataset:
             return _MockDataset(tile_values[path])
 
-        # Track which tiles were closed (evicted)
-        closed_tiles: list[str] = []
+        reopened: list[str] = []
 
         def patched_open(path: str) -> _MockDataset:
-            ds = make_dataset(path)
-            orig_close = ds.close
+            reopened.append(path)
+            return make_dataset(path)
 
-            def tracked_close() -> None:
-                closed_tiles.append(path)
-                orig_close()
-
-            ds.close = tracked_close  # type: ignore[method-assign]
-            return ds
+        # Pre-seed the LRU with already-closed datasets for tiles 0 and 2,
+        # simulating eviction by an earlier call.
+        closed_0 = make_dataset(tile_uris[0])
+        closed_0.close()
+        source._datasets[tile_uris[0]] = closed_0
+        closed_2 = make_dataset(tile_uris[2])
+        closed_2.close()
+        source._datasets[tile_uris[2]] = closed_2
 
         orig_open = rasterio.open
         rasterio.open = patched_open  # type: ignore[assignment]
 
         try:
             coords = [
-                (47.0, 8.0),  # tile 0 -> 100.0
+                (47.0, 8.0),  # tile 0 -> 100.0 (pre-closed, must self-heal)
                 (48.0, 9.0),  # tile 1 -> 200.0
-                (49.0, 10.0),  # tile 2 -> 300.0
+                (49.0, 10.0),  # tile 2 -> 300.0 (pre-closed, must self-heal)
                 (50.0, 11.0),  # tile 3 -> 400.0
             ]
             results = await source.get_elevations_batch(coords)
             assert results == [100.0, 200.0, 300.0, 400.0], (
-                f"Elevations should not be zeroed by eviction: got {results}"
+                f"Elevations should not be zeroed by a pre-closed dataset: got {results}"
             )
-            # Verify eviction actually happened
-            assert len(closed_tiles) > 0, "Expected some tiles to be evicted during the batch"
+            assert tile_uris[0] in reopened, "tile 0 should have been re-opened via self-heal"
+            assert tile_uris[2] in reopened, "tile 2 should have been re-opened via self-heal"
         finally:
             rasterio.open = orig_open  # type: ignore[assignment]
 
@@ -462,6 +473,61 @@ class TestElevationTileEviction:
             coords = [(47.0, 8.0), (48.0, 9.0)]
             results = await source.get_elevations_batch(coords)
             assert results == [100.0, 200.0]
+        finally:
+            rasterio.open = orig_open  # type: ignore[assignment]
+
+    @pytest.mark.asyncio
+    async def test_batch_never_evicts_its_own_tiles(self) -> None:
+        """A batch spanning more distinct tiles than the starting
+        `_max_open_tiles` must never evict/close one of its own in-flight
+        tiles.  `get_elevations_batch` raises `_max_open_tiles` to cover the
+        batch before opening anything.
+
+        Regression guard: closing a dataset that another worker thread is
+        still `dataset.read()`-ing was a real hang/crash risk once local
+        (pre-downloaded) tiles made opens fast enough for many `to_thread`
+        workers to race through in a tight window.
+        """
+        source = CopernicusDEMDataSource(base_url="file:///nonexistent")
+        source._max_open_tiles = 2  # deliberately smaller than the batch
+        source._datasets = OrderedDict()
+
+        tile_uris = [
+            "file:///nonexistent/Copernicus_DSM_COG_10_N47_00_E008_00_DEM/Copernicus_DSM_COG_10_N47_00_E008_00_DEM.tif",
+            "file:///nonexistent/Copernicus_DSM_COG_10_N48_00_E009_00_DEM/Copernicus_DSM_COG_10_N48_00_E009_00_DEM.tif",
+            "file:///nonexistent/Copernicus_DSM_COG_10_N49_00_E010_00_DEM/Copernicus_DSM_COG_10_N49_00_E010_00_DEM.tif",
+            "file:///nonexistent/Copernicus_DSM_COG_10_N50_00_E011_00_DEM/Copernicus_DSM_COG_10_N50_00_E011_00_DEM.tif",
+        ]
+        tile_values: dict[str, float] = dict(
+            zip(tile_uris, [100.0, 200.0, 300.0, 400.0], strict=True),
+        )
+
+        closed_tiles: list[str] = []
+
+        def patched_open(path: str) -> _MockDataset:
+            ds = _MockDataset(tile_values[path])
+            orig_close = ds.close
+
+            def tracked_close() -> None:
+                closed_tiles.append(path)
+                orig_close()
+
+            ds.close = tracked_close  # type: ignore[method-assign]
+            return ds
+
+        orig_open = rasterio.open
+        rasterio.open = patched_open  # type: ignore[assignment]
+
+        try:
+            coords = [(47.0, 8.0), (48.0, 9.0), (49.0, 10.0), (50.0, 11.0)]
+            results = await source.get_elevations_batch(coords)
+            assert results == [100.0, 200.0, 300.0, 400.0]
+            assert closed_tiles == [], (
+                f"Batch must not evict its own in-flight tiles: closed {closed_tiles}"
+            )
+            assert source._max_open_tiles >= 4, (
+                "get_elevations_batch should have raised _max_open_tiles to cover the batch"
+            )
         finally:
             rasterio.open = orig_open  # type: ignore[assignment]
 

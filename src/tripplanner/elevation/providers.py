@@ -282,6 +282,19 @@ class CopernicusDEMDataSource:
 
         self._max_open_tiles = max_open_tiles
         self._datasets: OrderedDict[str, rasterio.io.DatasetReader | None] = OrderedDict()
+        # Guards all `_datasets` mutations (pop/insert/evict-close). Without
+        # this, concurrent `asyncio.to_thread` workers can corrupt the LRU
+        # dict or — worse — one thread can `.close()` a dataset another
+        # thread is still `dataset.read()`-ing, which can hang/crash the
+        # whole process (GDAL's C layer is not safe against that race).
+        self._lock = threading.Lock()
+        # Bounds how many GDAL calls (open/read) run concurrently across
+        # worker threads. GDAL/PROJ thread-safety under very high fan-out
+        # is not fully guaranteed; this trades a little theoretical
+        # concurrency for a version-independent safety margin. Local-disk
+        # tile reads are fast enough that this is still seconds, not
+        # minutes, for a realistic route.
+        self._gdal_semaphore = asyncio.Semaphore(8)
 
         # ── Fix 3: local-disk tile cache ──────────────────────────────
         self._cache_dir: Path | None = None
@@ -410,23 +423,24 @@ class CopernicusDEMDataSource:
         versucht wird).
         """
         uri = self._tile_uri(lat, lon)
-        if uri in self._datasets:
-            dataset = self._datasets.pop(uri)
+        with self._lock:
+            if uri in self._datasets:
+                dataset = self._datasets.pop(uri)
+                self._datasets[uri] = dataset
+                return dataset
+
+            try:
+                dataset = rasterio.open(uri)
+            except Exception:
+                logger.warning("DEM-Kachel %s konnte nicht geöffnet werden - Fallback 0.0m", uri)
+                dataset = None
+
             self._datasets[uri] = dataset
+            if len(self._datasets) > self._max_open_tiles:
+                _, evicted = self._datasets.popitem(last=False)
+                if evicted is not None:
+                    evicted.close()
             return dataset
-
-        try:
-            dataset = rasterio.open(uri)
-        except Exception:
-            logger.warning("DEM-Kachel %s konnte nicht geöffnet werden - Fallback 0.0m", uri)
-            dataset = None
-
-        self._datasets[uri] = dataset
-        if len(self._datasets) > self._max_open_tiles:
-            _, evicted = self._datasets.popitem(last=False)
-            if evicted is not None:
-                evicted.close()
-        return dataset
 
     def _dataset_for_tile(self, uri: str) -> rasterio.io.DatasetReader | None:
         """Open or return cached dataset for a tile URI (thread-safe for batch).
@@ -440,23 +454,24 @@ class CopernicusDEMDataSource:
         Returns:
             An open ``DatasetReader`` or ``None`` if opening failed.
         """
-        if uri in self._datasets:
-            dataset = self._datasets.pop(uri)
+        with self._lock:
+            if uri in self._datasets:
+                dataset = self._datasets.pop(uri)
+                self._datasets[uri] = dataset
+                return dataset
+
+            try:
+                dataset = rasterio.open(uri)
+            except Exception:
+                logger.warning("DEM-Kachel %s konnte nicht geöffnet werden - Fallback 0.0m", uri)
+                dataset = None
+
             self._datasets[uri] = dataset
+            if len(self._datasets) > self._max_open_tiles:
+                _, evicted = self._datasets.popitem(last=False)
+                if evicted is not None:
+                    evicted.close()
             return dataset
-
-        try:
-            dataset = rasterio.open(uri)
-        except Exception:
-            logger.warning("DEM-Kachel %s konnte nicht geöffnet werden - Fallback 0.0m", uri)
-            dataset = None
-
-        self._datasets[uri] = dataset
-        if len(self._datasets) > self._max_open_tiles:
-            _, evicted = self._datasets.popitem(last=False)
-            if evicted is not None:
-                evicted.close()
-        return dataset
 
     # ── Fix 1: private bulk-read helper ──────────────────────────────
 
@@ -613,16 +628,31 @@ class CopernicusDEMDataSource:
         if not tile_coords:
             return []
 
-        # 2. Open each distinct tile concurrently (rasterio/GDAL is blocking)
+        # Never evict a tile that's part of *this* batch: raise the LRU cap
+        # to cover every distinct tile touched here (monotonic, cheap - an
+        # open local-file rasterio handle is just a file descriptor + header,
+        # not the pixel data). This guarantees no dataset this batch is using
+        # gets `.close()`-d by another thread's eviction while a `read()` on
+        # it is in flight — that race was a genuine hang/crash risk (GDAL's
+        # C layer is not safe against closing a dataset another thread is
+        # actively reading).
+        self._max_open_tiles = max(self._max_open_tiles, len(tile_coords))
+
+        # 2. Open each distinct tile concurrently (rasterio/GDAL is blocking).
+        # Bounded by `_gdal_semaphore`: GDAL/PROJ thread-safety under very
+        # high fan-out is not fully guaranteed, so concurrency is capped
+        # rather than unbounded across however many tiles a route touches.
         async def _load_dataset(uri: str) -> rasterio.io.DatasetReader | None:
-            return await asyncio.to_thread(self._dataset_for_tile, uri)
+            async with self._gdal_semaphore:
+                return await asyncio.to_thread(self._dataset_for_tile, uri)
 
         datasets = await asyncio.gather(
             *[_load_dataset(uri) for uri in tile_coords],
         )
 
         # 3. For each tile, do ONE bulk read inside a worker thread,
-        #    all tiles' bulk reads running concurrently via asyncio.gather.
+        #    all tiles' bulk reads running concurrently via asyncio.gather
+        #    (still bounded by `_gdal_semaphore`).
         async def _read_tile_and_collect(
             uri: str,
             points: list[tuple[int, float, float]],
@@ -630,7 +660,8 @@ class CopernicusDEMDataSource:
         ) -> list[float]:
             """Run bulk read for one tile and return per-point results."""
             nodata = dataset.nodata if dataset is not None else None
-            return await asyncio.to_thread(self._read_tile_bulk, uri, points, nodata)
+            async with self._gdal_semaphore:
+                return await asyncio.to_thread(self._read_tile_bulk, uri, points, nodata)
 
         gathered = await asyncio.gather(
             *[
