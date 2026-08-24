@@ -300,17 +300,12 @@ start_backend() {
   # Without watchfiles installed, uvicorn falls back to the StatReload
   # supervisor, which does not honour --reload-exclude; it only scans the
   # given directories. Restricting to src/tripplanner means a change to any
-  # file outside the app source (e.g. anything under tests/) does not
+  # file outside the app source (tests/, .worktrees/, …) does not
   # trigger a backend reload.
   uv run uvicorn tripplanner.trip_input.api:app \
     --host 0.0.0.0 --port "$PORT_BACKEND" \
     --reload \
     --reload-dir src/tripplanner \
-    >"$LOG_BACKEND" 2>&1 &
-  # Use exec -a so the process has a recognisable name
-  uv run uvicorn tripplanner.trip_input.api:app \
-    --host 0.0.0.0 --port "$PORT_BACKEND" \
-    --reload \
     >"$LOG_BACKEND" 2>&1 &
   echo $! >"$PID_BACKEND"
   # Wait briefly for the port or a crash
