@@ -6,10 +6,11 @@ Fahrzeugparameter für die Berechnung von Ladezeiten.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from enum import Enum
 from math import isfinite
 
-from pydantic import BaseModel, Field, PrivateAttr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 from scipy.interpolate import PchipInterpolator
 
 _MIN_KURVENPUNKTE = 4
@@ -64,94 +65,141 @@ class ChargingCurve(BaseModel):
     Reale Ladekurven sind nicht monoton fallend: insbesondere bei niedrigem SoC
     steigt die Leistung durch Batterie-Vorkonditionierung zunächst an, bevor sie
     zum Balancing hin abfällt. Monotonie wird daher bewusst nicht erzwungen.
+
+    Für SoC-Werte außerhalb des Bereichs der Stützpunkte wird die Leistung des
+    jeweiligen Randpunkts verwendet:
+      - SoC <= niedrigster Stützpunkt -> Leistung des niedrigsten SoC
+      - SoC >= höchster Stützpunkt -> Leistung des höchsten SoC
     """
 
+    model_config = ConfigDict(frozen=True)
+
     points: list[ChargingCurvePoint] = Field(
-        ..., min_length=4, description="Mindestens 4 Punkte für sinnvolle Approximation"
+        ...,
+        min_length=4,
+        description="Mindestens 4 Punkte für sinnvolle Approximation",
     )
     interpolation: InterpolationMethod = Field(
         default=InterpolationMethod.HERMITE,
         description="Interpolationsmethode für Punktezwischenräume",
     )
 
-    # Lazily gebaute und gecachte PCHIP-Interpolationsfunktion (nur bei Bedarf, siehe
-    # _get_pchip()). Kein Pydantic-Feld, daher nicht Teil von Validierung/Serialisierung.
+    # Vorgefertigte numerische Werte für den Hot Path.
+    # Keine Pydantic-Objekte mehr bei der eigentlichen Interpolation.
+    _soc: tuple[float, ...] = PrivateAttr()
+    _power: tuple[float, ...] = PrivateAttr()
+
+    # Für lineare Interpolation vorab berechnete Geradengleichungen:
+    # power = slope * soc + intercept
+    _slopes: tuple[float, ...] = PrivateAttr()
+    _intercepts: tuple[float, ...] = PrivateAttr()
+
+    # Lazily gebaute und gecachte PCHIP-Interpolationsfunktion.
     _pchip: PchipInterpolator | None = PrivateAttr(default=None)
 
     @field_validator("points")
     @classmethod
-    def validate_points(cls, v: list[ChargingCurvePoint]) -> list[ChargingCurvePoint]:
-        """Validiert Mindestpunktzahl, SoC-Bereich [0,100] und eindeutige SoC-Stützstellen.
-
-        Die Leistung selbst muss NICHT monoton fallen (siehe Klassen-Docstring) -
-        nur eindeutige, aufsteigend sortierbare SoC-Werte sind für die
-        PCHIP-Interpolation erforderlich.
-        """
+    def validate_points(
+        cls,
+        v: list[ChargingCurvePoint],
+    ) -> list[ChargingCurvePoint]:
+        """Validiert Mindestpunktzahl, SoC-Bereich und eindeutige SoC-Werte."""
         if len(v) < _MIN_KURVENPUNKTE:
             raise ValueError(f"Ladekurve benötigt mindestens {_MIN_KURVENPUNKTE} Punkte")
+
         sorted_points = sorted(v, key=lambda p: p.soc_pct)
+
         for i, p in enumerate(sorted_points):
             if p.soc_pct < 0 or p.soc_pct > _MAX_SOC_PCT:
                 raise ValueError(f"Punkt {i}: soc_pct außerhalb [0,100]")
+
             if i > 0 and p.soc_pct == sorted_points[i - 1].soc_pct:
                 raise ValueError(
-                    f"Punkt {i}: doppelter soc_pct-Wert ({p.soc_pct}) - für die "
-                    "PCHIP-Interpolation sind eindeutige SoC-Stützstellen nötig"
+                    f"Punkt {i}: doppelter soc_pct-Wert ({p.soc_pct}) - "
+                    "für die PCHIP-Interpolation sind eindeutige "
+                    "SoC-Stützstellen nötig"
                 )
+
         return sorted_points
 
+    def model_post_init(self, __context: object) -> None:
+        """Extrahiert die Pydantic-Werte und berechnet lineare Koeffizienten."""
+        self._soc = tuple(p.soc_pct for p in self.points)
+        self._power = tuple(p.ladeleistung_kw for p in self.points)
+
+        slopes = []
+        intercepts = []
+
+        for i in range(len(self._soc) - 1):
+            delta_soc = self._soc[i + 1] - self._soc[i]
+            slope = (self._power[i + 1] - self._power[i]) / delta_soc
+            intercept = self._power[i] - slope * self._soc[i]
+
+            slopes.append(slope)
+            intercepts.append(intercept)
+
+        self._slopes = tuple(slopes)
+        self._intercepts = tuple(intercepts)
+
     def _get_pchip(self) -> PchipInterpolator:
-        """Baut die PCHIP-Interpolationsfunktion einmalig und cached sie auf der Instanz."""
+        """Baut die PCHIP-Interpolationsfunktion einmalig und cached sie."""
         if self._pchip is None:
-            soc = [p.soc_pct for p in self.points]
-            power = [p.ladeleistung_kw for p in self.points]
-            # extrapolate=False, da ladeleistung_bei_soc() vorher auf [0,100] klemmt
-            # und die Stützpunkte den Bereich [0,100] abdecken müssen.
-            self._pchip = PchipInterpolator(soc, power, extrapolate=False)
+            self._pchip = PchipInterpolator(
+                self._soc,
+                self._power,
+                extrapolate=False,
+            )
+
         return self._pchip
 
     def _ladeleistung_linear(self, soc_pct: float) -> float:
-        """Stückweise lineare Interpolation (Legacy-Verhalten, `InterpolationMethod.LINEAR`)."""
-        points = self.points
-        if soc_pct <= points[0].soc_pct:
-            return points[0].ladeleistung_kw
-        if soc_pct >= points[-1].soc_pct:
-            return points[-1].ladeleistung_kw
+        """Schnelle stückweise lineare Interpolation."""
+        # Unterhalb des ersten Punktes:
+        # Leistung des niedrigsten SoC verwenden.
+        if soc_pct <= self._soc[0]:
+            return self._power[0]
 
-        for i in range(len(points) - 1):
-            p1, p2 = points[i], points[i + 1]
-            if p1.soc_pct <= soc_pct <= p2.soc_pct:
-                t = (soc_pct - p1.soc_pct) / (p2.soc_pct - p1.soc_pct)
-                return p1.ladeleistung_kw + t * (p2.ladeleistung_kw - p1.ladeleistung_kw)
+        # Oberhalb des letzten Punktes:
+        # Leistung des höchsten SoC verwenden.
+        if soc_pct >= self._soc[-1]:
+            return self._power[-1]
 
-        return points[-1].ladeleistung_kw
+        # Passendes Intervall in O(log n) finden.
+        i = bisect_right(self._soc, soc_pct) - 1
+
+        # Bereits vorkalkulierte Geradengleichung auswerten.
+        return self._slopes[i] * soc_pct + self._intercepts[i]
 
     def ladeleistung_bei_soc(self, soc_pct: float) -> float:
         """Berechnet die Ladeleistung (kW) für einen gegebenen SoC.
 
-        Nutzt je nach `interpolation` entweder stückweise lineare Interpolation
-        oder eine shape-preserving cubic Hermite-Interpolation (PCHIP). Letztere
-        verbindet die Stützpunkte glatt (C1-stetig) ohne Knicke und ohne
-        Überschwinger zwischen den Punkten und bildet damit reale Ladekurven -
-        inklusive eines anfänglichen Leistungsanstiegs bei niedrigem SoC -
-        deutlich realistischer ab als eine lineare Näherung.
-
-        SoC-Werte außerhalb [0,100] werden auf den Randwert geklemmt
-        (Extrapolation mit dem Randwert, wie bei der linearen Variante).
+        SoC-Werte außerhalb [0,100] werden zunächst auf [0,100] geklemmt.
+        Falls die Stützpunkte nicht exakt bei 0 bzw. 100 % beginnen/enden,
+        wird für diese Bereiche die Leistung des jeweiligen äußersten
+        Stützpunkts verwendet.
 
         Args:
-            soc_pct: SoC in Prozent (0-100, wird bei Bedarf geklemmt)
+            soc_pct: SoC in Prozent.
 
         Returns:
-            Ladeleistung in kW für den gegebenen SoC
+            Ladeleistung in kW.
         """
         soc_clamped = min(max(soc_pct, 0.0), 100.0)
+
+        # Explizite Randbehandlung:
+        # 0 % -> Leistung des niedrigsten SoC-Punktes
+        # 100 % -> Leistung des höchsten SoC-Punktes
+        if soc_clamped <= self._soc[0]:
+            return max(self._power[0], 0.0)
+
+        if soc_clamped >= self._soc[-1]:
+            return max(self._power[-1], 0.0)
 
         if self.interpolation is InterpolationMethod.HERMITE:
             power = float(self._get_pchip()(soc_clamped))
             return max(power, 0.0)
 
-        return self._ladeleistung_linear(soc_clamped)
+        return max(self._ladeleistung_linear(soc_clamped), 0.0)
 
 
 class VehicleBatteryParameters(BaseModel):
