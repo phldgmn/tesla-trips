@@ -773,16 +773,8 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
         len(request.start)
         + len(request.ziel)
         + sum(len(wp.koordinate) for wp in request.zwischenstopps),
-        (
-            request.fahrzeugprofil.start_soc_pct
-            if hasattr(request.fahrzeugprofil, "start_soc_pct")
-            else 80.0
-        ),
-        (
-            request.fahrzeugprofil.ziel_soc_pct
-            if hasattr(request.fahrzeugprofil, "ziel_soc_pct")
-            else 20.0
-        ),
+        start_soc_pct,
+        destination_soc_pct,
         max_iterations,
     )
     # 1. Create TripRequest
