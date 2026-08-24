@@ -907,6 +907,7 @@ export function TripPlannerForm({
         faehrZeitfenster: zeitfenster,
         ladedauerVorgaben: ladedauern,
         wetterDetailgrad,
+        baustellenBeruecksichtigen,
       });
       onSubmit(payload);
     } catch (error) {
