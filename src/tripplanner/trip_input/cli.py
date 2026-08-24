@@ -84,6 +84,14 @@ def trips(  # noqa: PLR0913, PLR0917
     destination_soc_pct: Annotated[
         float, typer.Option(min=0.0, max=100.0, help="Ziel-SoC in Prozent")
     ] = 20.0,
+    mindest_ankunfts_soc_pct: Annotated[
+        float,
+        typer.Option(
+            min=0.0,
+            max=100.0,
+            help="Minimal zulässiger SoC beim Ankommen an einer Ladestation",
+        ),
+    ] = 5.0,
     vehicle_profile: Annotated[
         str,
         typer.Option(help="Fahrzeugprofilname currently unused"),
@@ -149,6 +157,7 @@ def trips(  # noqa: PLR0913, PLR0917
                     charging_provider=FakeChargingStationProvider(),
                     start_soc_pct=start_soc_pct,
                     destination_soc_pct=destination_soc_pct,
+                    mindest_ankunfts_soc_pct=mindest_ankunfts_soc_pct,
                 )
             providers = await build_production_providers()
             return await create_trip_simulation(
@@ -160,6 +169,7 @@ def trips(  # noqa: PLR0913, PLR0917
                 charging_provider=providers.charging,
                 start_soc_pct=start_soc_pct,
                 destination_soc_pct=destination_soc_pct,
+                mindest_ankunfts_soc_pct=mindest_ankunfts_soc_pct,
             )
 
         result = asyncio.run(_run_trip())

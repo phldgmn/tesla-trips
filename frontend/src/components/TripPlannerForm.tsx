@@ -145,6 +145,7 @@ export function swapStops(stops: Stop[], from: number, to: number): Stop[] {
 export function validateForm(args: {
   stops: Stop[];
   startSoc: number;
+  mindestAnkunftsSocPct: number;
   zielSoc: number;
 }): string[] {
   const errors: string[] = [];
@@ -168,6 +169,14 @@ export function validateForm(args: {
     args.zielSoc > 100
   ) {
     errors.push("Ziel-SoC muss zwischen 0 und 100 % liegen.");
+  }
+  if (
+    typeof args.mindestAnkunftsSocPct !== "number" ||
+    isNaN(args.mindestAnkunftsSocPct) ||
+    args.mindestAnkunftsSocPct < 0 ||
+    args.mindestAnkunftsSocPct > 100
+  ) {
+    errors.push("Min. SoC an Ladestationen muss zwischen 0 und 100 % liegen.");
   }
 
   return errors;
@@ -555,6 +564,10 @@ export function TripPlannerForm({
     false,
   );
   const [startSoc, setStartSoc] = usePersistentState("start-soc", 80);
+  const [mindestAnkunftsSocPct, setMindestAnkunftsSocPct] = usePersistentState(
+    "mindest-ankunfts-soc",
+    5,
+  );
   const [zielSoc, setZielSoc] = usePersistentState("ziel-soc", 20);
   const [alleFaehrenVermeiden, setAlleFaehrenVermeiden] = usePersistentState(
     "alle-faehren-vermeiden",
@@ -849,7 +862,12 @@ export function TripPlannerForm({
     zeitfenster: FaehrZeitfenster[],
     ladedauern: LadedauerVorgabe[],
   ) => {
-    const errors = validateForm({ stops, startSoc, zielSoc });
+    const errors = validateForm({
+      stops,
+      startSoc,
+      zielSoc,
+      mindestAnkunftsSocPct,
+    });
 
     if (errors.length > 0) {
       return;
@@ -861,6 +879,7 @@ export function TripPlannerForm({
         fahrzeugprofil: vehicleProfile,
         startSocPct: startSoc,
         zielSocPct: zielSoc,
+        mindestAnkunftsSocPct,
         praeferenzen: {},
         alleFaehrenVermeiden: alleFaehren,
         vermiedeneFaehren: vermiedene,
@@ -889,7 +908,12 @@ export function TripPlannerForm({
 
   // --- Validation ---
 
-  const validationErrors = validateForm({ stops, startSoc, zielSoc });
+  const validationErrors = validateForm({
+    stops,
+    startSoc,
+    zielSoc,
+    mindestAnkunftsSocPct,
+  });
 
   // --- Route-Liste: chronologisch sortierte Stopps, Ladehalte und
   //     (nicht ignorierte) Fähren, siehe utils/route-eintraege.ts ---
@@ -1175,6 +1199,35 @@ export function TripPlannerForm({
               onChange={(e) => setZielSoc(parseInt(e.target.value, 10) || 0)}
               style={{ width: "100%", padding: "0.4rem" }}
             />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={{ display: "block", marginBottom: "0.25rem" }}>
+              Min. SoC an Ladestationen (%)
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              value={mindestAnkunftsSocPct}
+              onChange={(e) =>
+                setMindestAnkunftsSocPct(parseInt(e.target.value, 10) || 0)
+              }
+              style={{ width: "100%", padding: "0.4rem" }}
+            />
+            <small
+              style={{
+                display: "block",
+                fontSize: "0.75rem",
+                color: "#6b7280",
+                marginTop: "0.25rem",
+                lineHeight: "1.3",
+              }}
+            >
+              Ermöglicht, den SoC an Ladestationen niedriger sinken zu lassen
+              als die allgemeine Sicherheitsreserve, um die schnellere
+              Ladeleistung im unteren SoC-Bereich zu nutzen.
+            </small>
           </div>
         </div>
       </Modal>

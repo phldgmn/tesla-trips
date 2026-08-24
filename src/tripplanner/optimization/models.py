@@ -80,6 +80,20 @@ class OptimizationConstraints(BaseModel):
             "faktischer Ziel-SoC = 75%)"
         ),
     )
+    mindest_ankunfts_soc_pct: float = Field(
+        default=5.0,
+        ge=0.0,
+        le=100.0,
+        description=(
+            "Minimal zulässiger SoC beim ANKOMMEN an einer Ladestation (nicht "
+            "unterwegs auf offener Strecke - dort gilt weiterhin `min_soc_pct`). "
+            "Da an einer Ladestation garantiert nachgeladen wird, darf der SoC "
+            "dort bewusst tiefer sinken als das allgemeine Sicherheits-Minimum - "
+            "das ermöglicht, die besonders schnelle Ladeleistung im unteren "
+            "SoC-Bereich der Ladekurve auszunutzen, statt unnötig früh (und "
+            "damit langsamer) nachzuladen."
+        ),
+    )
     max_ladezeit_s: int = Field(
         default=3600,
         ge=600,

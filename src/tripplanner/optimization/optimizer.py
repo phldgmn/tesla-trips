@@ -527,6 +527,7 @@ class NetworkXOptimizer(OptimizerInterface):
                         max_time_buckets=max_time_buckets,
                         constraints=constraints,
                         vehicle_profile=vehicle_profile,
+                        station_segments=station_segments,
                         heap=heap,
                     )
 
@@ -546,6 +547,10 @@ class NetworkXOptimizer(OptimizerInterface):
                     constraints=constraints,
                     heap=heap,
                     ladedauer_vorgaben=ladedauer_vorgaben,
+                    checkpoints=checkpoints,
+                    station_segments=station_segments,
+                    cum_energy_kwh=cum_energy_kwh,
+                    ziel_soc_target=ziel_soc_target,
                 )
 
             # 3. Zwischenstopp-Zwang: Aufenthaltsdauer einhalten
@@ -573,6 +578,7 @@ class NetworkXOptimizer(OptimizerInterface):
         max_time_buckets: int,
         constraints: OptimizationConstraints,
         vehicle_profile: VehicleProfile,
+        station_segments: dict[int, list[tuple[ChargingStation, float]]],
         heap: list[tuple[float, int, tuple[int, int, int]]],
     ) -> None:
         """Füge eine aggregierte Fahrtkante von `seg_idx` bis `target_seg_idx` hinzu.
@@ -604,9 +610,21 @@ class NetworkXOptimizer(OptimizerInterface):
         current_soc_pct = G.nodes[current]["soc_pct"]
         new_soc_pct = current_soc_pct - verbrauch_pct
 
-        # Reichweite reicht nicht (SoC unter 0% oder unter Min-SoC) - eine
-        # unzulaessige Kante wie jede andere Unterschreitung von min_soc_pct.
-        if new_soc_pct < 0.0 or new_soc_pct < constraints.min_soc_pct:
+        # Reichweite reicht nicht (SoC unter 0%) - eine unzulaessige Kante wie
+        # jede andere Unterschreitung der geltenden Sicherheitsreserve. Fuehrt
+        # die Fahrtkante direkt zu einer Ladestation (`target_seg_idx in
+        # station_segments`), gilt dort bewusst NICHT das allgemeine
+        # `min_soc_pct` (Sicherheitsreserve fuer offene Strecke), sondern das
+        # niedrigere `mindest_ankunfts_soc_pct` - an einer Ladestation wird ja
+        # garantiert nachgeladen, ein frueheres/hoeheres Pflicht-Minimum wuerde
+        # dort nur unnoetig fruehes (und damit langsameres) Laden erzwingen
+        # (siehe `OptimizationConstraints.mindest_ankunfts_soc_pct`).
+        mindest_soc_pct = (
+            constraints.mindest_ankunfts_soc_pct
+            if target_seg_idx in station_segments
+            else constraints.min_soc_pct
+        )
+        if new_soc_pct < 0.0 or new_soc_pct < mindest_soc_pct:
             return  # Unzulässig
         new_soc_bucket = soc_to_bucket(new_soc_pct, self.soc_step_pct)
 
@@ -737,6 +755,10 @@ class NetworkXOptimizer(OptimizerInterface):
         constraints: OptimizationConstraints,
         heap: list[tuple[float, int, tuple[int, int, int]]],
         ladedauer_vorgaben: dict[str, int],
+        checkpoints: list[int],
+        station_segments: dict[int, list[tuple[ChargingStation, float]]],
+        cum_energy_kwh: list[float],
+        ziel_soc_target: float,
     ) -> None:
         """Füge Ladekanten zu allen Stationen in diesem Segment hinzu.
 
@@ -797,23 +819,18 @@ class NetworkXOptimizer(OptimizerInterface):
                 )
                 continue
 
-            # Ladeziel wählen: Ziel-SoC oder 100% (je nach Distanz zum Ziel)
-            remaining_segments = len(segments) - seg_idx - 1
-            if remaining_segments == 0:
-                Ziel_soc_pct = max(
-                    constraints.ziel_soc_pct - constraints.sicherheitsreserve_pct,
-                    constraints.min_soc_pct,
-                )
-            else:
-                Ziel_soc_pct = MAX_SOC_PCT
-
-            # Berechne Ladezeit für verschiedene Ziel-SoC-Werte
-            Ziel_soc_values = [
-                constraints.ziel_soc_pct,
-                80.0,
-                90.0,
-                Ziel_soc_pct,
-            ]
+            Ziel_soc_values = self._lade_ziel_kandidaten(
+                ankunft_soc_pct=ankunft_soc_pct,
+                seg_idx=seg_idx,
+                checkpoints=checkpoints,
+                station_segments=station_segments,
+                cum_energy_kwh=cum_energy_kwh,
+                total_segments=len(segments),
+                vehicle_profile=vehicle_profile,
+                constraints=constraints,
+                ladekurve=ladekurve,
+                ziel_soc_target=ziel_soc_target,
+            )
             for Ziel_soc in Ziel_soc_values:
                 if Ziel_soc <= ankunft_soc_pct:
                     continue  # Bereits höher als Ziel
@@ -843,6 +860,85 @@ class NetworkXOptimizer(OptimizerInterface):
                     max_time_buckets=max_time_buckets,
                     heap=heap,
                 )
+
+    def _lade_ziel_kandidaten(  # noqa: PLR0913, PLR0917 -- Kandidatenermittlung braucht den vollen Reichweiten-/Kurvenkontext
+        self,
+        ankunft_soc_pct: float,
+        seg_idx: int,
+        checkpoints: list[int],
+        station_segments: dict[int, list[tuple[ChargingStation, float]]],
+        cum_energy_kwh: list[float],
+        total_segments: int,
+        vehicle_profile: VehicleProfile,
+        constraints: OptimizationConstraints,
+        ladekurve: ChargingCurve,
+        ziel_soc_target: float,
+    ) -> list[float]:
+        """Ermittelt informierte Ladeziel-SoC-Kandidaten (%) für einen Halt.
+
+        Statt eines starren Satzes runder Prozentzahlen (fruehere Version:
+        80/90/100) kombiniert dies zwei Kandidatenarten, die den A*-Suchraum
+        gezielt um die tatsaechlich relevanten Ladeziele anreichern:
+
+        1. REICHWEITEN-Kandidaten (Lookahead ueber 2 Entscheidungspunkte):
+           das MINIMALE Ladeziel, um den naechsten bzw. UEBERNAECHSTEN
+           Entscheidungspunkt (Ladestation, Zwischenstopp, Faehre oder Ziel)
+           mit der jeweils dort geltenden Sicherheitsreserve zu erreichen
+           (`mindest_ankunfts_soc_pct` fuer eine weitere Ladestation,
+           `ziel_soc_target` fuers Fahrtziel, sonst `min_soc_pct`). Der
+           Uebernaechste-Kandidat modelliert explizit die Alternative "hier
+           etwas mehr laden, um die naechste Station ganz zu ueberspringen" -
+           ohne ihn wuerde die Suche diese Option nur zufaellig ueber einen
+           der anderen Kandidaten treffen (siehe Nutzer-Report: Ladehalt in
+           Kamen auf 80%, obwohl Holdorf ohnehin mit 24% erreicht wurde -
+           der minimale Reichweiten-Kandidat fuer Holdorf haette exakt den
+           tatsaechlich noetigen, viel kleineren Ladebetrag geliefert).
+        2. KURVEN-Kandidaten: die eigenen Stuetzstellen der Ladekurve
+           (`ladekurve.points`) oberhalb der Ankunfts-SoC - genau dort
+           aendert sich die Ladeleistung spuerbar (schnell im unteren
+           Bereich, tapering danach, siehe `LadekurveReferenz`), sie
+           markieren die natuerlichen "bis hier lohnt sich schnelles Laden
+           noch"-Grenzen JEDER Ladekurve (nicht nur der Tesla-Referenzkurven
+           mit ihren 20/50/80/90/100%-Stuetzstellen).
+
+        Der A*-Kostenoptimierer (Fahrzeit + echte kurvenbasierte Ladezeit
+        über `_calc_ladezeit_s`, siehe `_generate_graph`) waehlt aus diesen
+        Kandidaten anschliessend selbst die zeitoptimale Kombination UEBER
+        ALLE Ladehalte hinweg - eine nachtraegliche "Backpropagation" auf
+        einen bereits gewaehlten frueheren Ladehalt ist dafuer nicht noetig:
+        Dijkstra wertet jede Kandidaten-Kombination End-zu-Ende aus und
+        waehlt global, nicht gierig pro Halt (ein spaeterer, guenstigerer
+        Folgezustand "strahlt" so automatisch auf die Wahl am fruehreren
+        Halt zurueck, weil dessen Gesamtkosten die Folgekosten einschliessen).
+        """
+        kandidaten: set[float] = {MAX_SOC_PCT}
+        if constraints.ziel_soc_pct > ankunft_soc_pct:
+            kandidaten.add(constraints.ziel_soc_pct)
+
+        idx = bisect.bisect_right(checkpoints, seg_idx)
+        nachfolger_seg_idx = [
+            checkpoints[i] if i < len(checkpoints) else total_segments for i in (idx, idx + 1)
+        ]
+        for ziel_seg_idx in nachfolger_seg_idx:
+            if ziel_seg_idx <= seg_idx:
+                continue
+            verbrauch_pct = self._calc_soc_verbrauch_pct(
+                energie_kwh=cum_energy_kwh[ziel_seg_idx] - cum_energy_kwh[seg_idx],
+                vehicle_profile=vehicle_profile,
+            )
+            if ziel_seg_idx == total_segments:
+                puffer_pct = ziel_soc_target
+            elif ziel_seg_idx in station_segments:
+                puffer_pct = constraints.mindest_ankunfts_soc_pct
+            else:
+                puffer_pct = constraints.min_soc_pct
+            kandidaten.add(verbrauch_pct + puffer_pct)
+
+        for punkt in ladekurve.points:
+            if punkt.soc_pct > ankunft_soc_pct:
+                kandidaten.add(punkt.soc_pct)
+
+        return sorted(v for v in kandidaten if ankunft_soc_pct < v <= MAX_SOC_PCT)
 
     def _detour_kosten(
         self,

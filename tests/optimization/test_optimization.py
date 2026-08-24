@@ -1182,20 +1182,34 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
         return route, gradients, energy_results, stations, vehicle_profile
 
     def test_optimierer_findet_das_globale_zeitoptimum_ueber_ladehalte_hinweg(self) -> None:
-        """Bei identischer Auswahl an Ladehalten MUSS die Gesamtreisezeit dem
-        echten Dijkstra-Optimum entsprechen (21942s) - nicht dem laenger
-        dauernden Pfad (21975s), den die alte FIFO-BFS-Graphkonstruktion
-        lieferte, weil sie einen bereits "besuchten" Knoten trotz spaeter
-        gefundenem guenstigeren Vorgaenger nicht neu expandierte.
+        """End-to-end: die Gesamtreisezeit MUSS dem echten globalen Zeit-
+        optimum ueber ALLE Ladehalte hinweg entsprechen (21014s), nicht einer
+        schlechteren Naeherung.
+
+        Zwei Mechanismen tragen dazu bei und werden hier gemeinsam verifiziert:
+
+        1. Dijkstra-korrekte Graphkonstruktion (`_generate_graph`, Min-Heap
+           statt FIFO-BFS) - ohne sie wuerde bereits die Kombination aus
+           frueh gewaehlten Ladehalten suboptimal bleiben.
+        2. Reichweiten-/kurvenbasierte Ladeziel-Kandidaten
+           (`_lade_ziel_kandidaten`) statt starrer 80/90/100%-Rundwerte -
+           mit dem Default `mindest_ankunfts_soc_pct=5.0` darf die Suche an
+           SPAETEREN Stationen bis auf 5% herunterfahren (statt vorzeitig an
+           einer FRUEHEREN Station mehr zu laden als noetig) und dort die
+           besonders schnelle Ladeleistung im unteren SoC-Bereich der
+           Ladekurve ausnutzen - das allein spart in diesem Szenario bereits
+           928s gegenueber der reinen Dijkstra-Korrektur ohne Kandidaten-
+           Anreicherung (21942s).
         """
         route, gradients, energy_results, stations, vehicle_profile = (
             self._sechs_segmente_szenario()
         )
         constraints = OptimizationConstraints(min_soc_pct=10.0, ziel_soc_pct=10.0)
         # Bewusst grobe Diskretisierung: begünstigt die Bucket-Kollisionen,
-        # die den FIFO-Bug ueberhaupt erst sichtbar machen (bei der feinen
-        # Produktions-Default-Aufloesung von 1%/15min faellt die
-        # Kollision fuer dieses konkrete Szenario nicht ins Gewicht).
+        # die den (mittlerweile behobenen) FIFO-Bug ueberhaupt erst sichtbar
+        # gemacht haetten (bei der feinen Produktions-Default-Aufloesung von
+        # 1%/15min faellt die Kollision fuer dieses konkrete Szenario nicht
+        # ins Gewicht).
         optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=20)
 
         plan = optimizer.optimize(
@@ -1211,5 +1225,14 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
             abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
-        assert [s.station.station_id for s in plan.ladehalte] == ["station-1", "station-4"]
-        assert plan.gesamtreisezeit_s == 21942
+        assert [s.station.station_id for s in plan.ladehalte] == [
+            "station-3",
+            "station-4",
+            "station-5",
+        ]
+        # Ausnutzung des niedrigen, per `mindest_ankunfts_soc_pct` (Default
+        # 5.0) erlaubten Ankunfts-SoC an den beiden LETZTEN Ladehalten -
+        # genau der vom Nutzer gewuenschte Effekt (schnelles Laden im
+        # unteren SoC-Bereich statt unnoetig frueher Teilladung).
+        assert [round(s.ankunfts_soc_pct, 1) for s in plan.ladehalte][-2:] == [5.0, 5.0]
+        assert plan.gesamtreisezeit_s == 21014

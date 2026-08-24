@@ -528,6 +528,51 @@ async def test_create_trip_simulation_start_soc_100(
 
 
 @pytest.mark.asyncio
+async def test_create_trip_simulation_mindest_ankunfts_soc_pct_erlaubt_niedrigere_ladezeit(
+    valid_trip_request: dict,
+    fake_routing_provider: FakeRoutingProvider,
+    fake_weather_provider: FakeWeatherProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
+) -> None:
+    """`mindest_ankunfts_soc_pct` steuert, wie tief der SoC beim Ankommen an
+    einer Ladestation sinken darf (siehe `OptimizationConstraints.
+    mindest_ankunfts_soc_pct`) - im Gegensatz zur allgemeinen Sicherheits-
+    reserve auf offener Strecke.
+
+    Mit dem niedrigen Default (5.0) MUSS die Gesamtladezeit fuer die Berlin
+    -> Muenchen-Strecke kleiner sein als mit einem strengeren, hoeheren Wert
+    (20.0) - ein hoeherer Mindest-Ankunfts-SoC zwingt die Optimierung, schon
+    am Start voller (und damit im langsameren Kurvenbereich) nachzuladen
+    bzw. zusaetzliche Halte einzulegen, statt die schnelle Ladeleistung im
+    unteren SoC-Bereich auszunutzen (siehe Nutzer-Report: unnoetig fruehe/
+    lange Teilladung, obwohl der naechste Halt ohnehin mit niedrigem SoC
+    sicher erreicht wird).
+    """
+    grosszuegig = await create_trip_simulation(
+        valid_trip_request,
+        routing_provider=fake_routing_provider,
+        weather_provider=fake_weather_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
+        start_soc_pct=80.0,
+        destination_soc_pct=20.0,
+        mindest_ankunfts_soc_pct=5.0,
+    )
+    streng = await create_trip_simulation(
+        valid_trip_request,
+        routing_provider=fake_routing_provider,
+        weather_provider=fake_weather_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
+        start_soc_pct=80.0,
+        destination_soc_pct=20.0,
+        mindest_ankunfts_soc_pct=20.0,
+    )
+
+    assert grosszuegig.gesamt_ladezeit_min < streng.gesamt_ladezeit_min
+    assert min(s.ankunfts_soc_pct for s in grosszuegig.charging_stops) < 20.0
+    assert all(s.ankunfts_soc_pct >= 20.0 for s in streng.charging_stops)
+
+
+@pytest.mark.asyncio
 async def test_create_trip_simulation_kurze_reise(
     fake_routing_provider: FakeRoutingProvider,
     fake_weather_provider: FakeWeatherProvider,
@@ -1571,6 +1616,48 @@ def test_fastapi_endpoint_custom_soc(client: TestClient, valid_trip_request: dic
     assert data["start_soc_pct"] == 95.0
     # Ziel-SoC ist das tatsächliche Simulationsergebnis (kann vom Zielwert abweichen)
     assert 0.0 <= data["ziel_soc_pct"] <= 100.0
+
+
+def test_fastapi_endpoint_custom_mindest_ankunfts_soc_pct(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """Test: FastAPI-Endpunkt akzeptiert `mindest_ankunfts_soc_pct` und
+    reicht ihn bis zur Optimierung durch (siehe `TripRequestAPI.
+    mindest_ankunfts_soc_pct`, Default 5.0)."""
+    api_request = {
+        "start": valid_trip_request["start"],
+        "ziel": valid_trip_request["ziel"],
+        "zwischenstopps": [],
+        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "praeferenzen": {},
+        "mindest_ankunfts_soc_pct": 12.5,
+    }
+
+    response = client.post("/trips", json=api_request)
+
+    assert response.status_code == 201
+    for stop in response.json()["charging_stops"]:
+        assert stop["ankunfts_soc_pct"] >= 12.5
+
+
+def test_fastapi_endpoint_mindest_ankunfts_soc_pct_out_of_range_rejected(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """Test: `mindest_ankunfts_soc_pct` außerhalb [0, 100] liefert 422."""
+    api_request = {
+        "start": valid_trip_request["start"],
+        "ziel": valid_trip_request["ziel"],
+        "zwischenstopps": [],
+        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "praeferenzen": {},
+        "mindest_ankunfts_soc_pct": 150.0,
+    }
+
+    response = client.post("/trips", json=api_request)
+
+    assert response.status_code == 422
 
 
 def test_fastapi_endpoint_invalid_coordinates(client: TestClient) -> None:

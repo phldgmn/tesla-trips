@@ -120,6 +120,7 @@ export interface TripRequestPayload {
   praeferenzen: Record<string, unknown>;
   start_soc_pct: number;
   ziel_soc_pct: number;
+  mindest_ankunfts_soc_pct: number;
   alle_faehren_vermeiden: boolean;
   vermiedene_faehren: FerryExclusion[];
   faehr_zeitfenster: FaehrZeitfenster[];
@@ -145,6 +146,7 @@ export function buildTripRequestPayload(args: {
   stops: Stop[];
   fahrzeugprofil: VehicleProfileInput;
   startSocPct: number;
+  mindestAnkunftsSocPct: number;
   zielSocPct: number;
   praeferenzen?: Record<string, unknown>;
   alleFaehrenVermeiden?: boolean;
@@ -194,6 +196,7 @@ export function buildTripRequestPayload(args: {
     praeferenzen: args.praeferenzen ?? {},
     start_soc_pct: args.startSocPct,
     ziel_soc_pct: args.zielSocPct,
+    mindest_ankunfts_soc_pct: args.mindestAnkunftsSocPct,
     alle_faehren_vermeiden: args.alleFaehrenVermeiden ?? false,
     vermiedene_faehren: args.vermiedeneFaehren ?? [],
     faehr_zeitfenster: args.faehrZeitfenster ?? [],

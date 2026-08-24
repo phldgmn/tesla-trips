@@ -329,6 +329,7 @@ async def _step_8_optimize_charging_plan(  # noqa: PLR0913, PLR0917
     charging_provider: ChargingStationProvider | None = None,
     ladedauer_vorgaben: dict[str, int] | None = None,
     faehr_zeitfenster: dict[int, tuple[int, datetime, datetime]] | None = None,
+    mindest_ankunfts_soc_pct: float = 5.0,
 ) -> ChargingPlan:
     """Schritt 8: Optimalen Ladeplan bestimmen.
 
@@ -348,6 +349,7 @@ async def _step_8_optimize_charging_plan(  # noqa: PLR0913, PLR0917
     constraints = OptimizationConstraints(
         ziel_soc_pct=ziel_soc_pct,
         max_ladezeit_s=3600,
+        mindest_ankunfts_soc_pct=mindest_ankunfts_soc_pct,
     )
 
     # Ladeinfrastruktur entlang der Route abrufen (Fake-Provider für Tests).
@@ -729,6 +731,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
     charging_provider: ChargingStationProvider | None = None,
     start_soc_pct: float = 80.0,
     destination_soc_pct: float = 20.0,
+    mindest_ankunfts_soc_pct: float = 5.0,
     max_iterations: int = 3,
     convergence_threshold_minutes: float = 30.0,
     route_observer: Callable[[Route], None] | None = None,
@@ -746,6 +749,10 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
             (Default: FakeChargingStationProvider).
         start_soc_pct: Starting state of charge in percent (Default: 80%).
         destination_soc_pct: Target state of charge in percent (Default: 20%).
+        mindest_ankunfts_soc_pct: Minimum SoC allowed when arriving at a
+            charging station, as opposed to the general safety-reserve floor
+            elsewhere on the route (Default: 5%). See
+            `OptimizationConstraints.mindest_ankunfts_soc_pct`.
         max_iterations: Max iterations for iterative ETA/weather convergence.
             Default: 3.
         convergence_threshold_minutes: Convergence threshold in minutes for early
@@ -875,6 +882,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0917
                 charging_provider=charging_provider,
                 ladedauer_vorgaben=charging_duration_map,
                 faehr_zeitfenster=ferry_pins,
+                mindest_ankunfts_soc_pct=mindest_ankunfts_soc_pct,
             )
 
         # Update ETA with charging plan
@@ -1339,6 +1347,16 @@ class TripRequestAPI(BaseModel):
     fahrzeugprofil: VehicleProfile = Field(..., description="Physikalisches Fahrzeugprofil")
     start_soc_pct: float = Field(80.0, ge=0.0, le=100.0, description="Start-SoC in Prozent")
     ziel_soc_pct: float = Field(20.0, ge=0.0, le=100.0, description="Ziel-SoC in Prozent")
+    mindest_ankunfts_soc_pct: float = Field(
+        5.0,
+        ge=0.0,
+        le=100.0,
+        description=(
+            "Minimal zulässiger SoC beim Ankommen an einer Ladestation "
+            "(darf niedriger sein als die allgemeine Sicherheitsreserve auf "
+            "offener Strecke, da dort garantiert nachgeladen wird)"
+        ),
+    )
     praeferenzen: dict[str, object] = Field(default_factory=dict, description="Nutzerpräferenzen")
     alle_faehren_vermeiden: bool = Field(
         default=False, description="Falls True, werden alle Fährverbindungen vermieden"
@@ -1629,6 +1647,7 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
             elevation_provider=elevation_provider,
             start_soc_pct=request.start_soc_pct,
             destination_soc_pct=request.ziel_soc_pct,
+            mindest_ankunfts_soc_pct=request.mindest_ankunfts_soc_pct,
             ferry_observer=_faehren_erfassen,
             route_observer=_route_erfassen,
         )
