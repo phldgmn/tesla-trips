@@ -1357,116 +1357,46 @@ export function TripPlannerForm({
           marginBottom: "1rem",
         }}
       >
-        <div
-          role="radiogroup"
-          aria-label="Wetter-Detailgrad"
+        <button
+          type="button"
+          onClick={() => {
+            const stufen: WeatherDetailLevel[] = [
+              "off",
+              "low",
+              "medium",
+              "high",
+            ];
+            const idx = stufen.indexOf(wetterDetailgrad);
+            setWetterDetailgrad(stufen[(idx + 1) % stufen.length]);
+          }}
+          disabled={isSubmitting}
+          aria-pressed={wetterDetailgrad !== "off"}
+          title={
+            wetterDetailgrad === "off"
+              ? "Wetterdaten werden ignoriert (klicken: Niedrig → Mittel → Hoch → Aus)"
+              : "Durchklicken: nächste Stufe (Niedrig → Mittel → Hoch → Aus)"
+          }
           style={{
             display: "flex",
+            alignItems: "center",
+            gap: "0.3rem",
+            padding: "0.35rem 0.65rem",
+            background: wetterDetailgrad !== "off" ? "#eff6ff" : "#f9fafb",
+            border: `1px solid ${
+              wetterDetailgrad !== "off" ? "#93c5fd" : "#e5e7eb"
+            }`,
             borderRadius: "999px",
-            overflow: "hidden",
-            border: "1px solid #d1d5db",
+            cursor: isSubmitting ? "not-allowed" : "pointer",
+            fontSize: "0.78rem",
+            color: wetterDetailgrad !== "off" ? "#1d4ed8" : "#6b7280",
           }}
         >
-          <button
-            type="button"
-            onClick={() => setWetterDetailgrad("off")}
-            disabled={isSubmitting}
-            aria-pressed={wetterDetailgrad === "off"}
-            title="Wetterdaten werden ignoriert (Platzhalterwerte)"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.3rem",
-              padding: "0.35rem 0.65rem",
-              background: wetterDetailgrad === "off" ? "#eff6ff" : "#f9fafb",
-              border: "none",
-              borderRadius: "999px 0 0 999px",
-              cursor: isSubmitting ? "not-allowed" : "pointer",
-              fontSize: "0.78rem",
-              color: wetterDetailgrad === "off" ? "#1d4ed8" : "#6b7280",
-              borderTop: "1px solid #d1d5db",
-              borderRight: "1px solid #d1d5db",
-              borderLeft: "1px solid #d1d5db",
-              borderBottom: "1px solid #d1d5db",
-            }}
-          >
-            <CloudSun size={13} />
-            Aus
-          </button>
-          <button
-            type="button"
-            onClick={() => setWetterDetailgrad("low")}
-            disabled={isSubmitting}
-            aria-pressed={wetterDetailgrad === "low"}
-            title="Einzelnes Wetterpunkt für die gesamte Reise (schnellste Wetter-Berechnung)"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.3rem",
-              padding: "0.35rem 0.65rem",
-              background: wetterDetailgrad === "low" ? "#eff6ff" : "#f9fafb",
-              border: "none",
-              borderTop: "1px solid #d1d5db",
-              borderRight: "1px solid #d1d5db",
-              borderLeft: "1px solid #d1d5db",
-              borderBottom: "1px solid #d1d5db",
-              cursor: isSubmitting ? "not-allowed" : "pointer",
-              fontSize: "0.78rem",
-              color: wetterDetailgrad === "low" ? "#1d4ed8" : "#6b7280",
-            }}
-          >
-            Niedrig
-          </button>
-          <button
-            type="button"
-            onClick={() => setWetterDetailgrad("medium")}
-            disabled={isSubmitting}
-            aria-pressed={wetterDetailgrad === "medium"}
-            title="Wetter an ausgewählten Punkten (Schneller, grobe räumliche Auflösung)"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.3rem",
-              padding: "0.35rem 0.65rem",
-              background: wetterDetailgrad === "medium" ? "#eff6ff" : "#f9fafb",
-              border: "none",
-              borderTop: "1px solid #d1d5db",
-              borderRight: "1px solid #d1d5db",
-              borderLeft: "1px solid #d1d5db",
-              borderBottom: "1px solid #d1d5db",
-              cursor: isSubmitting ? "not-allowed" : "pointer",
-              fontSize: "0.78rem",
-              color: wetterDetailgrad === "medium" ? "#1d4ed8" : "#6b7280",
-            }}
-          >
-            Mittel
-          </button>
-          <button
-            type="button"
-            onClick={() => setWetterDetailgrad("high")}
-            disabled={isSubmitting}
-            aria-pressed={wetterDetailgrad === "high"}
-            title="Wetter pro Streckenabschnitt (genaueste, langsamste Berechnung)"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.3rem",
-              padding: "0.35rem 0.65rem",
-              background: wetterDetailgrad === "high" ? "#eff6ff" : "#f9fafb",
-              border: "none",
-              borderRadius: "0 999px 999px 0",
-              borderTop: "1px solid #d1d5db",
-              borderRight: "1px solid #d1d5db",
-              borderLeft: "1px solid #d1d5db",
-              borderBottom: "1px solid #d1d5db",
-              cursor: isSubmitting ? "not-allowed" : "pointer",
-              fontSize: "0.78rem",
-              color: wetterDetailgrad === "high" ? "#1d4ed8" : "#6b7280",
-            }}
-          >
-            Hoch
-          </button>
-        </div>
+          <CloudSun size={13} />
+          {wetterDetailgrad === "off" && "Aus"}
+          {wetterDetailgrad === "low" && "Niedrig"}
+          {wetterDetailgrad === "medium" && "Mittel"}
+          {wetterDetailgrad === "high" && "Hoch"}
+        </button>
         <button
           type="button"
           onClick={() =>
