@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -68,12 +69,27 @@ class ConstructionProviderConfig(BaseModel):
     """Konfiguration für den ConstructionProvider.
 
     DE benötigt keine Credentials (Autobahn GmbH API ist unauthentifiziert).
-    DK nutzt HTTP Basic Auth (`dk_client_id`/`dk_secret`), SE einen
-    Trafikverket `authenticationkey` (`tv_api_key`).
+    DK nutzt OAuth2 client_credentials Flow über Azure AD (`dk_client_id`/
+    `dk_secret`/`dk_tenant_id`), SE einen Trafikverket `authenticationkey`
+    (`tv_api_key`).
     """
 
     dk_client_id: str | None = None
     dk_secret: str | None = None
+    dk_tenant_id: str | None = None
+    """Azure AD tenant ID for DK OAuth2 client_credentials flow.
+
+    Obtained from the Dataudveksleren portal when associating the service
+    account with the roadworks dataset.  Must be present (non-empty) for
+    DK credential checks to pass.
+    """
+    dk_download_url: str | None = None
+    """Per-dataset download URL for the DK DateX2 endpoint.
+
+    Obtained from the Dataudveksleren portal.  Defaults to the standard
+    DATEXII_ENDPOINTS[Land.DK] value when unset, since this repo has no
+    verified alternative endpoint.
+    """
     tv_api_key: str | None = None
     timeout_seconds: float = 30.0
 
@@ -112,9 +128,14 @@ class ConstructionProviderImpl(ConstructionProvider):
         """Check whether the configured credentials suffice for `country`.
 
         DE always returns True (the Autobahn GmbH API takes no credentials).
+        DK requires dk_client_id, dk_secret, AND dk_tenant_id.
         """
         if country == Land.DK:
-            return bool(self._config.dk_client_id) and bool(self._config.dk_secret)
+            return (
+                bool(self._config.dk_client_id)
+                and bool(self._config.dk_secret)
+                and bool(self._config.dk_tenant_id)
+            )
         if country == Land.SE:
             return bool(self._config.tv_api_key)
         return True
@@ -191,17 +212,22 @@ class ConstructionProviderImpl(ConstructionProvider):
         land: Land,
     ) -> list[ConstructionZone]:
         """Abfrage und Parsing für ein DATEX-II-Land (DK, SE)."""
-        endpoint = DATEXII_ENDPOINTS[land]
+        endpoint = (
+            (self._config.dk_download_url or DATEXII_ENDPOINTS[land])
+            if land == Land.DK
+            else DATEXII_ENDPOINTS[land]
+        )
 
         try:
             if land == Land.DK:
                 params = self._build_dk_params(route)
+                token = self._get_dk_bearer_token()
+                if token is None:
+                    token = await self._refresh_dk_bearer_token()
                 response = await self._client.get(
                     endpoint,
                     params=params,
-                    auth=httpx.BasicAuth(
-                        self._config.dk_client_id or "", self._config.dk_secret or ""
-                    ),
+                    headers={"Authorization": f"Bearer {token}"},
                 )
             else:
                 xml_body = self._build_se_request_xml(route)
@@ -240,6 +266,52 @@ class ConstructionProviderImpl(ConstructionProvider):
             for zone in construction_zones
         ]
 
+    # Azure AD OAuth2 token endpoint for DK service accounts.
+    _AZURE_TOKEN_URL = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+    # Safety margin (seconds) before the actual expiry to avoid using
+    # a token that expires mid-request.
+    _TOKEN_EXPIRY_SAFETY_MARGIN_S = 60
+
+    def _get_dk_bearer_token(self) -> str | None:
+        """Return the cached bearer token if still valid, else ``None``."""
+        token = getattr(self, "_dk_token", None)
+        expires_at = getattr(self, "_dk_token_expires_at", None)
+        if (
+            token is not None
+            and expires_at is not None
+            and time.time() < expires_at - self._TOKEN_EXPIRY_SAFETY_MARGIN_S
+        ):
+            return str(token)
+        return None
+
+    async def _refresh_dk_bearer_token(self) -> str:
+        """POST to Azure AD to obtain a fresh OAuth2 bearer token.
+
+        Uses the ``client_credentials`` grant with the configured
+        ``dk_client_id``, ``dk_secret``, and ``dk_tenant_id``.
+        Caches the result on the instance for subsequent calls.
+        """
+        tenant_id = self._config.dk_tenant_id or ""
+        token_url = self._AZURE_TOKEN_URL.format(tenant_id=tenant_id)
+        form_body = (
+            f"client_id={self._config.dk_client_id}"
+            f"&scope={self._config.dk_client_id}/.default"
+            f"&client_secret={self._config.dk_secret}"
+            "&grant_type=client_credentials"
+        )
+        resp = await self._client.post(
+            token_url,
+            content=form_body,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        resp.raise_for_status()
+        data: dict[str, Any] = resp.json()
+        access_token: str = data["access_token"]
+        expires_in: int = data["expires_in"]
+        self._dk_token = access_token
+        self._dk_token_expires_at = time.time() + expires_in
+        return access_token
+
     def _build_dk_params(self, route: routing_models.Route) -> dict[str, str]:
         """Parameter für Dataudveksleren (Denmark) DATEX II API."""
         coords = self._route_to_bounding_box(route)
@@ -252,16 +324,23 @@ class ConstructionProviderImpl(ConstructionProvider):
     def _build_se_request_xml(self, route: routing_models.Route) -> str:
         """Build the Trafikverket v2 `data.json` POST body for roadwork Situations.
 
-        Assumption (best-documented v2 Situation/Deviation schema; not live-
-        verified against Trafikverket's registration-gated docs): filters by a
-        bounding-box `WITHIN` on `Deviation.Geometry.WGS84`.
+        Filters by a bounding-box ``WITHIN`` on
+        ``Deviation.Geometry.Point.WGS84`` (the indexed point sub-geometry).
+        Value is WKT-style: ``"{minLon} {minLat}, {maxLon} {maxLat}"``
+        (longitude-first pairs, space between lon/lat within a pair, comma
+        between the two corner pairs).
         """
         bbox = self._route_to_bounding_box(route)
+        # bbox is "minLat,minLon,maxLat,maxLon"; reformat to lon-first WKT.
+        min_lat, min_lon, max_lat, max_lon = bbox.split(",", 3)
+        wkt_box = f"{min_lon} {min_lat}, {max_lon} {max_lat}"
         return (
             "<REQUEST>"
             f'<LOGIN authenticationkey="{self._config.tv_api_key}"/>'
             '<QUERY objecttype="Situation" schemaversion="1.5">'
-            f'<FILTER><WITHIN name="Deviation.Geometry.WGS84" shape="box" value="{bbox}"/></FILTER>'
+            "<FILTER>"
+            f'<WITHIN name="Deviation.Geometry.Point.WGS84" shape="box" value="{wkt_box}"/>'
+            "</FILTER>"
             "</QUERY></REQUEST>"
         )
 

@@ -7,7 +7,7 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -70,6 +70,7 @@ def _make_config() -> ConstructionProviderConfig:
     return ConstructionProviderConfig(
         dk_client_id="dk-client",
         dk_secret="dk-secret",
+        dk_tenant_id="dk-tenant",
         tv_api_key="se-key",
         timeout_seconds=10.0,
     )
@@ -135,6 +136,7 @@ class TestBuildSeRequestXml:
         assert 'authenticationkey="se-secret-key"' in xml_body
         assert 'objecttype="Situation"' in xml_body
         assert "WITHIN" in xml_body
+        assert 'name="Deviation.Geometry.Point.WGS84"' in xml_body
 
 
 class TestRouteToBoundingBox:
@@ -253,19 +255,35 @@ class TestHasCredentials:
         provider = _make_provider(ConstructionProviderConfig())
         assert provider._has_credentials(Land.DE) is True
 
-    def test_dk_true_when_both_present(self) -> None:
-        """DK erfordert dk_client_id und dk_secret."""
-        provider = _make_provider(ConstructionProviderConfig(dk_client_id="id", dk_secret="secret"))
+    def test_dk_true_when_all_present(self) -> None:
+        """DK erfordert dk_client_id, dk_secret und dk_tenant_id."""
+        provider = _make_provider(
+            ConstructionProviderConfig(dk_client_id="id", dk_secret="secret", dk_tenant_id="tenant")
+        )
         assert provider._has_credentials(Land.DK) is True
 
     @pytest.mark.parametrize(
-        "dk_client_id,dk_secret",
-        [(None, "secret"), ("id", None), (None, None)],
+        "dk_client_id,dk_secret,dk_tenant_id",
+        [
+            (None, "secret", "tenant"),
+            ("id", None, "tenant"),
+            ("id", "secret", None),
+            (None, None, None),
+        ],
     )
-    def test_dk_false_when_missing(self, dk_client_id: str | None, dk_secret: str | None) -> None:
+    def test_dk_false_when_missing(
+        self,
+        dk_client_id: str | None,
+        dk_secret: str | None,
+        dk_tenant_id: str | None,
+    ) -> None:
         """DK ohne vollständige Credentials ist nicht 'has_credentials'."""
         provider = _make_provider(
-            ConstructionProviderConfig(dk_client_id=dk_client_id, dk_secret=dk_secret)
+            ConstructionProviderConfig(
+                dk_client_id=dk_client_id,
+                dk_secret=dk_secret,
+                dk_tenant_id=dk_tenant_id,
+            )
         )
         assert provider._has_credentials(Land.DK) is False
 
@@ -322,12 +340,19 @@ class TestFetchConstructionZonesCredentialSkip:
 class TestFetchErrorHandling:
     """Tests für differenzierte Fehlerbehandlung im DATEX-II-Pfad (DK/SE)."""
 
+    def _make_token_resp(self, access_token: str = "tok") -> MagicMock:
+        """Return a mock httpx.Response for the DK OAuth2 token POST."""
+        resp = MagicMock(spec=httpx.Response)
+        resp.json.return_value = {"access_token": access_token, "expires_in": 3600}
+        return resp
+
     @pytest.mark.asyncio
     async def test_timeout_returns_empty_list_with_warning(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         """httpx.TimeoutException liefert leere Liste und einen Warning-Log."""
         provider = _make_provider()
+        provider._client.post = AsyncMock(return_value=self._make_token_resp())
         provider._client.get = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
 
         with caplog.at_level(logging.WARNING):
@@ -342,6 +367,7 @@ class TestFetchErrorHandling:
     ) -> None:
         """Ein 401 wird als Error geloggt, nicht als stille leere Liste."""
         provider = _make_provider()
+        provider._client.post = AsyncMock(return_value=self._make_token_resp())
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 401
         mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
@@ -362,6 +388,7 @@ class TestFetchErrorHandling:
     ) -> None:
         """Ein 403 wird ebenfalls als Auth-Fehler (Error) geloggt."""
         provider = _make_provider()
+        provider._client.post = AsyncMock(return_value=self._make_token_resp())
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 403
         mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
@@ -381,6 +408,7 @@ class TestFetchErrorHandling:
     ) -> None:
         """Ein 5xx-Fehler wird als Warning geloggt (kein Auth-Problem)."""
         provider = _make_provider()
+        provider._client.post = AsyncMock(return_value=self._make_token_resp())
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 500
         mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
@@ -398,6 +426,7 @@ class TestFetchErrorHandling:
     async def test_generic_exception_returns_empty_list(self) -> None:
         """Unerwartete Exceptions werden gefangen und liefern leere Liste."""
         provider = _make_provider()
+        provider._client.post = AsyncMock(return_value=self._make_token_resp())
         provider._client.get = AsyncMock(side_effect=ValueError("unexpected"))
 
         zones = await provider._fetch_landscape_zones(_make_route(), Land.DK)
@@ -406,29 +435,160 @@ class TestFetchErrorHandling:
 
 
 class TestDkRequestAuth:
-    """Tests für HTTP Basic Auth auf dem DK-Request."""
+    """Tests for DK OAuth2 client_credentials token flow."""
 
     @pytest.mark.asyncio
-    async def test_dk_request_uses_basic_auth_with_configured_credentials(self) -> None:
-        """DK-Request nutzt httpx.BasicAuth mit dk_client_id/dk_secret."""
-        config = ConstructionProviderConfig(dk_client_id="client-1", dk_secret="secret-1")
+    async def test_dk_uses_bearer_token_from_oauth2_token_post(
+        self,
+    ) -> None:
+        """DK fetches a bearer token via POST to Azure AD, then
+        GETs DateX2 with Authorization: Bearer."""
+        config = ConstructionProviderConfig(
+            dk_client_id="client-1",
+            dk_secret="secret-1",
+            dk_tenant_id="tenant-1",
+        )
         provider = _make_provider(config)
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.raise_for_status = MagicMock()
         mock_response.text = VALID_DK_XML
         provider._client.get = AsyncMock(return_value=mock_response)
 
-        with patch("tripplanner.construction.providers.httpx.BasicAuth") as mock_basic_auth:
-            mock_basic_auth.return_value = "auth-sentinel"
-            await provider._fetch_landscape_zones(_make_route(), Land.DK)
+        # Mock the token POST
+        token_resp = MagicMock(spec=httpx.Response)
+        token_resp.json.return_value = {
+            "access_token": "bearer-token-xyz",
+            "expires_in": 3600,
+        }
+        provider._client.post = AsyncMock(return_value=token_resp)
 
-        mock_basic_auth.assert_called_once_with("client-1", "secret-1")
-        _, kwargs = provider._client.get.call_args
-        assert kwargs["auth"] == "auth-sentinel"
+        await provider._fetch_landscape_zones(_make_route(), Land.DK)
+
+        # Verify POST to Azure AD token endpoint
+        provider._client.post.assert_awaited_once()
+        post_args, post_kwargs = provider._client.post.call_args
+        assert "login.microsoftonline.com" in post_args[0]
+        assert "oauth2/v2.0/token" in post_args[0]
+        assert "client_id=client-1" in post_kwargs["content"]
+        assert "scope=client-1/.default" in post_kwargs["content"]
+        assert "client_secret=secret-1" in post_kwargs["content"]
+        assert "grant_type=client_credentials" in post_kwargs["content"]
+        assert post_kwargs["headers"]["Content-Type"] == "application/x-www-form-urlencoded"
+
+        # Verify GET with Bearer header
+        provider._client.get.assert_awaited_once()
+        _, get_kwargs = provider._client.get.call_args
+        assert get_kwargs["headers"]["Authorization"] == "Bearer bearer-token-xyz"
+
+    @pytest.mark.asyncio
+    async def test_dk_get_uses_correct_endpoint_when_dk_download_url_set(
+        self,
+    ) -> None:
+        """DK uses dk_download_url from config when set."""
+        config = ConstructionProviderConfig(
+            dk_client_id="c",
+            dk_secret="s",
+            dk_tenant_id="t",
+            dk_download_url="https://custom-url.example.com/api/DateX2",
+        )
+        provider = _make_provider(config)
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.raise_for_status = MagicMock()
+        mock_response.text = VALID_DK_XML
+        provider._client.get = AsyncMock(return_value=mock_response)
+
+        token_resp = MagicMock(spec=httpx.Response)
+        token_resp.json.return_value = {
+            "access_token": "tok",
+            "expires_in": 3600,
+        }
+        provider._client.post = AsyncMock(return_value=token_resp)
+
+        await provider._fetch_landscape_zones(_make_route(), Land.DK)
+
+        args, _ = provider._client.get.call_args
+        assert args[0] == "https://custom-url.example.com/api/DateX2"
+
+
+class TestDkTokenCaching:
+    """Tests for DK OAuth2 bearer token caching and expiry."""
+
+    @pytest.mark.asyncio
+    async def test_token_is_cached_and_not_refetched_within_ttl(self) -> None:
+        """Second fetch within token TTL uses cached token — no second POST."""
+        config = ConstructionProviderConfig(
+            dk_client_id="c",
+            dk_secret="s",
+            dk_tenant_id="t",
+        )
+        provider = _make_provider(config)
+
+        xml_response = MagicMock(spec=httpx.Response)
+        xml_response.raise_for_status = MagicMock()
+        xml_response.text = VALID_DK_XML
+        provider._client.get = AsyncMock(return_value=xml_response)
+
+        token_resp = MagicMock(spec=httpx.Response)
+        token_resp.json.return_value = {
+            "access_token": "tok-1",
+            "expires_in": 3600,
+        }
+        provider._client.post = AsyncMock(return_value=token_resp)
+
+        # First fetch — triggers token POST
+        await provider._fetch_landscape_zones(_make_route(), Land.DK)
+        provider._client.post.assert_awaited_once()
+
+        # Second fetch — should NOT trigger another POST (token cached)
+        await provider._fetch_landscape_zones(_make_route(), Land.DK)
+        provider._client.post.assert_awaited_once()  # still once
+
+    @pytest.mark.asyncio
+    async def test_token_is_refetched_after_expiry(self) -> None:
+        """Fetch after token expiry triggers a new token POST."""
+        config = ConstructionProviderConfig(
+            dk_client_id="c",
+            dk_secret="s",
+            dk_tenant_id="t",
+        )
+        provider = _make_provider(config)
+
+        xml_response = MagicMock(spec=httpx.Response)
+        xml_response.raise_for_status = MagicMock()
+        xml_response.text = VALID_DK_XML
+        provider._client.get = AsyncMock(return_value=xml_response)
+
+        # First token with 3600s expiry
+        token_resp1 = MagicMock(spec=httpx.Response)
+        token_resp1.json.return_value = {
+            "access_token": "tok-1",
+            "expires_in": 3600,
+        }
+        # Second token with short expiry
+        token_resp2 = MagicMock(spec=httpx.Response)
+        token_resp2.json.return_value = {
+            "access_token": "tok-2",
+            "expires_in": 30,
+        }
+
+        provider._client.post = AsyncMock(side_effect=[token_resp1, token_resp2])
+
+        # First fetch
+        await provider._fetch_landscape_zones(_make_route(), Land.DK)
+        provider._client.post.assert_awaited_once()
+        _, post_kwargs1 = provider._client.post.call_args
+        assert "tok-1" in post_kwargs1 or provider._dk_token == "tok-1"
+
+        # Manually expire the cached token
+        provider._dk_token_expires_at = 0  # force expiry
+
+        # Second fetch — should trigger new POST
+        await provider._fetch_landscape_zones(_make_route(), Land.DK)
+        assert provider._client.post.await_count == 2  # now twice
 
 
 class TestSeRequestXml:
-    """Tests für den SE-Request (POST mit XML-Body statt GET-Query)."""
+    """Tests for SE request: correct WITHIN attribute and WKT value format."""
 
     @pytest.mark.asyncio
     async def test_se_request_is_post_with_xml_body_and_authenticationkey(self) -> None:
@@ -448,6 +608,18 @@ class TestSeRequestXml:
         assert 'authenticationkey="se-secret-key"' in kwargs["content"]
         assert kwargs["headers"]["Accept"] == "application/xml"
         provider._client.get.assert_not_awaited()
+
+    def test_se_within_filter_uses_correct_attribute_and_wkt_value(self) -> None:
+        """SE WITHIN uses Deviation.Geometry.Point.WGS84 and lon-first WKT box."""
+        config = ConstructionProviderConfig(tv_api_key="se-key")
+        provider = _make_provider(config)
+        xml_body = provider._build_se_request_xml(_make_route())
+
+        assert 'name="Deviation.Geometry.Point.WGS84"' in xml_body
+        assert "WITHIN" in xml_body
+        # bbox for _make_route is "52.52,13.405,52.522,13.407"
+        # WKT reformat: "13.405 52.52, 13.407 52.522"
+        assert 'value="13.405 52.52, 13.407 52.522"' in xml_body
 
 
 class TestExtractAutobahnIds:
@@ -669,13 +841,20 @@ class TestFetchConstructionZones:
 
     @pytest.mark.asyncio
     async def test_dk_fetch_success(self) -> None:
-        """DK: Erfolgreicher HTTP-GET (mit Basic Auth) und Parsing."""
+        """DK: Erfolgreicher OAuth2 token POST + GET mit Bearer und Parsing."""
         provider = _make_provider()
 
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.text = VALID_DK_XML
         mock_response.raise_for_status = MagicMock()
         provider._client.get = AsyncMock(return_value=mock_response)
+
+        token_resp = MagicMock(spec=httpx.Response)
+        token_resp.json.return_value = {
+            "access_token": "tok",
+            "expires_in": 3600,
+        }
+        provider._client.post = AsyncMock(return_value=token_resp)
 
         zones = await provider.fetch_construction_zones(_make_route(), [Land.DK])
 
@@ -714,12 +893,20 @@ class TestFetchConstructionZones:
         se_response.raise_for_status = MagicMock()
         se_response.text = VALID_SE_XML
 
+        token_resp = MagicMock(spec=httpx.Response)
+        token_resp.json.return_value = {
+            "access_token": "tok",
+            "expires_in": 3600,
+        }
+
         async def get_side_effect(url: str, **kwargs: Any) -> MagicMock:
             if "verkehr.autobahn.de" in url:
                 return de_response
             return dk_response
 
         async def post_side_effect(url: str, **kwargs: Any) -> MagicMock:
+            if "login.microsoftonline.com" in url:
+                return token_resp
             return se_response
 
         provider._client.get = AsyncMock(side_effect=get_side_effect)

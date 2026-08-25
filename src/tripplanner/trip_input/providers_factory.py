@@ -114,7 +114,9 @@ async def build_production_providers(
             config=ConstructionProviderConfig(
                 dk_client_id=os.environ.get("DK_CLIENT_ID", dk_creds.get("dk_client_id")),
                 dk_secret=os.environ.get("DK_SECRET", dk_creds.get("dk_secret")),
+                dk_tenant_id=os.environ.get("DK_TENANT_ID", dk_creds.get("dk_tenant_id")),
                 tv_api_key=os.environ.get("TV_API_KEY", se_creds.get("tv_api_key")),
+                dk_download_url=os.environ.get("DK_DOWNLOAD_URL", dk_creds.get("dk_download_url")),
             )
         )
     else:
@@ -213,7 +215,7 @@ def _load_local_credentials() -> dict[str, dict[str, str]]:
     dk_raw = raw.get("DK")
     if isinstance(dk_raw, dict) and "clientid" in dk_raw and "secret" in dk_raw:
         result["DK"] = {
-            "dk_client_id": dk_raw["client_id"],
+            "dk_client_id": dk_raw["clientid"],
             "dk_secret": dk_raw["secret"],
             "dk_tenant_id": dk_raw["tenant_id"],
         }
