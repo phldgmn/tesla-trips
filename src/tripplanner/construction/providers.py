@@ -463,6 +463,7 @@ class ConstructionProviderImpl(ConstructionProvider):
             "<REQUEST>"
             f'<LOGIN authenticationkey="{self._config.tv_api_key}"/>'
             '<QUERY objecttype="Situation" schemaversion="1.6" namespace="road.trafficinfo">'
+            "<FILTER>"
             f'<WITHIN name="Deviation.Geometry.Point.WGS84" shape="box" value="{wkt_box}"/>'
             "</FILTER>"
             "</QUERY></REQUEST>"
