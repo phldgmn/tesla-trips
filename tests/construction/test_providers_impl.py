@@ -183,6 +183,39 @@ class TestZoneToGeometry:
         assert coords[0] == (52.5200, 13.4050)  # (lat, lon)
         assert coords[1] == (52.5210, 13.4060)
 
+    def test_single_point_returns_point_geometry(self) -> None:
+        """Exactly 1 coordinate yields a Shapely Point, not LineString."""
+        provider = _make_provider()
+        zone = DATEXIIConstructionZoneInternal(
+            sperrungstyp="partiallyClosed",
+            gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
+            gueltig_bis=None,
+            koordinaten=[(13.4050, 52.5200)],  # (lon, lat), single point
+            umleitungshinweis=None,
+            tempolimit_kmh=80,
+        )
+        geom = provider._zone_to_geometry(zone)
+
+        assert geom.geom_type == "Point"
+        assert geom.x == 52.5200  # lat
+        assert geom.y == 13.4050  # lon
+
+    def test_empty_coordinates_returns_empty_linestring(self) -> None:
+        """0 coordinates yields an empty LineString (intersects always False)."""
+        provider = _make_provider()
+        zone = DATEXIIConstructionZoneInternal(
+            sperrungstyp="partiallyClosed",
+            gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
+            gueltig_bis=None,
+            koordinaten=[],
+            umleitungshinweis=None,
+            tempolimit_kmh=80,
+        )
+        geom = provider._zone_to_geometry(zone)
+
+        assert geom.geom_type == "LineString"
+        assert geom.is_empty
+
 
 class TestMapToSegmentIds:
     """Tests für `_map_to_segment_ids`."""
@@ -216,6 +249,42 @@ class TestMapToSegmentIds:
             gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
             gueltig_bis=None,
             koordinaten=[(9.0, 53.0), (9.1, 53.1)],  # Hamburg, nicht Berlin
+            umleitungshinweis=None,
+            tempolimit_kmh=80,
+        )
+
+        ids = await provider._map_to_segment_ids(zone, route)
+        assert ids == []
+
+    @pytest.mark.asyncio
+    async def test_single_point_zone_maps_to_segment(self) -> None:
+        """A single-point zone (Point geometry) still maps to segment IDs via intersects()."""
+        provider = _make_provider()
+        route = _make_route()
+
+        zone = DATEXIIConstructionZoneInternal(
+            sperrungstyp="partiallyClosed",
+            gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
+            gueltig_bis=None,
+            koordinaten=[(13.4050, 52.5200)],  # (lon, lat), single point on segment endpoint
+            umleitungshinweis=None,
+            tempolimit_kmh=80,
+        )
+
+        ids = await provider._map_to_segment_ids(zone, route)
+        assert ids == [0]
+
+    @pytest.mark.asyncio
+    async def test_single_point_zone_no_intersection(self) -> None:
+        """A single-point zone far from any segment yields empty list."""
+        provider = _make_provider()
+        route = _make_route()
+
+        zone = DATEXIIConstructionZoneInternal(
+            sperrungstyp="partiallyClosed",
+            gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
+            gueltig_bis=None,
+            koordinaten=[(9.0, 53.0)],  # (lon, lat), single point in Hamburg
             umleitungshinweis=None,
             tempolimit_kmh=80,
         )

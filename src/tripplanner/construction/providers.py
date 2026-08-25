@@ -18,7 +18,8 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 from pydantic import BaseModel
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Point
+from shapely.geometry.base import BaseGeometry
 
 if TYPE_CHECKING:
     import tripplanner.routing.models as routing_models
@@ -502,9 +503,16 @@ class ConstructionProviderImpl(ConstructionProvider):
     def _zone_to_geometry(
         self,
         zone: DATEXIIConstructionZoneInternal,
-    ) -> LineString:
-        """Konvertiert DATEX II Geometrie zu Shapely LineString."""
+    ) -> BaseGeometry:
+        """Convert DATEX II coordinates to a Shapely geometry.
+
+        Returns a ``LineString`` for 2+ points, a ``Point`` for exactly 1
+        point (so ``.intersects()`` still works against route segments),
+        or an empty ``LineString`` for 0 points (intersects always False).
+        """
         coords = [(pt[1], pt[0]) for pt in zone.koordinaten]
+        if len(coords) == 1:
+            return Point(coords[0])
         return LineString(coords)
 
     def _map_closure_type(self, xsi_type: str) -> Sperrungstyp:
