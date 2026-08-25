@@ -213,17 +213,26 @@ def _load_local_credentials() -> dict[str, dict[str, str | None]]:
 
     result: dict[str, dict[str, str | None]] = {}
     dk_raw = raw.get("DK")
-    if isinstance(dk_raw, dict) and "clientid" in dk_raw and "secret" in dk_raw:
+    if (
+        isinstance(dk_raw, dict)
+        and "client_id" in dk_raw
+        and "secret" in dk_raw
+        and "tenant_id" in dk_raw
+    ):
         result["DK"] = {
-            "dk_client_id": dk_raw["clientid"],
+            "dk_client_id": dk_raw["client_id"],
             "dk_secret": dk_raw["secret"],
-            "dk_tenant_id": dk_raw.get("tenant_id"),
+            "dk_tenant_id": dk_raw["tenant_id"],
         }
     se_raw = raw.get("SE")
     if isinstance(se_raw, dict) and "key" in se_raw:
         result["SE"] = {"tv_api_key": se_raw["key"]}
     weather_raw = raw.get("weather")
-    openweather_raw = weather_raw.get("openweather") if isinstance(weather_raw, dict) else None
-    if isinstance(openweather_raw, dict) and "key" in openweather_raw:
-        result["OPENWEATHER"] = {"key": openweather_raw["key"]}
+    if (
+        isinstance(weather_raw, dict)
+        and "openweather" in weather_raw
+        and isinstance(weather_raw["openweather"], dict)
+        and "key" in weather_raw["openweather"]
+    ):
+        result["OPENWEATHER"] = {"key": weather_raw["openweather"]["key"]}
     return result
