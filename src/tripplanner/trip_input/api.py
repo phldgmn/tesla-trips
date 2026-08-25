@@ -879,8 +879,6 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
     # 3. Step 2: Extract elevation profile
     if elevation_provider is None:
         elevation_provider = ElevationProvider(data_source=FakeDataSource())
-    with _log_step("extract_elevation_profile"):
-        elevation_points = await _step_2_extract_elevation_profile(route, elevation_provider)
 
     # 4. Step 3: Segment routing (already in route.segments)
     with _log_step("segment_route"):
@@ -910,24 +908,60 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
     weather_queries: list[WeatherQuery] | None = None
 
     # 8a. Fetch candidate charging stations and precompute their real,
-    # routed detour costs ONCE - both depend only on `route`, which is
-    # already final at this point, and must not be redone per iteration
-    # (station fetch is cheap but repeated 1-3x for nothing; detour
-    # precomputation is a batch of routing/elevation calls and must not be
-    # repeated at all).
-    with _log_step("fetch_charging_stations"):
-        charging_stations = await _step_8a_fetch_charging_stations(charging_provider, route)
+    # routed detour costs, and fetch construction zones, ONCE - all three
+    # depend only on `route`, which is already final at this point, and
+    # must not be redone per iteration. `construction_sites` in particular
+    # takes no iteration-dependent input at all (unlike `fetch_weather`,
+    # which needs the current `segment_eta_list`) - looping it 1-3x
+    # inside the convergence loop below refetched byte-identical data on
+    # every iteration for nothing.
+    #
+    # The three branches share no state (elevation extraction only reads
+    # `route`/`elevation_provider`; station fetch + detour precompute only
+    # read `route`/`charging_provider` plus the same `elevation_provider`,
+    # whose tile cache is internally lock-protected against concurrent
+    # readers - see `CopernicusDEMDataSource._get_tile_lock`; construction
+    # only reads `route`/`construction_provider`). All three are I/O-bound
+    # network calls, so running them concurrently instead of sequentially
+    # cuts wall-clock time to roughly the slowest of the three instead of
+    # their sum.
+    async def _fetch_elevation_profile() -> list[ElevationPoint]:
+        with _log_step("extract_elevation_profile"):
+            return await _step_2_extract_elevation_profile(route, elevation_provider)
 
-    with _log_step("precompute_detour_costs"):
-        station_segments = map_stations_to_segments(charging_stations, route.segments)
-        detour_kosten = await precompute_detour_costs(
-            routing_provider=routing_provider or FakeRoutingProvider(),
-            elevation_provider=elevation_provider,
-            vehicle_profile=request.fahrzeugprofil,
-            route=route,
-            station_segments=station_segments,
-            abfahrtszeit=request.abfahrtszeit,
-        )
+    async def _fetch_charging_stations_and_detours() -> tuple[
+        list[ChargingStation], dict[str, DetourKosten]
+    ]:
+        with _log_step("fetch_charging_stations"):
+            stations = await _step_8a_fetch_charging_stations(charging_provider, route)
+
+        with _log_step("precompute_detour_costs"):
+            station_segments = map_stations_to_segments(stations, route.segments)
+            kosten = await precompute_detour_costs(
+                routing_provider=routing_provider or FakeRoutingProvider(),
+                elevation_provider=elevation_provider,
+                vehicle_profile=request.fahrzeugprofil,
+                route=route,
+                station_segments=station_segments,
+                abfahrtszeit=request.abfahrtszeit,
+            )
+        return stations, kosten
+
+    async def _fetch_construction_zones() -> list[ConstructionZone]:
+        with _log_step("construction_sites"):
+            return await _step_6_construction_sites(
+                construction_provider, route, ["DE", "DK", "SE"]
+            )
+
+    (
+        elevation_points,
+        (charging_stations, detour_kosten),
+        construction_zones,
+    ) = await asyncio.gather(
+        _fetch_elevation_profile(),
+        _fetch_charging_stations_and_detours(),
+        _fetch_construction_zones(),
+    )
     for iteration in range(loop_max_iterations):
         # Store previous iteration's ETA for convergence check
         if iteration > 0:
@@ -944,12 +978,6 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
                 request.abfahrtszeit,
                 previous_queries=weather_queries,
                 weather_detail=weather_detail,
-            )
-
-        # Construction sites (optional)
-        with _log_step("construction_sites", iteration):
-            construction_zones = await _step_6_construction_sites(
-                construction_provider, route, ["DE", "DK", "SE"]
             )
 
         # Calculate energy consumption
