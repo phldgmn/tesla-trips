@@ -336,7 +336,15 @@ class GraphHopperRoutingProvider:
 
             # Extrahiere Segment-Attribute aus den Intervall-Details
             strassenklasse_raw = self._wert_fuer_edge(road_classes, i)
-            strassenklasse = str(strassenklasse_raw) if strassenklasse_raw is not None else "OTHER"
+            # GraphHopper's `road_class` detail returns lowercase OSM values
+            # (e.g. "motorway"), but this codebase's convention (see
+            # RouteSegment.strassenklasse docstring, FakeRoutingProvider's
+            # hardcoded "PRIMARY"/"OTHER") is uppercase - normalize here so
+            # every consumer (e.g. construction._extract_autobahn_ids's
+            # `!= "MOTORWAY"` check) can compare case-sensitively.
+            strassenklasse = (
+                str(strassenklasse_raw).upper() if strassenklasse_raw is not None else "OTHER"
+            )
             tempolimit_kmh = self._normalize_max_speed(self._wert_fuer_edge(max_speeds, i))
             steigung_raw = self._wert_fuer_edge(average_slopes, i)
             steigung_rohdaten = float(steigung_raw) if steigung_raw is not None else None

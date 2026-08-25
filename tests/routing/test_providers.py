@@ -55,6 +55,30 @@ class TestMapPathToRoute:
         assert first.strassenname is None
         assert first.strassenref == "A 5"
 
+    def test_normalizes_lowercase_road_class_to_uppercase(
+        self,
+        gh_provider: GraphHopperRoutingProvider,
+        graphhopper_response_with_details: GraphHopperResponse,
+    ) -> None:
+        """GraphHopper liefert `road_class` klein geschrieben (z. B. "motorway") -
+        wird auf Grossschreibung normalisiert, damit z. B.
+        `construction._extract_autobahn_ids`'s `!= "MOTORWAY"`-Vergleich
+        funktioniert (live gegen den echten GraphHopper-Server verifiziert:
+        `road_class` liefert dort tatsaechlich Kleinbuchstaben, nicht wie in
+        dieser handgeschriebenen Fixture)."""
+        path = graphhopper_response_with_details.paths[0]
+        lowercase_path = path.model_copy(
+            update={
+                "details": {
+                    **path.details,
+                    "road_class": [[0, 1, "motorway"], [1, 2, "primary"]],
+                }
+            }
+        )
+        route = gh_provider._map_path_to_route(lowercase_path)
+        assert route.segments[0].strassenklasse == "MOTORWAY"
+        assert route.segments[1].strassenklasse == "PRIMARY"
+
     def test_all_segments_have_bearing_deg(
         self,
         gh_provider: GraphHopperRoutingProvider,

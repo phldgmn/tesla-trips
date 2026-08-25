@@ -34,7 +34,6 @@ from tripplanner.charging_infrastructure.providers import (
     TeslaChargingStationProvider,
 )
 from tripplanner.construction.models import ConstructionProvider, ConstructionZone, Land
-from tripplanner.construction.providers import _DE_ROADWORKS_MAX_DISTANCE_M
 from tripplanner.elevation import ElevationProvider
 from tripplanner.elevation.models import ElevationPoint
 from tripplanner.elevation.providers import FakeDataSource
@@ -709,6 +708,16 @@ def _log_step(
     )
 
 
+# Distance below which two nearby construction-zone markers are merged into a
+# single marker (with multiple `events`) for map display, so the user isn't
+# shown near-duplicate pins for closely-spaced roadwork records on the same
+# stretch of road. Deliberately larger than
+# `construction.providers._DE_ROADWORKS_MAX_DISTANCE_M` (which answers "is
+# this roadwork actually on the route at all") - this constant instead
+# answers "are two on-route roadworks close enough to show as one marker".
+_CONSTRUCTION_ZONE_MERGE_DISTANCE_M = 2000.0
+
+
 def _build_construction_zones_api(
     zones: list[ConstructionZone],
     route_segments: list[RouteSegment],
@@ -716,8 +725,8 @@ def _build_construction_zones_api(
     """Build grouped ConstructionZoneAPI entries from raw construction zones.
 
     Zones are sorted by their first affected segment index, then consecutive
-    zones within ``_DE_ROADWORKS_MAX_DISTANCE_M`` metres (haversine) of each
-    other are merged into a single marker with multiple events.
+    zones within ``_CONSTRUCTION_ZONE_MERGE_DISTANCE_M`` metres (haversine)
+    of each other are merged into a single marker with multiple events.
 
     Args:
         zones: Raw construction zones from the provider.
@@ -741,7 +750,8 @@ def _build_construction_zones_api(
 
         if (
             last_position is not None
-            and haversine_distance_m(last_position, zone_position) <= _DE_ROADWORKS_MAX_DISTANCE_M
+            and haversine_distance_m(last_position, zone_position)
+            <= _CONSTRUCTION_ZONE_MERGE_DISTANCE_M
         ):
             construction_zones_api[-1].events.append(
                 ConstructionZoneEventAPI(

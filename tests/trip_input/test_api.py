@@ -3442,7 +3442,7 @@ async def test_create_trip_simulation_fetches_charging_stations_once_not_per_ite
 
 
 def test_build_construction_zones_api_groups_nearby_zones() -> None:
-    """Zwei Baustellen innerhalb von 500 m werden gemerged; eine entfernte
+    """Zwei Baustellen innerhalb von 2 km werden gemerged; eine entfernte
     Baustelle bleibt separat."""
     seg1_start = (52.5200, 13.4050)
     seg1_end = (52.5230, 13.4090)  # ~400 m von seg1_start
@@ -3529,7 +3529,7 @@ def test_build_construction_zones_api_groups_nearby_zones() -> None:
 
 
 def test_build_construction_zones_api_all_separate_when_far_apart() -> None:
-    """Alle Zonen > 500 m voneinander → jeder Zone ein separater Marker."""
+    """Alle Zonen > 2 km voneinander → jeder Zone ein separater Marker."""
     route_segments = [
         RouteSegment(
             segment_index=0,
