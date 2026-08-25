@@ -231,8 +231,8 @@ class ConstructionProviderConfig(BaseModel):
     """
     tv_api_key: str | None = None
     timeout_seconds: float = 30.0
-    cache_ttl_seconds: float = 900.0
-    """TTL in seconds for the persistent cache (15 minutes default)."""
+    cache_ttl_seconds: float = 3600.0
+    """TTL in seconds for the persistent cache."""
     cache_dir: str | None = None
     """Directory for the SQLite-backed cache database. Defaults to ``.cache``.
 
