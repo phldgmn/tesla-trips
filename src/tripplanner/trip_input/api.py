@@ -325,7 +325,7 @@ async def _step_7_calculate_segment_energy(  # noqa: PLR0913, PLR0917
             wetter=wetter,
             wind=wind,
             fahrzeug_params=energy_params,
-            baustellen=construction_zones if construction_zones else None,
+            baustellen=None,
             tempolimit_override_kmh=float(tempolimit) if tempolimit else None,
         )
         ergebnisse.append(ergebnis)

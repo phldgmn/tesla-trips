@@ -11,8 +11,12 @@ Testfälle gemäß Plan Abschnitt 6.2:
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock
+
 import pytest
 
+from tripplanner.construction.models import ConstructionZone, Land, Sperrungstyp
 from tripplanner.elevation.models import SegmentGradient
 from tripplanner.energy.energy import (
     calculate_segment_consumption,
@@ -20,7 +24,9 @@ from tripplanner.energy.energy import (
     f_oberflaeche,
 )
 from tripplanner.energy.models import VehicleEnergyParameters
-from tripplanner.routing.models import RouteSegment
+from tripplanner.routing.models import Route, RouteSegment
+from tripplanner.trip_input.api import _step_7_calculate_segment_energy
+from tripplanner.trip_input.models import VehicleProfile
 from tripplanner.weather.models import WeatherSample
 from tripplanner.wind.models import WindComponents
 
@@ -437,6 +443,104 @@ class TestEnergyCalculationAdditional:
         assert len(results) == 2
         assert results[0].segment_index == 0
         assert results[1].segment_index == 1
+
+    async def test_baustellen_tempolimit_nur_betroffene_segmente(
+        self,
+        gradient_eben: SegmentGradient,
+        wetter_sample_ref: WeatherSample,
+        default_model3_params: VehicleEnergyParameters,
+    ) -> None:
+        """Regressionstest: Ein ConstructionZone-Tempolimit darf nur die
+        betroffenen Segmente beeinflussen.
+
+        Eine Baustelle mit tempolimit_kmh=80, die nur Segment 0 betrifft,
+        darf fahrzeit_s / geschwindigkeit_m_s von Segment 5 (das nicht in
+        betroffene_segmente steht) NICHT ändern — Segment 5 sollte mit dem
+        vollen Tempolimit (120 km/h) rechnen.
+
+        Dies deckt den Bug ab, bei dem _step_7_calculate_segment_energy den
+        gesamten unfilterierten baustellen-Parameter an
+        calculate_segment_consumption weiterreicht und damit das Tempolimit
+        durchreicht wird.
+        """
+
+        # Segmente: 0 bis 5
+        route_segments: list[RouteSegment] = []
+        for idx in range(6):
+            route_segments.append(
+                RouteSegment(
+                    segment_index=idx,
+                    geometrie=[
+                        (52.5200 + idx * 0.01, 13.4050 + idx * 0.01),
+                        (
+                            52.5200 + (idx + 1) * 0.01,
+                            13.4050 + (idx + 1) * 0.01,
+                        ),
+                    ],
+                    laenge_m=1000.0,
+                    strassenklasse="PRIMARY",
+                    oberflaeche="asphalt",
+                    tempolimit_kmh=120,
+                    steigung_rohdaten=0.0,
+                    bearing_deg=45.0,
+                )
+            )
+
+        # Route und ETA-Daten für _step_7
+        route = Route(
+            segments=route_segments,
+            gesamtlaenge_m=6000.0,
+            geometrie=[(52.5200 + i * 0.01, 13.4050 + i * 0.01) for i in range(7)],
+        )
+        segment_eta_list = [
+            (seg, timedelta(seconds=60 * (idx + 1))) for idx, seg in enumerate(route_segments)
+        ]
+
+        # Wetter für alle Segmente (windstill, 20°C)
+        weather_samples = [wetter_sample_ref] * 6
+
+        # Baustelle mit niedrigem Tempolimit, die NUR Segment 0 betrifft
+        construction_zones = [
+            ConstructionZone(
+                betroffene_segmente=[0],
+                tempolimit_kmh=80,
+                sperrungstyp=Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+                land=Land.DE,
+                gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
+            ),
+        ]
+
+        vehicle_profile = VehicleProfile(
+            masse_kg=1800.0,
+            cw_wert=0.23,
+            stirnflaeche_m2=2.2,
+            rollwiderstandsbeiwert=0.01,
+            batteriekapazitaet_kwh=75.0,
+        )
+        mock_elevation_provider = MagicMock()
+        mock_elevation_provider.calculate_segment_gradients.return_value = [gradient_eben] * 6
+
+        abfahrtszeit = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        elevation_points: list = []
+
+        ergebnisse = await _step_7_calculate_segment_energy(
+            route=route,
+            route_segments=route_segments,
+            segment_eta_list=segment_eta_list,
+            weather_samples=weather_samples,
+            vehicle_profile=vehicle_profile,
+            construction_zones=construction_zones,
+            abfahrtszeit=abfahrtszeit,
+            elevation_provider=mock_elevation_provider,
+            elevation_points=elevation_points,
+        )
+
+        # Segment 0: fällt auf 80 km/h durch Baustelle
+        assert ergebnisse[0].geschwindigkeit_m_s == pytest.approx(80 / 3.6, abs=0.5)
+
+        # Segment 5: sollte NICHT vom Tempolimit der Baustelle betroffen sein
+        assert ergebnisse[5].geschwindigkeit_m_s == pytest.approx(120 / 3.6, abs=0.5)
+        assert ergebnisse[5].fahrzeit_s == pytest.approx(30.0, abs=0.5)
 
 
 class TestFOberflaeche:
