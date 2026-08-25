@@ -7,7 +7,7 @@
  * das über einen Button geöffnet wird (siehe `Modal`).
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   estimateWaypointTimings,
@@ -18,6 +18,8 @@ import {
 import { formatZeitpunkt } from "../utils/datetime-utils";
 import { formatCost, formatCostOrDash } from "../utils/currency-utils";
 import { Modal } from "./Modal";
+import { convertAllToEUR } from "../utils/currency-conversion";
+import { Popover } from "./Popover";
 import type { ChargingCostByCurrency, TripSimulationResult } from "../types";
 import type { Stop } from "../types/trip-request";
 
@@ -213,7 +215,33 @@ export function buildTimePlan(
 
 function TripSummary({ result, stops }: TripSummaryProps) {
   const [zeitplanOpen, setZeitplanOpen] = useState(false);
+  const [eurTotal, setEurTotal] = useState<number | null>(null);
+  const [eurBreakdown, setEurBreakdown] = useState<
+    Array<{ currency: string; originalAmount: number; eurAmount: number }>
+  >([]);
   const schedule = buildTimePlan(result, stops);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (result.total_charging_cost.length > 0) {
+      convertAllToEUR(result.total_charging_cost).then(
+        ({ totalEUR, breakdown }) => {
+          if (cancelled) return;
+          setEurTotal(totalEUR);
+          setEurBreakdown(breakdown);
+        },
+      );
+    } else {
+      Promise.resolve().then(() => {
+        if (cancelled) return;
+        setEurTotal(null);
+        setEurBreakdown([]);
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [result.total_charging_cost]);
 
   return (
     <div
@@ -268,9 +296,62 @@ function TripSummary({ result, stops }: TripSummaryProps) {
             <tr>
               <td style={labelCellStyle}>Ladekosten (geschätzt)</td>
               <td style={valueCellStyle}>
-                {formatChargingCosts(
-                  result.total_charging_cost,
-                  result.charging_stops_missing_pricing,
+                {eurTotal !== null ? (
+                  <Popover
+                    content={
+                      <>
+                        <div
+                          style={{ fontWeight: 600, marginBottom: "0.25rem" }}
+                        >
+                          Summe: {formatCost(eurTotal, "EUR")}
+                        </div>
+                        {eurBreakdown.map((b) => (
+                          <div
+                            key={b.currency}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              gap: "1rem",
+                            }}
+                          >
+                            <span>
+                              {formatCost(b.originalAmount, b.currency)}
+                            </span>
+                            <span>= {formatCost(b.eurAmount, "EUR")}</span>
+                          </div>
+                        ))}
+                        {result.charging_stops_missing_pricing > 0 && (
+                          <div
+                            style={{
+                              marginTop: "0.25rem",
+                              fontSize: "0.75rem",
+                              opacity: 0.7,
+                            }}
+                          >
+                            ({result.charging_stops_missing_pricing} Halt
+                            {result.charging_stops_missing_pricing === 1
+                              ? ""
+                              : "e"}{" "}
+                            ohne Preisdaten)
+                          </div>
+                        )}
+                      </>
+                    }
+                  >
+                    <span
+                      style={{
+                        cursor: "help",
+                        textDecoration: "underline dotted",
+                      }}
+                    >
+                      {formatCost(eurTotal, "EUR")}
+                    </span>
+                  </Popover>
+                ) : (
+                  formatChargingCosts(
+                    result.total_charging_cost,
+                    result.charging_stops_missing_pricing,
+                  )
                 )}
               </td>
             </tr>
