@@ -715,7 +715,7 @@ def _log_step(
 # `construction.providers._DE_ROADWORKS_MAX_DISTANCE_M` (which answers "is
 # this roadwork actually on the route at all") - this constant instead
 # answers "are two on-route roadworks close enough to show as one marker".
-_CONSTRUCTION_ZONE_MERGE_DISTANCE_M = 2000.0
+_CONSTRUCTION_ZONE_MERGE_DISTANCE_M = 5000.0
 
 
 def _build_construction_zones_api(
