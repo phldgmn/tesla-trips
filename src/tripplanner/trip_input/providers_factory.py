@@ -212,7 +212,11 @@ def _load_local_credentials() -> dict[str, dict[str, str]]:
     result: dict[str, dict[str, str]] = {}
     dk_raw = raw.get("DK")
     if isinstance(dk_raw, dict) and "clientid" in dk_raw and "secret" in dk_raw:
-        result["DK"] = {"dk_client_id": dk_raw["clientid"], "dk_secret": dk_raw["secret"]}
+        result["DK"] = {
+            "dk_client_id": dk_raw["client_id"],
+            "dk_secret": dk_raw["secret"],
+            "dk_tenant_id": dk_raw["tenant_id"],
+        }
     se_raw = raw.get("SE")
     if isinstance(se_raw, dict) and "key" in se_raw:
         result["SE"] = {"tv_api_key": se_raw["key"]}
