@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+from tripplanner.construction.models import ConstructionZone
 from tripplanner.energy.models import SegmentEnergyResult
 from tripplanner.optimization.models import ChargingPlan
 from tripplanner.routing.models import Route, RouteSegment
@@ -116,6 +117,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     output_resolution_seconds: int = 60,
     battery_capacity_kwh: float = 62.5,
     charging_stop_detours: dict[int, LadehaltDetour] | None = None,
+    construction_zones: list[ConstructionZone] | None = None,
 ) -> TripSimulationResult:
     """Simuliert die komplette Reise entlang der Route unter Beruecksichtigung des Ladeplans.
 
@@ -133,6 +135,9 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
             des Abstechers zur Ladestation (siehe
             `tripplanner.trip_input.api._step_route_charging_detours`). Fehlt ein
             Eintrag, bleibt `ChargingStopSummary.detour_geometrie` leer.
+        construction_zones: Baustellen entlang der Route (optional), fuer die
+            Kartendarstellung unveraendert in `TripSimulationResult.construction_zones`
+            durchgereicht.
 
     Returns:
         TripSimulationResult: Zeitreihe aus Frames (Zeit, Position, SoC, Zustand, Geschwindigkeit)
@@ -390,4 +395,5 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         start_soc_pct=start_soc_pct,
         ziel_soc_pct=end_soc_pct,
         charging_stops=charging_stops,
+        construction_zones=construction_zones or [],
     )

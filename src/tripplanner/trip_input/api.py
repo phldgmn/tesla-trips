@@ -946,6 +946,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
             abfahrtszeit=request.abfahrtszeit,
             battery_capacity_kwh=request.fahrzeugprofil.batteriekapazitaet_kwh,
             charging_stop_detours=charging_stop_detours,
+            construction_zones=construction_zones,
         )
 
     # 12. Step 11: Return result
@@ -1584,6 +1585,26 @@ class ChargingCostByCurrencyAPI(BaseModel):
     amount: float = Field(..., ge=0.0, description="Summed cost in `currency`")
 
 
+class ConstructionZoneAPI(BaseModel):
+    """API-Repräsentation einer Baustelle für die Kartendarstellung."""
+
+    position: Coordinate = Field(
+        ..., description="Repräsentative (lat, lon) Position der Baustelle auf der Route"
+    )
+    sperrungstyp: str = Field(..., description="Art der Sperrung/Baustelle")
+    tempolimit_kmh: int | None = Field(
+        default=None, description="Reduziertes Tempolimit in km/h (None wenn keine Beschränkung)"
+    )
+    umleitungshinweis: str | None = Field(
+        default=None, description="Freitext-Information zur Umleitung (optional)"
+    )
+    land: str = Field(..., description="Land, in dem die Baustelle liegt")
+    gueltig_von: datetime = Field(..., description="Startzeitpunkt der Baustelle (ISO 8601)")
+    gueltig_bis: datetime | None = Field(
+        default=None, description="Endzeitpunkt der Baustelle (ISO 8601), None wenn unbestimmt"
+    )
+
+
 class TripSimulationResultAPI(BaseModel):
     """API-Response für /trips-Endpunkt."""
 
@@ -1623,6 +1644,10 @@ class TripSimulationResultAPI(BaseModel):
             "Number of charging stops excluded from `total_charging_cost` "
             "because no pricing data is cached yet for their station."
         ),
+    )
+    construction_zones: list[ConstructionZoneAPI] = Field(
+        default_factory=list,
+        description="Baustellen entlang der Route fuer die Kartendarstellung (leer, falls keine)",
     )
 
 
@@ -1697,10 +1722,12 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
         detected_ferries = faehren
 
     route_geometrie: list[Coordinate] = []
+    route_segments: list[RouteSegment] = []
 
     def _route_erfassen(route: Route) -> None:
-        nonlocal route_geometrie
+        nonlocal route_geometrie, route_segments
         route_geometrie = route.geometrie
+        route_segments = route.segments
 
     try:
         ergebnis = await create_trip_simulation(
@@ -1720,6 +1747,25 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
             ferry_observer=_faehren_erfassen,
             route_observer=_route_erfassen,
         )
+
+        construction_zones_api: list[ConstructionZoneAPI] = []
+        for zone in ergebnis.construction_zones:
+            if not zone.betroffene_segmente:
+                continue
+            first_idx = zone.betroffene_segmente[0]
+            if first_idx < 0 or first_idx >= len(route_segments):
+                continue
+            construction_zones_api.append(
+                ConstructionZoneAPI(
+                    position=route_segments[first_idx].geometrie[0],
+                    sperrungstyp=zone.sperrungstyp.value,
+                    tempolimit_kmh=zone.tempolimit_kmh,
+                    umleitungshinweis=zone.umleitungshinweis,
+                    land=zone.land.value,
+                    gueltig_von=zone.gueltig_von,
+                    gueltig_bis=zone.gueltig_bis,
+                )
+            )
 
         return TripSimulationResultAPI(
             gesamt_distanz_km=ergebnis.gesamt_distanz_km,
@@ -1780,6 +1826,7 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
                 for c in ergebnis.total_charging_cost
             ],
             charging_stops_missing_pricing=ergebnis.charging_stops_missing_pricing,
+            construction_zones=construction_zones_api,
         )
     except ValueError as e:
         logger.warning("Trip simulation rejected (422): %s", e)

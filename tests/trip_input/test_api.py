@@ -32,6 +32,7 @@ from tripplanner.charging_infrastructure.providers import (
     LocalFileChargingStationProvider,
     TeslaChargingStationProvider,
 )
+from tripplanner.construction.models import ConstructionZone, Land, Sperrungstyp
 from tripplanner.construction.providers import FakeConstructionProvider
 from tripplanner.elevation import ElevationProvider
 from tripplanner.elevation.providers import FakeDataSource
@@ -1672,6 +1673,110 @@ def test_fastapi_endpoint_baustellen_beruecksichtigen_default_true_calls_constru
         app.dependency_overrides[get_construction_provider] = (
             lambda: FakeConstructionProvider()  # noqa: PLW0108
         )
+
+
+def test_fastapi_endpoint_construction_zone_with_segments_has_position(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """Eine Baustellenzone mit gültigen `betroffene_segmente` erscheint im
+    `/trips`-Response mit korrekt aufgelöster `position` (aus dem ersten
+    betroffenen Route-Segment)."""
+    zone = ConstructionZone(
+        betroffene_segmente=[0],
+        tempolimit_kmh=60,
+        sperrungstyp=Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+        umleitungshinweis="Umleitung über B96",
+        land=Land.DE,
+        gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
+        gueltig_bis=None,
+    )
+    app.dependency_overrides[get_construction_provider] = lambda: FakeConstructionProvider(
+        test_zones=[zone]
+    )
+    try:
+        api_request = {
+            "start": valid_trip_request["start"],
+            "ziel": valid_trip_request["ziel"],
+            "zwischenstopps": [],
+            "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+            "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "praeferenzen": {},
+        }
+
+        response = client.post("/trips", json=api_request)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert len(data["construction_zones"]) == 1
+        zone_api = data["construction_zones"][0]
+        assert zone_api["sperrungstyp"] == "temporarySpeedLimit"
+        assert zone_api["tempolimit_kmh"] == 60
+        assert zone_api["umleitungshinweis"] == "Umleitung über B96"
+        assert zone_api["land"] == "DE"
+        assert isinstance(zone_api["position"], list)
+        assert len(zone_api["position"]) == 2
+    finally:
+        app.dependency_overrides[get_construction_provider] = (
+            lambda: FakeConstructionProvider()  # noqa: PLW0108
+        )
+
+
+def test_fastapi_endpoint_construction_zone_without_segments_is_skipped(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """Eine Baustellenzone mit leerer `betroffene_segmente`-Liste (keine
+    Positionsauflösung möglich) wird nicht in den Response übernommen, statt
+    mit einer unsinnigen/leeren `position` aufzutauchen."""
+    zone = ConstructionZone(
+        betroffene_segmente=[],
+        tempolimit_kmh=None,
+        sperrungstyp=Sperrungstyp.FULLY_CLOSED,
+        umleitungshinweis=None,
+        land=Land.DE,
+        gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
+        gueltig_bis=None,
+    )
+    app.dependency_overrides[get_construction_provider] = lambda: FakeConstructionProvider(
+        test_zones=[zone]
+    )
+    try:
+        api_request = {
+            "start": valid_trip_request["start"],
+            "ziel": valid_trip_request["ziel"],
+            "zwischenstopps": [],
+            "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+            "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "praeferenzen": {},
+        }
+
+        response = client.post("/trips", json=api_request)
+
+        assert response.status_code == 201
+        assert response.json()["construction_zones"] == []
+    finally:
+        app.dependency_overrides[get_construction_provider] = (
+            lambda: FakeConstructionProvider()  # noqa: PLW0108
+        )
+
+
+def test_fastapi_endpoint_no_construction_zones_defaults_to_empty_list(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """Ohne konfigurierte Baustellenzonen ist `construction_zones` im Response
+    eine leere Liste (bestehendes Verhalten bleibt unverändert)."""
+    api_request = {
+        "start": valid_trip_request["start"],
+        "ziel": valid_trip_request["ziel"],
+        "zwischenstopps": [],
+        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "praeferenzen": {},
+    }
+
+    response = client.post("/trips", json=api_request)
+
+    assert response.status_code == 201
+    assert response.json()["construction_zones"] == []
 
 
 def test_fastapi_endpoint_custom_soc(client: TestClient, valid_trip_request: dict) -> None:

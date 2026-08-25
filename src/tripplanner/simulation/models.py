@@ -10,6 +10,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, model_validator
 
+from tripplanner.construction.models import ConstructionZone
 from tripplanner.routing.models import Coordinate
 
 # Konstanten für Geschwindigkeitsschwellen
@@ -194,6 +195,10 @@ class TripSimulationResult(BaseModel):
             "Number of charging stops excluded from `total_charging_cost` "
             "because no pricing data is cached yet for their station."
         ),
+    )
+    construction_zones: list[ConstructionZone] = Field(
+        default_factory=list,
+        description="Baustellen entlang der Route fuer die Kartendarstellung",
     )
 
 
