@@ -184,7 +184,7 @@ class GraphHopperRoutingProvider:
     # filter fälschlich verworfen. Wird deshalb unabhängig vom Filter immer
     # angefragt (live gegen den Projekt-GraphHopper-Server verifiziert:
     # Detail wird korrekt geliefert, siehe graphhopper_response_with_ferry.json).
-    _IMMER_VERFUEGBARE_DETAILS: tuple[str, ...] = ("street_name",)
+    _IMMER_VERFUEGBARE_DETAILS: tuple[str, ...] = ("street_name", "street_ref")
 
     def __init__(self, client: GraphHopperClient, use_custom_model: bool = False):
         """Initialisiert den GraphHopper Routing Provider.
@@ -323,6 +323,7 @@ class GraphHopperRoutingProvider:
         surfaces = path.details.get("surface", [])
         road_environments = path.details.get("road_environment", [])
         street_names = path.details.get("street_name", [])
+        street_refs = path.details.get("street_ref", [])
 
         # Erstelle ein Segment pro Edge (zwischen zwei aufeinanderfolgenden Points)
         for i in range(len(coordinates) - 1):
@@ -343,6 +344,8 @@ class GraphHopperRoutingProvider:
             road_environment = str(road_environment_raw).upper() if road_environment_raw else None
             strassenname_raw = self._wert_fuer_edge(street_names, i)
             strassenname = str(strassenname_raw) if strassenname_raw else None
+            strassenref_raw = self._wert_fuer_edge(street_refs, i)
+            strassenref = str(strassenref_raw) if strassenref_raw else None
             oberflaeche_raw = self._wert_fuer_edge(surfaces, i)
             oberflaeche = str(oberflaeche_raw) if oberflaeche_raw is not None else None
 
@@ -359,6 +362,7 @@ class GraphHopperRoutingProvider:
                 steigung_rohdaten=steigung_rohdaten,
                 road_environment=road_environment,
                 strassenname=strassenname,
+                strassenref=strassenref,
                 bearing_deg=bearing,
             )
             segments.append(segment)

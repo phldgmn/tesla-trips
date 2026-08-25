@@ -52,6 +52,8 @@ class TestMapPathToRoute:
         assert first.tempolimit_kmh == 130
         assert first.steigung_rohdaten == pytest.approx(1.5)
         assert first.oberflaeche == "asphalt"
+        assert first.strassenname is None
+        assert first.strassenref == "A 5"
 
     def test_all_segments_have_bearing_deg(
         self,

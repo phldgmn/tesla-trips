@@ -9,7 +9,9 @@
         "road_class": [[0, 1, "MOTORWAY"], [1, 2, "PRIMARY"]],
         "max_speed": [[0, 1, 130], [1, 2, 0]],
         "average_slope": [[0, 1, 1.5], [1, 2, -0.5]],
-        "surface": [[0, 1, "asphalt"], [1, 2, "gravel"]]
+        "surface": [[0, 1, "asphalt"], [1, 2, "gravel"]],
+        "street_name": [[0, 2, null]],
+        "street_ref": [[0, 1, "A 5"], [1, 2, null]]
       },
       "instructions": []
     }

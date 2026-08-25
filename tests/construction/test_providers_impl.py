@@ -51,7 +51,7 @@ def _make_route() -> Route:
     )
 
 
-def _make_motorway_route(strassenname: str | None = "A9") -> Route:
+def _make_motorway_route(strassenref: str | None = "A 5") -> Route:
     """Create a test route with a single MOTORWAY segment, for DE Autobahn tests."""
     segment = RouteSegment(
         segment_index=0,
@@ -60,7 +60,7 @@ def _make_motorway_route(strassenname: str | None = "A9") -> Route:
         strassenklasse="MOTORWAY",
         tempolimit_kmh=100,
         bearing_deg=45.0,
-        strassenname=strassenname,
+        strassenref=strassenref,
     )
     return Route(
         segments=[segment],
@@ -774,23 +774,40 @@ class TestSeRequestXml:
 class TestExtractAutobahnIds:
     """Tests für `_extract_autobahn_ids`."""
 
-    def test_extracts_id_from_motorway_segment(self) -> None:
-        """MOTORWAY-Segment mit exaktem Autobahn-Namen liefert die ID."""
-        route = _make_motorway_route(strassenname="A9")
+    def test_extracts_id_from_motorway_segment_with_strassenref(self) -> None:
+        """MOTORWAY-Segment mit strassenref 'A 5' liefert 'A 5' als ID."""
+        route = _make_motorway_route(strassenref="A 5")
+        assert _extract_autobahn_ids(route) == {"A 5"}
+
+    def test_extracts_id_from_strassenref_without_space(self) -> None:
+        """strassenref 'A9' (ohne Leerzeichen) wird korrekt extrahiert."""
+        route = _make_motorway_route(strassenref="A9")
         assert _extract_autobahn_ids(route) == {"A9"}
 
-    def test_extracts_id_from_descriptive_name(self) -> None:
-        """Autobahn-ID wird auch aus einem beschreibenden Straßennamen extrahiert."""
-        route = _make_motorway_route(strassenname="Bundesautobahn A9 Richtung München")
-        assert _extract_autobahn_ids(route) == {"A9"}
+    def test_extracts_id_from_descriptive_ref(self) -> None:
+        """Autobahn-ID wird auch aus einem beschreibenden Ref extrahiert."""
+        seg1 = RouteSegment(
+            segment_index=0,
+            geometrie=[(50.0, 9.0), (50.01, 9.01)],
+            laenge_m=500.0,
+            strassenklasse="MOTORWAY",
+            strassenref="Bundesautobahn A 9",
+            bearing_deg=10.0,
+        )
+        route = Route(
+            segments=[seg1],
+            gesamtlaenge_m=500.0,
+            geometrie=seg1.geometrie,
+        )
+        assert _extract_autobahn_ids(route) == {"A 9"}
 
     def test_skips_non_motorway_segments(self) -> None:
         """Nicht-MOTORWAY-Segmente werden ignoriert."""
         assert _extract_autobahn_ids(_make_route()) == set()
 
-    def test_skips_motorway_segment_without_street_name(self) -> None:
-        """MOTORWAY-Segment ohne strassenname wird sicher übersprungen."""
-        route = _make_motorway_route(strassenname=None)
+    def test_skips_motorway_segment_without_strassenref(self) -> None:
+        """MOTORWAY-Segment ohne strassenref wird übersprungen."""
+        route = _make_motorway_route(strassenref=None)
         assert _extract_autobahn_ids(route) == set()
 
     def test_deduplicates_multiple_segments_same_autobahn(self) -> None:
@@ -800,7 +817,7 @@ class TestExtractAutobahnIds:
             geometrie=[(50.0, 9.0), (50.01, 9.01)],
             laenge_m=500.0,
             strassenklasse="MOTORWAY",
-            strassenname="A9",
+            strassenref="A 5",
             bearing_deg=10.0,
         )
         seg2 = RouteSegment(
@@ -808,7 +825,7 @@ class TestExtractAutobahnIds:
             geometrie=[(50.01, 9.01), (50.02, 9.02)],
             laenge_m=500.0,
             strassenklasse="MOTORWAY",
-            strassenname="A9 Nord",
+            strassenref="A 5",
             bearing_deg=10.0,
         )
         route = Route(
@@ -816,7 +833,57 @@ class TestExtractAutobahnIds:
             gesamtlaenge_m=1000.0,
             geometrie=seg1.geometrie + seg2.geometrie,
         )
-        assert _extract_autobahn_ids(route) == {"A9"}
+        assert _extract_autobahn_ids(route) == {"A 5"}
+
+    def test_extract_multiple_different_autobahns(self) -> None:
+        """Verschiedene Autobahnen auf derselben Route ergeben mehrere IDs."""
+        seg1 = RouteSegment(
+            segment_index=0,
+            geometrie=[(50.0, 9.0), (50.01, 9.01)],
+            laenge_m=500.0,
+            strassenklasse="MOTORWAY",
+            strassenref="A 5",
+            bearing_deg=10.0,
+        )
+        seg2 = RouteSegment(
+            segment_index=1,
+            geometrie=[(50.01, 9.01), (50.02, 9.02)],
+            laenge_m=500.0,
+            strassenklasse="MOTORWAY",
+            strassenref="A 9",
+            bearing_deg=10.0,
+        )
+        seg3 = RouteSegment(
+            segment_index=2,
+            geometrie=[(50.02, 9.02), (50.03, 9.03)],
+            laenge_m=500.0,
+            strassenklasse="MOTORWAY",
+            strassenref="A 5",
+            bearing_deg=10.0,
+        )
+        route = Route(
+            segments=[seg1, seg2, seg3],
+            gesamtlaenge_m=1500.0,
+            geometrie=seg1.geometrie + seg2.geometrie + seg3.geometrie,
+        )
+        assert _extract_autobahn_ids(route) == {"A 5", "A 9"}
+
+    def test_skips_strassenref_without_a_prefix(self) -> None:
+        """Non-Autobahn refs (B, K, L) werden nicht extrahiert."""
+        seg1 = RouteSegment(
+            segment_index=0,
+            geometrie=[(50.0, 9.0), (50.01, 9.01)],
+            laenge_m=500.0,
+            strassenklasse="MOTORWAY",
+            strassenref="B 3",
+            bearing_deg=10.0,
+        )
+        route = Route(
+            segments=[seg1],
+            gesamtlaenge_m=500.0,
+            geometrie=seg1.geometrie,
+        )
+        assert _extract_autobahn_ids(route) == set()
 
 
 class TestNearestSegmentIndex:
@@ -897,25 +964,18 @@ class TestFetchDeRoadworks:
     """Tests für `_fetch_de_roadworks` (Autobahn GmbH JSON-Pfad)."""
 
     @pytest.mark.asyncio
-    async def test_fetches_all_autobahns_then_roadworks(self) -> None:
-        """Holt erst die Autobahn-Liste, dann Roadworks für jede Autobahn."""
+    async def test_fetches_roadworks_for_extracted_ids_only(self) -> None:
+        """Holt nur Roadworks für die aus strassenref extrahierten IDs — keine Liste."""
         provider = _make_provider()
-        route = _make_motorway_route(strassenname=None)
+        route = _make_motorway_route(strassenref="A 5")
 
-        # Mock list of all German Autobahns (first call returns list)
-        all_resp = MagicMock(spec=httpx.Response)
-        all_resp.raise_for_status = MagicMock()
-        all_resp.json = MagicMock(return_value={"roads": ["A1", "A9"]})
-
-        # Mock roadworks response
+        # Mock roadworks response (no list endpoint call anymore)
         sample_entry = _sample_autobahn_entry()
         roadworks_resp = MagicMock(spec=httpx.Response)
         roadworks_resp.raise_for_status = MagicMock()
         roadworks_resp.json = MagicMock(return_value={"roadworks": [sample_entry]})
 
         async def get_side(url: str, **kw: Any):
-            if url.endswith("/") or url.endswith("autobahn/"):
-                return all_resp
             return roadworks_resp
 
         provider._client.get = AsyncMock(side_effect=get_side)
@@ -924,57 +984,86 @@ class TestFetchDeRoadworks:
 
         zones = await provider._fetch_de_roadworks(route, strtree, seg_geoms)
 
-        assert len(zones) == 2  # One per Autobahn (A1, A9), both near route
+        assert len(zones) == 1
         for z in zones:
             assert z.land == Land.DE
+        # Verify no list endpoint was called
+        calls = provider._client.get.call_args_list
+        assert len(calls) == 1  # Only 1 roadworks call, not a list + roadworks
+        assert "services/roadworks" in str(calls[0])
 
     @pytest.mark.asyncio
-    async def test_empty_autobahn_list_returns_no_zones(self) -> None:
-        """Leere Autobahn-Liste liefert [] ohne Roadworks-Abfrage."""
+    async def test_no_zones_when_no_motorway_segments(self) -> None:
+        """PRIMARY-Route ohne MOTORWAY-Segmente: keine API-Calls."""
         provider = _make_provider()
         route = _make_route()
-
-        all_resp = MagicMock(spec=httpx.Response)
-        all_resp.raise_for_status = MagicMock()
-        all_resp.json = MagicMock(return_value={"roads": []})
-        provider._client.get = AsyncMock(return_value=all_resp)
 
         strtree, seg_geoms = _build_strtree(route)
 
         zones = await provider._fetch_de_roadworks(route, strtree, seg_geoms)
 
         assert zones == []
-        provider._client.get.assert_awaited_once()
+        provider._client.get.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_zones_when_strassenref_is_none(self) -> None:
+        """MOTORWAY ohne strassenref: keine API-Calls."""
+        provider = _make_provider()
+        route = _make_motorway_route(strassenref=None)
+
+        strtree, seg_geoms = _build_strtree(route)
+
+        zones = await provider._fetch_de_roadworks(route, strtree, seg_geoms)
+
+        assert zones == []
+        provider._client.get.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_request_failure_for_one_id_does_not_abort_others(self) -> None:
         """Fehler bei einer Autobahn-ID bricht die anderen nicht ab."""
         provider = _make_provider()
-        route = _make_motorway_route(strassenname=None)
+        # Route with TWO motorway segments: A 5 and A 9
+        route = Route(
+            segments=[
+                RouteSegment(
+                    segment_index=0,
+                    geometrie=[(50.0, 9.0), (50.01, 9.01)],
+                    laenge_m=1500.0,
+                    strassenklasse="MOTORWAY",
+                    tempolimit_kmh=100,
+                    bearing_deg=45.0,
+                    strassenref="A 5",
+                ),
+                RouteSegment(
+                    segment_index=1,
+                    geometrie=[(50.01, 9.01), (50.02, 9.02)],
+                    laenge_m=1500.0,
+                    strassenklasse="MOTORWAY",
+                    tempolimit_kmh=100,
+                    bearing_deg=45.0,
+                    strassenref="A 9",
+                ),
+            ],
+            gesamtlaenge_m=3000.0,
+            geometrie=[(50.0, 9.0), (50.01, 9.01), (50.02, 9.02)],
+        )
 
-        # Mock list of all German Autobahns
-        all_resp = MagicMock(spec=httpx.Response)
-        all_resp.raise_for_status = MagicMock()
-        all_resp.json = MagicMock(return_value={"roads": ["A3", "A9"]})
-
-        # A9 succeeds
+        # A 9 succeeds
         success_entry = _sample_autobahn_entry()
         success_resp = MagicMock(spec=httpx.Response)
         success_resp.raise_for_status = MagicMock()
         success_resp.json = MagicMock(return_value={"roadworks": [success_entry]})
 
-        # A3 fails
+        # A 5 fails
         fail_resp = MagicMock(spec=httpx.Response)
         fail_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
             "404", request=MagicMock(), response=fail_resp
         )
 
         async def get_side(url: str, **kw: Any):
-            if url.endswith("/") or url.endswith("autobahn/"):
-                return all_resp
-            if "A9" in url:
-                return success_resp
-            raise fail_resp
+            if "A 5" in url:
+                raise fail_resp
+            return success_resp
 
         provider._client.get = AsyncMock(side_effect=get_side)
 
@@ -982,7 +1071,7 @@ class TestFetchDeRoadworks:
 
         zones = await provider._fetch_de_roadworks(route, strtree, seg_geoms)
 
-        # A3 fails, A9 succeeds → only A9 zones
+        # A 5 fails, A 9 succeeds → only A 9 zones
         assert len(zones) == 1
         assert zones[0].land == Land.DE
 

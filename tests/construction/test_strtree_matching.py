@@ -106,13 +106,11 @@ class TestStrtreeBuiltOnce:
         """DE path: one STRtree per fetch_construction_zones call."""
         provider = _make_provider()
         route = _make_n_segments(200)
+        # Give each segment a strassenref so _extract_autobahn_ids finds A 1 and A 9
+        for i, seg in enumerate(route.segments):
+            seg.strassenref = "A 1" if i < 100 else "A 9"
 
-        # Mock list of all German Autobahns (first call)
-        all_resp = MagicMock(spec=httpx.Response)
-        all_resp.raise_for_status = MagicMock()
-        all_resp.json = MagicMock(return_value={"roads": ["A1", "A9"]})
-
-        # Mock roadworks responses for each Autobahn
+        # Mock roadworks responses for the extracted IDs (A 1, A 9)
         roadworks_list = [
             {
                 "coordinate": {"lat": 50.0 + i * 0.001, "long": 9.0 + i * 0.001},
@@ -127,8 +125,6 @@ class TestStrtreeBuiltOnce:
         roadworks_resp.json = MagicMock(return_value={"roadworks": roadworks_list})
 
         async def get_side(url: str, **kw: Any):
-            if url.endswith("/") or url.endswith("autobahn/"):
-                return all_resp
             return roadworks_resp
 
         provider._client.get = AsyncMock(side_effect=get_side)

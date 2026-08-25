@@ -66,6 +66,15 @@ class RouteSegment(BaseModel):
             "nicht verfügbar oder leer."
         ),
     )
+    strassenref: str | None = Field(
+        default=None,
+        description=(
+            "Straßen-/Autobahnref aus GraphHopper Path-Detail `street_ref` "
+            "(z. B. 'A 5', 'A 8', 'B 3', 'K 818'); None wenn nicht verfügbar oder leer. "
+            "Wird von `construction` genutzt, um Autobahn-IDs (A\d+) pro Segment "
+            "zu extrahieren und gezielte Roadworks-Queries zu ermöglichen."
+        ),
+    )
 
 
 class Route(BaseModel):

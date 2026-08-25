@@ -74,7 +74,7 @@ _DE_ROADWORKS_DEFAULT_SPEED_LIMIT_KMH = 80
 # active roadworks absent more specific data, matching the DE default.
 _DK_SE_ROADWORKS_DEFAULT_SPEED_LIMIT_KMH = 80
 
-_AUTOBAHN_ID_PATTERN = re.compile(r"A\d+")
+_AUTOBAHN_ID_PATTERN = re.compile(r"A\s*\d+")
 
 
 # ---------------------------------------------------------------------------
@@ -401,10 +401,11 @@ class ConstructionProviderImpl(ConstructionProvider):
     ) -> list[ConstructionZone]:
         """Fetch and parse roadworks from the Autobahn GmbH open API for DE.
 
-        Queries the API's list endpoint to get all German Autobahn IDs (since
-        ``segment.strassenname`` is always ``None`` for motorway segments from
-        GraphHopper), then fetches roadworks for each and matches against route
-        segments via the shared STRtree spatial index.
+        Extracts Autobahn IDs from ``segment.strassenref`` (GraphHopper
+        ``street_ref`` path detail) so only the handful of motorways actually
+        traversed by this route are queried — no more ~110 nationwide IDs.
+        Roadworks are then matched against route segments via the shared
+        STRtree spatial index.
 
         Args:
             route: The route to match roadworks against.
@@ -414,35 +415,22 @@ class ConstructionProviderImpl(ConstructionProvider):
         Returns:
             List of matched ``ConstructionZone`` objects.
         """
-        # 1. Fetch all German Autobahn IDs from the API's list endpoint.
-        #    We cannot rely on ``segment.strassenname`` because GraphHopper
-        #    returns ``None`` for motorway segments (OSM motorway ways don't
-        #    carry the A-number as the way name — only on the relation).
-        try:
-            all_resp = await self._client.get(f"{AUTOBAHN_BASE_URL}/")
-            all_resp.raise_for_status()
-            all_data: dict[str, list[str]] = all_resp.json()
-            autobahn_ids: list[str] = sorted(all_data.get("roads", []))
-        except httpx.HTTPError as exc:
-            logger.error("Construction API DE (autobahn list): request failed: %s", exc)
-            return []
-        except Exception:
-            logger.exception("Construction API DE (autobahn list): unexpected error")
-            return []
+        # 1. Extract only the Autobahn IDs that this route actually uses.
+        autobahn_ids = _extract_autobahn_ids(route)
 
         if not autobahn_ids:
-            logger.warning("Construction API DE: no Autobahn IDs found")
+            logger.debug("Construction API DE: no Autobahn IDs on route")
             return []
 
-        # 2. Fetch roadworks for each Autobahn in parallel.
+        # 2. Fetch roadworks for each identified Autobahn in parallel.
         responses = await asyncio.gather(
-            *(self._fetch_autobahn_roadworks(aid) for aid in autobahn_ids),
+            *(self._fetch_autobahn_roadworks(aid) for aid in sorted(autobahn_ids)),
             return_exceptions=True,
         )
 
         # 3. Parse and match roadworks to route segments.
         zones: list[ConstructionZone] = []
-        for autobahn_id, response in zip(autobahn_ids, responses, strict=True):
+        for autobahn_id, response in zip(sorted(autobahn_ids), responses, strict=True):
             if isinstance(response, BaseException):
                 logger.warning(
                     "Construction API DE (%s): request failed: %s",
@@ -705,6 +693,12 @@ def _extract_autobahn_ids(
 ) -> set[str]:
     """Extract distinct German Autobahn IDs (e.g. "A9") from motorway segments.
 
+    Reads ``segment.strassenref`` (the GraphHopper ``street_ref`` path detail)
+    which carries the OSM ``ref`` tag (e.g. "A 5") independently of
+    ``segment.strassenname`` (the OSM ``name`` tag, always ``None`` for most
+    motorway segments).  This avoids the ~110-ID nationwide query that caused
+    a 33 s regression in commit 6ece8a5.
+
     Args:
         route: The route to extract Autobahn IDs from.
 
@@ -713,9 +707,9 @@ def _extract_autobahn_ids(
     """
     autobahn_ids: set[str] = set()
     for segment in route.segments:
-        if segment.strassenklasse != "MOTORWAY" or not segment.strassenname:
+        if segment.strassenklasse != "MOTORWAY" or not segment.strassenref:
             continue
-        match = _AUTOBAHN_ID_PATTERN.search(segment.strassenname)
+        match = _AUTOBAHN_ID_PATTERN.search(segment.strassenref)
         if match:
             autobahn_ids.add(match.group())
     return autobahn_ids
