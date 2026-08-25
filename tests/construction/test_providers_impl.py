@@ -1295,9 +1295,9 @@ class TestCacheConfig:
     """Tests for TTL cache configuration fields."""
 
     def test_default_ttl(self) -> None:
-        """Default cache_ttl_seconds is 900."""
+        """Default cache_ttl_seconds is 3600 (1 hour)."""
         cfg = ConstructionProviderConfig()
-        assert cfg.cache_ttl_seconds == 900.0
+        assert cfg.cache_ttl_seconds == 3600.0
 
     def test_default_cache_dir_is_none(self) -> None:
         """Default cache_dir is None (uses .cache)."""
