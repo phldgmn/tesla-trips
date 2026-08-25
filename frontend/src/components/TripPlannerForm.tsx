@@ -1357,9 +1357,6 @@ export function TripPlannerForm({
           marginBottom: "1rem",
         }}
       >
-        <span style={{ fontSize: "0.78rem", color: "#6b7280", flexShrink: 0 }}>
-          Routendetails:
-        </span>
         <div
           role="radiogroup"
           aria-label="Wetter-Detailgrad"
