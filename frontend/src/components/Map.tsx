@@ -34,7 +34,7 @@ import {
 import { formatZeitpunkt } from "../utils/datetime-utils";
 import { formatCostOrDash } from "../utils/currency-utils";
 import { usePersistentState } from "../utils/persistent-state";
-import { ChargingStop, TripSimulationResult } from "../types";
+import { ChargingStop, ConstructionZone, TripSimulationResult } from "../types";
 import type { Stop } from "../types/trip-request";
 import {
   fetchSuperchargers,
@@ -441,6 +441,81 @@ export function buildChargingStopPopupHtml(stop: ChargingStop): string {
   );
 }
 
+/** Kurzes, deutsches Label je `Sperrungstyp`-Enum-Wert aus dem Backend
+ *  (`tripplanner.construction.models.Sperrungstyp`). Unbekannte Werte
+ *  (z. B. ein zukuenftiger Backend-Enum-Wert) fallen auf den Rohwert
+ *  zurueck statt eine leere Zeile zu erzeugen. */
+const SPERRUNGSTYP_LABELS: Record<string, string> = {
+  fullyClosed: "Vollsperrung",
+  partiallyClosed: "Teilsperrung",
+  laneClosed: "Fahrspur gesperrt",
+  temporarySpeedLimit: "Tempolimit",
+  reducedLanes: "Fahrspuren reduziert",
+  detrourRequired: "Umleitung erforderlich",
+};
+
+/** Erzeugt ein gestyltes DOM-Element fuer einen Baustellen-Marker
+ * (Warndreieck-Symbol), ein Eintrag pro `TripSimulationResult.construction_zones`.
+ * Optisch bewusst kleiner und farblich abgesetzt von Ladehalt-Markern
+ * (`buildChargingStopMarkerElement`), damit beide Markertypen auf einen
+ * Blick unterscheidbar bleiben. */
+export function buildConstructionZoneMarkerElement(): HTMLElement {
+  const el = document.createElement("div");
+  el.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="#1f2937" style="pointer-events:none;">
+    <path d="M12 2L1 21h22L12 2zm0 5.5L18.5 19h-13L12 7.5z"/>
+    <rect x="11" y="11" width="2" height="5" />
+    <rect x="11" y="17" width="2" height="2" />
+  </svg>`;
+  el.style.cssText = [
+    "display:flex",
+    "align-items:center",
+    "justify-content:center",
+    "width:20px",
+    "height:20px",
+    "border-radius:50%",
+    "background-color:#fbbf24",
+    "border:2px solid #ffffff",
+    "box-shadow:0 1px 4px rgba(0,0,0,0.35)",
+    "cursor:pointer",
+  ].join(";");
+  return el;
+}
+
+/** Popup-HTML fuer eine Baustelle: Sperrungstyp, Tempolimit, Umleitungshinweis,
+ * Land, Gueltigkeitszeitraum. Fehlende optionale Felder (`tempolimit_kmh`,
+ * `umleitungshinweis`) werden ausgelassen statt als leere Zeile angezeigt. */
+export function buildConstructionZonePopupHtml(zone: ConstructionZone): string {
+  const rows: [string, string][] = [];
+  if (zone.tempolimit_kmh !== null) {
+    rows.push(["Tempolimit", `${zone.tempolimit_kmh} km/h`]);
+  }
+  if (zone.umleitungshinweis !== null) {
+    rows.push(["Umleitung", zone.umleitungshinweis]);
+  }
+  rows.push(["Land", zone.land]);
+  rows.push(["Gültig ab", formatZeitpunkt(zone.gueltig_von)]);
+  rows.push([
+    "Gültig bis",
+    zone.gueltig_bis !== null
+      ? formatZeitpunkt(zone.gueltig_bis)
+      : "unbestimmt",
+  ]);
+  const rowsHtml = rows
+    .map(
+      ([label, value]) =>
+        `<tr><td style="padding:2px 4px;color:#666;">${label}</td>` +
+        `<td style="padding:2px 4px;text-align:right;">${value}</td></tr>`,
+    )
+    .join("");
+  const label = SPERRUNGSTYP_LABELS[zone.sperrungstyp] ?? zone.sperrungstyp;
+  return (
+    `<div style="font-family:system-ui,sans-serif;font-size:13px;min-width:190px;">` +
+    `<strong style="font-size:14px;">${label}</strong>` +
+    `<table style="width:100%;border-collapse:collapse;margin-top:4px;">${rowsHtml}</table>` +
+    `</div>`
+  );
+}
+
 /** Tooltip-Text fuer den Routen-Hover: Datum/Zeit und SoC am naechstgelegenen
  * Streckenpunkt. `sample` stammt aus `findNearestRouteSample()` ueber die
  * per `projectDistanceAlongLineM()` auf die gezeichnete (gesplicete) Linie
@@ -527,6 +602,9 @@ export function MapVisualization({
   // Ladehalt-Marker (ein Eintrag pro tatsaechlichem Ladehalt aus
   // `simulationResult.charging_stops`), analog zu `markersRef` fuer Stopps.
   const chargingStopMarkersRef = useRef<Marker[]>([]);
+  // Baustellen-Marker (ein Eintrag pro `simulationResult.construction_zones`),
+  // analog zu `chargingStopMarkersRef`.
+  const constructionZoneMarkersRef = useRef<Marker[]>([]);
 
   // Supercharger-Overlay
   const [superchargerStations, setSuperchargerStations] = useState<
@@ -624,6 +702,11 @@ export function MapVisualization({
       marker.remove();
     }
     chargingStopMarkersRef.current = [];
+    // Baustellen
+    for (const marker of constructionZoneMarkersRef.current) {
+      marker.remove();
+    }
+    constructionZoneMarkersRef.current = [];
     // Zwischenstopps
     if (map.getLayer("waypoint-markers")) map.removeLayer("waypoint-markers");
     if (map.getSource("waypoints")) map.removeSource("waypoints");
@@ -782,6 +865,21 @@ export function MapVisualization({
         )
         .addTo(map);
       chargingStopMarkersRef.current.push(marker);
+    }
+
+    // Baustellen-Marker hinzufügen: ein Marker pro Eintrag aus
+    // `simulationResult.construction_zones`, mit Klick-Popup für Details.
+    for (const zone of simulationResult.construction_zones) {
+      const element = buildConstructionZoneMarkerElement();
+      const marker = new Marker({ element })
+        .setLngLat(toLngLat(zone.position))
+        .setPopup(
+          new Popup({ offset: 12 }).setHTML(
+            buildConstructionZonePopupHtml(zone),
+          ),
+        )
+        .addTo(map);
+      constructionZoneMarkersRef.current.push(marker);
     }
 
     // Zwischenstopps-Marker hinzufügen (Frames mit Zustand 'PAUSE')

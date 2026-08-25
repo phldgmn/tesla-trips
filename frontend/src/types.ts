@@ -55,6 +55,27 @@ export interface TripSimulationResult {
   /** Number of charging stops excluded from `total_charging_cost` because no
    *  pricing data is cached yet for their station */
   charging_stops_missing_pricing: number;
+  /** Baustellen/Sperrungen entlang der Route fuer die Kartendarstellung (leer, falls keine) */
+  construction_zones: ConstructionZone[];
+}
+
+/** Eine Baustelle/Sperrung entlang der Route (`ConstructionZoneAPI`). */
+export interface ConstructionZone {
+  /** Repraesentative Position der Baustelle als [lat, lon] */
+  position: [number, number];
+  /** Art der Sperrung: "fullyClosed" | "partiallyClosed" | "laneClosed" |
+   *  "temporarySpeedLimit" | "reducedLanes" | "detrourRequired" */
+  sperrungstyp: string;
+  /** Reduziertes Tempolimit in km/h (null wenn keine Beschraenkung) */
+  tempolimit_kmh: number | null;
+  /** Freitext-Information zur Umleitung (optional) */
+  umleitungshinweis: string | null;
+  /** Land, in dem die Baustelle liegt: "DE" | "DK" | "SE" */
+  land: string;
+  /** ISO-8601 Startzeitpunkt der Baustelle */
+  gueltig_von: string;
+  /** ISO-8601 Endzeitpunkt der Baustelle (null wenn unbestimmt) */
+  gueltig_bis: string | null;
 }
 
 /** Aggregated estimated charging cost in a single currency
