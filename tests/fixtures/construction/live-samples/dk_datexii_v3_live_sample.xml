@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<d2:payload xmlns:com="http://datex2.eu/schema/3/common" xmlns:sit="http://datex2.eu/schema/3/situation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:loc="http://datex2.eu/schema/3/locationReferencing" xmlns:ex="http://datex2.eu/schema/3/exchangeInformation" xmlns:inf="http://datex2.eu/schema/3/informationManagement" xmlns:con="http://datex2.eu/schema/3/messageContainer" xmlns:vms="http://datex2.eu/schema/3/vms" xmlns:cis="http://datex2.eu/schema/3/cisInformation" xsi:type="sit:SituationPublication" xsi:schemaLocation="http://datex2.eu/schema/3/d2Payload http://datex2.eu/schema/3/d2Payload/DATEXII_3_D2Payload.xsd" lang="da-dk" modelBaseVersion="3" xmlns:d2="http://datex2.eu/schema/3/d2Payload">
+  <com:publicationTime>2026-08-25T09:20:06.8590153Z</com:publicationTime>
+  <com:publicationCreator>
+    <com:country>dk</com:country>
+    <com:nationalIdentifier>DRD</com:nationalIdentifier>
+  </com:publicationCreator>
+    <sit:situation id="27303b5a-a6f3-4e10-ab36-2e444ef375d5_267075">
+      <sit:headerInformation>
+        <com:confidentiality>noRestriction</com:confidentiality>
+        <com:informationStatus>real</com:informationStatus>
+      </sit:headerInformation>
+      <sit:situationRecord xsi:type="sit:MaintenanceWorks" id="27303b5a-a6f3-4e10-ab36-2e444ef375d5_267075.1" version="1">
+        <sit:situationRecordCreationTime>2026-02-17T08:31:52.6628023Z</sit:situationRecordCreationTime>
+        <sit:situationRecordVersionTime>2026-02-17T08:31:52.6628023Z</sit:situationRecordVersionTime>
+        <sit:probabilityOfOccurrence>certain</sit:probabilityOfOccurrence>
+        <sit:safetyRelatedMessage>false</sit:safetyRelatedMessage>
+        <sit:source>
+          <com:sourceName>
+            <com:values>
+              <com:value lang="da-dk">Københavns Kommune</com:value>
+            </com:values>
+          </com:sourceName>
+          <com:sourceType>roadAuthorities</com:sourceType>
+        </sit:source>
+        <sit:validity>
+          <com:validityStatus>definedByValidityTimeSpec</com:validityStatus>
+          <com:validityTimeSpecification>
+            <com:overallStartTime>2026-08-10T05:00:00Z</com:overallStartTime>
+            <com:overallEndTime>2026-09-25T13:00:00Z</com:overallEndTime>
+          </com:validityTimeSpecification>
+        </sit:validity>
+        <sit:impact>
+          <sit:delays />
+        </sit:impact>
+        <sit:generalPublicComment>
+          <sit:comment>
+            <com:values>
+              <com:value lang="da-dk">EL arbejde, følg skiltningen </com:value>
+            </com:values>
+          </sit:comment>
+        </sit:generalPublicComment>
+        <sit:locationReference xsi:type="loc:LinearLocation">
+          <loc:coordinatesForDisplay>
+            <loc:latitude>55.660385</loc:latitude>
+            <loc:longitude>12.49384</loc:longitude>
+          </loc:coordinatesForDisplay>
+          <loc:supplementaryPositionalDescription>
+            <loc:locationDescription>
+              <com:values>
+                <com:value lang="da-dk">  Danshøjvej mellem  Gladbovej og Hf. Dan</com:value>
+              </com:values>
+            </loc:locationDescription>
+          </loc:supplementaryPositionalDescription>
+          <loc:gmlLineString srsDimension="2" srsName="EPSG:4258">
+            <loc:posList>55.66038686753332 12.493839906377763 55.660395519762794 12.493851811876056 55.660399886570346 12.493856336754524 55.66045171853004 12.493930625618304 55.66046043405233 12.493940310018084 55.66046032101259 12.493944276336787 55.66046032101259 12.493944276336787 55.660459936676546 12.493957761820168 55.66045413076136 12.494161471905933</loc:posList>
+          </loc:gmlLineString>
+        </sit:locationReference>
+        <sit:roadMaintenanceType>roadworks</sit:roadMaintenanceType>
+      </sit:situationRecord>
+    </sit:situation>
+</d2:payload>
