@@ -711,7 +711,12 @@ def _extract_autobahn_ids(
             continue
         match = _AUTOBAHN_ID_PATTERN.search(segment.strassenref)
         if match:
-            autobahn_ids.add(match.group())
+            # The Autobahn GmbH API requires the compact form ("A5"), but
+            # GraphHopper's street_ref detail may contain a space ("A 5"):
+            # a space in the URL path silently returns an empty result set
+            # instead of an error (live-verified: `.../A%205/...` -> HTTP 200,
+            # `{"roadworks": []}`), so whitespace must be stripped here.
+            autobahn_ids.add(re.sub(r"\s+", "", match.group()))
     return autobahn_ids
 
 

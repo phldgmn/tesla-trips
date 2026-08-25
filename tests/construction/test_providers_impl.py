@@ -775,9 +775,9 @@ class TestExtractAutobahnIds:
     """Tests für `_extract_autobahn_ids`."""
 
     def test_extracts_id_from_motorway_segment_with_strassenref(self) -> None:
-        """MOTORWAY-Segment mit strassenref 'A 5' liefert 'A 5' als ID."""
+        """MOTORWAY-Segment mit strassenref 'A 5' liefert normalisiert 'A5' als ID."""
         route = _make_motorway_route(strassenref="A 5")
-        assert _extract_autobahn_ids(route) == {"A 5"}
+        assert _extract_autobahn_ids(route) == {"A5"}
 
     def test_extracts_id_from_strassenref_without_space(self) -> None:
         """strassenref 'A9' (ohne Leerzeichen) wird korrekt extrahiert."""
@@ -799,7 +799,7 @@ class TestExtractAutobahnIds:
             gesamtlaenge_m=500.0,
             geometrie=seg1.geometrie,
         )
-        assert _extract_autobahn_ids(route) == {"A 9"}
+        assert _extract_autobahn_ids(route) == {"A9"}
 
     def test_skips_non_motorway_segments(self) -> None:
         """Nicht-MOTORWAY-Segmente werden ignoriert."""
@@ -833,7 +833,7 @@ class TestExtractAutobahnIds:
             gesamtlaenge_m=1000.0,
             geometrie=seg1.geometrie + seg2.geometrie,
         )
-        assert _extract_autobahn_ids(route) == {"A 5"}
+        assert _extract_autobahn_ids(route) == {"A5"}
 
     def test_extract_multiple_different_autobahns(self) -> None:
         """Verschiedene Autobahnen auf derselben Route ergeben mehrere IDs."""
@@ -866,7 +866,7 @@ class TestExtractAutobahnIds:
             gesamtlaenge_m=1500.0,
             geometrie=seg1.geometrie + seg2.geometrie + seg3.geometrie,
         )
-        assert _extract_autobahn_ids(route) == {"A 5", "A 9"}
+        assert _extract_autobahn_ids(route) == {"A5", "A9"}
 
     def test_skips_strassenref_without_a_prefix(self) -> None:
         """Non-Autobahn refs (B, K, L) werden nicht extrahiert."""
@@ -993,6 +993,31 @@ class TestFetchDeRoadworks:
         assert "services/roadworks" in str(calls[0])
 
     @pytest.mark.asyncio
+    async def test_requests_url_without_space_for_strassenref_with_space(self) -> None:
+        """strassenref 'A 5' (mit Leerzeichen) darf die API-URL nicht mit Leerzeichen aufrufen.
+
+        Live-verifiziert: `.../A%205/services/roadworks` (URL-kodiertes
+        Leerzeichen) liefert HTTP 200 mit `{"roadworks": []}` statt eines
+        Fehlers — ein stillschweigend leeres Ergebnis statt eines erkennbaren
+        Fehlschlags. Die ID muss daher vor dem Request normalisiert werden.
+        """
+        provider = _make_provider()
+        route = _make_motorway_route(strassenref="A 5")
+
+        roadworks_resp = MagicMock(spec=httpx.Response)
+        roadworks_resp.raise_for_status = MagicMock()
+        roadworks_resp.json = MagicMock(return_value={"roadworks": [_sample_autobahn_entry()]})
+        provider._client.get = AsyncMock(return_value=roadworks_resp)
+
+        strtree, seg_geoms = _build_strtree(route)
+        await provider._fetch_de_roadworks(route, strtree, seg_geoms)
+
+        requested_url = str(provider._client.get.call_args_list[0])
+        assert "A5" in requested_url
+        assert "A 5" not in requested_url
+        assert "A%205" not in requested_url
+
+    @pytest.mark.asyncio
     async def test_no_zones_when_no_motorway_segments(self) -> None:
         """PRIMARY-Route ohne MOTORWAY-Segmente: keine API-Calls."""
         provider = _make_provider()
@@ -1061,7 +1086,7 @@ class TestFetchDeRoadworks:
         )
 
         async def get_side(url: str, **kw: Any):
-            if "A 5" in url:
+            if "A5" in url:
                 raise fail_resp
             return success_resp
 
