@@ -46,6 +46,7 @@ from tripplanner.simulation.models import (
     TripSimulationResult,
 )
 from tripplanner.trip_input.api import (
+    _build_construction_zones_api,
     _log_step,
     app,
     create_trip_endpoint,
@@ -1709,12 +1710,12 @@ def test_fastapi_endpoint_construction_zone_with_segments_has_position(
         data = response.json()
         assert len(data["construction_zones"]) == 1
         zone_api = data["construction_zones"][0]
-        assert zone_api["sperrungstyp"] == "temporarySpeedLimit"
-        assert zone_api["tempolimit_kmh"] == 60
-        assert zone_api["umleitungshinweis"] == "Umleitung über B96"
-        assert zone_api["land"] == "DE"
-        assert isinstance(zone_api["position"], list)
-        assert len(zone_api["position"]) == 2
+        zone_api = data["construction_zones"][0]
+        assert len(zone_api["events"]) == 1
+        assert zone_api["events"][0]["sperrungstyp"] == "temporarySpeedLimit"
+        assert zone_api["events"][0]["tempolimit_kmh"] == 60
+        assert zone_api["events"][0]["umleitungshinweis"] == "Umleitung über B96"
+        assert zone_api["events"][0]["land"] == "DE"
     finally:
         app.dependency_overrides[get_construction_provider] = (
             lambda: FakeConstructionProvider()  # noqa: PLW0108
@@ -3433,3 +3434,298 @@ async def test_create_trip_simulation_fetches_charging_stations_once_not_per_ite
     )
 
     assert call_count == 1
+
+
+# =============================================================================
+# _build_construction_zones_api grouping tests
+# =============================================================================
+
+
+def test_build_construction_zones_api_groups_nearby_zones() -> None:
+    """Zwei Baustellen innerhalb von 500 m werden gemerged; eine entfernte
+    Baustelle bleibt separat."""
+    seg1_start = (52.5200, 13.4050)
+    seg1_end = (52.5230, 13.4090)  # ~400 m von seg1_start
+    seg2_start = (52.5260, 13.4130)  # ~400 m von seg1_end (still within 500 m of seg1_start)
+    far_start = (52.6000, 13.5000)  # ~10 km entfernt
+
+    route_segments = [
+        RouteSegment(
+            segment_index=0,
+            geometrie=[seg1_start, seg1_end],
+            laenge_m=haversine_distance_m(seg1_start, seg1_end),
+            strassenklasse="PRIMARY",
+            oberflaeche="asphalt",
+            tempolimit_kmh=60,
+            steigung_rohdaten=0.0,
+            bearing_deg=0.0,
+        ),
+        RouteSegment(
+            segment_index=1,
+            geometrie=[seg1_end, seg2_start],
+            laenge_m=haversine_distance_m(seg1_end, seg2_start),
+            strassenklasse="PRIMARY",
+            oberflaeche="asphalt",
+            tempolimit_kmh=60,
+            steigung_rohdaten=0.0,
+            bearing_deg=0.0,
+        ),
+        RouteSegment(
+            segment_index=2,
+            geometrie=[far_start, (52.6010, 13.5020)],
+            laenge_m=200.0,
+            strassenklasse="PRIMARY",
+            oberflaeche="asphalt",
+            tempolimit_kmh=80,
+            steigung_rohdaten=0.0,
+            bearing_deg=0.0,
+        ),
+    ]
+
+    zone_near_1 = ConstructionZone(
+        betroffene_segmente=[0],
+        tempolimit_kmh=60,
+        sperrungstyp=Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+        umleitungshinweis="Spur 1 gesperrt",
+        land=Land.DE,
+        gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
+        gueltig_bis=None,
+    )
+    zone_near_2 = ConstructionZone(
+        betroffene_segmente=[1],
+        tempolimit_kmh=80,
+        sperrungstyp=Sperrungstyp.LANE_CLOSED,
+        umleitungshinweis="Spur 2 gesperrt",
+        land=Land.DE,
+        gueltig_von=datetime(2026, 2, 1, tzinfo=UTC),
+        gueltig_bis=datetime(2026, 3, 1, tzinfo=UTC),
+    )
+    zone_far = ConstructionZone(
+        betroffene_segmente=[2],
+        tempolimit_kmh=100,
+        sperrungstyp=Sperrungstyp.FULLY_CLOSED,
+        umleitungshinweis="Vollsperrung",
+        land=Land.DE,
+        gueltig_von=datetime(2026, 4, 1, tzinfo=UTC),
+        gueltig_bis=None,
+    )
+
+    result = _build_construction_zones_api([zone_near_1, zone_near_2, zone_far], route_segments)
+
+    # 2 markers: one merged (2 events) + one separate (1 event)
+    assert len(result) == 2
+
+    marker_near = result[0]
+    assert len(marker_near.events) == 2
+    assert marker_near.events[0].sperrungstyp == "temporarySpeedLimit"
+    assert marker_near.events[0].tempolimit_kmh == 60
+    assert marker_near.events[1].sperrungstyp == "laneClosed"
+    assert marker_near.events[1].tempolimit_kmh == 80
+    assert marker_near.events[1].gueltig_bis is not None
+
+    marker_far = result[1]
+    assert len(marker_far.events) == 1
+    assert marker_far.events[0].sperrungstyp == "fullyClosed"
+
+
+def test_build_construction_zones_api_all_separate_when_far_apart() -> None:
+    """Alle Zonen > 500 m voneinander → jeder Zone ein separater Marker."""
+    route_segments = [
+        RouteSegment(
+            segment_index=0,
+            geometrie=[(52.5200, 13.4050), (52.5230, 13.4090)],
+            laenge_m=400.0,
+            strassenklasse="PRIMARY",
+            oberflaeche="asphalt",
+            tempolimit_kmh=60,
+            steigung_rohdaten=0.0,
+            bearing_deg=0.0,
+        ),
+        RouteSegment(
+            segment_index=1,
+            geometrie=[(52.6000, 13.5000), (52.6010, 13.5020)],
+            laenge_m=200.0,
+            strassenklasse="PRIMARY",
+            oberflaeche="asphalt",
+            tempolimit_kmh=80,
+            steigung_rohdaten=0.0,
+            bearing_deg=0.0,
+        ),
+        RouteSegment(
+            segment_index=2,
+            geometrie=[(53.0000, 13.5000), (53.0010, 13.5020)],
+            laenge_m=200.0,
+            strassenklasse="PRIMARY",
+            oberflaeche="asphalt",
+            tempolimit_kmh=100,
+            steigung_rohdaten=0.0,
+            bearing_deg=0.0,
+        ),
+    ]
+
+    zones = [
+        ConstructionZone(
+            betroffene_segmente=[0],
+            tempolimit_kmh=60,
+            sperrungstyp=Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+            umleitungshinweis="A",
+            land=Land.DE,
+            gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
+            gueltig_bis=None,
+        ),
+        ConstructionZone(
+            betroffene_segmente=[1],
+            tempolimit_kmh=80,
+            sperrungstyp=Sperrungstyp.LANE_CLOSED,
+            umleitungshinweis="B",
+            land=Land.DE,
+            gueltig_von=datetime(2026, 2, 1, tzinfo=UTC),
+            gueltig_bis=None,
+        ),
+        ConstructionZone(
+            betroffene_segmente=[2],
+            tempolimit_kmh=100,
+            sperrungstyp=Sperrungstyp.FULLY_CLOSED,
+            umleitungshinweis="C",
+            land=Land.DE,
+            gueltig_von=datetime(2026, 3, 1, tzinfo=UTC),
+            gueltig_bis=None,
+        ),
+    ]
+
+    result = _build_construction_zones_api(zones, route_segments)
+
+    assert len(result) == 3
+    for i, marker in enumerate(result):
+        assert len(marker.events) == 1
+        expected = [
+            Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+            Sperrungstyp.LANE_CLOSED,
+            Sperrungstyp.FULLY_CLOSED,
+        ][i]
+        assert marker.events[0].sperrungstyp == expected.value
+
+
+def test_build_construction_zones_api_skips_empty_segmentes() -> None:
+    """Zonen mit leerer `betroffene_segmente` werden ignoriert."""
+    route_segments = [
+        RouteSegment(
+            segment_index=0,
+            geometrie=[(52.5200, 13.4050), (52.5230, 13.4090)],
+            laenge_m=400.0,
+            strassenklasse="PRIMARY",
+            oberflaeche="asphalt",
+            tempolimit_kmh=60,
+            steigung_rohdaten=0.0,
+            bearing_deg=0.0,
+        ),
+    ]
+
+    zones = [
+        ConstructionZone(
+            betroffene_segmente=[],
+            tempolimit_kmh=60,
+            sperrungstyp=Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+            umleitungshinweis="X",
+            land=Land.DE,
+            gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
+            gueltig_bis=None,
+        ),
+        ConstructionZone(
+            betroffene_segmente=[0],
+            tempolimit_kmh=60,
+            sperrungstyp=Sperrungstyp.LANE_CLOSED,
+            umleitungshinweis="Y",
+            land=Land.DE,
+            gueltig_von=datetime(2026, 2, 1, tzinfo=UTC),
+            gueltig_bis=None,
+        ),
+    ]
+
+    result = _build_construction_zones_api(zones, route_segments)
+
+    assert len(result) == 1
+    assert len(result[0].events) == 1
+    assert result[0].events[0].sperrungstyp == "laneClosed"
+
+
+def test_build_construction_zones_api_empty_input() -> None:
+    """Leere Eingabe → leere Ausgabe."""
+    assert _build_construction_zones_api([], []) == []
+
+
+def test_build_construction_zones_api_three_consecutive_merge() -> None:
+    """Drei Zonen innerhalb der Schwelle → alle in einem Marker gemerged."""
+    seg1_start = (52.5200, 13.4050)
+    seg2_start = (52.5230, 13.4090)  # ~400 m
+    seg3_start = (52.5260, 13.4130)  # ~400 m von seg2_start
+
+    route_segments = [
+        RouteSegment(
+            segment_index=0,
+            geometrie=[seg1_start, seg2_start],
+            laenge_m=haversine_distance_m(seg1_start, seg2_start),
+            strassenklasse="PRIMARY",
+            oberflaeche="asphalt",
+            tempolimit_kmh=60,
+            steigung_rohdaten=0.0,
+            bearing_deg=0.0,
+        ),
+        RouteSegment(
+            segment_index=1,
+            geometrie=[seg2_start, seg3_start],
+            laenge_m=haversine_distance_m(seg2_start, seg3_start),
+            strassenklasse="PRIMARY",
+            oberflaeche="asphalt",
+            tempolimit_kmh=80,
+            steigung_rohdaten=0.0,
+            bearing_deg=0.0,
+        ),
+        RouteSegment(
+            segment_index=2,
+            geometrie=[seg3_start, (52.5290, 13.4170)],
+            laenge_m=400.0,
+            strassenklasse="PRIMARY",
+            oberflaeche="asphalt",
+            tempolimit_kmh=100,
+            steigung_rohdaten=0.0,
+            bearing_deg=0.0,
+        ),
+    ]
+
+    zones = [
+        ConstructionZone(
+            betroffene_segmente=[0],
+            tempolimit_kmh=60,
+            sperrungstyp=Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+            umleitungshinweis="A",
+            land=Land.DE,
+            gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
+            gueltig_bis=None,
+        ),
+        ConstructionZone(
+            betroffene_segmente=[1],
+            tempolimit_kmh=80,
+            sperrungstyp=Sperrungstyp.LANE_CLOSED,
+            umleitungshinweis="B",
+            land=Land.DE,
+            gueltig_von=datetime(2026, 2, 1, tzinfo=UTC),
+            gueltig_bis=None,
+        ),
+        ConstructionZone(
+            betroffene_segmente=[2],
+            tempolimit_kmh=100,
+            sperrungstyp=Sperrungstyp.FULLY_CLOSED,
+            umleitungshinweis="C",
+            land=Land.DE,
+            gueltig_von=datetime(2026, 3, 1, tzinfo=UTC),
+            gueltig_bis=None,
+        ),
+    ]
+
+    result = _build_construction_zones_api(zones, route_segments)
+
+    assert len(result) == 1
+    assert len(result[0].events) == 3
+    types = [e.sperrungstyp for e in result[0].events]
+    assert types == ["temporarySpeedLimit", "laneClosed", "fullyClosed"]

@@ -34,6 +34,7 @@ from tripplanner.charging_infrastructure.providers import (
     TeslaChargingStationProvider,
 )
 from tripplanner.construction.models import ConstructionProvider, ConstructionZone, Land
+from tripplanner.construction.providers import _DE_ROADWORKS_MAX_DISTANCE_M
 from tripplanner.elevation import ElevationProvider
 from tripplanner.elevation.models import ElevationPoint
 from tripplanner.elevation.providers import FakeDataSource
@@ -706,6 +707,74 @@ def _log_step(
         iteration_tag,
         elapsed_ms,
     )
+
+
+def _build_construction_zones_api(
+    zones: list[ConstructionZone],
+    route_segments: list[RouteSegment],
+) -> list[ConstructionZoneAPI]:
+    """Build grouped ConstructionZoneAPI entries from raw construction zones.
+
+    Zones are sorted by their first affected segment index, then consecutive
+    zones within ``_DE_ROADWORKS_MAX_DISTANCE_M`` metres (haversine) of each
+    other are merged into a single marker with multiple events.
+
+    Args:
+        zones: Raw construction zones from the provider.
+        route_segments: Route segments for position resolution.
+
+    Returns:
+        List of ConstructionZoneAPI markers, each potentially merging nearby
+        events.
+    """
+    valid_zones: list[ConstructionZone] = [z for z in zones if z.betroffene_segmente]
+    valid_zones.sort(key=lambda z: z.betroffene_segmente[0] if z.betroffene_segmente else 0)
+
+    construction_zones_api: list[ConstructionZoneAPI] = []
+    last_position: Coordinate | None = None
+    for zone in valid_zones:
+        first_idx = zone.betroffene_segmente[0]
+        if first_idx < 0 or first_idx >= len(route_segments):
+            continue
+
+        zone_position = route_segments[first_idx].geometrie[0]
+
+        if (
+            last_position is not None
+            and haversine_distance_m(last_position, zone_position) <= _DE_ROADWORKS_MAX_DISTANCE_M
+        ):
+            construction_zones_api[-1].events.append(
+                ConstructionZoneEventAPI(
+                    sperrungstyp=zone.sperrungstyp.value,
+                    tempolimit_kmh=zone.tempolimit_kmh,
+                    umleitungshinweis=zone.umleitungshinweis,
+                    land=zone.land.value,
+                    gueltig_von=zone.gueltig_von,
+                    gueltig_bis=zone.gueltig_bis,
+                )
+            )
+            last_position = zone_position
+            continue
+
+        # Start a new group
+        construction_zones_api.append(
+            ConstructionZoneAPI(
+                position=zone_position,
+                events=[
+                    ConstructionZoneEventAPI(
+                        sperrungstyp=zone.sperrungstyp.value,
+                        tempolimit_kmh=zone.tempolimit_kmh,
+                        umleitungshinweis=zone.umleitungshinweis,
+                        land=zone.land.value,
+                        gueltig_von=zone.gueltig_von,
+                        gueltig_bis=zone.gueltig_bis,
+                    )
+                ],
+            ),
+        )
+        last_position = zone_position
+
+    return construction_zones_api
 
 
 # Kernfunktion: Orchestrierung aller 11 Schritte
@@ -1585,12 +1654,9 @@ class ChargingCostByCurrencyAPI(BaseModel):
     amount: float = Field(..., ge=0.0, description="Summed cost in `currency`")
 
 
-class ConstructionZoneAPI(BaseModel):
-    """API-Repräsentation einer Baustelle für die Kartendarstellung."""
+class ConstructionZoneEventAPI(BaseModel):
+    """One underlying construction/roadwork event merged into a ConstructionZoneAPI marker."""
 
-    position: Coordinate = Field(
-        ..., description="Repräsentative (lat, lon) Position der Baustelle auf der Route"
-    )
     sperrungstyp: str = Field(..., description="Art der Sperrung/Baustelle")
     tempolimit_kmh: int | None = Field(
         default=None, description="Reduziertes Tempolimit in km/h (None wenn keine Beschränkung)"
@@ -1602,6 +1668,17 @@ class ConstructionZoneAPI(BaseModel):
     gueltig_von: datetime = Field(..., description="Startzeitpunkt der Baustelle (ISO 8601)")
     gueltig_bis: datetime | None = Field(
         default=None, description="Endzeitpunkt der Baustelle (ISO 8601), None wenn unbestimmt"
+    )
+
+
+class ConstructionZoneAPI(BaseModel):
+    """API-repräsentation eines Baustellen-Markers, der mehrere nahe Events zusammenfasst."""
+
+    position: Coordinate = Field(
+        ..., description="Repräsentative (lat, lon) Position (erstes Event entlang der Route)"
+    )
+    events: list[ConstructionZoneEventAPI] = Field(
+        ..., description="Zusammengefasste Events (Länge > 1 = mehrere nahe Events gemerged)"
     )
 
 
@@ -1748,24 +1825,9 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
             route_observer=_route_erfassen,
         )
 
-        construction_zones_api: list[ConstructionZoneAPI] = []
-        for zone in ergebnis.construction_zones:
-            if not zone.betroffene_segmente:
-                continue
-            first_idx = zone.betroffene_segmente[0]
-            if first_idx < 0 or first_idx >= len(route_segments):
-                continue
-            construction_zones_api.append(
-                ConstructionZoneAPI(
-                    position=route_segments[first_idx].geometrie[0],
-                    sperrungstyp=zone.sperrungstyp.value,
-                    tempolimit_kmh=zone.tempolimit_kmh,
-                    umleitungshinweis=zone.umleitungshinweis,
-                    land=zone.land.value,
-                    gueltig_von=zone.gueltig_von,
-                    gueltig_bis=zone.gueltig_bis,
-                )
-            )
+        construction_zones_api = _build_construction_zones_api(
+            ergebnis.construction_zones, route_segments
+        )
 
         return TripSimulationResultAPI(
             gesamt_distanz_km=ergebnis.gesamt_distanz_km,
