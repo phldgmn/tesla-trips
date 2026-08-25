@@ -222,3 +222,48 @@ class TestBuildWeatherProvider:
         openweather_provider = entries["openweather"].provider
         assert openweather_provider._api_key == "env-key"
         await close_production_providers(providers)
+
+
+class TestLoadLocalCredentials:
+    """Tests for _load_local_credentials() credential parsing."""
+
+    def test_dk_block_missing_tenant_id_does_not_crash(self, tmp_path: Path) -> None:
+        """A DK block with clientid+secret but no tenant_id returns None for dk_tenant_id
+        instead of raising KeyError — matching the graceful-degradation pattern for
+        optional credential keys."""
+        credentials_file = tmp_path / "credentials.local.yaml"
+        credentials_file.write_text("DK:\n  clientid: my-client-id\n  secret: my-secret\n")
+        with patch.object(
+            providers_factory_module,
+            "_LOCAL_CREDENTIALS_PATH",
+            credentials_file,
+        ):
+            result = providers_factory_module._load_local_credentials()
+
+        assert "DK" in result
+        dk = result["DK"]
+        assert dk["dk_client_id"] == "my-client-id"
+        assert dk["dk_secret"] == "my-secret"
+        assert dk["dk_tenant_id"] is None
+
+    def test_dk_block_with_all_keys(self, tmp_path: Path) -> None:
+        """A fully-populated DK block returns all three credential values."""
+        credentials_file = tmp_path / "credentials.local.yaml"
+        credentials_file.write_text(
+            "DK:\n  clientid: my-client-id\n  secret: my-secret\n  tenant_id: my-tenant\n"
+        )
+        with patch.object(
+            providers_factory_module,
+            "_LOCAL_CREDENTIALS_PATH",
+            credentials_file,
+        ):
+            result = providers_factory_module._load_local_credentials()
+
+        assert "DK" in result
+        dk = result["DK"]
+        assert dk["dk_client_id"] == "my-client-id"
+        assert dk["dk_secret"] == "my-secret"
+        assert dk["dk_tenant_id"] == "my-tenant"
+
+    def test_empty_credentials_file_returns_empty_dict(self) -> None:
+        """When credentials.local.yaml does not exist, _load_local_credentials returns {}."""

@@ -139,7 +139,7 @@ async def build_production_providers(
 
 
 def _build_weather_provider(
-    local_credentials: dict[str, dict[str, str]],
+    local_credentials: dict[str, dict[str, str | None]],
 ) -> LoadBalancedWeatherProvider:
     """Builds the production `WeatherProvider`.
 
@@ -192,7 +192,7 @@ async def close_production_providers(providers: ProductionProviders) -> None:
     providers.charging.close()
 
 
-def _load_local_credentials() -> dict[str, dict[str, str]]:
+def _load_local_credentials() -> dict[str, dict[str, str | None]]:
     """Loads DK/SE construction and OpenWeather credentials from `credentials.local.yaml`.
 
     Reads the repo-root `credentials.local.yaml` (gitignored; see
@@ -211,13 +211,13 @@ def _load_local_credentials() -> dict[str, dict[str, str]]:
 
     raw: dict[str, Any] = yaml.safe_load(_LOCAL_CREDENTIALS_PATH.read_text()) or {}
 
-    result: dict[str, dict[str, str]] = {}
+    result: dict[str, dict[str, str | None]] = {}
     dk_raw = raw.get("DK")
     if isinstance(dk_raw, dict) and "clientid" in dk_raw and "secret" in dk_raw:
         result["DK"] = {
             "dk_client_id": dk_raw["clientid"],
             "dk_secret": dk_raw["secret"],
-            "dk_tenant_id": dk_raw["tenant_id"],
+            "dk_tenant_id": dk_raw.get("tenant_id"),
         }
     se_raw = raw.get("SE")
     if isinstance(se_raw, dict) and "key" in se_raw:
