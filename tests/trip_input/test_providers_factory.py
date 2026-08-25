@@ -232,7 +232,7 @@ class TestLoadLocalCredentials:
         instead of raising KeyError — matching the graceful-degradation pattern for
         optional credential keys."""
         credentials_file = tmp_path / "credentials.local.yaml"
-        credentials_file.write_text("DK:\n  clientid: my-client-id\n  secret: my-secret\n")
+        credentials_file.write_text("DK:\n  client_id: my-client-id\n  secret: my-secret\n")
         with patch.object(
             providers_factory_module,
             "_LOCAL_CREDENTIALS_PATH",
@@ -247,10 +247,9 @@ class TestLoadLocalCredentials:
         assert dk["dk_tenant_id"] is None
 
     def test_dk_block_with_all_keys(self, tmp_path: Path) -> None:
-        """A fully-populated DK block returns all three credential values."""
         credentials_file = tmp_path / "credentials.local.yaml"
         credentials_file.write_text(
-            "DK:\n  clientid: my-client-id\n  secret: my-secret\n  tenant_id: my-tenant\n"
+            "DK:\n  client_id: my-client-id\n  secret: my-secret\n  tenant_id: my-tenant\n"
         )
         with patch.object(
             providers_factory_module,

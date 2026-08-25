@@ -101,7 +101,12 @@ def _find_situation_records(root: ET.Element) -> list[ET.Element]:
 
 
 def _find_element(parent: ET.Element, tag: str) -> ET.Element | None:
-    """Find an element with namespace handling."""
+    """Find an element matching *tag* by local name, ignoring namespaces.
+
+    This is deliberately loose so it works across DATEX II v2.2 and v3.x
+    payloads, whose elements carry different namespace URIs but the same
+    local tag names (``validity``, ``overallStartTime``, etc.).
+    """
     # Strip leading .// or // if present
     clean_tag = tag
     if clean_tag.startswith(".//"):
@@ -109,22 +114,12 @@ def _find_element(parent: ET.Element, tag: str) -> ET.Element | None:
     elif clean_tag.startswith("//"):
         clean_tag = clean_tag[2:]
 
-    # Try with namespaces
-    elem = parent.find(clean_tag, NAMESPACES)
-    if elem is not None:
-        return elem
+    tag_no_ns = clean_tag.rsplit("}", 1)[-1] if "}" in clean_tag else clean_tag
 
-    # Try without namespace
-    tag_no_ns = clean_tag.split("}")[1] if "}" in clean_tag else clean_tag
-    # Search locally
-    elem = parent.find(f".//{tag_no_ns}")
-    if elem is not None:
-        return elem
-
-    # Search with datex namespace explicitly
-    elem = parent.find(f".//{{http://datex2.eu/schema/2/2_0}}{tag_no_ns}")
-    if elem is not None:
-        return elem
+    # Walk every element under *parent*, match on local tag name.
+    for elem in parent.iter():
+        if elem.tag.rsplit("}", 1)[-1] == tag_no_ns:
+            return elem
 
     return None
 
@@ -189,16 +184,16 @@ def _parse_situation_record(sr: ET.Element, land: Land) -> DATEXIIConstructionZo
     koordinaten: list[tuple[float, float]] = []
 
     if locations is not None:
-        coords_elem = _find_element(locations, ".//{http://www.opengis.net/gml}coordinates")
+        # v2.2: gml:coordinates string ("lon lat" pairs, comma-separated)
+        coords_elem = _find_element(locations, ".//gml:coordinates")
+        coords_elem = coords_elem or _find_element(locations, ".//coordinates")
         if coords_elem is not None and coords_elem.text:
             koordinaten = _parse_coordinates(coords_elem.text, land)
         else:
-            geographic_positions = locations.findall(".//geographicPosition", NAMESPACES)
-            if not geographic_positions:
-                geographic_positions = locations.findall(
-                    ".//{http://datex2.eu/schema/2/2_0}geographicPosition", NAMESPACES
-                )
-            for gp in geographic_positions:
+            # v2.2 fallback: <geographicPosition>/<latitude> + <longitude>
+            for gp in locations.iter():
+                if "geographicPosition" not in gp.tag:
+                    continue
                 lat_elem = _find_element(gp, ".//latitude")
                 lon_elem = _find_element(gp, ".//longitude")
                 if (
@@ -213,6 +208,32 @@ def _parse_situation_record(sr: ET.Element, land: Land) -> DATEXIIConstructionZo
                         koordinaten.append((lat, lon))
                     except ValueError:
                         continue
+
+    # v3 DATEX II: locationReference (LinearLocation or SingleSnapshotLocation)
+    loc_ref = _find_element(sr, ".//locationReference")
+    if loc_ref is not None:
+        # Prefer line geometry: gmlLineString → posList (space-separated "lat lon" pairs)
+        pos_list_elem = _find_element(loc_ref, ".//posList")
+        if pos_list_elem is not None and pos_list_elem.text:
+            koordinaten = _parse_v3_pos_list(pos_list_elem.text)
+        else:
+            # Fall back to point geometry: coordinatesForDisplay → latitude + longitude
+            coords_for_display = _find_element(loc_ref, ".//coordinatesForDisplay")
+            if coords_for_display is not None:
+                lat_elem = _find_element(coords_for_display, ".//latitude")
+                lon_elem = _find_element(coords_for_display, ".//longitude")
+                if (
+                    lat_elem is not None
+                    and lat_elem.text
+                    and lon_elem is not None
+                    and lon_elem.text
+                ):
+                    try:
+                        lat = float(lat_elem.text)
+                        lon = float(lon_elem.text)
+                        koordinaten = [(lat, lon)]
+                    except ValueError:
+                        pass
 
     source_elem = _find_element(sr, ".//source")
     umleitungshinweis: str | None = None
@@ -290,4 +311,26 @@ def _parse_coordinates(
             except ValueError:
                 continue
 
+    return coords
+
+
+def _parse_v3_pos_list(pos_str: str) -> list[tuple[float, float]]:
+    """Parse a DATEX II v3 ``posList`` string into (lat, lon) pairs.
+
+    Format: space-separated numeric pairs, first number = latitude (for
+    EPSG:4258 in Denmark / GML default order).  E.g.
+    ``"55.66038 12.49383 55.66040 12.49385"`` →
+    ``[(55.66038, 12.49383), (55.66040, 12.49385)]``.
+    """
+    coords: list[tuple[float, float]] = []
+    parts = pos_str.split()
+    i = 0
+    while i + 1 < len(parts):
+        try:
+            lat = float(parts[i])
+            lon = float(parts[i + 1])
+            coords.append((lat, lon))
+        except ValueError:
+            break
+        i += 2
     return coords

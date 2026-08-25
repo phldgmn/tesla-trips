@@ -27,12 +27,6 @@ def denmark_xml() -> str:
     return (FIXTURES_DIR / "datexii_denmark_lane_closure.xml").read_text()
 
 
-@pytest.fixture
-def sweden_xml() -> str:
-    """Lese schwedische DATEX II Fixture."""
-    return (FIXTURES_DIR / "datexii_sweden_temp_limit.xml").read_text()
-
-
 def test_parse_datexii_germany(germany_xml: str) -> None:
     """Parse einer deutschen DATEX II Nachricht."""
     zones = parse_datexii_xml(germany_xml, Land.DE)
@@ -73,27 +67,6 @@ def test_parse_datexii_denmark(denmark_xml: str) -> None:
 
     assert len(zone.koordinaten) >= 3
     assert zone.tempolimit_kmh == 100
-
-
-def test_parse_datexii_sweden(sweden_xml: str) -> None:
-    """Parse einer schwedischen DATEX II Nachricht."""
-    zones = parse_datexii_xml(sweden_xml, Land.SE)
-
-    assert len(zones) >= 1
-    zone = zones[0]
-
-    assert "TemporarySpeedLimit" in zone.sperrungstyp or "Roadworks" in zone.sperrungstyp
-    assert zone.gueltig_von.year == 2024
-    assert zone.gueltig_von.month == 3
-    assert zone.gueltig_von.day == 19
-
-    assert zone.gueltig_bis is not None
-    assert zone.gueltig_bis.year == 2024
-    assert zone.gueltig_bis.month == 3
-    assert zone.gueltig_bis.day == 19
-
-    assert len(zone.koordinaten) >= 4
-    assert zone.tempolimit_kmh in [60, 80, 100]
 
 
 def test_delay_band_to_speed() -> None:

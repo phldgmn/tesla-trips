@@ -30,6 +30,7 @@ from tripplanner.construction.models import (
     Sperrungstyp,
 )
 from tripplanner.construction.parser import (
+    ROADWORKS_TYPES,
     DATEXIIConstructionZoneInternal,
     parse_datexii_xml,
 )
@@ -61,8 +62,126 @@ _DE_ROADWORKS_MAX_DISTANCE_M = 500.0
 # values below, since ConstructionZone's validator requires tempolimit_kmh
 # for both PARTIALLY_CLOSED and TEMPORARY_SPEED_LIMIT).
 _DE_ROADWORKS_DEFAULT_SPEED_LIMIT_KMH = 80
+# DK and SE DATEX II APIs expose no structured speed-limit field for roadwork
+# impacts (delays element is often empty, and the impact structure lacks a
+# numeric speed). 80 km/h is the standard real-world default speed limit at
+# active roadworks absent more specific data, matching the DE default.
+_DK_SE_ROADWORKS_DEFAULT_SPEED_LIMIT_KMH = 80
 
 _AUTOBAHN_ID_PATTERN = re.compile(r"A\d+")
+
+
+def _parse_wkt_point(wkt: str) -> tuple[float, float] | None:
+    """Parse a WKT ``POINT (lon lat)`` string into (lat, lon).
+
+    Returns ``None`` if the WKT cannot be parsed.
+    """
+    try:
+        wkt = wkt.strip()
+        if not wkt.upper().startswith("POINT"):
+            return None
+        # Remove "POINT " prefix and parentheses
+        inner = wkt[5:].strip().strip("()")
+        parts = inner.split()
+        if len(parts) >= 2:
+            lon, lat = float(parts[0]), float(parts[1])
+            return (lat, lon)
+    except (ValueError, IndexError):
+        pass
+    return None
+
+
+def _parse_wkt_line(wkt: str) -> list[tuple[float, float]] | None:
+    """Parse a WKT ``LINESTRING (lon lat, lon lat, ...)`` into [(lat, lon)].
+
+    Returns ``None`` if no valid coordinates are found.
+    """
+    coords: list[tuple[float, float]] = []
+    try:
+        wkt = wkt.strip()
+        if not wkt.upper().startswith("LINESTRING"):
+            return None
+        # Extract content inside parentheses
+        inner = wkt[10:].strip().strip("()")
+        pairs = inner.split(",")
+        for pair in pairs:
+            parts = pair.strip().split()
+            if len(parts) >= 2:
+                try:
+                    lon, lat = float(parts[0]), float(parts[1])
+                    coords.append((lat, lon))
+                except ValueError:
+                    continue
+    except (ValueError, IndexError):
+        pass
+    return coords if coords else None
+
+
+def _parse_trafikverket_situations(data: dict[str, Any]) -> list[DATEXIIConstructionZoneInternal]:
+    """Map Trafikverket Situation/Deviation JSON to DATEXIIConstructionZoneInternal.
+
+    Response shape: ``RESPONSE.RESULT[0].Situation[].Deviation[]``.
+    Only Deviations whose ``MessageTypeValue`` is in ``ROADWORKS_TYPES``
+    are kept (filtering out unrelated traffic messages).
+    """
+    zones: list[DATEXIIConstructionZoneInternal] = []
+
+    response = data.get("RESPONSE", {})
+    results: list[dict[str, Any]] = response.get("RESULT", [])
+
+    for result in results:
+        for situation in result.get("Situation", []):
+            for deviation in situation.get("Deviation", []):
+                msg_type_value: str = deviation.get("MessageTypeValue", "")
+
+                # Filter: only roadworks-related types
+                if msg_type_value not in ROADWORKS_TYPES:
+                    continue
+
+                start_time = deviation.get("StartTime")
+                end_time = deviation.get("EndTime")
+                message = deviation.get("Message")
+                geometry = deviation.get("Geometry", {})
+
+                # Coordinate extraction: prefer Line, fall back to Point
+                line_wkt = (
+                    geometry.get("Line", {}).get("WGS84")
+                    if isinstance(geometry.get("Line"), dict)
+                    else None
+                )
+                point_wkt = (
+                    geometry.get("Point", {}).get("WGS84")
+                    if isinstance(geometry.get("Point"), dict)
+                    else None
+                )
+
+                koordinaten: list[tuple[float, float]] = []
+                if line_wkt:
+                    parsed = _parse_wkt_line(line_wkt)
+                    if parsed:
+                        koordinaten = parsed
+                if not koordinaten and point_wkt:
+                    pt = _parse_wkt_point(point_wkt)
+                    if pt:
+                        koordinaten = [pt]
+
+                gueltig_von = (
+                    datetime.fromisoformat(start_time) if start_time else datetime.now(UTC)
+                )
+                gueltig_bis = datetime.fromisoformat(end_time) if end_time else None
+
+                zones.append(
+                    DATEXIIConstructionZoneInternal(
+                        sperrungstyp=msg_type_value,
+                        gueltig_von=gueltig_von,
+                        gueltig_bis=gueltig_bis,
+                        koordinaten=koordinaten,
+                        umleitungshinweis=message or None,
+                        tempolimit_kmh=None,  # No structured speed field — default applied upstream
+                    )
+                )
+
+    return zones
 
 
 class ConstructionProviderConfig(BaseModel):
@@ -249,14 +368,20 @@ class ConstructionProviderImpl(ConstructionProvider):
         except Exception:
             logger.warning("Construction API %s: request failed", land)
             return []
-
-        xml_content = response.text
-        construction_zones = parse_datexii_xml(xml_content, land)
+        if land == Land.SE:
+            construction_zones = _parse_trafikverket_situations(response.json())
+        else:
+            xml_content = response.text
+            construction_zones = parse_datexii_xml(xml_content, land)
 
         return [
             ConstructionZone(
                 betroffene_segmente=await self._map_to_segment_ids(zone, route),
-                tempolimit_kmh=zone.tempolimit_kmh,
+                tempolimit_kmh=(
+                    zone.tempolimit_kmh
+                    if zone.tempolimit_kmh is not None
+                    else _DK_SE_ROADWORKS_DEFAULT_SPEED_LIMIT_KMH
+                ),
                 sperrungstyp=self._map_closure_type(zone.sperrungstyp),
                 umleitungshinweis=zone.umleitungshinweis,
                 land=land,
@@ -337,8 +462,7 @@ class ConstructionProviderImpl(ConstructionProvider):
         return (
             "<REQUEST>"
             f'<LOGIN authenticationkey="{self._config.tv_api_key}"/>'
-            '<QUERY objecttype="Situation" schemaversion="1.5">'
-            "<FILTER>"
+            '<QUERY objecttype="Situation" schemaversion="1.6" namespace="road.trafficinfo">'
             f'<WITHIN name="Deviation.Geometry.Point.WGS84" shape="box" value="{wkt_box}"/>'
             "</FILTER>"
             "</QUERY></REQUEST>"

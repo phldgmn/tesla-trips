@@ -3,6 +3,7 @@ XML-Parsing-Integration, Autobahn-GmbH-Integration (DE) und Lifecycle."""
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,7 +29,6 @@ from tripplanner.routing.models import Route, RouteSegment
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "construction"
 
 VALID_DK_XML = (FIXTURES_DIR / "datexii_denmark_lane_closure.xml").read_text()
-VALID_SE_XML = (FIXTURES_DIR / "datexii_sweden_temp_limit.xml").read_text()
 
 
 def _make_route() -> Route:
@@ -353,7 +353,11 @@ class TestFetchErrorHandling:
         """httpx.TimeoutException liefert leere Liste und einen Warning-Log."""
         provider = _make_provider()
         provider._client.post = AsyncMock(return_value=self._make_token_resp())
-        provider._client.get = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
+
+        async def timeout_side_effect(*args, **kwargs):
+            raise httpx.TimeoutException("timeout")
+
+        provider._client.get = AsyncMock(side_effect=timeout_side_effect)
 
         with caplog.at_level(logging.WARNING):
             zones = await provider._fetch_landscape_zones(_make_route(), Land.DK)
@@ -592,12 +596,16 @@ class TestSeRequestXml:
 
     @pytest.mark.asyncio
     async def test_se_request_is_post_with_xml_body_and_authenticationkey(self) -> None:
-        """SE sendet einen POST mit XML-Body, der den authenticationkey enthält."""
+        """SE sends a POST with XML body containing authenticationkey; response is JSON."""
+
         config = ConstructionProviderConfig(tv_api_key="se-secret-key")
         provider = _make_provider(config)
+        se_json_fixture = json.loads(
+            (FIXTURES_DIR / "live-samples" / "se_trafikverket_live_sample.json").read_text()
+        )
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.raise_for_status = MagicMock()
-        mock_response.text = VALID_SE_XML
+        mock_response.json = MagicMock(return_value=se_json_fixture)
         provider._client.post = AsyncMock(return_value=mock_response)
 
         await provider._fetch_landscape_zones(_make_route(), Land.SE)
@@ -606,6 +614,7 @@ class TestSeRequestXml:
         args, kwargs = provider._client.post.call_args
         assert args[0] == "https://api.trafikinfo.trafikverket.se/v2/data.json"
         assert 'authenticationkey="se-secret-key"' in kwargs["content"]
+        # SE request is XML (response body is JSON, but request uses XML format)
         assert kwargs["headers"]["Accept"] == "application/xml"
         provider._client.get.assert_not_awaited()
 
@@ -863,22 +872,25 @@ class TestFetchConstructionZones:
 
     @pytest.mark.asyncio
     async def test_se_fetch_success(self) -> None:
-        """SE: Erfolgreicher HTTP-POST (XML-Body) und Parsing."""
+        """SE: Erfolgreicher HTTP-POST (XML-Body) und JSON-Parsing."""
+
         provider = _make_provider()
 
+        se_json_fixture = json.loads(
+            (FIXTURES_DIR / "live-samples" / "se_trafikverket_live_sample.json").read_text()
+        )
         mock_response = MagicMock(spec=httpx.Response)
-        mock_response.text = VALID_SE_XML
         mock_response.raise_for_status = MagicMock()
+        mock_response.json = MagicMock(return_value=se_json_fixture)
         provider._client.post = AsyncMock(return_value=mock_response)
-
         zones = await provider.fetch_construction_zones(_make_route(), [Land.SE])
-
         assert len(zones) >= 1
         assert zones[0].land == Land.SE
 
     @pytest.mark.asyncio
     async def test_multiple_countries_combined(self) -> None:
         """Mehrere Länder (DE/DK/SE) in einem Aufruf werden zusammengeführt."""
+
         provider = _make_provider()
 
         de_response = MagicMock(spec=httpx.Response)
@@ -889,9 +901,12 @@ class TestFetchConstructionZones:
         dk_response.raise_for_status = MagicMock()
         dk_response.text = VALID_DK_XML
 
+        se_json_fixture = json.loads(
+            (FIXTURES_DIR / "live-samples" / "se_trafikverket_live_sample.json").read_text()
+        )
         se_response = MagicMock(spec=httpx.Response)
         se_response.raise_for_status = MagicMock()
-        se_response.text = VALID_SE_XML
+        se_response.json = MagicMock(return_value=se_json_fixture)
 
         token_resp = MagicMock(spec=httpx.Response)
         token_resp.json.return_value = {
