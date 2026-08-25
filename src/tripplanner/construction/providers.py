@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 from pydantic import BaseModel
+from shapely import STRtree
 from shapely.geometry import LineString, Point
 from shapely.geometry.base import BaseGeometry
 
@@ -53,9 +54,13 @@ DATEXII_ENDPOINTS: dict[Land, str] = {
 # GET {AUTOBAHN_BASE_URL}/A1/services/roadworks returns current roadworks.
 AUTOBAHN_BASE_URL = "https://verkehr.autobahn.de/o/autobahn"
 
-# Entries whose nearest route segment is farther than this are discarded as
-# not actually on this route.
-_DE_ROADWORKS_MAX_DISTANCE_M = 500.0
+# Maximum distance in metres for matching a zone/roadwork to a route segment.
+# Shared across DE, DK, and SE matching paths.
+_MAX_DISTANCE_M = 500.0
+
+# Legacy alias for the shared distance threshold (kept for callers that
+# reference the old name).
+_DE_ROADWORKS_MAX_DISTANCE_M = _MAX_DISTANCE_M
 
 # The Autobahn GmbH API exposes no structured speed-limit field. 80 km/h is
 # the standard real-world default speed limit at active German Autobahn
@@ -72,6 +77,11 @@ _DK_SE_ROADWORKS_DEFAULT_SPEED_LIMIT_KMH = 80
 _AUTOBAHN_ID_PATTERN = re.compile(r"A\d+")
 
 
+# ---------------------------------------------------------------------------
+# WKT helpers (unchanged from original)
+# ---------------------------------------------------------------------------
+
+
 def _parse_wkt_point(wkt: str) -> tuple[float, float] | None:
     """Parse a WKT ``POINT (lon lat)`` string into (lat, lon).
 
@@ -81,7 +91,6 @@ def _parse_wkt_point(wkt: str) -> tuple[float, float] | None:
         wkt = wkt.strip()
         if not wkt.upper().startswith("POINT"):
             return None
-        # Remove "POINT " prefix and parentheses
         inner = wkt[5:].strip().strip("()")
         parts = inner.split()
         if len(parts) >= 2:
@@ -102,7 +111,6 @@ def _parse_wkt_line(wkt: str) -> list[tuple[float, float]] | None:
         wkt = wkt.strip()
         if not wkt.upper().startswith("LINESTRING"):
             return None
-        # Extract content inside parentheses
         inner = wkt[10:].strip().strip("()")
         pairs = inner.split(",")
         for pair in pairs:
@@ -118,7 +126,14 @@ def _parse_wkt_line(wkt: str) -> list[tuple[float, float]] | None:
     return coords if coords else None
 
 
-def _parse_trafikverket_situations(data: dict[str, Any]) -> list[DATEXIIConstructionZoneInternal]:
+# ---------------------------------------------------------------------------
+# Trafikverket situation parser (unchanged from original)
+# ---------------------------------------------------------------------------
+
+
+def _parse_trafikverket_situations(
+    data: dict[str, Any],
+) -> list[DATEXIIConstructionZoneInternal]:
     """Map Trafikverket Situation/Deviation JSON to DATEXIIConstructionZoneInternal.
 
     Response shape: ``RESPONSE.RESULT[0].Situation[].Deviation[]``.
@@ -135,7 +150,6 @@ def _parse_trafikverket_situations(data: dict[str, Any]) -> list[DATEXIIConstruc
             for deviation in situation.get("Deviation", []):
                 msg_type_value: str = deviation.get("MessageTypeValue", "")
 
-                # Filter: only roadworks-related types
                 if msg_type_value not in ROADWORKS_TYPES:
                     continue
 
@@ -144,7 +158,6 @@ def _parse_trafikverket_situations(data: dict[str, Any]) -> list[DATEXIIConstruc
                 message = deviation.get("Message")
                 geometry = deviation.get("Geometry", {})
 
-                # Coordinate extraction: prefer Line, fall back to Point
                 line_wkt = (
                     geometry.get("Line", {}).get("WGS84")
                     if isinstance(geometry.get("Line"), dict)
@@ -178,11 +191,16 @@ def _parse_trafikverket_situations(data: dict[str, Any]) -> list[DATEXIIConstruc
                         gueltig_bis=gueltig_bis,
                         koordinaten=koordinaten,
                         umleitungshinweis=message or None,
-                        tempolimit_kmh=None,  # No structured speed field — default applied upstream
+                        tempolimit_kmh=None,
                     )
                 )
 
     return zones
+
+
+# ---------------------------------------------------------------------------
+# Provider config & protocol implementation
+# ---------------------------------------------------------------------------
 
 
 class ConstructionProviderConfig(BaseModel):
@@ -237,7 +255,12 @@ class ConstructionProviderImpl(ConstructionProvider):
     async def __aenter__(self) -> ConstructionProviderImpl:
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    async def __aexit__(
+        self,
+        exc_type: Any,
+        exc_val: Any,
+        exc_tb: Any,
+    ) -> None:
         await self.close()
 
     async def close(self) -> None:
@@ -251,14 +274,67 @@ class ConstructionProviderImpl(ConstructionProvider):
         DK requires dk_client_id, dk_secret, AND dk_tenant_id.
         """
         if country == Land.DK:
-            return (
-                bool(self._config.dk_client_id)
-                and bool(self._config.dk_secret)
-                and bool(self._config.dk_tenant_id)
+            return bool(
+                self._config.dk_client_id and self._config.dk_secret and self._config.dk_tenant_id
             )
         if country == Land.SE:
             return bool(self._config.tv_api_key)
         return True
+
+    @staticmethod
+    def _build_strtree(
+        segments: list[routing_models.RouteSegment],
+    ) -> tuple[STRtree, list[LineString]]:
+        """Build an STRtree spatial index from route segments **once**.
+
+        Segment geometries are in ``(lon, lat)`` order for Shapely,
+        converting from the ``(lat, lon)`` order used in
+        ``RouteSegment.geometrie``.
+
+        Args:
+            segments: Route segments to index.
+
+        Returns:
+            Tuple of ``(STRtree, list[LineString])``.
+        """
+        geoms: list[LineString] = [
+            LineString((pt[1], pt[0]) for pt in seg.geometrie) for seg in segments
+        ]
+        return STRtree(geoms), geoms
+
+    @staticmethod
+    def _match_geometry_to_segments(
+        zone_geom: BaseGeometry,
+        strtree: STRtree,
+        segment_geoms: list[LineString],
+        max_distance_m: float = _MAX_DISTANCE_M,
+    ) -> list[int]:
+        """Match a zone geometry to route segments via STRtree + distance threshold.
+
+        Uses ``dwithin`` for an O(log n) candidate query with a distance
+        threshold.  This finds segments within *max_distance_m* (converted
+        to degrees) of the zone, including zones that are near but whose
+        bounding boxes don't overlap.
+
+        Args:
+            zone_geom: The DATEX II zone geometry (Point or LineString).
+            strtree: The pre-built STRtree from route segment geometries.
+            segment_geoms: The list of ``LineString`` objects for each route segment.
+            max_distance_m: Maximum distance in metres for a match.
+
+        Returns:
+            List of segment indices that match within the distance threshold.
+        """
+        if not segment_geoms:
+            return []
+
+        distance_deg = max_distance_m / 111_320.0
+        try:
+            indices = list(strtree.query(zone_geom, predicate="dwithin", distance=distance_deg))
+        except (AttributeError, IndexError):
+            indices = list(range(len(segment_geoms)))
+
+        return [int(idx) for idx in indices]
 
     async def fetch_construction_zones(
         self,
@@ -270,37 +346,75 @@ class ConstructionProviderImpl(ConstructionProvider):
         Countries missing required credentials (DK/SE) are skipped with a
         logged warning instead of sending a request that would fail with
         401/403 anyway.
-        """
-        all_zones: list[ConstructionZone] = []
 
+        All configured countries are fetched **concurrently** via
+        ``asyncio.gather``.  A single STRtree is built once and shared
+        across all matching calls within this invocation.
+
+        Args:
+            route: The route to match construction zones against.
+            countries: List of countries to fetch construction data for.
+
+        Returns:
+            List of ``ConstructionZone`` objects matched to route segments.
+        """
+        strtree, segment_geoms = self._build_strtree(route.segments)
+
+        tasks: list[tuple[Land, Any]] = []
         for country in countries:
             if not self._has_credentials(country):
-                logger.warning("Construction API %s: missing credentials, skipping.", country)
+                logger.warning(
+                    "Construction API %s: missing credentials, skipping.",
+                    country,
+                )
                 continue
             if country == Land.DE:
-                zones = await self._fetch_de_roadworks(route)
+                tasks.append((country, self._fetch_de_roadworks(route, strtree, segment_geoms)))
             else:
-                zones = await self._fetch_landscape_zones(route, country)
-            all_zones.extend(zones)
+                tasks.append(
+                    (country, self._fetch_landscape_zones(route, country, strtree, segment_geoms))
+                )
+
+        results = await asyncio.gather(
+            *(t[1] for t in tasks),
+            return_exceptions=True,
+        )
+
+        all_zones: list[ConstructionZone] = []
+        for (country, _), result in zip(tasks, results, strict=True):
+            if isinstance(result, BaseException):
+                logger.warning(
+                    "Construction API %s: request failed: %s",
+                    country,
+                    result,
+                )
+                continue
+            all_zones.extend(result)
 
         return all_zones
 
     async def _fetch_de_roadworks(
         self,
         route: routing_models.Route,
+        strtree: STRtree,
+        segment_geoms: list[LineString],
     ) -> list[ConstructionZone]:
         """Fetch and parse roadworks from the Autobahn GmbH open API for DE.
 
-        A DE-specific fetch+parse path, separate from `_fetch_landscape_zones`'s
-        DATEX II flow: the Autobahn API is JSON, unauthenticated, and queried
-        per Autobahn ID rather than per country bounding box.
+        Args:
+            route: The route to match roadworks against.
+            strtree: Pre-built STRtree for the route segments.
+            segment_geoms: Pre-built LineString list for route segments.
+
+        Returns:
+            List of matched ``ConstructionZone`` objects.
         """
         autobahn_ids = sorted(_extract_autobahn_ids(route))
         if not autobahn_ids:
             return []
 
         responses = await asyncio.gather(
-            *(self._fetch_autobahn_roadworks(autobahn_id) for autobahn_id in autobahn_ids),
+            *(self._fetch_autobahn_roadworks(aid) for aid in autobahn_ids),
             return_exceptions=True,
         )
 
@@ -308,11 +422,13 @@ class ConstructionProviderImpl(ConstructionProvider):
         for autobahn_id, response in zip(autobahn_ids, responses, strict=True):
             if isinstance(response, BaseException):
                 logger.warning(
-                    "Construction API DE (%s): request failed: %s", autobahn_id, response
+                    "Construction API DE (%s): request failed: %s",
+                    autobahn_id,
+                    response,
                 )
                 continue
             for entry in response:
-                zone = _parse_autobahn_roadwork(entry, route)
+                zone = _parse_autobahn_roadwork(entry, route, strtree, segment_geoms)
                 if zone is not None:
                     zones.append(zone)
 
@@ -330,8 +446,20 @@ class ConstructionProviderImpl(ConstructionProvider):
         self,
         route: routing_models.Route,
         land: Land,
+        strtree: STRtree,
+        segment_geoms: list[LineString],
     ) -> list[ConstructionZone]:
-        """Abfrage und Parsing für ein DATEX-II-Land (DK, SE)."""
+        """Abfrage und Parsing für ein DATEX-II-Land (DK, SE).
+
+        Args:
+            route: The route to match construction zones against.
+            land: The country code (DK or SE).
+            strtree: Shared STRtree spatial index.
+            segment_geoms: Shared list of route segment geometries.
+
+        Returns:
+            List of ``ConstructionZone`` objects matched to route segments.
+        """
         endpoint = (
             (self._config.dk_download_url or DATEXII_ENDPOINTS[land])
             if land == Land.DK
@@ -354,7 +482,10 @@ class ConstructionProviderImpl(ConstructionProvider):
                 response = await self._client.post(
                     endpoint,
                     content=xml_body,
-                    headers={"Content-Type": "text/xml", "Accept": "application/xml"},
+                    headers={
+                        "Content-Type": "text/xml",
+                        "Accept": "application/xml",
+                    },
                 )
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -369,6 +500,7 @@ class ConstructionProviderImpl(ConstructionProvider):
         except Exception:
             logger.warning("Construction API %s: request failed", land)
             return []
+
         if land == Land.SE:
             construction_zones = _parse_trafikverket_situations(response.json())
         else:
@@ -377,7 +509,7 @@ class ConstructionProviderImpl(ConstructionProvider):
 
         return [
             ConstructionZone(
-                betroffene_segmente=await self._map_to_segment_ids(zone, route),
+                betroffene_segmente=self._match_zones_to_segment_ids(zone, strtree, segment_geoms),
                 tempolimit_kmh=(
                     zone.tempolimit_kmh
                     if zone.tempolimit_kmh is not None
@@ -392,10 +524,7 @@ class ConstructionProviderImpl(ConstructionProvider):
             for zone in construction_zones
         ]
 
-    # Azure AD OAuth2 token endpoint for DK service accounts.
     _AZURE_TOKEN_URL = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
-    # Safety margin (seconds) before the actual expiry to avoid using
-    # a token that expires mid-request.
     _TOKEN_EXPIRY_SAFETY_MARGIN_S = 60
 
     def _get_dk_bearer_token(self) -> str | None:
@@ -413,9 +542,11 @@ class ConstructionProviderImpl(ConstructionProvider):
     async def _refresh_dk_bearer_token(self) -> str:
         """POST to Azure AD to obtain a fresh OAuth2 bearer token.
 
-        Uses the ``client_credentials`` grant with the configured
-        ``dk_client_id``, ``dk_secret``, and ``dk_tenant_id``.
-        Caches the result on the instance for subsequent calls.
+        Args:
+            None.
+
+        Returns:
+            The access token string.
         """
         tenant_id = self._config.dk_tenant_id or ""
         token_url = self._AZURE_TOKEN_URL.format(tenant_id=tenant_id)
@@ -448,24 +579,25 @@ class ConstructionProviderImpl(ConstructionProvider):
         }
 
     def _build_se_request_xml(self, route: routing_models.Route) -> str:
-        """Build the Trafikverket v2 `data.json` POST body for roadwork Situations.
+        """Build the Trafikverket v2 ``data.json`` POST body for Situations.
 
-        Filters by a bounding-box ``WITHIN`` on
-        ``Deviation.Geometry.Point.WGS84`` (the indexed point sub-geometry).
-        Value is WKT-style: ``"{minLon} {minLat}, {maxLon} {maxLat}"``
-        (longitude-first pairs, space between lon/lat within a pair, comma
-        between the two corner pairs).
+        Args:
+            route: The route to build the bounding box from.
+
+        Returns:
+            XML body for the Trafikverket API request.
         """
         bbox = self._route_to_bounding_box(route)
-        # bbox is "minLat,minLon,maxLat,maxLon"; reformat to lon-first WKT.
         min_lat, min_lon, max_lat, max_lon = bbox.split(",", 3)
         wkt_box = f"{min_lon} {min_lat}, {max_lon} {max_lat}"
         return (
             "<REQUEST>"
             f'<LOGIN authenticationkey="{self._config.tv_api_key}"/>'
-            '<QUERY objecttype="Situation" schemaversion="1.6" namespace="road.trafficinfo">'
+            '<QUERY objecttype="Situation" schemaversion="1.6" '
+            'namespace="road.trafficinfo">'
             "<FILTER>"
-            f'<WITHIN name="Deviation.Geometry.Point.WGS84" shape="box" value="{wkt_box}"/>'
+            f'<WITHIN name="Deviation.Geometry.Point.WGS84" shape="box" '
+            f'value="{wkt_box}"/>'
             "</FILTER>"
             "</QUERY></REQUEST>"
         )
@@ -483,32 +615,42 @@ class ConstructionProviderImpl(ConstructionProvider):
         lats, lons = zip(*coords, strict=True)
         return f"{min(lats)},{min(lons)},{max(lats)},{max(lons)}"
 
-    async def _map_to_segment_ids(
+    def _match_zones_to_segment_ids(
         self,
         zone: DATEXIIConstructionZoneInternal,
-        route: routing_models.Route,
+        strtree: STRtree,
+        segment_geoms: list[LineString],
     ) -> list[int]:
-        """Mapped DATEX II Geometrie auf Route-Segment-IDs."""
+        """Map a DATEX II zone to route segment IDs via distance threshold.
+
+        Uses the pre-built STRtree for O(log n) candidate retrieval, then
+        filters with precise distance measurement.  This replaces the former
+        O(n) ``.intersects()`` scan that failed to match zones near (but not
+        exactly on) route segments.
+
+        Args:
+            zone: The DATEX II zone to match.
+            strtree: Shared STRtree spatial index.
+            segment_geoms: Shared list of route segment geometries.
+
+        Returns:
+            List of segment indices within ``_MAX_DISTANCE_M`` of the zone.
+        """
         zone_geom = self._zone_to_geometry(zone)
+        return self._match_geometry_to_segments(zone_geom, strtree, segment_geoms)
 
-        betroffene_ids: list[int] = []
-        for idx, segment in enumerate(route.segments):
-            seg_geom = LineString(segment.geometrie)
-
-            if zone_geom.intersects(seg_geom):
-                betroffene_ids.append(idx)
-
-        return betroffene_ids
-
-    def _zone_to_geometry(
-        self,
-        zone: DATEXIIConstructionZoneInternal,
-    ) -> BaseGeometry:
+    def _zone_to_geometry(self, zone: DATEXIIConstructionZoneInternal) -> BaseGeometry:
         """Convert DATEX II coordinates to a Shapely geometry.
 
-        Returns a ``LineString`` for 2+ points, a ``Point`` for exactly 1
-        point (so ``.intersects()`` still works against route segments),
-        or an empty ``LineString`` for 0 points (intersects always False).
+        DATEX II coordinates are in ``(lat, lon)`` order (as stored in
+        ``zone.koordinaten``); this method converts to ``(lon, lat)`` for
+        Shapely.
+
+        Args:
+            zone: The DATEX II zone internal record.
+
+        Returns:
+            A Shapely geometry in ``(lon, lat)`` order.
         """
         coords = [(pt[1], pt[0]) for pt in zone.koordinaten]
         if len(coords) == 1:
@@ -530,12 +672,21 @@ class ConstructionProviderImpl(ConstructionProvider):
         return type_map.get(xsi_type, Sperrungstyp.PARTIALLY_CLOSED)
 
 
-def _extract_autobahn_ids(route: routing_models.Route) -> set[str]:
+# ---------------------------------------------------------------------------
+# Module-level helpers (DE roadwork-specific)
+# ---------------------------------------------------------------------------
+
+
+def _extract_autobahn_ids(
+    route: routing_models.Route,
+) -> set[str]:
     """Extract distinct German Autobahn IDs (e.g. "A9") from motorway segments.
 
-    GraphHopper does not always populate `strassenname` for motorway segments;
-    segments with no resolvable Autobahn ID are silently skipped (a
-    documented, safe under-approximation of roadwork coverage).
+    Args:
+        route: The route to extract Autobahn IDs from.
+
+    Returns:
+        Set of unique Autobahn ID strings found on the route.
     """
     autobahn_ids: set[str] = set()
     for segment in route.segments:
@@ -548,16 +699,45 @@ def _extract_autobahn_ids(route: routing_models.Route) -> set[str]:
 
 
 def _nearest_segment_index(
-    point: Coordinate, segments: list[routing_models.RouteSegment]
+    point: Coordinate,
+    segments: list[routing_models.RouteSegment],
+    strtree: STRtree | None = None,
+    segment_geoms: list[LineString] | None = None,
 ) -> tuple[int | None, float]:
-    """Find the route segment nearest to `point` via haversine distance.
+    """Find the route segment nearest to `point` via STRtree or haversine.
 
-    Replicates `trip_input.api._segment_index_for_coordinate`'s haversine
-    matching approach locally, rather than importing it: `construction` must
-    not depend on `trip_input` (wrong dependency direction).
+    Args:
+        point: The ``(lat, lon)`` coordinate to match.
+        segments: The route segments to search.
+        strtree: Optional pre-built STRtree for fast candidate retrieval.
+        segment_geoms: Optional pre-built LineString list matching *segments*.
+
+    Returns:
+        ``(best_index, best_distance_m)`` or ``(None, inf)`` if no match.
     """
     if not segments:
         return None, float("inf")
+
+    if strtree is not None and segment_geoms is not None:
+        point_geom = Point((point[1], point[0]))
+        try:
+            indices = list(strtree.nearest(point_geom))
+            candidate_indices = [int(idx) for idx in indices]
+        except (AttributeError, IndexError, ValueError, TypeError):
+            candidate_indices = []
+        if not candidate_indices:
+            candidate_indices = list(range(len(segments)))
+
+        best_idx: int | None = None
+        best_dist = float("inf")
+        for idx in candidate_indices:
+            if idx < 0 or idx >= len(segments):
+                continue
+            dist = haversine_distance_m(point, segments[idx].geometrie[0])
+            if dist < best_dist:
+                best_dist, best_idx = dist, idx
+        return best_idx, best_dist
+
     best_idx, best_dist = 0, float("inf")
     for idx, segment in enumerate(segments):
         for vertex in (segment.geometrie[0], segment.geometrie[-1]):
@@ -573,12 +753,21 @@ def _parse_autobahn_timestamp(value: str) -> datetime:
 
 
 def _parse_autobahn_roadwork(
-    entry: dict[str, Any], route: routing_models.Route
+    entry: dict[str, Any],
+    route: routing_models.Route,
+    strtree: STRtree | None = None,
+    segment_geoms: list[LineString] | None = None,
 ) -> ConstructionZone | None:
-    """Map a single Autobahn GmbH `roadworks[]` JSON entry to a ConstructionZone.
+    """Map a single Autobahn GmbH ``roadworks[]`` JSON entry to a ConstructionZone.
 
-    Returns None when the entry's coordinate cannot be matched to any route
-    segment within `_DE_ROADWORKS_MAX_DISTANCE_M` (not actually on this route).
+    Args:
+        entry: A single roadworks entry from the Autobahn API response.
+        route: The route to match against.
+        strtree: Optional pre-built STRtree for fast nearest lookup.
+        segment_geoms: Optional pre-built LineString list for route segments.
+
+    Returns:
+        A ``ConstructionZone`` or ``None`` if the entry is too far from the route.
     """
     coordinate = entry.get("coordinate")
     if not coordinate:
@@ -588,7 +777,9 @@ def _parse_autobahn_roadwork(
     except (KeyError, TypeError, ValueError):
         return None
 
-    segment_index, distance_m = _nearest_segment_index(point, route.segments)
+    segment_index, distance_m = _nearest_segment_index(
+        point, route.segments, strtree, segment_geoms
+    )
     if segment_index is None or distance_m > _DE_ROADWORKS_MAX_DISTANCE_M:
         return None
 
@@ -626,10 +817,10 @@ class FakeConstructionProvider(ConstructionProvider):
     async def fetch_construction_zones(
         self,
         route: routing_models.Route,
-        countries: list[Land],
+        laender: list[Land],
     ) -> list[ConstructionZone]:
         """Liefert die konfigurierten Test-Zonen, optional gefiltert nach Land."""
-        self.fetch_construction_zones_calls.append((route, countries))
-        if countries:
-            return [zone for zone in self.test_zones if zone.land in countries]
+        self.fetch_construction_zones_calls.append((route, laender))
+        if laender:
+            return [zone for zone in self.test_zones if zone.land in laender]
         return self.test_zones.copy()
