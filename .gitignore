@@ -4,6 +4,8 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+# Persistent external API cache (SQLite-backed TTLCache)
+.cache/
 .coverage
 htmlcov/
 site/

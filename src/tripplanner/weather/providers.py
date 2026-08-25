@@ -14,15 +14,18 @@ Implements:
 """
 
 import asyncio
+import json
 import logging
 import time
 from collections import deque
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 import httpx
 
+from tripplanner.cache import TTLCache
 from tripplanner.geo import Coordinate
 from tripplanner.weather.coverage import detect_country
 from tripplanner.weather.models import OpenMeteoResponse, WeatherQuery, WeatherSample
@@ -164,18 +167,41 @@ class OpenMeteoClient:
 class OpenMeteoProvider:
     """Wetter-Provider über Open-Meteo Forecast API.
 
-    Nutzt intern `OpenMeteoClient` für HTTP-Calls und implementiert
-    Caching für `refetch_weather` (Dictionary `CacheKey = Tuple[Coordinate, datetime]`).
+    Nutzt intern ``OpenMeteoClient`` für HTTP-Calls und implementiert
+    zweistufiges Caching: ein in-memory ``dict`` für schnelle Wiederholungen
+    innerhalb eines Prozesses sowie einen persistenten ``TTLCache`` (SQLite),
+    der auch über Prozessgrenzen hinweg wirksam ist.
     """
 
-    def __init__(self, client: OpenMeteoClient | None = None) -> None:
+    def __init__(
+        self,
+        client: OpenMeteoClient | None = None,
+        *,
+        cache_ttl_seconds: float = 3600.0,
+        cache_dir: Path | str | None = None,
+    ) -> None:
         """Initialisiert den Provider.
 
         Args:
             client: Optionaler OpenMeteoClient. Wenn None, wird ein neuer Client erstellt.
+            cache_ttl_seconds: TTL für den persistenten Cache in Sekunden
+                (Standard: 3600 = 1 Stunde, entsprechend dem stündlichen
+                Aktualisierungsrhythmus von Open-Meteo).
+            cache_dir: Verzeichnis für die SQLite-Datenbank des persistenten
+                Caches. Wenn ``None``, wird der Standardpfad
+                ``<TRIPPLANNER_CACHE_DIR>/external_api_cache.sqlite`` verwendet.
         """
         self._client = client or OpenMeteoClient()
         self._cache: dict[tuple[Coordinate, datetime], WeatherSample] = {}
+        self._persistent_cache: TTLCache | None = (
+            TTLCache(
+                namespace="weather_open_meteo",
+                ttl_seconds=cache_ttl_seconds,
+                db_path=cache_dir,
+            )
+            if cache_dir is not None
+            else None
+        )
 
     async def fetch_weather(
         self,
@@ -187,17 +213,29 @@ class OpenMeteoProvider:
         coordinates within 0.1° and timestamps in the same clock hour
         share cache entries.  Returned samples carry the *original* coordinate
         and timestamp from each query.
+
+        Two-tier caching: the in-memory ``_cache`` dict is checked first for
+        fast intra-process hits.  On miss the persistent ``_persistent_cache``
+        (SQLite-backed TTLCache) is consulted before any HTTP call; a hit
+        populates the in-memory layer as well.  On fresh fetch the parsed
+        ``WeatherSample`` is stored in both caches.
         """
         uncached_queries: list[tuple[int, WeatherQuery]] = []
         results: list[WeatherSample | None] = [None] * len(queries)
 
         for idx, query in enumerate(queries):
             ck = _cache_key(query.koordinate, query.zeitpunkt)
-            if ck in self._cache:
-                # Return sample but with the query's original zeitpunkt
-                # (hourly data is identical across the same hour window)
-                cached = self._cache[ck]
-                results[idx] = cached.model_copy(
+            raw = self._cache.get(ck)
+            if raw is None and self._persistent_cache is not None:
+                # Persistent cache fallback
+                str_key = _cache_str_key(query.koordinate, query.zeitpunkt)
+                json_str = self._persistent_cache.get(str_key)
+                if json_str is not None:
+                    raw = _cache_deserialize(json_str)
+                    self._cache[ck] = raw
+
+            if raw is not None:
+                results[idx] = raw.model_copy(
                     update={"koordinate": query.koordinate, "zeitpunkt": query.zeitpunkt}
                 )
             else:
@@ -226,6 +264,9 @@ class OpenMeteoProvider:
                 if sample is not None:
                     ck = _cache_key(query.koordinate, query.zeitpunkt)
                     self._cache[ck] = sample
+                    if self._persistent_cache is not None:
+                        str_key = _cache_str_key(query.koordinate, query.zeitpunkt)
+                        self._persistent_cache.set(str_key, sample.model_dump(mode="json"))
                     results[orig_idx] = sample
 
         return [r for r in results if r is not None]
@@ -246,9 +287,16 @@ class OpenMeteoProvider:
 
         for idx, query in enumerate(updated_queries):
             ck = _cache_key(query.koordinate, query.zeitpunkt)
-            if ck in self._cache:
-                cached = self._cache[ck]
-                results[idx] = cached.model_copy(
+            raw = self._cache.get(ck)
+            if raw is None and self._persistent_cache is not None:
+                # Persistent cache fallback
+                str_key = _cache_str_key(query.koordinate, query.zeitpunkt)
+                json_str = self._persistent_cache.get(str_key)
+                if json_str is not None:
+                    raw = _cache_deserialize(json_str)
+                    self._cache[ck] = raw
+            if raw is not None:
+                results[idx] = raw.model_copy(
                     update={"koordinate": query.koordinate, "zeitpunkt": query.zeitpunkt}
                 )
 
@@ -350,6 +398,27 @@ def _cache_key(
     rounded_coord = (round(koordinate[0], 1), round(koordinate[1], 1))
     snapped_time = zeitpunkt.replace(minute=0, second=0, microsecond=0)
     return (rounded_coord, snapped_time)
+
+
+def _cache_str_key(
+    koordinate: Coordinate,
+    zeitpunkt: datetime,
+) -> str:
+    """Serialises a ``(Coordinate, datetime)`` cache key to a JSON string.
+
+    The string representation is used by the persistent ``TTLCache`` layer;
+    the in-memory ``_cache`` dict still uses the native
+    ``tuple[Coordinate, datetime]`` as its key to avoid repeated
+    serialisation round-trips on hot in-process lookups.
+    """
+    rounded = (round(koordinate[0], 1), round(koordinate[1], 1))
+    snapped = zeitpunkt.replace(minute=0, second=0, microsecond=0)
+    return json.dumps((rounded, snapped.isoformat(timespec="minutes")))
+
+
+def _cache_deserialize(data: object) -> WeatherSample:
+    """Reconstructs a ``WeatherSample`` from a JSON-serialised dict."""
+    return WeatherSample.model_validate(data)
 
 
 def _extract_sample_from_response(
@@ -1069,13 +1138,15 @@ class LoadBalancedWeatherProvider:
     points already resolved.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         entries: Sequence[WeatherProviderEntry],
         *,
         cooldown_seconds: float = 300.0,
         max_concurrency: int = 30,
         clock: Callable[[], float] = time.monotonic,
+        cache_ttl_seconds: float = 3600.0,
+        cache_dir: Path | str | None = None,
     ) -> None:
         """Initializes the composite provider.
 
@@ -1094,6 +1165,11 @@ class LoadBalancedWeatherProvider:
                 unbounded number of simultaneous connections to any single
                 provider.
             clock: Monotonic time source; overridable in tests.
+            cache_ttl_seconds: TTL für den persistenten Cache in Sekunden
+                (Standard: 3600 = 1 Stunde).
+            cache_dir: Verzeichnis für die SQLite-Datenbank des persistenten
+                Caches. Wenn ``None``, wird der Standardpfad
+                ``<TRIPPLANNER_CACHE_DIR>/external_api_cache.sqlite`` verwendet.
 
         Raises:
             ValueError: If `entries` is empty.
@@ -1106,6 +1182,15 @@ class LoadBalancedWeatherProvider:
         self._rotation = 0
         self._unhealthy_until: dict[str, float] = {}
         self._cache: dict[tuple[Coordinate, datetime], WeatherSample] = {}
+        self._persistent_cache: TTLCache | None = (
+            TTLCache(
+                namespace="weather_load_balanced",
+                ttl_seconds=cache_ttl_seconds,
+                db_path=cache_dir,
+            )
+            if cache_dir is not None
+            else None
+        )
         self._semaphore = asyncio.Semaphore(max_concurrency)
 
     async def fetch_weather(self, queries: Sequence[WeatherQuery]) -> list[WeatherSample]:
@@ -1124,6 +1209,13 @@ class LoadBalancedWeatherProvider:
         for idx, query in enumerate(queries):
             ck = _cache_key(query.koordinate, query.zeitpunkt)
             cached = self._cache.get(ck)
+            if cached is None and self._persistent_cache is not None:
+                # Persistent cache fallback
+                str_key = _cache_str_key(query.koordinate, query.zeitpunkt)
+                json_str = self._persistent_cache.get(str_key)
+                if json_str is not None:
+                    cached = _cache_deserialize(json_str)
+                    self._cache[ck] = cached
             if cached is not None:
                 results[idx] = cached.model_copy(
                     update={"koordinate": query.koordinate, "zeitpunkt": query.zeitpunkt}
@@ -1203,6 +1295,9 @@ class LoadBalancedWeatherProvider:
                     )
                     # Store with original query time for this index
                     self._cache[ck] = sample
+                    if self._persistent_cache is not None:
+                        str_key = _cache_str_key(queries[i].koordinate, queries[i].zeitpunkt)
+                        self._persistent_cache.set(str_key, sample.model_dump(mode="json"))
             pending = still_pending
 
         if pending:
