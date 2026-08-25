@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { buildConstructionZonePopupHtml } from "@/components/Map";
+import {
+  buildConstructionZoneMarkerElement,
+  buildChargingStopMarkerElement,
+  buildConstructionZonePopupHtml,
+} from "@/components/Map";
 import type { ConstructionZone } from "@/types";
 
 /** Hilfsfunktion zum Bauen einer test-ConstructionZone. */
@@ -190,5 +194,19 @@ describe("buildConstructionZonePopupHtml", () => {
       expect(html).toContain("<table");
       expect(html).toContain("</table>");
     });
+  });
+});
+
+describe("marker element styles", () => {
+  it("construction zone marker has no inline position or z-index (prevents zoom-drift)", () => {
+    const el = buildConstructionZoneMarkerElement();
+    expect(el.style.position).toBe("");
+    expect(el.style.zIndex).toBe("");
+  });
+
+  it("charging stop marker has no inline position or z-index", () => {
+    const el = buildChargingStopMarkerElement();
+    expect(el.style.position).toBe("");
+    expect(el.style.zIndex).toBe("");
   });
 });

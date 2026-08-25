@@ -482,8 +482,6 @@ export function buildConstructionZoneMarkerElement(): HTMLElement {
     "border:2px solid #ffffff",
     "box-shadow:0 1px 4px rgba(0,0,0,0.35)",
     "cursor:pointer",
-    "position:relative",
-    "z-index:1",
   ].join(";");
   return el;
 }
