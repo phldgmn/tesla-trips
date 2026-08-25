@@ -908,20 +908,23 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
     weather_queries: list[WeatherQuery] | None = None
 
     # 8a. Fetch candidate charging stations and precompute their real,
-    # routed detour costs ONCE - both depend only on `route`, which is
-    # already final at this point, and must not be redone per iteration
-    # (station fetch is cheap but repeated 1-3x for nothing; detour
-    # precomputation is a batch of routing/elevation calls and must not be
-    # repeated at all).
+    # routed detour costs, and fetch construction zones, ONCE - all three
+    # depend only on `route`, which is already final at this point, and
+    # must not be redone per iteration. `construction_sites` in particular
+    # takes no iteration-dependent input at all (unlike `fetch_weather`,
+    # which needs the current `segment_eta_list`) - looping it 1-3x
+    # inside the convergence loop below refetched byte-identical data on
+    # every iteration for nothing.
     #
-    # This branch and the elevation-profile extraction below share no state
-    # (elevation extraction only reads `route`/`elevation_provider`; station
-    # fetch + detour precompute only read `route`/`charging_provider` plus
-    # the same `elevation_provider`, whose tile cache is internally
-    # lock-protected against concurrent readers - see
-    # `CopernicusDEMDataSource._get_tile_lock`). Both are I/O-bound network
-    # calls, so running them concurrently instead of sequentially cuts
-    # wall-clock time by roughly the smaller of the two durations.
+    # The three branches share no state (elevation extraction only reads
+    # `route`/`elevation_provider`; station fetch + detour precompute only
+    # read `route`/`charging_provider` plus the same `elevation_provider`,
+    # whose tile cache is internally lock-protected against concurrent
+    # readers - see `CopernicusDEMDataSource._get_tile_lock`; construction
+    # only reads `route`/`construction_provider`). All three are I/O-bound
+    # network calls, so running them concurrently instead of sequentially
+    # cuts wall-clock time to roughly the slowest of the three instead of
+    # their sum.
     async def _fetch_elevation_profile() -> list[ElevationPoint]:
         with _log_step("extract_elevation_profile"):
             return await _step_2_extract_elevation_profile(route, elevation_provider)
@@ -944,47 +947,38 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
             )
         return stations, kosten
 
-    elevation_points, (charging_stations, detour_kosten) = await asyncio.gather(
-        _fetch_elevation_profile(), _fetch_charging_stations_and_detours()
+    async def _fetch_construction_zones() -> list[ConstructionZone]:
+        with _log_step("construction_sites"):
+            return await _step_6_construction_sites(
+                construction_provider, route, ["DE", "DK", "SE"]
+            )
+
+    (
+        elevation_points,
+        (charging_stations, detour_kosten),
+        construction_zones,
+    ) = await asyncio.gather(
+        _fetch_elevation_profile(),
+        _fetch_charging_stations_and_detours(),
+        _fetch_construction_zones(),
     )
     for iteration in range(loop_max_iterations):
         # Store previous iteration's ETA for convergence check
         if iteration > 0:
             prev_segment_eta_list = [(seg, eta) for seg, eta in segment_eta_list]
 
-        # Fetch weather (with updated ETA-based timestamps; from the 2nd
-        # iteration onward the provider reuses its cache for unchanged
-        # points via refetch_weather if supported) concurrently with the
-        # construction-site lookup. Neither depends on the other's result -
-        # weather only needs `segment_eta_list`, construction sites only
-        # need `route` - so both fire as one wave instead of two sequential
-        # network round-trips.
-        async def _fetch_weather_step(
-            iteration: int = iteration,
-            segment_eta_list: list[tuple[RouteSegment, timedelta]] = segment_eta_list,
-            weather_queries: list[WeatherQuery] | None = weather_queries,
-        ) -> tuple[list[WeatherSample], list[WeatherQuery]]:
-            with _log_step("fetch_weather", iteration):
-                return await _step_5_fetch_weather(
-                    weather_provider,
-                    route,
-                    segment_eta_list,
-                    request.abfahrtszeit,
-                    previous_queries=weather_queries,
-                    weather_detail=weather_detail,
-                )
-
-        async def _fetch_construction_step(
-            iteration: int = iteration,
-        ) -> list[ConstructionZone]:
-            with _log_step("construction_sites", iteration):
-                return await _step_6_construction_sites(
-                    construction_provider, route, ["DE", "DK", "SE"]
-                )
-
-        (weather_samples, weather_queries), construction_zones = await asyncio.gather(
-            _fetch_weather_step(), _fetch_construction_step()
-        )
+        # Fetch weather with updated ETA-based timestamps; from the 2nd
+        # iteration onward, reuse the provider's cache for unchanged points
+        # via refetch_weather (if supported) instead of a full refetch.
+        with _log_step("fetch_weather", iteration):
+            weather_samples, weather_queries = await _step_5_fetch_weather(
+                weather_provider,
+                route,
+                segment_eta_list,
+                request.abfahrtszeit,
+                previous_queries=weather_queries,
+                weather_detail=weather_detail,
+            )
 
         # Calculate energy consumption
         with _log_step("calculate_segment_energy", iteration):
