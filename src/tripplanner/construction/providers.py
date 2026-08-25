@@ -25,6 +25,7 @@ from shapely.geometry.base import BaseGeometry
 if TYPE_CHECKING:
     import tripplanner.routing.models as routing_models
 
+from tripplanner.cache.store import TTLCache
 from tripplanner.construction.models import (
     ConstructionProvider,
     ConstructionZone,
@@ -230,6 +231,14 @@ class ConstructionProviderConfig(BaseModel):
     """
     tv_api_key: str | None = None
     timeout_seconds: float = 30.0
+    cache_ttl_seconds: float = 900.0
+    """TTL in seconds for the persistent cache (15 minutes default)."""
+    cache_dir: str | None = None
+    """Directory for the SQLite-backed cache database. Defaults to ``.cache``.
+
+    If ``None``, the cache database is placed in the project's default cache
+    directory (``.cache/construction_cache.sqlite``).
+    """
 
 
 class ConstructionProviderImpl(ConstructionProvider):
@@ -251,6 +260,12 @@ class ConstructionProviderImpl(ConstructionProvider):
         """
         self._config = config
         self._client = client or httpx.AsyncClient(timeout=config.timeout_seconds)
+        cache_path = f"{config.cache_dir}/construction_cache.sqlite" if config.cache_dir else None
+        self._cache = TTLCache(
+            namespace="construction_zones",
+            ttl_seconds=config.cache_ttl_seconds,
+            db_path=cache_path,
+        )
 
     async def __aenter__(self) -> ConstructionProviderImpl:
         return self
@@ -446,12 +461,47 @@ class ConstructionProviderImpl(ConstructionProvider):
         return zones
 
     async def _fetch_autobahn_roadworks(self, autobahn_id: str) -> list[dict[str, Any]]:
-        """GET roadworks for a single Autobahn ID; no auth headers/query params."""
+        """GET roadworks for a single Autobahn ID; no auth headers/query params.
+
+        Cached per ``autobahn_id`` in the persistent TTL cache.
+        """
+        cache_key = f"autobahn:{autobahn_id}"
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            logger.debug("Construction cache hit: %s", cache_key)
+            return cached  # type: ignore[return-value]
         response = await self._client.get(f"{AUTOBAHN_BASE_URL}/{autobahn_id}/services/roadworks")
         response.raise_for_status()
         data: dict[str, Any] = response.json()
         roadworks: list[dict[str, Any]] = data.get("roadworks", [])
+        self._cache.set(cache_key, roadworks)
         return roadworks
+
+    @staticmethod
+    def _build_landscape_cache_key(land: Land, route: routing_models.Route) -> str:
+        """Build a coarse-grained cache key for DK/SE DATEX II queries.
+
+        Rounds bounding-box coordinates to 0.5 degree grid so nearby or
+        overlapping routes share the same cache entry.  The key format is
+        ``{land}:{min_lat},{min_lon},{max_lat},{max_lon}``.
+        """
+        COARSE = 0.5
+
+        def _round(v: float) -> float:
+            return round(v / COARSE) * COARSE
+
+        all_coords: list[tuple[float, float]] = []
+        for seg in route.segments:
+            all_coords.extend(seg.geometrie)
+        if not all_coords:
+            return f"{land}:0,0,0,0"
+        lats = [c[0] for c in all_coords]
+        lons = [c[1] for c in all_coords]
+        min_lat = _round(min(lats))
+        min_lon = _round(min(lons))
+        max_lat = _round(max(lats))
+        max_lon = _round(max(lons))
+        return f"{land}:{min_lat},{min_lon},{max_lat},{max_lon}"
 
     async def _fetch_landscape_zones(
         self,
@@ -460,17 +510,17 @@ class ConstructionProviderImpl(ConstructionProvider):
         strtree: STRtree,
         segment_geoms: list[LineString],
     ) -> list[ConstructionZone]:
-        """Abfrage und Parsing für ein DATEX-II-Land (DK, SE).
+        """Abfrage und Parsing f�r ein DATEX-II-Land (DK, SE).
 
-        Args:
-            route: The route to match construction zones against.
-            land: The country code (DK or SE).
-            strtree: Shared STRtree spatial index.
-            segment_geoms: Shared list of route segment geometries.
-
-        Returns:
-            List of ``ConstructionZone`` objects matched to route segments.
+        Cached per country + coarse bounding-box so nearby/similar routes
+        hit the same cache entry.
         """
+        cache_key = self._build_landscape_cache_key(land, route)
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            logger.debug("Construction cache hit: %s", cache_key)
+            return [ConstructionZone.model_validate(item) for item in cached]  # type: ignore[attr-defined]
+
         endpoint = (
             (self._config.dk_download_url or DATEXII_ENDPOINTS[land])
             if land == Land.DK
@@ -518,7 +568,7 @@ class ConstructionProviderImpl(ConstructionProvider):
             xml_content = response.text
             construction_zones = parse_datexii_xml(xml_content, land)
 
-        return [
+        result = [
             ConstructionZone(
                 betroffene_segmente=self._match_zones_to_segment_ids(zone, strtree, segment_geoms),
                 tempolimit_kmh=(
@@ -534,6 +584,8 @@ class ConstructionProviderImpl(ConstructionProvider):
             )
             for zone in construction_zones
         ]
+        self._cache.set(cache_key, [z.model_dump(mode="json") for z in result])
+        return result
 
     _AZURE_TOKEN_URL = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
     _TOKEN_EXPIRY_SAFETY_MARGIN_S = 60

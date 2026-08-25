@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from tripplanner.cache.store import TTLCache
 from tripplanner.construction.models import (
     ConstructionZone,
     Land,
@@ -77,6 +79,7 @@ def _make_config() -> ConstructionProviderConfig:
         dk_tenant_id="dk-tenant",
         tv_api_key="se-key",
         timeout_seconds=10.0,
+        cache_dir=tempfile.mkdtemp(),
     )
 
 
@@ -84,7 +87,11 @@ def _make_provider(
     config: ConstructionProviderConfig | None = None,
 ) -> ConstructionProviderImpl:
     """Erstelle Provider-Instanz mit gemocktem httpx-Client."""
-    provider = ConstructionProviderImpl(config or _make_config())
+    cfg = config or _make_config()
+    # Ensure isolated cache to prevent cross-test pollution
+    if cfg.cache_dir is None:
+        cfg = cfg.model_copy(update={"cache_dir": tempfile.mkdtemp()})
+    provider = ConstructionProviderImpl(cfg)
     provider._client = MagicMock(spec=httpx.AsyncClient)
     provider._client.get = AsyncMock()
     provider._client.post = AsyncMock()
@@ -697,6 +704,7 @@ class TestDkTokenCaching:
     async def test_token_is_refetched_after_expiry(self) -> None:
         """Fetch after token expiry triggers a new token POST."""
         config = ConstructionProviderConfig(
+            cache_ttl_seconds=0.0,
             dk_client_id="c",
             dk_secret="s",
             dk_tenant_id="t",
@@ -734,6 +742,8 @@ class TestDkTokenCaching:
 
         # Manually expire the cached token
         provider._dk_token_expires_at = 0  # force expiry
+        # Also evict cached landscape zones so the second call retries the network
+        provider._cache.clear_expired()
 
         # Second fetch — should trigger new POST
         await provider._fetch_landscape_zones(route, Land.DK, strtree, seg_geoms)
@@ -1274,3 +1284,322 @@ class TestFakeConstructionProvider:
         result2 = await provider.fetch_construction_zones(route, [])
 
         assert result is not result2
+
+
+# ---------------------------------------------------------------------------
+# Cache tests
+# ---------------------------------------------------------------------------
+
+
+class TestCacheConfig:
+    """Tests for TTL cache configuration fields."""
+
+    def test_default_ttl(self) -> None:
+        """Default cache_ttl_seconds is 900."""
+        cfg = ConstructionProviderConfig()
+        assert cfg.cache_ttl_seconds == 900.0
+
+    def test_default_cache_dir_is_none(self) -> None:
+        """Default cache_dir is None (uses .cache)."""
+        cfg = ConstructionProviderConfig()
+        assert cfg.cache_dir is None
+
+    def test_custom_ttl(self) -> None:
+        """Custom cache_ttl_seconds is respected."""
+        cfg = ConstructionProviderConfig(cache_ttl_seconds=600.0)
+        assert cfg.cache_ttl_seconds == 600.0
+
+    def test_custom_cache_dir(self) -> None:
+        """Custom cache_dir is respected."""
+        cfg = ConstructionProviderConfig(cache_dir="/tmp/test_cache")
+        assert cfg.cache_dir == "/tmp/test_cache"
+
+
+class TestAutobahnCache:
+    """Tests for _fetch_autobahn_roadworks caching."""
+
+    @pytest.mark.asyncio
+    async def test_cache_hit_skips_http_call(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Repeat call with same autobahn_id skips HTTP via cache hit."""
+        cfg = ConstructionProviderConfig(
+            cache_dir=str(tmp_path),
+        )
+        provider = ConstructionProviderImpl(cfg)
+        provider._client = MagicMock(spec=httpx.AsyncClient)
+        provider._client.get = AsyncMock()
+
+        entry = _sample_autobahn_entry()
+        resp = MagicMock(spec=httpx.Response)
+        resp.raise_for_status = MagicMock()
+        resp.json = MagicMock(return_value={"roadworks": [entry]})
+        provider._client.get.return_value = resp
+
+        # First call — misses cache, makes HTTP call
+        zones1 = await provider._fetch_autobahn_roadworks("A5")
+        assert len(zones1) == 1
+        assert provider._client.get.call_count == 1
+
+        # Second call — cache hit, no HTTP
+        zones2 = await provider._fetch_autobahn_roadworks("A5")
+        assert len(zones2) == 1
+        assert provider._client.get.call_count == 1  # unchanged
+
+        with caplog.at_level("DEBUG"):
+            await provider._fetch_autobahn_roadworks("A5")
+        assert "cache hit" in caplog.text.lower()
+
+    @pytest.mark.asyncio
+    async def test_different_autobahn_ids_trigger_new_calls(self, tmp_path: Path) -> None:
+        """Different autobahn_id triggers a new HTTP call."""
+        cfg = ConstructionProviderConfig(cache_dir=str(tmp_path))
+        provider = ConstructionProviderImpl(cfg)
+        provider._client = MagicMock(spec=httpx.AsyncClient)
+        provider._client.get = AsyncMock()
+
+        resp = MagicMock(spec=httpx.Response)
+        resp.raise_for_status = MagicMock()
+        resp.json = MagicMock(return_value={"roadworks": [_sample_autobahn_entry()]})
+        provider._client.get.return_value = resp
+
+        await provider._fetch_autobahn_roadworks("A5")
+        await provider._fetch_autobahn_roadworks("A9")
+        await provider._fetch_autobahn_roadworks("A5")
+
+        assert provider._client.get.call_count == 2  # A5 miss, A9 miss, A5 cache hit
+
+    @pytest.mark.asyncio
+    async def test_http_error_not_cached(self, tmp_path: Path) -> None:
+        """Failed HTTP response is never cached — next call retries."""
+        cfg = ConstructionProviderConfig(cache_dir=str(tmp_path))
+        provider = ConstructionProviderImpl(cfg)
+        provider._client = MagicMock(spec=httpx.AsyncClient)
+
+        err_resp = MagicMock(spec=httpx.Response)
+        provider._client.get.side_effect = httpx.HTTPStatusError(
+            "500", request=MagicMock(), response=err_resp
+        )
+
+        # First call fails
+        with pytest.raises(httpx.HTTPStatusError):
+            await provider._fetch_autobahn_roadworks("A5")
+
+        # Second call — cache miss, retries HTTP
+        with pytest.raises(httpx.HTTPStatusError):
+            await provider._fetch_autobahn_roadworks("A5")
+
+        assert provider._client.get.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_empty_result_is_cacheable(self, tmp_path: Path) -> None:
+        """Empty-but-successful result (zero roadworks) is cached."""
+        cfg = ConstructionProviderConfig(cache_dir=str(tmp_path))
+        provider = ConstructionProviderImpl(cfg)
+        provider._client = MagicMock(spec=httpx.AsyncClient)
+        provider._client.get = AsyncMock()
+
+        resp = MagicMock(spec=httpx.Response)
+        resp.raise_for_status = MagicMock()
+        resp.json = MagicMock(return_value={"roadworks": []})
+        provider._client.get.return_value = resp
+
+        await provider._fetch_autobahn_roadworks("A5")
+        assert provider._client.get.call_count == 1
+
+        # Repeated calls — cache hit
+        await provider._fetch_autobahn_roadworks("A5")
+        await provider._fetch_autobahn_roadworks("A5")
+        assert provider._client.get.call_count == 1
+
+
+class TestLandscapeZonesCache:
+    """Tests for _fetch_landscape_zones caching (DK/SE)."""
+
+    @pytest.mark.asyncio
+    async def test_cache_hit_skips_http(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Repeat call with same route+country skips HTTP via cache hit."""
+        cfg = ConstructionProviderConfig(
+            dk_client_id="dk-client",
+            dk_secret="dk-secret",
+            dk_tenant_id="dk-tenant",
+            cache_dir=str(tmp_path),
+        )
+        provider = ConstructionProviderImpl(cfg)
+        provider._client = MagicMock(spec=httpx.AsyncClient)
+        provider._client.get = AsyncMock()
+        provider._dk_token = "fake-token"
+        provider._dk_token_expires_at = 9999999999
+
+        resp = MagicMock(spec=httpx.Response)
+        resp.raise_for_status = MagicMock()
+        resp.text = VALID_DK_XML
+        provider._client.get.return_value = resp
+
+        route = _make_motorway_route()
+        strtree, seg_geoms = _build_strtree(route)
+
+        # First call — misses cache, makes HTTP call
+        zones1 = await provider._fetch_landscape_zones(route, Land.DK, strtree, seg_geoms)
+        assert provider._client.get.call_count == 1
+
+        # Second call — cache hit
+        zones2 = await provider._fetch_landscape_zones(route, Land.DK, strtree, seg_geoms)
+        assert len(zones2) == len(zones1)
+        assert provider._client.get.call_count == 1  # unchanged
+
+        with caplog.at_level("DEBUG"):
+            await provider._fetch_landscape_zones(route, Land.DK, strtree, seg_geoms)
+        assert "cache hit" in caplog.text.lower()
+
+    @pytest.mark.asyncio
+    async def test_different_countries_trigger_new_calls(self, tmp_path: Path) -> None:
+        """Different country triggers a new HTTP call."""
+        cfg = ConstructionProviderConfig(
+            dk_client_id="dk-client",
+            dk_secret="dk-secret",
+            dk_tenant_id="dk-tenant",
+            tv_api_key="se-key",
+            cache_dir=str(tmp_path),
+        )
+        provider = ConstructionProviderImpl(cfg)
+        provider._client = MagicMock(spec=httpx.AsyncClient)
+        provider._client.get = AsyncMock()
+        provider._client.post = AsyncMock()
+        provider._dk_token = "fake-token"
+        provider._dk_token_expires_at = 9999999999
+
+        dk_resp = MagicMock(spec=httpx.Response)
+        dk_resp.raise_for_status = MagicMock()
+        dk_resp.text = VALID_DK_XML
+        se_resp = MagicMock(spec=httpx.Response)
+        se_resp.json = MagicMock(return_value={"RESPONSE": {"RESULT": []}})
+        se_resp.raise_for_status = MagicMock()
+
+        provider._client.get.return_value = dk_resp
+        provider._client.post.return_value = se_resp
+
+        route = _make_motorway_route()
+        strtree, seg_geoms = _build_strtree(route)
+
+        await provider._fetch_landscape_zones(route, Land.DK, strtree, seg_geoms)
+        await provider._fetch_landscape_zones(route, Land.SE, strtree, seg_geoms)
+        await provider._fetch_landscape_zones(route, Land.DK, strtree, seg_geoms)
+
+        # DK first call, SE first call, DK cache hit → 2 calls
+        assert provider._client.get.call_count == 1  # DK miss only; SE uses POST, DK hit cached
+        assert provider._client.post.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_coarse_bbox_key(self, tmp_path: Path) -> None:
+        """Close routes share cache entries via coarse 0.5-degree grid."""
+        # Same bounding-box rounding → same cache key
+        route1 = _make_motorway_route()
+
+        route2 = Route(
+            segments=[
+                RouteSegment(
+                    segment_index=0,
+                    geometrie=[(50.02, 9.02), (50.03, 9.03)],
+                    laenge_m=1500.0,
+                    strassenklasse="MOTORWAY",
+                    tempolimit_kmh=100,
+                    bearing_deg=45.0,
+                    strassenref="A 5",
+                ),
+            ],
+            gesamtlaenge_m=1500.0,
+            geometrie=[(50.02, 9.02), (50.03, 9.03)],
+        )
+
+        # Both routes round to 0.5-degree: DK:50.0,9.0,50.5,9.5
+        key1 = ConstructionProviderImpl._build_landscape_cache_key(Land.DK, route1)
+        key2 = ConstructionProviderImpl._build_landscape_cache_key(Land.DK, route2)
+        assert key1 == key2
+
+    @pytest.mark.asyncio
+    async def test_http_error_not_cached(self, tmp_path: Path) -> None:
+        """Failed HTTP is never cached — next call retries."""
+        cfg = ConstructionProviderConfig(
+            dk_client_id="dk-client",
+            dk_secret="dk-secret",
+            dk_tenant_id="dk-tenant",
+            cache_dir=str(tmp_path),
+        )
+        provider = ConstructionProviderImpl(cfg)
+        provider._client = MagicMock(spec=httpx.AsyncClient)
+        provider._client.get = AsyncMock()
+        provider._dk_token = "fake-token"
+        provider._dk_token_expires_at = 9999999999
+
+        err_resp = MagicMock(spec=httpx.Response)
+        err_resp.status_code = 500
+        provider._client.get.side_effect = httpx.HTTPStatusError(
+            "500", request=MagicMock(), response=err_resp
+        )
+
+        route = _make_motorway_route()
+        strtree, seg_geoms = _build_strtree(route)
+
+        # First call — fails, no cache written
+        result1 = await provider._fetch_landscape_zones(route, Land.DK, strtree, seg_geoms)
+        assert result1 == []
+
+        # Second call — cache miss, retries
+        result2 = await provider._fetch_landscape_zones(route, Land.DK, strtree, seg_geoms)
+        assert result2 == []
+        assert provider._client.get.call_count == 2
+
+
+class TestCachePickle:
+    """Tests verifying ConstructionZone round-trips through JSON cache."""
+
+    @pytest.mark.asyncio
+    async def test_construction_zone_round_trip(self, tmp_path: Path) -> None:
+        """ConstructionZone serialises and deserialises via TTLCache."""
+
+        cache = TTLCache(
+            namespace="roundtrip",
+            ttl_seconds=300.0,
+            db_path=str(tmp_path / "roundtrip.sqlite"),
+        )
+
+        zone = ConstructionZone(
+            betroffene_segmente=[0, 1],
+            tempolimit_kmh=80,
+            sperrungstyp=Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+            umleitungshinweis="Test umleitung",
+            land=Land.DK,
+            gueltig_von=datetime(2024, 6, 1, 8, 0, 0, tzinfo=UTC),
+            gueltig_bis=datetime(2024, 12, 31, tzinfo=UTC),
+        )
+
+        cache.set("zone:1", [zone.model_dump(mode="json")])
+        loaded = cache.get("zone:1")
+
+        assert loaded is not None
+        restored = ConstructionZone.model_validate(loaded[0])
+        assert restored.betroffene_segmente == [0, 1]
+        assert restored.tempolimit_kmh == 80
+        assert restored.sperrungstyp == Sperrungstyp.TEMPORARY_SPEED_LIMIT
+        assert restored.umleitungshinweis == "Test umleitung"
+        assert restored.land == Land.DK
+        assert restored.gueltig_von == datetime(2024, 6, 1, 8, 0, 0, tzinfo=UTC)
+        assert restored.gueltig_bis == datetime(2024, 12, 31, tzinfo=UTC)
+
+    @pytest.mark.asyncio
+    async def test_construction_zone_empty_result_round_trip(self, tmp_path: Path) -> None:
+        """Empty result list round-trips correctly."""
+
+        cache = TTLCache(
+            namespace="empty",
+            ttl_seconds=300.0,
+            db_path=str(tmp_path / "empty.sqlite"),
+        )
+
+        cache.set("empty", [])
+        loaded = cache.get("empty")
+
+        assert loaded == []
