@@ -34,7 +34,12 @@ import {
 import { formatZeitpunkt } from "../utils/datetime-utils";
 import { formatCostOrDash } from "../utils/currency-utils";
 import { usePersistentState } from "../utils/persistent-state";
-import { ChargingStop, ConstructionZone, TripSimulationResult } from "../types";
+import {
+  ChargingStop,
+  ConstructionZone,
+  ConstructionZoneEvent,
+  TripSimulationResult,
+} from "../types";
 import type { Stop } from "../types/trip-request";
 import {
   fetchSuperchargers,
@@ -477,41 +482,67 @@ export function buildConstructionZoneMarkerElement(): HTMLElement {
     "border:2px solid #ffffff",
     "box-shadow:0 1px 4px rgba(0,0,0,0.35)",
     "cursor:pointer",
+    "position:relative",
+    "z-index:1",
   ].join(";");
   return el;
 }
 
-/** Popup-HTML fuer eine Baustelle: Sperrungstyp, Tempolimit, Umleitungshinweis,
- * Land, Gueltigkeitszeitraum. Fehlende optionale Felder (`tempolimit_kmh`,
- * `umleitungshinweis`) werden ausgelassen statt als leere Zeile angezeigt. */
+/** Erzeugt Popup-HTML für eine ConstructionZone: ein Abschnitt pro Event.
+ *
+ *  Einzelne Events werden wie zuvor gerendert; bei mehreren Events (gemerged)
+ *  erzeugt jeder Event einen eigenen, optisch abgesetzten Abschnitt mit
+ *  "Baustelle N von M"-Überschrift.
+ */
 export function buildConstructionZonePopupHtml(zone: ConstructionZone): string {
-  const rows: [string, string][] = [];
-  if (zone.tempolimit_kmh !== null) {
-    rows.push(["Tempolimit", `${zone.tempolimit_kmh} km/h`]);
+  function eventRowsHtml(event: ConstructionZoneEvent): string {
+    const rows: [string, string][] = [];
+    if (event.tempolimit_kmh !== null) {
+      rows.push(["Tempolimit", `${event.tempolimit_kmh} km/h`]);
+    }
+    if (event.umleitungshinweis !== null) {
+      rows.push(["Umleitung", event.umleitungshinweis]);
+    }
+    rows.push(["Land", event.land]);
+    rows.push(["Gültig ab", formatZeitpunkt(event.gueltig_von)]);
+    rows.push([
+      "Gültig bis",
+      event.gueltig_bis !== null
+        ? formatZeitpunkt(event.gueltig_bis)
+        : "unbestimmt",
+    ]);
+    return rows
+      .map(
+        ([label, value]) =>
+          `<tr><td style="padding:2px 4px;color:#666;">${label}</td>` +
+          `<td style="padding:2px 4px;text-align:right;">${value}</td></tr>`,
+      )
+      .join("");
   }
-  if (zone.umleitungshinweis !== null) {
-    rows.push(["Umleitung", zone.umleitungshinweis]);
-  }
-  rows.push(["Land", zone.land]);
-  rows.push(["Gültig ab", formatZeitpunkt(zone.gueltig_von)]);
-  rows.push([
-    "Gültig bis",
-    zone.gueltig_bis !== null
-      ? formatZeitpunkt(zone.gueltig_bis)
-      : "unbestimmt",
-  ]);
-  const rowsHtml = rows
-    .map(
-      ([label, value]) =>
-        `<tr><td style="padding:2px 4px;color:#666;">${label}</td>` +
-        `<td style="padding:2px 4px;text-align:right;">${value}</td></tr>`,
-    )
+
+  const eventCount = zone.events.length;
+  const sections = zone.events
+    .map((event, index) => {
+      const eventLabel =
+        SPERRUNGSTYP_LABELS[event.sperrungstyp] ?? event.sperrungstyp;
+      const heading =
+        eventCount > 1
+          ? `${eventLabel} (${index + 1} von ${eventCount})`
+          : eventLabel;
+      return (
+        `<div style="margin-bottom:${index < eventCount - 1 ? "12px" : "0"};">` +
+        (index < eventCount - 1
+          ? `<hr style="border:none;border-top:1px solid #e5e7eb;margin:8px 0;">`
+          : "") +
+        `<strong style="font-size:14px;">${heading}</strong>` +
+        `<table style="width:100%;border-collapse:collapse;margin-top:4px;">${eventRowsHtml(event)}</table>` +
+        `</div>`
+      );
+    })
     .join("");
-  const label = SPERRUNGSTYP_LABELS[zone.sperrungstyp] ?? zone.sperrungstyp;
   return (
     `<div style="font-family:system-ui,sans-serif;font-size:13px;min-width:190px;">` +
-    `<strong style="font-size:14px;">${label}</strong>` +
-    `<table style="width:100%;border-collapse:collapse;margin-top:4px;">${rowsHtml}</table>` +
+    `${sections}` +
     `</div>`
   );
 }
@@ -851,6 +882,22 @@ export function MapVisualization({
       } as unknown as LayerSpecification);
       routeLegSourceIdsRef.current.push(sourceId);
     }
+    // Baustellen-Marker hinzufügen: ein Marker pro Eintrag aus
+    // `simulationResult.construction_zones`, mit Klick-Popup für Details.
+    // WICHTIG: Vor Ladehalt-Markern hinzufügen, damit Ladehalt-Marker
+    // über den Baustellen-Markern liegen (DOM-Reihenfolge + z-index).
+    for (const zone of simulationResult.construction_zones) {
+      const element = buildConstructionZoneMarkerElement();
+      const marker = new Marker({ element })
+        .setLngLat(toLngLat(zone.position))
+        .setPopup(
+          new Popup({ offset: 12 }).setHTML(
+            buildConstructionZonePopupHtml(zone),
+          ),
+        )
+        .addTo(map);
+      constructionZoneMarkersRef.current.push(marker);
+    }
 
     // Ladehalt-Marker hinzufügen: ein Marker pro tatsächlichem Ladehalt aus
     // `simulationResult.charging_stops` (nicht pro LADEN-Frame – ein Halt
@@ -865,21 +912,6 @@ export function MapVisualization({
         )
         .addTo(map);
       chargingStopMarkersRef.current.push(marker);
-    }
-
-    // Baustellen-Marker hinzufügen: ein Marker pro Eintrag aus
-    // `simulationResult.construction_zones`, mit Klick-Popup für Details.
-    for (const zone of simulationResult.construction_zones) {
-      const element = buildConstructionZoneMarkerElement();
-      const marker = new Marker({ element })
-        .setLngLat(toLngLat(zone.position))
-        .setPopup(
-          new Popup({ offset: 12 }).setHTML(
-            buildConstructionZonePopupHtml(zone),
-          ),
-        )
-        .addTo(map);
-      constructionZoneMarkersRef.current.push(marker);
     }
 
     // Zwischenstopps-Marker hinzufügen (Frames mit Zustand 'PAUSE')

@@ -59,10 +59,8 @@ export interface TripSimulationResult {
   construction_zones: ConstructionZone[];
 }
 
-/** Eine Baustelle/Sperrung entlang der Route (`ConstructionZoneAPI`). */
-export interface ConstructionZone {
-  /** Repraesentative Position der Baustelle als [lat, lon] */
-  position: [number, number];
+/** Ein einzelnes Baustellen-Ereignis, das zu einer ConstructionZone gemergt wurde. */
+export interface ConstructionZoneEvent {
   /** Art der Sperrung: "fullyClosed" | "partiallyClosed" | "laneClosed" |
    *  "temporarySpeedLimit" | "reducedLanes" | "detrourRequired" */
   sperrungstyp: string;
@@ -76,6 +74,15 @@ export interface ConstructionZone {
   gueltig_von: string;
   /** ISO-8601 Endzeitpunkt der Baustelle (null wenn unbestimmt) */
   gueltig_bis: string | null;
+}
+
+/** Eine Baustelle/Sperrung entlang der Route (`ConstructionZoneAPI`).
+ *  Kann mehrere naeheinanderliegende Ereignisse zusammenfassen. */
+export interface ConstructionZone {
+  /** Repraesentative Position der Baustelle als [lat, lon] */
+  position: [number, number];
+  /** Liste aller Baustellen-Ereignisse, die zu dieser Marker-Position gemergt wurden */
+  events: ConstructionZoneEvent[];
 }
 
 /** Aggregated estimated charging cost in a single currency
