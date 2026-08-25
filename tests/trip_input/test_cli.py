@@ -905,6 +905,40 @@ class TestChargerScrapePricing:
         assert verify_provider.list_pricing_queue() == []
         verify_provider._db.close()
 
+    def test_retry_failed_requeues_on_failure(self, tmp_path: Path) -> None:
+        """--retry-failed gibt fehlgeschlagene Stationen sofort wieder in die Warteschlange."""
+        db_path = tmp_path / "pricing.db"
+        _seed_station(db_path)
+        provider = TeslaChargingStationProvider(db_path=db_path)
+        provider.enqueue_stations_for_pricing_refresh(["rhudensupercharger"])
+        provider._db.close()
+
+        with patch(
+            "tripplanner.charging_infrastructure.client.TeslaLocationsClient.fetch_pricing_html",
+            new_callable=AsyncMock,
+            side_effect=TeslaLocationsClient.CurlError("403 Access Denied"),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "charger",
+                    "scrape-pricing",
+                    "--db-path",
+                    str(db_path),
+                    "--delay",
+                    "0",
+                    "--retry-failed",
+                ],
+            )
+
+        assert result.exit_code == 1
+        assert "1 fehlgeschlagen" in result.stdout
+
+        # --retry-failed: fehlgeschlagene Station wird sofort wieder re-queued
+        verify_provider = TeslaChargingStationProvider(db_path=db_path)
+        assert len(verify_provider.list_pricing_queue()) == 1
+        verify_provider._db.close()
+
     def test_respects_limit(self, tmp_path: Path) -> None:
         """--limit begrenzt die Anzahl in diesem Lauf abgearbeiteter Stationen."""
         db_path = tmp_path / "pricing.db"

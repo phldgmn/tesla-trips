@@ -407,9 +407,9 @@ def scrape_pricing(
         bool,
         typer.Option("--debug", help="Request/Response-Debug-Log in charger_debug.log"),
     ] = False,
-    clear_failed: Annotated[
+    retry_failed: Annotated[
         bool,
-        typer.Option("--clear-failed", help="Fehlgeschlagene werden entfernt"),
+        typer.Option("--retry-failed", help="Fehlgeschlagene sofort wieder einreihen"),
     ] = False,
 ) -> None:
     """Arbeitet die Preis-Scrape-Warteschlange ab (siehe `charger pricing-queue`).
@@ -444,7 +444,7 @@ def scrape_pricing(
 
         result = asyncio.run(provider.drain_pricing_queue(limit=limit, delay_s=delay))
 
-        if not clear_failed:
+        if retry_failed:
             provider.enqueue_stations_for_pricing_refresh([id for id, _ in result.failed])
     finally:
         provider._db.close()
