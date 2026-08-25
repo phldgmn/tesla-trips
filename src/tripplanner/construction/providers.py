@@ -401,6 +401,11 @@ class ConstructionProviderImpl(ConstructionProvider):
     ) -> list[ConstructionZone]:
         """Fetch and parse roadworks from the Autobahn GmbH open API for DE.
 
+        Queries the API's list endpoint to get all German Autobahn IDs (since
+        ``segment.strassenname`` is always ``None`` for motorway segments from
+        GraphHopper), then fetches roadworks for each and matches against route
+        segments via the shared STRtree spatial index.
+
         Args:
             route: The route to match roadworks against.
             strtree: Pre-built STRtree for the route segments.
@@ -409,15 +414,33 @@ class ConstructionProviderImpl(ConstructionProvider):
         Returns:
             List of matched ``ConstructionZone`` objects.
         """
-        autobahn_ids = sorted(_extract_autobahn_ids(route))
-        if not autobahn_ids:
+        # 1. Fetch all German Autobahn IDs from the API's list endpoint.
+        #    We cannot rely on ``segment.strassenname`` because GraphHopper
+        #    returns ``None`` for motorway segments (OSM motorway ways don't
+        #    carry the A-number as the way name — only on the relation).
+        try:
+            all_resp = await self._client.get(f"{AUTOBAHN_BASE_URL}/")
+            all_resp.raise_for_status()
+            all_data: dict[str, list[str]] = all_resp.json()
+            autobahn_ids: list[str] = sorted(all_data.get("roads", []))
+        except httpx.HTTPError as exc:
+            logger.error("Construction API DE (autobahn list): request failed: %s", exc)
+            return []
+        except Exception:
+            logger.exception("Construction API DE (autobahn list): unexpected error")
             return []
 
+        if not autobahn_ids:
+            logger.warning("Construction API DE: no Autobahn IDs found")
+            return []
+
+        # 2. Fetch roadworks for each Autobahn in parallel.
         responses = await asyncio.gather(
             *(self._fetch_autobahn_roadworks(aid) for aid in autobahn_ids),
             return_exceptions=True,
         )
 
+        # 3. Parse and match roadworks to route segments.
         zones: list[ConstructionZone] = []
         for autobahn_id, response in zip(autobahn_ids, responses, strict=True):
             if isinstance(response, BaseException):

@@ -20,6 +20,7 @@ from tripplanner.construction.models import (
 )
 from tripplanner.construction.parser import DATEXIIConstructionZoneInternal
 from tripplanner.construction.providers import (
+    AUTOBAHN_BASE_URL,
     ConstructionProviderConfig,
     ConstructionProviderImpl,
     FakeConstructionProvider,
@@ -897,81 +898,80 @@ class TestFetchDeRoadworks:
     """Tests für `_fetch_de_roadworks` (Autobahn GmbH JSON-Pfad)."""
 
     @pytest.mark.asyncio
-    async def test_fetches_all_autobahns_then_roadworks(self) -> None:
-        """Holt erst die Autobahn-Liste, dann Roadworks für jede Autobahn."""
+    async def test_fetches_and_parses_roadworks_for_autobahn_id(self) -> None:
+        """Ruft die Roadworks für jede erkannte Autobahn-ID unauthentifiziert ab."""
         provider = _make_provider()
-        route = _make_motorway_route(strassenname=None)
+        route = _make_motorway_route(strassenname="A9")
 
-        # Mock list of all German Autobahns (first call returns list)
-        all_resp = MagicMock(spec=httpx.Response)
-        all_resp.raise_for_status = MagicMock()
-        all_resp.json = MagicMock(return_value={"roads": ["A1", "A9"]})
-
-        # Mock roadworks response
         sample_entry = _sample_autobahn_entry()
-        roadworks_resp = MagicMock(spec=httpx.Response)
-        roadworks_resp.raise_for_status = MagicMock()
-        roadworks_resp.json = MagicMock(return_value={"roadworks": [sample_entry]})
-
-        async def get_side(url: str, **kw: Any):
-            if url.endswith("/") or url.endswith("autobahn/"):
-                return all_resp
-            return roadworks_resp
-
-        provider._client.get = AsyncMock(side_effect=get_side)
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json = MagicMock(return_value={"roadworks": [sample_entry]})
+        provider._client.get = AsyncMock(return_value=mock_response)
 
         strtree, seg_geoms = _build_strtree(route)
 
         zones = await provider._fetch_de_roadworks(route, strtree, seg_geoms)
 
-        assert len(zones) == 2  # One per Autobahn (A1, A9), both near route
-        for z in zones:
-            assert z.land == Land.DE
+        assert len(zones) == 1
+        assert zones[0].land == Land.DE
+        assert zones[0].betroffene_segmente == [0]
+
+        provider._client.get.assert_awaited_once_with(f"{AUTOBAHN_BASE_URL}/A9/services/roadworks")
 
     @pytest.mark.asyncio
-    async def test_empty_autobahn_list_returns_no_zones(self) -> None:
-        """Leere Autobahn-Liste liefert [] ohne Roadworks-Abfrage."""
+    async def test_no_autobahn_ids_returns_empty_without_request(self) -> None:
+        """Route ohne erkannte Autobahn-IDs liefert [] ohne HTTP-Anfrage."""
         provider = _make_provider()
         route = _make_route()
-
-        all_resp = MagicMock(spec=httpx.Response)
-        all_resp.raise_for_status = MagicMock()
-        all_resp.json = MagicMock(return_value={"roads": []})
-        provider._client.get = AsyncMock(return_value=all_resp)
 
         strtree, seg_geoms = _build_strtree(route)
 
         zones = await provider._fetch_de_roadworks(route, strtree, seg_geoms)
 
         assert zones == []
-        provider._client.get.assert_awaited_once()
+        provider._client.get.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_request_failure_for_one_id_does_not_abort_others(self) -> None:
         """Fehler bei einer Autobahn-ID bricht die anderen nicht ab."""
         provider = _make_provider()
-        route = _make_motorway_route(strassenname=None)
+        route = _make_motorway_route()
 
-        # Mock list of all German Autobahns
-        all_resp = MagicMock(spec=httpx.Response)
-        all_resp.raise_for_status = MagicMock()
-        all_resp.json = MagicMock(return_value={"roads": ["A3", "A9"]})
+        # Two segments with different Autobahn IDs
+        seg1 = RouteSegment(
+            segment_index=0,
+            geometrie=[(50.0000, 9.0000), (50.0100, 9.0100)],
+            laenge_m=500.0,
+            strassenklasse="MOTORWAY",
+            strassenname="A9",
+            bearing_deg=10.0,
+        )
+        seg2 = RouteSegment(
+            segment_index=1,
+            geometrie=[(50.0100, 9.0100), (50.0200, 9.0200)],
+            laenge_m=500.0,
+            strassenklasse="MOTORWAY",
+            strassenname="A4",
+            bearing_deg=10.0,
+        )
+        route = Route(
+            segments=[seg1, seg2],
+            gesamtlaenge_m=1000.0,
+            geometrie=seg1.geometrie + seg2.geometrie,
+        )
 
-        # A9 succeeds
+        # A9 succeeds, A4 fails
         success_entry = _sample_autobahn_entry()
         success_resp = MagicMock(spec=httpx.Response)
         success_resp.raise_for_status = MagicMock()
         success_resp.json = MagicMock(return_value={"roadworks": [success_entry]})
-
-        # A3 fails
         fail_resp = MagicMock(spec=httpx.Response)
         fail_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
             "404", request=MagicMock(), response=fail_resp
         )
 
         async def get_side(url: str, **kw: Any):
-            if url.endswith("/") or url.endswith("autobahn/"):
-                return all_resp
             if "A9" in url:
                 return success_resp
             raise fail_resp
@@ -982,7 +982,6 @@ class TestFetchDeRoadworks:
 
         zones = await provider._fetch_de_roadworks(route, strtree, seg_geoms)
 
-        # A3 fails, A9 succeeds → only A9 zones
         assert len(zones) == 1
         assert zones[0].land == Land.DE
 

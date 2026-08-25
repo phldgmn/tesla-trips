@@ -107,25 +107,31 @@ class TestStrtreeBuiltOnce:
         provider = _make_provider()
         route = _make_n_segments(200)
 
-        mock_resp = MagicMock(spec=httpx.Response)
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json = MagicMock(
-            return_value={
-                "roadworks": [
-                    {
-                        "coordinate": {
-                            "lat": 50.0 + i * 0.001,
-                            "long": 9.0 + i * 0.001,
-                        },
-                        "impact": {"symbols": ["ARROW_DOWN"]},
-                        "display_type": "ROADWORKS",
-                        "startTimestamp": "2024-06-01T08:00:00+02:00",
-                    }
-                    for i in range(200)
-                ]
+        # Mock list of all German Autobahns (first call)
+        all_resp = MagicMock(spec=httpx.Response)
+        all_resp.raise_for_status = MagicMock()
+        all_resp.json = MagicMock(return_value={"roads": ["A1", "A9"]})
+
+        # Mock roadworks responses for each Autobahn
+        roadworks_list = [
+            {
+                "coordinate": {"lat": 50.0 + i * 0.001, "long": 9.0 + i * 0.001},
+                "impact": {"symbols": ["ARROW_DOWN"]},
+                "display_type": "ROADWORKS",
+                "startTimestamp": "2024-06-01T08:00:00+02:00",
             }
-        )
-        provider._client.get = AsyncMock(return_value=mock_resp)
+            for i in range(100)
+        ]
+        roadworks_resp = MagicMock(spec=httpx.Response)
+        roadworks_resp.raise_for_status = MagicMock()
+        roadworks_resp.json = MagicMock(return_value={"roadworks": roadworks_list})
+
+        async def get_side(url: str, **kw: Any):
+            if url.endswith("/") or url.endswith("autobahn/"):
+                return all_resp
+            return roadworks_resp
+
+        provider._client.get = AsyncMock(side_effect=get_side)
 
         with patch("tripplanner.construction.providers.STRtree", autospec=True) as MockSTRtree:
             MockSTRtree.return_value = MagicMock()
