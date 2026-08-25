@@ -231,6 +231,8 @@ describe("TripPlannerForm pure helpers", () => {
         stops: [makeStop({ address: "Berlin", position: [52.52, 13.405] })],
         startSoc: 80,
         zielSoc: 30,
+        mindestAnkunftsSocPct: 5,
+        mindestLadezeitMin: 10,
       });
       expect(errors.length).toBeGreaterThan(0);
       expect(errors.some((e) => e.toLowerCase().includes("stop"))).toBe(true);
@@ -241,6 +243,8 @@ describe("TripPlannerForm pure helpers", () => {
         stops: berlinToHamburg,
         startSoc: 80,
         zielSoc: 30,
+        mindestAnkunftsSocPct: 5,
+        mindestLadezeitMin: 10,
       });
       expect(errors).toEqual([]);
     });
@@ -250,6 +254,8 @@ describe("TripPlannerForm pure helpers", () => {
         stops: berlinToHamburg,
         startSoc: -1,
         zielSoc: 30,
+        mindestAnkunftsSocPct: 5,
+        mindestLadezeitMin: 10,
       });
       expect(errors).toContain("Start-SoC muss zwischen 0 und 100 % liegen.");
     });
@@ -259,6 +265,8 @@ describe("TripPlannerForm pure helpers", () => {
         stops: berlinToHamburg,
         startSoc: 101,
         zielSoc: 30,
+        mindestAnkunftsSocPct: 5,
+        mindestLadezeitMin: 10,
       });
       expect(errors).toContain("Start-SoC muss zwischen 0 und 100 % liegen.");
     });
@@ -268,6 +276,8 @@ describe("TripPlannerForm pure helpers", () => {
         stops: berlinToHamburg,
         startSoc: 80,
         zielSoc: -5,
+        mindestAnkunftsSocPct: 5,
+        mindestLadezeitMin: 10,
       });
       expect(errors).toContain("Ziel-SoC muss zwischen 0 und 100 % liegen.");
     });
@@ -277,6 +287,8 @@ describe("TripPlannerForm pure helpers", () => {
         stops: berlinToHamburg,
         startSoc: 80,
         zielSoc: 120,
+        mindestAnkunftsSocPct: 5,
+        mindestLadezeitMin: 10,
       });
       expect(errors).toContain("Ziel-SoC muss zwischen 0 und 100 % liegen.");
     });
@@ -286,6 +298,8 @@ describe("TripPlannerForm pure helpers", () => {
         stops: berlinToHamburg,
         startSoc: Number.NaN,
         zielSoc: 30,
+        mindestAnkunftsSocPct: 5,
+        mindestLadezeitMin: 10,
       });
       expect(errors).toContain("Start-SoC muss zwischen 0 und 100 % liegen.");
     });
@@ -295,6 +309,8 @@ describe("TripPlannerForm pure helpers", () => {
         stops: berlinToHamburg,
         startSoc: 80,
         zielSoc: Number.NaN,
+        mindestAnkunftsSocPct: 5,
+        mindestLadezeitMin: 10,
       });
       expect(errors).toContain("Ziel-SoC muss zwischen 0 und 100 % liegen.");
     });
@@ -304,6 +320,8 @@ describe("TripPlannerForm pure helpers", () => {
         stops: berlinToHamburg,
         startSoc: 0,
         zielSoc: 100,
+        mindestAnkunftsSocPct: 5,
+        mindestLadezeitMin: 10,
       });
       // No SoC errors should appear (stops are valid).
       expect(errors).toEqual([]);
@@ -314,6 +332,8 @@ describe("TripPlannerForm pure helpers", () => {
         stops: berlinToHamburg,
         startSoc: -1,
         zielSoc: 200,
+        mindestAnkunftsSocPct: 5,
+        mindestLadezeitMin: 10,
       });
       expect(errors).toContain("Start-SoC muss zwischen 0 und 100 % liegen.");
       expect(errors).toContain("Ziel-SoC muss zwischen 0 und 100 % liegen.");
