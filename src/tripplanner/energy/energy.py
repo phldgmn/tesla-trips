@@ -20,6 +20,10 @@ from tripplanner.wind.models import WindComponents
 # Luftdichte (ISA-Standard bei 15°C, 1013 hPa)
 LUFTDICHE_KGM3: float = 1.225
 
+# ISA-Referenzwerte für Luftdichte-Berechnung
+ISA_TEMPERATUR_C: float = 15.0
+ISA_LUFTDRUCK_HPA: float = 1013.25
+
 # Erdbeschleunigung
 ERDBESCHLEUNIGUNG_MS2: float = 9.81
 
@@ -42,6 +46,10 @@ OBERFLAECHEN_ROLLWIDERSTAND_FAKTOR: dict[str, float] = {
 
 DEFAULT_OBERFLAECHEN_FAKTOR: float = 1.0
 
+# Schwellenwerte für Witterungs-Faktor (siehe f_strassenzustand)
+SCHNEEFALL_SCHWELLE_CM: float = 0.5
+NIEDERSCHLAG_SCHWELLE_MM: float = 0.5
+
 
 def f_oberflaeche(oberflaeche: str | None) -> float:
     """Rollwiderstands-Multiplikator für den gegebenen Straßenbelag.
@@ -56,6 +64,68 @@ def f_oberflaeche(oberflaeche: str | None) -> float:
     if oberflaeche is None:
         return DEFAULT_OBERFLAECHEN_FAKTOR
     return OBERFLAECHEN_ROLLWIDERSTAND_FAKTOR.get(oberflaeche.lower(), DEFAULT_OBERFLAECHEN_FAKTOR)
+
+
+def berechne_luftdichte(temperatur_c: float, luftdruck_hpa: float) -> float:
+    """Berechnet die Luftdichte basierend auf Temperatur und Luftdruck.
+
+    Verwendet die ideale Gasgleichung: rho = p / (R_spez * T)
+    R_spez für trockene Luft ≈ 287.058 J/(kg·K)
+
+    Args:
+        temperatur_c: Temperatur in °C
+        luftdruck_hpa: Luftdruck in hPa
+
+    Returns:
+        Luftdichte in kg/m³
+    """
+    # Temperatur in Kelvin
+    t_kelvin = temperatur_c + 273.15
+    # Luftdruck in Pa
+    p_pa = luftdruck_hpa * 100.0
+    # Spezifische Gaskonstante für trockene Luft
+    r_spez = 287.058
+    return p_pa / (r_spez * t_kelvin)
+
+
+def f_strassenzustand(
+    oberflaeche: str | None,
+    niederschlag_mm: float,
+    schneefall_cm: float,
+    temperatur_c: float,
+) -> float:
+    """Rollwiderstands-Multiplikator für Straßenbelag UND Witterung.
+
+    Kombiniert den Belag-Faktor (Asphalt, Gravel, etc.) mit einem
+    Witterungs-Faktor (trocken, nass, Schnee, Eis).
+
+    Args:
+        oberflaeche: Straßenbelag (z. B. "asphalt", "gravel", None).
+        niederschlag_mm: Niederschlag in mm (Stundensumme).
+        schneefall_cm: Schneefall in cm (Wasserequivalent).
+        temperatur_c: Temperatur in °C (für Eis-Erkennung).
+
+    Returns:
+        Kombinierter Multiplikator für den Rollwiderstandsbeiwert.
+    """
+    # Basis-Faktor für Belag
+    f_belag = f_oberflaeche(oberflaeche)
+
+    # Witterungs-Faktor
+    if schneefall_cm > SCHNEEFALL_SCHWELLE_CM:
+        # Schnee auf der Fahrbahn
+        f_wetter = 1.8
+    elif niederschlag_mm > NIEDERSCHLAG_SCHWELLE_MM:
+        # Nasse Fahrbahn
+        f_wetter = 1.2
+    elif temperatur_c < 0.0 and niederschlag_mm > 0.0:
+        # Eisglätte (gefrierender Regen bei < 0°C)
+        f_wetter = 2.5
+    else:
+        # Trocken
+        f_wetter = 1.0
+
+    return f_belag * f_wetter
 
 
 def calculate_segment_consumption(
@@ -111,8 +181,13 @@ def calculate_segment_consumption(
     alpha_rad = math.atan(gradient.steigung_prozent / 100.0)
 
     # 3. Kräfte berechnen
-    # 3.1 Rollwiderstand (inkl. Straßenbelag-Faktor)
-    f_ober = f_oberflaeche(segment.oberflaeche)
+    # 3.1 Rollwiderstand (inkl. Straßenbelag-Faktor UND Witterung)
+    f_ober = f_strassenzustand(
+        segment.oberflaeche,
+        wetter.niederschlag_mm,
+        wetter.schneefall_cm,
+        wetter.temperatur_c,
+    )
     cr_eff = fahrzeug_params.rollwiderstandsbeiwert * f_ober
     F_roll = cr_eff * fahrzeug_params.masse_kg * ERDBESCHLEUNIGUNG_MS2 * math.cos(alpha_rad)
 
@@ -127,7 +202,13 @@ def calculate_segment_consumption(
     # Bei starkem Rückenwind: Mindestens 50 % der Geschwindigkeit annehmen
     v_relativ = max(v_relativ, 0.5 * v_mittel_ms)
 
-    F_luft = 0.5 * LUFTDICHE_KGM3 * cw_eff * fahrzeug_params.stirnflaeche_m2 * (v_relativ**2)
+    F_luft = (
+        0.5
+        * berechne_luftdichte(wetter.temperatur_c, wetter.luftdruck_hpa)
+        * cw_eff
+        * fahrzeug_params.stirnflaeche_m2
+        * (v_relativ**2)
+    )
 
     # 3.3 Steigung (Höhenenergie)
     F_steigung = fahrzeug_params.masse_kg * ERDBESCHLEUNIGUNG_MS2 * math.sin(alpha_rad)
