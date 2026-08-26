@@ -56,6 +56,7 @@ import {
   X,
   CloudSun,
   Construction,
+  Percent,
   type LucideIcon,
 } from "lucide-react";
 
@@ -110,7 +111,7 @@ export function getStopRole(stops: Stop[], index: number): string {
   if (stops.length === 0) return "";
   if (index === 0) return "Start";
   if (index === stops.length - 1) return "Ziel";
-  return `Zwischenstopp ${index}`;
+  return `Stop ${index}`;
 }
 
 /** Prüft, ob ein Address-String wie ein roher Koordinaten-String aussieht
@@ -621,6 +622,9 @@ export function TripPlannerForm({
   const [isIgnorierteFaehrenModalOpen, setIsIgnorierteFaehrenModalOpen] =
     useState(false);
   const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
+  // Stop-ID, für die aktuell der SoC-Inline-Editor (Start-/Ziel-SoC-Button
+  // in der Kopfzeile der Start-/Ziel-Karte) geöffnet ist, oder `null`.
+  const [socEditingStopId, setSocEditingStopId] = useState<string | null>(null);
 
   // --- Geocoding State (per stop) ---
   const [geocodingStates, setGeocodingStates] = useState<
@@ -1211,34 +1215,6 @@ export function TripPlannerForm({
         <div style={{ display: "flex", gap: "0.75rem", marginTop: "1rem" }}>
           <div style={{ flex: 1 }}>
             <label style={{ display: "block", marginBottom: "0.25rem" }}>
-              Start-SoC (%)
-            </label>
-            <input
-              type="number"
-              min="0"
-              max="100"
-              step="1"
-              value={startSoc}
-              onChange={(e) => setStartSoc(parseInt(e.target.value, 10) || 0)}
-              style={{ width: "100%", padding: "0.4rem" }}
-            />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={{ display: "block", marginBottom: "0.25rem" }}>
-              Ziel-SoC (%)
-            </label>
-            <input
-              type="number"
-              min="0"
-              max="100"
-              step="1"
-              value={zielSoc}
-              onChange={(e) => setZielSoc(parseInt(e.target.value, 10) || 0)}
-              style={{ width: "100%", padding: "0.4rem" }}
-            />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={{ display: "block", marginBottom: "0.25rem" }}>
               Min. SoC an Ladestationen (%)
             </label>
             <input
@@ -1545,6 +1521,50 @@ export function TripPlannerForm({
                       {role}
                     </span>
                     <div style={{ display: "flex", gap: "0.25rem" }}>
+                      {(idx === 0 || isLast) && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSocEditingStopId(
+                              socEditingStopId === stop.id ? null : stop.id,
+                            )
+                          }
+                          disabled={isSubmitting}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "0.15rem",
+                            padding: "0.2rem 0.4rem",
+                            fontSize: "0.7rem",
+                            fontWeight: 600,
+                            background:
+                              socEditingStopId === stop.id
+                                ? "#7c3aed"
+                                : "#f5f3ff",
+                            border: `1px solid ${socEditingStopId === stop.id ? "#7c3aed" : "#c4b5fd"}`,
+                            borderRadius: "4px",
+                            color:
+                              socEditingStopId === stop.id
+                                ? "white"
+                                : "#6d28d9",
+                            cursor: isSubmitting ? "not-allowed" : "pointer",
+                            opacity: isSubmitting ? 0.5 : 1,
+                          }}
+                          title={
+                            idx === 0
+                              ? "Start-SoC festlegen"
+                              : "Ziel-SoC festlegen"
+                          }
+                          aria-label={
+                            idx === 0
+                              ? "Start-SoC festlegen"
+                              : "Ziel-SoC festlegen"
+                          }
+                        >
+                          <Percent size={12} />
+                          {idx === 0 ? startSoc : zielSoc}%
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() =>
@@ -1681,6 +1701,44 @@ export function TripPlannerForm({
                     </div>
                   </div>
 
+                  {/* Inline-Editor für Start-/Ziel-SoC, geöffnet über den
+                      Prozent-Button in der Kopfzeile. */}
+                  {socEditingStopId === stop.id && (idx === 0 || isLast) && (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.4rem",
+                      }}
+                    >
+                      <label style={{ fontSize: "0.8rem", fontWeight: 500 }}>
+                        {idx === 0 ? "Start-SoC (%)" : "Ziel-SoC (%)"}
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        autoFocus
+                        value={idx === 0 ? startSoc : zielSoc}
+                        onChange={(e) => {
+                          const value = parseInt(e.target.value, 10) || 0;
+                          if (idx === 0) {
+                            setStartSoc(value);
+                          } else {
+                            setZielSoc(value);
+                          }
+                        }}
+                        onBlur={() => setSocEditingStopId(null)}
+                        style={{
+                          width: "5rem",
+                          padding: "0.3rem",
+                          fontSize: "0.85rem",
+                        }}
+                      />
+                    </div>
+                  )}
+
                   {/* Address Input + Geocoding */}
                   <div style={{ position: "relative" }}>
                     <input
@@ -1800,16 +1858,43 @@ export function TripPlannerForm({
                   {/* Abfahrt hier (nur für nicht-letzte Stopps) */}
                   {showLeaveAt && (
                     <div>
-                      <label
+                      <div
                         style={{
-                          display: "block",
-                          fontSize: "0.8rem",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
                           marginBottom: "0.25rem",
-                          fontWeight: 500,
                         }}
                       >
-                        Abfahrt hier
-                      </label>
+                        <label
+                          style={{
+                            fontSize: "0.8rem",
+                            fontWeight: 500,
+                          }}
+                        >
+                          Abfahrt hier
+                        </label>
+                        {stop.leaveAt && (
+                          <button
+                            type="button"
+                            onClick={() => handleLeaveAtClear(stop.id)}
+                            style={{
+                              display: "flex",
+                              padding: "0.1rem 0.3rem",
+                              fontSize: "0.8rem",
+                              lineHeight: 1,
+                              background: "none",
+                              border: "none",
+                              color: "#991b1b",
+                              cursor: "pointer",
+                            }}
+                            title="Abfahrtszeit löschen"
+                            aria-label="Abfahrtszeit löschen"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
                       <div style={{ display: "flex", gap: "0.4rem" }}>
                         <input
                           type="date"
@@ -1854,50 +1939,36 @@ export function TripPlannerForm({
                           }}
                         />
                       </div>
-                      {stop.leaveAt && (
-                        <button
-                          type="button"
-                          onClick={() => handleLeaveAtClear(stop.id)}
-                          style={{
-                            marginTop: "0.25rem",
-                            padding: "0.2rem 0.4rem",
-                            fontSize: "0.75rem",
-                            background: "none",
-                            border: "none",
-                            color: "#991b1b",
-                            cursor: "pointer",
-                            textDecoration: "underline",
-                          }}
-                        >
-                          Abfahrtszeit löschen
-                        </button>
+                      {idx !== 0 && (
+                        <>
+                          <label
+                            style={{
+                              display: "block",
+                              fontSize: "0.8rem",
+                              marginTop: "0.5rem",
+                              marginBottom: "0.25rem",
+                              fontWeight: 500,
+                            }}
+                          >
+                            Ladeleistung hier verfügbar (kW, optional)
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.1"
+                            placeholder="z. B. 11"
+                            value={stop.chargingPowerKw ?? ""}
+                            onChange={(e) =>
+                              handleChargingPowerChange(stop.id, e.target.value)
+                            }
+                            style={{
+                              width: "100%",
+                              padding: "0.4rem",
+                              fontSize: "0.85rem",
+                            }}
+                          />
+                        </>
                       )}
-                      <label
-                        style={{
-                          display: "block",
-                          fontSize: "0.8rem",
-                          marginTop: "0.5rem",
-                          marginBottom: "0.25rem",
-                          fontWeight: 500,
-                        }}
-                      >
-                        Ladeleistung hier verfügbar (kW, optional)
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        placeholder="z. B. 11"
-                        value={stop.chargingPowerKw ?? ""}
-                        onChange={(e) =>
-                          handleChargingPowerChange(stop.id, e.target.value)
-                        }
-                        style={{
-                          width: "100%",
-                          padding: "0.4rem",
-                          fontSize: "0.85rem",
-                        }}
-                      />
                     </div>
                   )}
                 </div>

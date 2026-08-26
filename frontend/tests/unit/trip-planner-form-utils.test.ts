@@ -62,8 +62,8 @@ describe("TripPlannerForm pure helpers", () => {
       expect(getStopRole(berlinToHamburgVia, 2)).toBe("Ziel");
     });
 
-    it("returns 'Zwischenstopp N' for middle stops (1-based label equals index)", () => {
-      expect(getStopRole(berlinToHamburgVia, 1)).toBe("Zwischenstopp 1");
+    it("returns 'Stop N' for middle stops (1-based label equals index)", () => {
+      expect(getStopRole(berlinToHamburgVia, 1)).toBe("Stop 1");
     });
 
     it("treats a single stop as both Start and Ziel (index 0 wins)", () => {
@@ -81,8 +81,8 @@ describe("TripPlannerForm pure helpers", () => {
         makeStop({ address: "D" }),
       ];
       expect(getStopRole(four, 0)).toBe("Start");
-      expect(getStopRole(four, 1)).toBe("Zwischenstopp 1");
-      expect(getStopRole(four, 2)).toBe("Zwischenstopp 2");
+      expect(getStopRole(four, 1)).toBe("Stop 1");
+      expect(getStopRole(four, 2)).toBe("Stop 2");
       expect(getStopRole(four, 3)).toBe("Ziel");
     });
   });

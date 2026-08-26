@@ -226,7 +226,7 @@ export function roleToLabel(role: StopRole): string {
     case "end":
       return "Ziel";
     case "middle":
-      return "Zwischenstopp";
+      return "Stop";
   }
 }
 

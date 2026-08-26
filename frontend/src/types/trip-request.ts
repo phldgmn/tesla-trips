@@ -236,11 +236,7 @@ export function validateStops(stops: Stop[]): string[] {
   stops.forEach((stop, idx) => {
     if (!stop.position) {
       const rolle =
-        idx === 0
-          ? "Start"
-          : idx === stops.length - 1
-            ? "Ziel"
-            : `Zwischenstopp ${idx}`;
+        idx === 0 ? "Start" : idx === stops.length - 1 ? "Ziel" : `Stop ${idx}`;
       errors.push(`${rolle}: Adresse noch nicht ausgewählt.`);
     }
   });

@@ -295,8 +295,8 @@ describe("MapVisualization utilities", () => {
       expect(roleToLabel("end")).toBe("Ziel");
     });
 
-    it("should return 'Zwischenstopp' für middle", () => {
-      expect(roleToLabel("middle")).toBe("Zwischenstopp");
+    it("should return 'Stop' für middle", () => {
+      expect(roleToLabel("middle")).toBe("Stop");
     });
   });
 
