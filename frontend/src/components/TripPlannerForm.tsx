@@ -56,7 +56,7 @@ import {
   X,
   CloudSun,
   Construction,
-  Percent,
+  Battery,
   type LucideIcon,
 } from "lucide-react";
 
@@ -1187,8 +1187,7 @@ export function TripPlannerForm({
           style={{ fontSize: "0.8rem", color: "#6b7280", marginTop: "0.2rem" }}
         >
           {VEHICLE_PROFILE_PRESETS.find((p) => p.id === selectedPresetId)
-            ?.label ?? "Benutzerdefiniert"}{" "}
-          · {startSoc}% → {zielSoc}%
+            ?.label ?? "Benutzerdefiniert"}
         </div>
       </button>
 
@@ -1561,7 +1560,7 @@ export function TripPlannerForm({
                               : "Ziel-SoC festlegen"
                           }
                         >
-                          <Percent size={12} />
+                          <Battery size={12} />
                           {idx === 0 ? startSoc : zielSoc}%
                         </button>
                       )}
@@ -1940,34 +1939,49 @@ export function TripPlannerForm({
                         />
                       </div>
                       {idx !== 0 && (
-                        <>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "0.4rem",
+                            marginTop: "0.5rem",
+                          }}
+                        >
                           <label
                             style={{
-                              display: "block",
                               fontSize: "0.8rem",
-                              marginTop: "0.5rem",
-                              marginBottom: "0.25rem",
                               fontWeight: 500,
+                              whiteSpace: "nowrap",
                             }}
                           >
-                            Ladeleistung hier verfügbar (kW, optional)
+                            Ladeleistung
                           </label>
                           <input
                             type="number"
                             min="0"
                             step="0.1"
-                            placeholder="z. B. 11"
+                            placeholder="optional"
                             value={stop.chargingPowerKw ?? ""}
                             onChange={(e) =>
                               handleChargingPowerChange(stop.id, e.target.value)
                             }
                             style={{
-                              width: "100%",
+                              flex: 1,
+                              minWidth: 0,
                               padding: "0.4rem",
                               fontSize: "0.85rem",
                             }}
                           />
-                        </>
+                          <span
+                            style={{
+                              fontSize: "0.8rem",
+                              color: "#6b7280",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            kW
+                          </span>
+                        </div>
                       )}
                     </div>
                   )}
