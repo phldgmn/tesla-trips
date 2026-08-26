@@ -10,6 +10,8 @@ import {
   roleToMarkerGlyph,
   buildMarkerElement,
   buildPopupText,
+  findWaypointStopAt,
+  buildStopPopupHtml,
   buildChargingStopMarkerElement,
   buildChargingStopPopupHtml,
   formatChargingDuration,
@@ -18,7 +20,7 @@ import {
   DEFAULT_MAP_VIEW,
 } from "@/components/Map";
 import type { Stop, StopRole } from "@/components/Map";
-import type { ChargingStop } from "@/types";
+import type { ChargingStop, WaypointStop } from "@/types";
 import type { RouteSample } from "@/utils/route-line";
 import type { SuperchargerStation } from "@/api/chargingApi";
 import type { StyleSpecification } from "maplibre-gl";
@@ -330,11 +332,17 @@ describe("MapVisualization utilities", () => {
       expect(el.style.backgroundColor).toBe("rgb(239, 68, 68)");
     });
 
-    it("should build a div for middle role", () => {
+    it("should build a div with a pin icon (not a bare dot) for middle role", () => {
       const el = buildMarkerElement("middle");
       expect(el instanceof HTMLElement).toBe(true);
-      expect(el.textContent).toBe("●");
+      expect(el.innerHTML).toContain("<svg");
       expect(el.style.backgroundColor).toBe("rgb(59, 130, 246)");
+    });
+
+    it("has no inline position or z-index (prevents zoom-drift, see construction-zone-popup.test.ts)", () => {
+      const el = buildMarkerElement("middle");
+      expect(el.style.position).toBe("");
+      expect(el.style.zIndex).toBe("");
     });
   });
 
@@ -369,6 +377,89 @@ describe("MapVisualization utilities", () => {
         position: null,
       };
       expect(buildPopupText(stop, startRole)).toBe("Start");
+    });
+  });
+
+  describe("findWaypointStopAt", () => {
+    const waypoint: WaypointStop = {
+      position: [48.858844, 2.294351],
+      distanz_m: 12345,
+      ankunftszeit: "2024-05-01T10:00:00Z",
+      abfahrtszeit: "2024-05-01T10:30:00Z",
+      ladeleistung_kw: 11,
+      ankunfts_soc_pct: 40,
+      ziel_soc_pct: 80,
+      energie_geladen_kwh: 8,
+    };
+
+    it("finds the waypoint stop at (nearly) the same position", () => {
+      expect(findWaypointStopAt([waypoint], [48.858844, 2.294351])).toBe(
+        waypoint,
+      );
+      // Minor floating-point drift (well within the matching tolerance).
+      expect(findWaypointStopAt([waypoint], [48.85885, 2.29436])).toBe(
+        waypoint,
+      );
+    });
+
+    it("returns null when no waypoint stop is within tolerance", () => {
+      expect(findWaypointStopAt([waypoint], [52.52, 13.405])).toBeNull();
+    });
+
+    it("returns null for an empty waypoint stop list", () => {
+      expect(findWaypointStopAt([], [48.858844, 2.294351])).toBeNull();
+    });
+  });
+
+  describe("buildStopPopupHtml", () => {
+    const middleRole: StopRole = "middle";
+    const stop: Stop = {
+      id: "s1",
+      address: "Rastplatz Muster",
+      position: [48.858844, 2.294351],
+    };
+
+    it("shows only the address/title when no waypoint stop matches", () => {
+      const html = buildStopPopupHtml(stop, middleRole, null);
+      expect(html).toContain("Rastplatz Muster");
+      expect(html).not.toContain("<table");
+    });
+
+    it("shows arrival/departure details when a waypoint stop matches", () => {
+      const waypoint: WaypointStop = {
+        position: [48.858844, 2.294351],
+        distanz_m: 12345,
+        ankunftszeit: "2024-05-01T10:00:00Z",
+        abfahrtszeit: "2024-05-01T10:30:00Z",
+        ladeleistung_kw: null,
+        ankunfts_soc_pct: 40,
+        ziel_soc_pct: 45,
+        energie_geladen_kwh: 0,
+      };
+      const html = buildStopPopupHtml(stop, middleRole, waypoint);
+      expect(html).toContain("Rastplatz Muster");
+      expect(html).toContain("<table");
+      expect(html).toContain("40% SoC");
+      expect(html).toContain("45% SoC");
+      expect(html).not.toContain("Ladeleistung");
+    });
+
+    it("includes Ladeleistung/Geladen rows only when charging occurred", () => {
+      const waypoint: WaypointStop = {
+        position: [48.858844, 2.294351],
+        distanz_m: 12345,
+        ankunftszeit: "2024-05-01T10:00:00Z",
+        abfahrtszeit: "2024-05-01T10:30:00Z",
+        ladeleistung_kw: 11,
+        ankunfts_soc_pct: 40,
+        ziel_soc_pct: 80,
+        energie_geladen_kwh: 8,
+      };
+      const html = buildStopPopupHtml(stop, middleRole, waypoint);
+      expect(html).toContain("Ladeleistung");
+      expect(html).toContain("11.0 kW");
+      expect(html).toContain("Geladen");
+      expect(html).toContain("8.0 kWh");
     });
   });
 

@@ -23,7 +23,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // `setWorkerUrl()` überschreibt MapLibres eigene (kaputte) Berechnung damit.
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 
-import { toLngLat } from "../utils/geo-utils";
+import { toLngLat, haversineDistanceM } from "../utils/geo-utils";
 import {
   buildSplicedRoute,
   splitRouteIntoLegs,
@@ -242,12 +242,27 @@ export function roleToMarkerGlyph(role: StopRole): string {
   }
 }
 
-/** Erzeugt ein gestyltes DOM-Element für einen Stopp-Marker. */
+/** Erzeugt ein gestyltes DOM-Element für einen Stopp-Marker. Start/Ziel
+ *  behalten ihr Buchstaben-Kürzel (A/B); Zwischenstopps bekommen ein
+ *  Pin-Icon statt eines reinen Punkts, damit der Marker auch dann klar als
+ *  Ort erkennbar bleibt, wenn er zusätzlich Aufenthalts-Details trägt (siehe
+ *  `buildStopPopupHtml`). BEWUSST kein inline `position`/`z-index` hier -
+ *  das durchkreuzt MapLibres eigene Transform-basierte Positionierung des
+ *  Marker-Elements und liess Marker beim Zoomen von ihrer Koordinate
+ *  abdriften (siehe `raiseStopMarkersToTop` fuer die stattdessen genutzte,
+ *  rein DOM-Reihenfolge-basierte Stapelung ueber Baustellen-/Ladehalt-
+ *  Markern). */
 export function buildMarkerElement(role: StopRole): HTMLElement {
   const el = document.createElement("div");
   const color = roleToMarkerColor(role);
-  el.textContent = roleToMarkerGlyph(role);
   const isMiddle = role === "middle";
+  if (isMiddle) {
+    el.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="#ffffff" style="pointer-events:none;">
+      <path d="M12 2C8.14 2 5 5.14 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.86-3.14-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/>
+    </svg>`;
+  } else {
+    el.textContent = roleToMarkerGlyph(role);
+  }
   el.style.cssText = [
     "display:flex",
     "align-items:center",
@@ -447,36 +462,38 @@ export function buildChargingStopPopupHtml(stop: ChargingStop): string {
   );
 }
 
-/** Erzeugt ein gestyltes DOM-Element fuer einen Zwischenstopp-Aufenthalt-Marker
- * (blauer Punkt, analog zur bisherigen PAUSE-Frame-Darstellung) - ein Marker
- * pro `TripSimulationResult.waypoint_stops`-Eintrag, unabhaengig davon, ob
- * dabei geladen wurde. */
-export function buildWaypointStopMarkerElement(): HTMLElement {
-  const el = document.createElement("div");
-  el.style.cssText = [
-    "width:16px",
-    "height:16px",
-    "border-radius:50%",
-    "background-color:#3b82f6",
-    "border:2px solid #ffffff",
-    "box-shadow:0 1px 4px rgba(0,0,0,0.35)",
-    "cursor:pointer",
-  ].join(";");
-  return el;
-}
-
-/** Popup-HTML fuer einen Zwischenstopp-Aufenthalt: Ankunfts-/Abfahrtszeit,
- * SoC, und - falls vorhanden - genutzte Ladeleistung/geladene Energie. */
-export function buildWaypointStopPopupHtml(stop: WaypointStop): string {
+/** Popup-HTML fuer einen Stopp-Marker: Adresse/Rolle als Titel, ergaenzt um
+ *  Aufenthalts-Details (Ankunfts-/Abfahrts-SoC und -zeit, ggf. genutzte
+ *  Ladeleistung/geladene Energie), sobald ein passender `WaypointStop` aus
+ *  dem Simulationsergebnis vorliegt (erzwungene Wartezeit an diesem Stopp).
+ *  Ersetzt zwei vormals getrennte Marker (editierbarer Adress-Marker +
+ *  separater Detail-Marker) durch einen einzigen - sobald Details verfuegbar
+ *  sind, werden sie direkt im selben Marker/Popup angezeigt statt einem
+ *  zweiten, ueberlappenden Marker. */
+export function buildStopPopupHtml(
+  stop: Stop,
+  role: StopRole,
+  waypointStop: WaypointStop | null,
+): string {
+  const title = buildPopupText(stop, role);
+  if (!waypointStop) {
+    return `<div style="font-family:system-ui,sans-serif;font-size:13px;">${title}</div>`;
+  }
   const rows: [string, string][] = [
-    ["Ankunft", `${stop.ankunfts_soc_pct.toFixed(0)}% SoC`],
-    ["Ankunftszeit", formatZeitpunkt(stop.ankunftszeit)],
-    ["Abfahrt", `${stop.ziel_soc_pct.toFixed(0)}% SoC`],
-    ["Abfahrtszeit", formatZeitpunkt(stop.abfahrtszeit)],
+    ["Ankunft", `${waypointStop.ankunfts_soc_pct.toFixed(0)}% SoC`],
+    ["Ankunftszeit", formatZeitpunkt(waypointStop.ankunftszeit)],
+    ["Abfahrt", `${waypointStop.ziel_soc_pct.toFixed(0)}% SoC`],
+    ["Abfahrtszeit", formatZeitpunkt(waypointStop.abfahrtszeit)],
   ];
-  if (stop.ladeleistung_kw !== null) {
-    rows.push(["Ladeleistung", `${stop.ladeleistung_kw.toFixed(1)} kW`]);
-    rows.push(["Geladen", `${stop.energie_geladen_kwh.toFixed(1)} kWh`]);
+  if (waypointStop.ladeleistung_kw !== null) {
+    rows.push([
+      "Ladeleistung",
+      `${waypointStop.ladeleistung_kw.toFixed(1)} kW`,
+    ]);
+    rows.push([
+      "Geladen",
+      `${waypointStop.energie_geladen_kwh.toFixed(1)} kWh`,
+    ]);
   }
   const rowsHtml = rows
     .map(
@@ -487,9 +504,28 @@ export function buildWaypointStopPopupHtml(stop: WaypointStop): string {
     .join("");
   return (
     `<div style="font-family:system-ui,sans-serif;font-size:13px;min-width:190px;">` +
-    `<strong style="font-size:14px;">Zwischenstopp</strong>` +
+    `<strong style="font-size:14px;">${title}</strong>` +
     `<table style="width:100%;border-collapse:collapse;margin-top:4px;">${rowsHtml}</table>` +
     `</div>`
+  );
+}
+
+/** Findet den `WaypointStop` (falls vorhanden), dessen Position mit `position`
+ *  uebereinstimmt (innerhalb einer kleinen Toleranz gegen Fliesskomma-
+ *  Rundung) - verknuepft einen editierbaren `Stop` mit seinen berechneten
+ *  Aufenthalts-Details, da `WaypointStop` selbst keine `Stop.id` traegt. */
+const WAYPOINT_STOP_MATCH_TOLERANCE_M = 25;
+
+export function findWaypointStopAt(
+  waypointStops: WaypointStop[],
+  position: [number, number],
+): WaypointStop | null {
+  return (
+    waypointStops.find(
+      (w) =>
+        haversineDistanceM(w.position, position) <=
+        WAYPOINT_STOP_MATCH_TOLERANCE_M,
+    ) ?? null
   );
 }
 
@@ -681,9 +717,6 @@ export function MapVisualization({
   // Baustellen-Marker (ein Eintrag pro `simulationResult.construction_zones`),
   // analog zu `chargingStopMarkersRef`.
   const constructionZoneMarkersRef = useRef<Marker[]>([]);
-  // Zwischenstopp-Aufenthalt-Marker (ein Eintrag pro
-  // `simulationResult.waypoint_stops`), analog zu `chargingStopMarkersRef`.
-  const waypointStopMarkersRef = useRef<Marker[]>([]);
 
   // Supercharger-Overlay
   const [superchargerStations, setSuperchargerStations] = useState<
@@ -786,11 +819,26 @@ export function MapVisualization({
       marker.remove();
     }
     constructionZoneMarkersRef.current = [];
-    // Zwischenstopps
-    for (const marker of waypointStopMarkersRef.current) {
-      marker.remove();
+  }
+
+  /** Verschiebt jedes Stopp-Marker-Element (siehe `markersRef`) ans Ende
+   *  seines DOM-Parents, damit Stopp-Marker IMMER ueber Baustellen-/
+   *  Ladehalt-Markern liegen - rein per DOM-Reihenfolge (spaeter im DOM =
+   *  oben im Paint-Stack), NICHT per inline `position`/`z-index` auf dem
+   *  Marker-Element selbst (das durchkreuzt MapLibres eigene Transform-
+   *  basierte Positionierung und liess Marker beim Zoomen von ihrer
+   *  Koordinate abdriften). `appendChild` auf einem bereits eingehaengten
+   *  Knoten verschiebt ihn nur um - Inline-Styles/Transform, die MapLibre
+   *  selbst auf dem Element verwaltet, bleiben unangetastet.
+   *
+   *  Wird am Ende BEIDER Marker-Effekte aufgerufen (Simulationsergebnis- UND
+   *  Stopp-Effekt), damit die Reihenfolge unabhaengig davon stimmt, welcher
+   *  der beiden zuletzt gelaufen ist. */
+  function raiseStopMarkersToTop() {
+    for (const marker of Object.values(markersRef.current)) {
+      const el = marker.getElement();
+      el.parentNode?.appendChild(el);
     }
-    waypointStopMarkersRef.current = [];
   }
 
   useEffect(() => {
@@ -935,7 +983,8 @@ export function MapVisualization({
     // Baustellen-Marker hinzufügen: ein Marker pro Eintrag aus
     // `simulationResult.construction_zones`, mit Klick-Popup für Details.
     // WICHTIG: Vor Ladehalt-Markern hinzufügen, damit Ladehalt-Marker
-    // über den Baustellen-Markern liegen (DOM-Reihenfolge + z-index).
+    // über den Baustellen-Markern liegen (reine DOM-Reihenfolge, siehe
+    // `raiseStopMarkersToTop` fürs analoge Prinzip bei Stopp-Markern).
     for (const zone of simulationResult.construction_zones) {
       const element = buildConstructionZoneMarkerElement();
       const marker = new Marker({ element })
@@ -964,20 +1013,10 @@ export function MapVisualization({
       chargingStopMarkersRef.current.push(marker);
     }
 
-    // Zwischenstopp-Aufenthalt-Marker hinzufügen: ein Marker pro Eintrag aus
-    // `simulationResult.waypoint_stops` (nicht pro PAUSE/LADEN-Frame – ein
-    // Aufenthalt kann mehrere Frames erzeugen), exakt auf der Position des
-    // Zwischenstopps, mit Klick-Popup für Details.
-    for (const stop of simulationResult.waypoint_stops) {
-      const element = buildWaypointStopMarkerElement();
-      const marker = new Marker({ element })
-        .setLngLat(toLngLat(stop.position))
-        .setPopup(
-          new Popup({ offset: 14 }).setHTML(buildWaypointStopPopupHtml(stop)),
-        )
-        .addTo(map);
-      waypointStopMarkersRef.current.push(marker);
-    }
+    // Stopp-Marker koennen zu diesem Zeitpunkt bereits existieren (siehe
+    // zweiter Marker-Effekt unten) - jetzt neu hinzugekommene Baustellen-/
+    // Ladehalt-Marker wieder unter sie schieben (siehe `raiseStopMarkersToTop`).
+    raiseStopMarkersToTop();
 
     // Kamera auf gesamte Route zentrieren
     const bounds = routeCoordinates.reduce(
@@ -991,11 +1030,17 @@ export function MapVisualization({
   // `stops`. Bestehende Marker werden per setLngLat verschoben statt
   // neu erzeugt, um Flicker und Drag-State-Verlust zu vermeiden.
   // Stopps ohne position werden übersprungen (noch nicht geocoded).
+  // Popup-Inhalt wird bei jedem Lauf neu gesetzt (auch für bestehende
+  // Marker), damit ein neu berechnetes Simulationsergebnis dessen
+  // Aufenthalts-Details (siehe `findWaypointStopAt`/`buildStopPopupHtml`)
+  // nachzieht, ohne den Marker selbst (und damit Drag-State) neu zu
+  // erzeugen.
   useEffect(() => {
     if (!isMapLoaded || !mapRef.current) return;
     const map = mapRef.current;
     const markers = markersRef.current;
     const stops = stopsProp ?? [];
+    const waypointStops = simulationResult?.waypoint_stops ?? [];
     const seen = new Set<string>();
 
     // Nur Stopps mit aufgelöster Position rendern.
@@ -1006,17 +1051,19 @@ export function MapVisualization({
 
       seen.add(stop.id);
       const role = stopRole(i, stops.length);
+      const waypointStop = findWaypointStopAt(waypointStops, stop.position);
+      const popupHtml = buildStopPopupHtml(stop, role, waypointStop);
       const existing = markers[stop.id];
       if (existing) {
         // Nur Position aktualisieren – Marker-Instanz und Drag-State bleiben
         existing.setLngLat(toLngLat(stop.position));
+        existing.setPopup(new Popup({ offset: 14 }).setHTML(popupHtml));
       } else {
         // Neuen Marker erzeugen
         const element = buildMarkerElement(role);
         const marker = new Marker({ element, draggable: true });
         marker.setLngLat(toLngLat(stop.position));
-        const popupText = buildPopupText(stop, role);
-        marker.setPopup(new Popup({ offset: 14 }).setHTML(popupText));
+        marker.setPopup(new Popup({ offset: 14 }).setHTML(popupHtml));
         marker.on("dragend", () => {
           const ll = marker.getLngLat();
           // [lat, lon] – projektweite Konvention (siehe geo-utils.ts)
@@ -1035,6 +1082,11 @@ export function MapVisualization({
       }
     }
 
+    // Sicherstellen, dass Stopp-Marker (auch neu erzeugte) ueber ggf. schon
+    // vorhandenen Baustellen-/Ladehalt-Markern liegen (siehe
+    // `raiseStopMarkersToTop`).
+    raiseStopMarkersToTop();
+
     return () => {
       // Beim Unmount alle Marker entfernen
       for (const id of Object.keys(markers)) {
@@ -1042,7 +1094,7 @@ export function MapVisualization({
         delete markers[id];
       }
     };
-  }, [stopsProp, isMapLoaded, onStopMove]);
+  }, [stopsProp, isMapLoaded, onStopMove, simulationResult]);
 
   // Auswahlmodus: Kartenklick setzt Position für pickingStopId.
   // Handler wird nur registriert, wenn pickingStopId nicht-null ist.
