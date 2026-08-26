@@ -857,86 +857,6 @@ def _make_fahrzeugprofil_dict() -> dict:
     }
 
 
-def test_with_derived_waiting_time_requires_waiting_time_with_later_planned_departure() -> None:
-    """Leitet aus einer spaet geplanten Abfahrt eine Mindestaufenthaltsdauer ab.
-
-    Liegt `geplante_abfahrt` spaeter als die geschaetzte Ankunft, wird die
-    Differenz als Aufenthaltsdauer erzwungen.
-    """
-    abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0)
-    segment = RouteSegment(
-        segment_index=0,
-        geometrie=[(52.0, 13.0), (52.1, 13.1)],
-        laenge_m=50_000.0,
-        strassenklasse="PRIMARY",
-        oberflaeche="asphalt",
-        tempolimit_kmh=100,
-        steigung_rohdaten=0.0,
-        bearing_deg=45.0,
-    )
-    segment_eta_liste = [(segment, timedelta(minutes=27))]
-    # Geschaetzte Ankunft am Wegpunkt (Ende von Segment 0) liegt 27 Min. nach
-    # Abfahrt; geplante Abfahrt hier 30 Min. nach der geschaetzten Ankunft.
-    wp = Waypoint(
-        koordinate=(52.1, 13.1),
-        aufenthaltsdauer=None,
-        geplante_abfahrt=abfahrtszeit + timedelta(minutes=57),
-    )
-
-    ergebnis = trip_api._with_derived_wait_time([wp], segment_eta_liste, abfahrtszeit)
-
-    assert len(ergebnis) == 1
-    assert ergebnis[0].aufenthaltsdauer is not None
-    assert ergebnis[0].aufenthaltsdauer >= timedelta(minutes=25)
-
-
-def test_with_derived_waiting_time_no_waiting_time_when_already_delayed_departure() -> None:
-    """Liegt `geplante_abfahrt` vor der geschaetzten Ankunft, wird keine
-    zusaetzliche Wartezeit erzwungen (man ist ohnehin schon spaeter dran)."""
-    abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0)
-    segment = RouteSegment(
-        segment_index=0,
-        geometrie=[(52.0, 13.0), (52.1, 13.1)],
-        laenge_m=50_000.0,
-        strassenklasse="PRIMARY",
-        oberflaeche="asphalt",
-        tempolimit_kmh=100,
-        steigung_rohdaten=0.0,
-        bearing_deg=45.0,
-    )
-    segment_eta_liste = [(segment, timedelta(minutes=27))]
-    wp = Waypoint(
-        koordinate=(52.1, 13.1),
-        aufenthaltsdauer=None,
-        geplante_abfahrt=abfahrtszeit + timedelta(minutes=5),
-    )
-
-    ergebnis = trip_api._with_derived_wait_time([wp], segment_eta_liste, abfahrtszeit)
-
-    assert ergebnis[0].aufenthaltsdauer == timedelta(0)
-
-
-def test_with_derived_waiting_time_unchanged_without_planned_departure() -> None:
-    """Wegpunkte ohne `geplante_abfahrt` werden unveraendert durchgereicht."""
-    abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0)
-    segment = RouteSegment(
-        segment_index=0,
-        geometrie=[(52.0, 13.0), (52.1, 13.1)],
-        laenge_m=50_000.0,
-        strassenklasse="PRIMARY",
-        oberflaeche="asphalt",
-        tempolimit_kmh=100,
-        steigung_rohdaten=0.0,
-        bearing_deg=45.0,
-    )
-    segment_eta_liste = [(segment, timedelta(minutes=27))]
-    wp = Waypoint(koordinate=(52.1, 13.1), aufenthaltsdauer=timedelta(minutes=10))
-
-    ergebnis = trip_api._with_derived_wait_time([wp], segment_eta_liste, abfahrtszeit)
-
-    assert ergebnis[0] is wp
-
-
 # =============================================================================
 # Testfälle für _match_ferry_time_window, faehren_observer, ladedauer_vorgaben
 # =============================================================================
@@ -1389,17 +1309,14 @@ def test_fastapi_endpoint_akzeptiert_faehr_zeitfenster_und_ladedauer_vorgaben(
             assert stop["ladedauer_s"] == 1500
 
 
-def test_fastapi_endpoint_mit_geplanter_abfahrt_gibt_201(client: TestClient) -> None:
-    """Endpunkt akzeptiert `geplante_abfahrt` an einem Zwischenstopp fehlerfrei.
-
-    Hinweis: Der aktuelle Prototyp-Optimierer (`tripplanner.optimization.optimizer`)
-    behandelt Zwischenstopp-Wartezeiten als optionalen Kostenfaktor im A*-Suchgraphen,
-    nicht als erzwungene Mindestaufenthaltsdauer -- der A*-Pfad kann die Wartekante
-    umgehen, wenn kein SoC-/Ladebedarf sie erfordert. Dieser Test prueft daher nur die
-    fehlerfreie Verarbeitung (Datenfluss bis in das Domaenenmodell), nicht eine
-    konkrete Zeitverschiebung in der Antwort -- siehe `_with_derived_wait_time`-Tests
-    oben fuer die Verifikation der eigentlichen Ableitungslogik.
+def test_fastapi_endpoint_mit_geplanter_abfahrt_verzoegert_ankunft(client: TestClient) -> None:
+    """Regressionstest: `geplante_abfahrt` an einem Zwischenstopp MUSS die
+    Reise tatsaechlich bis dahin verzoegern - nicht nur fehlerfrei akzeptiert,
+    aber im A*-Suchpfad umgangen werden (Bug: eine gesetzte Abfahrtszeit an
+    einem Zwischenstopp wurde bei der Ankunftszeit am Ziel ignoriert, siehe
+    `tripplanner.optimization.optimizer._required_departure`).
     """
+    geplante_abfahrt = "2026-08-15T09:00:00"
     api_request = {
         "start": (52.52, 13.405),
         "ziel": (53.5511, 9.9937),
@@ -1407,7 +1324,7 @@ def test_fastapi_endpoint_mit_geplanter_abfahrt_gibt_201(client: TestClient) -> 
             {
                 "koordinate": (52.6, 13.5),
                 "aufenthaltsdauer_s": None,
-                "geplante_abfahrt": "2026-08-15T09:00:00",
+                "geplante_abfahrt": geplante_abfahrt,
             }
         ],
         "abfahrtszeit": "2026-08-15T08:30:00",
@@ -1420,6 +1337,13 @@ def test_fastapi_endpoint_mit_geplanter_abfahrt_gibt_201(client: TestClient) -> 
     assert response.status_code == 201
     data = response.json()
     assert len(data["frames"]) > 0
+    # Letzter Frame (Ankunft am Ziel) MUSS nach der geplanten Abfahrt am
+    # Zwischenstopp liegen - eine umgangene Wartezeit wuerde stattdessen weit
+    # davor ankommen (reine Fahrzeit ohne Wartezeit).
+    letzter_zeitpunkt = data["frames"][-1]["zeitpunkt"]
+    assert letzter_zeitpunkt > geplante_abfahrt
+    assert len(data["waypoint_stops"]) == 1
+    assert data["waypoint_stops"][0]["abfahrtszeit"] == geplante_abfahrt
 
 
 def test_fastapi_endpoint_creates_trip(client: TestClient, valid_trip_request: dict) -> None:

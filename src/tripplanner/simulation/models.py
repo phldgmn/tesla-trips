@@ -154,6 +154,35 @@ class ChargingStopSummary(BaseModel):
     )
 
 
+class WaypointStopSummary(BaseModel):
+    """Zusammenfassung eines Zwischenstopp-Aufenthalts fuer die Visualisierung.
+
+    Analog zu `ChargingStopSummary`, aber fuer eine erzwungene Wartezeit an
+    einem Zwischenstopp (`tripplanner.optimization.models.
+    ZwischenstoppAufenthalt`), optional mit Ladung ueber eine vor Ort
+    verfuegbare Ladeleistung - kein `station_id`/Preis-/Detour-Handling, da
+    kein `ChargingStation`-Objekt existiert (der Zwischenstopp ist keine
+    Ladeinfrastruktur).
+    """
+
+    position: tuple[float, float] = Field(
+        ..., description="Position des Zwischenstopps als (lat, lon)"
+    )
+    distanz_m: float = Field(
+        ..., ge=0.0, description="Kumulierte Distanz entlang der Route bei diesem Zwischenstopp"
+    )
+    ankunftszeit: datetime = Field(..., description="Zeitpunkt der Ankunft am Zwischenstopp")
+    abfahrtszeit: datetime = Field(..., description="Zeitpunkt der (erzwungenen) Abfahrt")
+    ladeleistung_kw: float | None = Field(
+        default=None, ge=0.0, description="Genutzte Ladeleistung in kW, None falls nicht geladen"
+    )
+    ankunfts_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
+    ziel_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Abfahrt in %")
+    energie_geladen_kwh: float = Field(
+        ..., ge=0.0, description="Waehrend des Aufenthalts geladene Energiemenge in kWh"
+    )
+
+
 class ChargingCostByCurrency(BaseModel):
     """Aggregated estimated charging cost in a single currency.
 
@@ -175,11 +204,25 @@ class TripSimulationResult(BaseModel):
     gesamt_distanz_km: float = Field(..., ge=0, description="Gesamtdistanz in km")
     gesamt_fahrzeit_min: float = Field(..., ge=0, description="Gesamtfahrzeit in Minuten")
     gesamt_ladezeit_min: float = Field(..., ge=0, description="Gesamtladezeit in Minuten")
+    gesamt_wartezeit_min: float = Field(
+        default=0.0,
+        ge=0,
+        description=(
+            "Erzwungene Wartezeit an Zwischenstopps OHNE Ladung, in Minuten "
+            "(nicht in `gesamt_fahrzeit_min`/`gesamt_ladezeit_min` enthalten)"
+        ),
+    )
     start_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Start-SoC in %")
     ziel_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ziel-SoC in %")
     charging_stops: list[ChargingStopSummary] = Field(
         default_factory=list,
         description="Ein Eintrag pro Ladehalt (chronologisch), fuer die Kartendarstellung",
+    )
+    waypoint_stops: list[WaypointStopSummary] = Field(
+        default_factory=list,
+        description=(
+            "Ein Eintrag pro Zwischenstopp-Aufenthalt (chronologisch), fuer die Kartendarstellung"
+        ),
     )
     total_charging_cost: list[ChargingCostByCurrency] = Field(
         default_factory=list,

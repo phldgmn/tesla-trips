@@ -839,6 +839,21 @@ export function TripPlannerForm({
     );
   };
 
+  const handleChargingPowerChange = (stopId: string, value: string) => {
+    const parsed = value.trim() === "" ? undefined : Number(value);
+    onStopsChange(
+      stops.map((s) => {
+        if (s.id !== stopId) return s;
+        if (parsed === undefined || Number.isNaN(parsed)) {
+          const rest = { ...s };
+          delete rest.chargingPowerKw;
+          return rest;
+        }
+        return { ...s, chargingPowerKw: parsed };
+      }),
+    );
+  };
+
   const handlePresetChange = (presetId: string) => {
     const preset = VEHICLE_PROFILE_PRESETS.find((p) => p.id === presetId);
     if (preset) {
@@ -1857,6 +1872,32 @@ export function TripPlannerForm({
                           Abfahrtszeit löschen
                         </button>
                       )}
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: "0.8rem",
+                          marginTop: "0.5rem",
+                          marginBottom: "0.25rem",
+                          fontWeight: 500,
+                        }}
+                      >
+                        Ladeleistung hier verfügbar (kW, optional)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        placeholder="z. B. 11"
+                        value={stop.chargingPowerKw ?? ""}
+                        onChange={(e) =>
+                          handleChargingPowerChange(stop.id, e.target.value)
+                        }
+                        style={{
+                          width: "100%",
+                          padding: "0.4rem",
+                          fontSize: "0.85rem",
+                        }}
+                      />
                     </div>
                   )}
                 </div>

@@ -15,7 +15,7 @@ from pydantic_core import PydanticCustomError
 from tripplanner.charging_infrastructure.models import ChargingStation
 from tripplanner.elevation.models import SegmentGradient
 from tripplanner.energy.models import SegmentEnergyResult
-from tripplanner.routing.models import Route, RouteSegment
+from tripplanner.routing.models import Coordinate, Route, RouteSegment
 from tripplanner.trip_input.models import VehicleProfile, Waypoint
 
 
@@ -153,6 +153,32 @@ class DetourKosten(BaseModel):
     )
 
 
+class ZwischenstoppAufenthalt(BaseModel):
+    """Aufenthalt an einem Zwischenstopp waehrend der Fahrt.
+
+    Erzwungene Wartezeit aus `Waypoint.aufenthaltsdauer`/`geplante_abfahrt`,
+    optional mit Ladung ueber eine vor Ort verfuegbare Ladeleistung (z. B.
+    eine Wallbox am Uebernachtungsziel) - unabhaengig von regulaeren
+    Ladehalten an Supercharger-Stationen (`ChargingStop`), die eine eigene
+    Stations-/Preis-/Detour-Infrastruktur besitzen, welche fuer einen
+    beliebigen Zwischenstopp nicht existiert.
+    """
+
+    koordinate: Coordinate
+    segment_index: int = Field(ge=0, description="Segment-Index des Zwischenstopps")
+    ankunftszeit: datetime = Field(description="Zeitpunkt der Ankunft am Zwischenstopp")
+    abfahrtszeit: datetime = Field(description="Zeitpunkt der (erzwungenen) Abfahrt")
+    ladeleistung_kw: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="Genutzte Ladeleistung in kW, None falls nicht geladen wurde",
+    )
+    ankunfts_soc_pct: float = Field(ge=0.0, le=100.0, description="SoC bei Ankunft in %")
+    ziel_soc_pct: float = Field(
+        ge=0.0, le=100.0, description="SoC bei Abfahrt in % (== Ankunfts-SoC ohne Ladung)"
+    )
+
+
 class ChargingPlan(BaseModel):
     """Ergebnis der Optimierung: geordnete Liste von Ladehalten + Gesamtreisezeit."""
 
@@ -161,6 +187,10 @@ class ChargingPlan(BaseModel):
     min_zwischenstopp_ankunftszeit: dict[int, datetime] = Field(
         default_factory=dict,
         description="Mindestankunftszeit für Zwischenstopps (wenn nicht geladen wird)",
+    )
+    zwischenstopp_aufenthalte: list[ZwischenstoppAufenthalt] = Field(
+        default_factory=list,
+        description="Erzwungene Wartezeiten/Ladungen an Zwischenstopps (chronologisch)",
     )
 
 

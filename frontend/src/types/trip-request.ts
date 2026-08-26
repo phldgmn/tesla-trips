@@ -39,6 +39,11 @@ export interface Stop {
   /** Geplanter Abfahrtszeitpunkt an diesem Stopp (ISO, lokal, ohne
    *  Zeitzone). Nur für Stopps vor dem letzten sinnvoll. */
   leaveAt?: string;
+  /** Vor Ort verfügbare Ladeleistung an diesem Zwischenstopp in kW (z. B.
+   *  eine Wallbox am Übernachtungsziel), optional. Wird nur während einer
+   *  durch `leaveAt` erzwungenen Wartezeit genutzt – ohne Wartezeit findet
+   *  kein Ladevorgang statt. Nur für Stopps vor dem letzten sinnvoll. */
+  chargingPowerKw?: number;
 }
 
 /** Erzeugt einen neuen, leeren Stopp. */
@@ -80,8 +85,12 @@ export interface WaypointInput {
    *  Backend-Feld weiterhin existiert und optional befüllbar ist. */
   aufenthaltsdauer_s: number | null;
   /** Gewünschter Abfahrtszeitpunkt an diesem Stopp (ISO, lokal), oder
-   *  `null`. Das Backend leitet daraus die tatsächliche Wartezeit ab. */
+   *  `null`. Erzwingt serverseitig eine Mindestwartezeit bis dahin. */
   geplante_abfahrt: string | null;
+  /** Vor Ort verfügbare Ladeleistung an diesem Zwischenstopp in kW, oder
+   *  `null`. Wird nur während einer durch `geplante_abfahrt` erzwungenen
+   *  Wartezeit genutzt. */
+  ladeleistung_kw: number | null;
 }
 
 /** Eine (gepufferte) Bounding Box um eine erkannte Fährverbindung, zur Vermeidung
@@ -196,6 +205,7 @@ export function buildTripRequestPayload(args: {
       koordinate: s.position as [number, number],
       aufenthaltsdauer_s: null,
       geplante_abfahrt: s.leaveAt ?? null,
+      ladeleistung_kw: s.chargingPowerKw ?? null,
     })),
     abfahrtszeit: start.leaveAt ?? getDefaultDepartureIso(),
     fahrzeugprofil: args.fahrzeugprofil,

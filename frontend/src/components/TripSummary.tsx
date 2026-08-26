@@ -93,20 +93,35 @@ export function buildTimePlan(
   const { frames } = result;
   const timings = estimateWaypointTimings(frames, stops);
 
-  const stopEintraege: TimePlanEntry[] = stops.map((stop, i) => ({
-    key: `stopp-${stop.id}`,
-    art: "Stopp",
-    label: stopLabel(stop),
-    arrival: timings[i]?.arrival ?? null,
-    departure: timings[i]?.departure ?? null,
-    distanceSinceLastKm: null,
-    durationSinceLastMin: null,
-    ankunftsSocPct: null,
-    abfahrtsSocPct: null,
-    energieGeladenKwh: null,
-    estimatedCost: null,
-    costCurrency: null,
-  }));
+  // Exakter Zwischenstopp-Aufenthalt (Ankunft/Abfahrt/SoC/geladene Energie
+  // aus `result.waypoint_stops`, siehe `ZwischenstoppAufenthalt` im Backend)
+  // statt der nur GESCHAETZTEN Werte aus `estimateWaypointTimings` (nächst-
+  // gelegener Simulationsframe) - Koordinaten sind identisch, da `Stop.
+  // position` unveraendert als `Waypoint.koordinate` an das Backend
+  // durchgereicht wird.
+  const stopEintraege: TimePlanEntry[] = stops.map((stop, i) => {
+    const waypointStop = stop.position
+      ? result.waypoint_stops.find(
+          (w) =>
+            w.position[0] === stop.position?.[0] &&
+            w.position[1] === stop.position?.[1],
+        )
+      : undefined;
+    return {
+      key: `stopp-${stop.id}`,
+      art: "Stopp",
+      label: stopLabel(stop),
+      arrival: waypointStop?.ankunftszeit ?? timings[i]?.arrival ?? null,
+      departure: waypointStop?.abfahrtszeit ?? timings[i]?.departure ?? null,
+      distanceSinceLastKm: null,
+      durationSinceLastMin: null,
+      ankunftsSocPct: waypointStop?.ankunfts_soc_pct ?? null,
+      abfahrtsSocPct: waypointStop?.ziel_soc_pct ?? null,
+      energieGeladenKwh: waypointStop?.energie_geladen_kwh ?? null,
+      estimatedCost: null,
+      costCurrency: null,
+    };
+  });
 
   const ladehaltEintraege: TimePlanEntry[] = result.charging_stops.map(
     (stop) => ({
@@ -198,12 +213,20 @@ export function buildTimePlan(
     }
 
     if (eintrag.art !== "Ladehalt") {
-      eintrag.ankunftsSocPct =
-        eintrag.arrival && arrivalIdx !== null
-          ? frames[arrivalIdx].soc_pct
-          : null;
-      eintrag.abfahrtsSocPct =
-        eintrag.departure && exitIdx !== null ? frames[exitIdx].soc_pct : null;
+      // Exakte Werte (aus `result.waypoint_stops`, siehe oben) NICHT durch
+      // die nur geschaetzte Frame-Naeherung ueberschreiben.
+      if (eintrag.ankunftsSocPct === null) {
+        eintrag.ankunftsSocPct =
+          eintrag.arrival && arrivalIdx !== null
+            ? frames[arrivalIdx].soc_pct
+            : null;
+      }
+      if (eintrag.abfahrtsSocPct === null) {
+        eintrag.abfahrtsSocPct =
+          eintrag.departure && exitIdx !== null
+            ? frames[exitIdx].soc_pct
+            : null;
+      }
     }
 
     prevExitIso = exitIso;
@@ -276,6 +299,14 @@ function TripSummary({ result, stops }: TripSummaryProps) {
               {formatMinuten(result.gesamt_ladezeit_min)}
             </td>
           </tr>
+          {result.gesamt_wartezeit_min > 0 && (
+            <tr>
+              <td style={labelCellStyle}>Wartezeit</td>
+              <td style={valueCellStyle}>
+                {formatMinuten(result.gesamt_wartezeit_min)}
+              </td>
+            </tr>
+          )}
           <tr>
             <td style={labelCellStyle}>Start-SoC</td>
             <td style={valueCellStyle}>{formatSoc(result.start_soc_pct)}</td>

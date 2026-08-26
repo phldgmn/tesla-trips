@@ -39,6 +39,7 @@ import {
   ConstructionZone,
   ConstructionZoneEvent,
   TripSimulationResult,
+  WaypointStop,
 } from "../types";
 import type { Stop } from "../types/trip-request";
 import {
@@ -446,6 +447,52 @@ export function buildChargingStopPopupHtml(stop: ChargingStop): string {
   );
 }
 
+/** Erzeugt ein gestyltes DOM-Element fuer einen Zwischenstopp-Aufenthalt-Marker
+ * (blauer Punkt, analog zur bisherigen PAUSE-Frame-Darstellung) - ein Marker
+ * pro `TripSimulationResult.waypoint_stops`-Eintrag, unabhaengig davon, ob
+ * dabei geladen wurde. */
+export function buildWaypointStopMarkerElement(): HTMLElement {
+  const el = document.createElement("div");
+  el.style.cssText = [
+    "width:16px",
+    "height:16px",
+    "border-radius:50%",
+    "background-color:#3b82f6",
+    "border:2px solid #ffffff",
+    "box-shadow:0 1px 4px rgba(0,0,0,0.35)",
+    "cursor:pointer",
+  ].join(";");
+  return el;
+}
+
+/** Popup-HTML fuer einen Zwischenstopp-Aufenthalt: Ankunfts-/Abfahrtszeit,
+ * SoC, und - falls vorhanden - genutzte Ladeleistung/geladene Energie. */
+export function buildWaypointStopPopupHtml(stop: WaypointStop): string {
+  const rows: [string, string][] = [
+    ["Ankunft", `${stop.ankunfts_soc_pct.toFixed(0)}% SoC`],
+    ["Ankunftszeit", formatZeitpunkt(stop.ankunftszeit)],
+    ["Abfahrt", `${stop.ziel_soc_pct.toFixed(0)}% SoC`],
+    ["Abfahrtszeit", formatZeitpunkt(stop.abfahrtszeit)],
+  ];
+  if (stop.ladeleistung_kw !== null) {
+    rows.push(["Ladeleistung", `${stop.ladeleistung_kw.toFixed(1)} kW`]);
+    rows.push(["Geladen", `${stop.energie_geladen_kwh.toFixed(1)} kWh`]);
+  }
+  const rowsHtml = rows
+    .map(
+      ([label, value]) =>
+        `<tr><td style="padding:2px 4px;color:#666;">${label}</td>` +
+        `<td style="padding:2px 4px;text-align:right;">${value}</td></tr>`,
+    )
+    .join("");
+  return (
+    `<div style="font-family:system-ui,sans-serif;font-size:13px;min-width:190px;">` +
+    `<strong style="font-size:14px;">Zwischenstopp</strong>` +
+    `<table style="width:100%;border-collapse:collapse;margin-top:4px;">${rowsHtml}</table>` +
+    `</div>`
+  );
+}
+
 /** Kurzes, deutsches Label je `Sperrungstyp`-Enum-Wert aus dem Backend
  *  (`tripplanner.construction.models.Sperrungstyp`). Unbekannte Werte
  *  (z. B. ein zukuenftiger Backend-Enum-Wert) fallen auf den Rohwert
@@ -634,6 +681,9 @@ export function MapVisualization({
   // Baustellen-Marker (ein Eintrag pro `simulationResult.construction_zones`),
   // analog zu `chargingStopMarkersRef`.
   const constructionZoneMarkersRef = useRef<Marker[]>([]);
+  // Zwischenstopp-Aufenthalt-Marker (ein Eintrag pro
+  // `simulationResult.waypoint_stops`), analog zu `chargingStopMarkersRef`.
+  const waypointStopMarkersRef = useRef<Marker[]>([]);
 
   // Supercharger-Overlay
   const [superchargerStations, setSuperchargerStations] = useState<
@@ -737,8 +787,10 @@ export function MapVisualization({
     }
     constructionZoneMarkersRef.current = [];
     // Zwischenstopps
-    if (map.getLayer("waypoint-markers")) map.removeLayer("waypoint-markers");
-    if (map.getSource("waypoints")) map.removeSource("waypoints");
+    for (const marker of waypointStopMarkersRef.current) {
+      marker.remove();
+    }
+    waypointStopMarkersRef.current = [];
   }
 
   useEffect(() => {
@@ -912,44 +964,19 @@ export function MapVisualization({
       chargingStopMarkersRef.current.push(marker);
     }
 
-    // Zwischenstopps-Marker hinzufügen (Frames mit Zustand 'PAUSE')
-    const waypointStops = simulationResult.frames.filter(
-      (f) => f.zustand === "PAUSE",
-    );
-
-    if (waypointStops.length > 0) {
-      const waypointCoords = waypointStops.map((f) => toLngLat(f.position));
-
-      const waypointsGeoJson: GeoJSON.FeatureCollection<GeoJSON.Point> = {
-        type: "FeatureCollection" as const,
-        features: waypointCoords.map((coord) => ({
-          type: "Feature" as const,
-          geometry: {
-            type: "Point" as const,
-            coordinates: coord,
-          },
-          properties: {
-            type: "waypoint" as const,
-          },
-        })),
-      };
-
-      map.addSource("waypoints", {
-        type: "geojson" as const,
-        data: waypointsGeoJson,
-      });
-
-      map.addLayer({
-        id: "waypoint-markers",
-        type: "circle" as const,
-        source: "waypoints",
-        paint: {
-          "circle-color": "#3b82f6",
-          "circle-radius": 6,
-          "circle-stroke-color": "#ffffff",
-          "circle-stroke-width": 2,
-        } satisfies LayerSpecification["paint"],
-      } satisfies LayerSpecification);
+    // Zwischenstopp-Aufenthalt-Marker hinzufügen: ein Marker pro Eintrag aus
+    // `simulationResult.waypoint_stops` (nicht pro PAUSE/LADEN-Frame – ein
+    // Aufenthalt kann mehrere Frames erzeugen), exakt auf der Position des
+    // Zwischenstopps, mit Klick-Popup für Details.
+    for (const stop of simulationResult.waypoint_stops) {
+      const element = buildWaypointStopMarkerElement();
+      const marker = new Marker({ element })
+        .setLngLat(toLngLat(stop.position))
+        .setPopup(
+          new Popup({ offset: 14 }).setHTML(buildWaypointStopPopupHtml(stop)),
+        )
+        .addTo(map);
+      waypointStopMarkersRef.current.push(marker);
     }
 
     // Kamera auf gesamte Route zentrieren

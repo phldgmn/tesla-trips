@@ -32,6 +32,7 @@ from tripplanner.optimization.models import (
     DetourKosten,
     OptimizationConstraints,
     OptimizerInterface,
+    ZwischenstoppAufenthalt,
 )
 from tripplanner.optimization.station_mapping import map_stations_to_segments
 from tripplanner.routing.models import Route, RouteSegment
@@ -232,6 +233,8 @@ class NetworkXOptimizer(OptimizerInterface):
                 total_energy_kwh=cum_energy_kwh[-1],
                 vehicle_profile=vehicle_profile,
                 constraints=constraints,
+                waypoints=waypoints,
+                abfahrtszeit=abfahrtszeit,
             ),
             ladedauer_vorgaben=ladedauer_vorgaben or {},
             ferry_pins=faehr_zeitfenster or {},
@@ -278,6 +281,7 @@ class NetworkXOptimizer(OptimizerInterface):
             charging_stations=charging_stations,
             constraints=constraints,
         )
+        zwischenstopp_aufenthalte = self._extract_waypoint_aufenthalte(G=G, path=path)
 
         # Berechne Gesamtreisezeit: der Zielknoten hat immer segment_index ==
         # len(segments) (alle Segmente vollstaendig abgefahren). `zeitpunkt`
@@ -302,6 +306,7 @@ class NetworkXOptimizer(OptimizerInterface):
             ladehalte=ladehalte,
             gesamtreisezeit_s=gesamtreisezeit,
             min_zwischenstopp_ankunftszeit=min_zwischenstopp_ankunftszeit,
+            zwischenstopp_aufenthalte=zwischenstopp_aufenthalte,
         )
 
     def _waypoint_to_segment(self, waypoint: Waypoint, segments: list[RouteSegment]) -> int:
@@ -349,12 +354,14 @@ class NetworkXOptimizer(OptimizerInterface):
         EARTH_RADIUS_M = 6_371_000.0
         return EARTH_RADIUS_M * c
 
-    def _estimate_max_time_buckets(
+    def _estimate_max_time_buckets(  # noqa: PLR0913, PLR0917 -- Zeitbudget braucht Fahrzeit-, Lade- UND Wartezeit-Kontext
         self,
         total_time_s: float,
         total_energy_kwh: float,
         vehicle_profile: VehicleProfile,
         constraints: OptimizationConstraints,
+        waypoints: list[Waypoint],
+        abfahrtszeit: datetime,
     ) -> int:
         """Schätze die maximale Anzahl an Zeit-Buckets für die gesamte Route.
 
@@ -375,6 +382,13 @@ class NetworkXOptimizer(OptimizerInterface):
             total_energy_kwh: Gesamtenergiebedarf der Route in kWh.
             vehicle_profile: Physikalisches Fahrzeugprofil.
             constraints: Optimierungs-Constraints (u. a. `max_ladezeit_s`).
+            waypoints: Zwischenstopps, deren `aufenthaltsdauer`/`geplante_abfahrt`
+                zusaetzliche, erzwungene Wartezeit ins Budget einbringen kann -
+                ohne das koennte ein ueber Nacht geplanter Zwischenstopp das
+                Zeitbudget sprengen und die Route faelschlich als "nicht
+                fahrbar" verwerfen, obwohl nur gewartet werden muss.
+            abfahrtszeit: Abfahrtszeitpunkt der gesamten Reise, Referenz fuer
+                eine absolute `geplante_abfahrt` an einem Zwischenstopp.
         """
         total_time_min = total_time_s / 60.0
 
@@ -387,7 +401,28 @@ class NetworkXOptimizer(OptimizerInterface):
         )
         ladezeit_puffer_min = geschaetzte_ladestopps * (constraints.max_ladezeit_s / 60.0)
 
-        return int((total_time_min + ladezeit_puffer_min) / self.time_step_min) + 5
+        # Worst-Case-Wartezeit je Zwischenstopp: die groessere von Mindest-
+        # aufenthaltsdauer und (absoluter) geplanter Abfahrt relativ zur
+        # Gesamt-Abfahrtszeit - eine grobe, bewusst grosszuegige obere
+        # Schranke (keine Simulation der tatsaechlichen Ankunftszeit noetig,
+        # da ein zu grosses Budget nur die Zustandsgraph-Groesse, nie die
+        # Korrektheit beeinflusst).
+        wartezeit_puffer_min = 0.0
+        for wp in waypoints:
+            kandidaten_min = 0.0
+            if wp.aufenthaltsdauer:
+                kandidaten_min = wp.aufenthaltsdauer.total_seconds() / 60.0
+            if wp.geplante_abfahrt:
+                kandidaten_min = max(
+                    kandidaten_min,
+                    (wp.geplante_abfahrt - abfahrtszeit).total_seconds() / 60.0,
+                )
+            wartezeit_puffer_min += max(kandidaten_min, 0.0)
+
+        return (
+            int((total_time_min + ladezeit_puffer_min + wartezeit_puffer_min) / self.time_step_min)
+            + 5
+        )
 
     def _schedule(
         self,
@@ -469,7 +504,7 @@ class NetworkXOptimizer(OptimizerInterface):
         # Schnelllader-Netz) der dominante Faktor fuer eine quadratisch statt
         # linear mit der Stationsanzahl wachsende Laufzeit (siehe Nutzer-
         # Report: > 100s Optimierungszeit).
-        dominanz_erweitert: set[tuple[int, int]] = set()
+        dominanz_erweitert: set[tuple[int, int, bool]] = set()
         self._push_seq = itertools.count()
         heap: list[tuple[float, int, tuple[int, int, int]]] = []
         self._schedule(heap, start_node, 0.0)
@@ -496,10 +531,39 @@ class NetworkXOptimizer(OptimizerInterface):
 
             seg_idx, soc_bucket, time_bucket = current
 
-            # Dominanz-Check (siehe Kommentar oben): pro `(seg_idx, soc_bucket)`
-            # wird NUR der zuerst (= guenstigste, Heap-Reihenfolge) besuchte
-            # Knoten tatsaechlich erweitert.
-            dominanz_key = (seg_idx, soc_bucket)
+            # Zwischenstopp-Zwang pruefen: liegt fuer diese Position eine (aus
+            # `Waypoint.aufenthaltsdauer`/`geplante_abfahrt` abgeleitete)
+            # Mindestabfahrtszeit vor, die am aktuellen Knoten noch nicht
+            # erreicht ist, MUSS zunaechst gewartet werden - Fahrt-/Faehrkante
+            # (Block 2) werden dann NICHT erzeugt, sonst waere die Wartezeit
+            # nur ein optionaler, vom A*-Kostenoptimierer als teurer verworfener
+            # Zusatzpfad statt einer erzwungenen Mindestaufenthaltsdauer (siehe
+            # Nutzer-Report: eine gesetzte Abfahrtszeit an einem Zwischenstopp
+            # wurde bei der Ankunftszeit am Ziel ignoriert). Muss VOR dem
+            # Dominanz-Check ausgewertet werden, denn `muss_warten` fliesst in
+            # dessen Schluessel ein (siehe dort).
+            required_departure, wait_koordinate, wait_ladeleistung_kw = self._required_departure(
+                G=G, current=current, seg_idx=seg_idx, waypoint_map=waypoint_map
+            )
+            muss_warten = (
+                required_departure is not None
+                and G.nodes[current]["zeitpunkt"] < required_departure
+            )
+
+            # Dominanz-Check (siehe Kommentar oben): pro `(seg_idx, soc_bucket,
+            # muss_warten)` wird NUR der zuerst (= guenstigste, Heap-Reihen-
+            # folge) besuchte Knoten tatsaechlich erweitert. `muss_warten`
+            # MUSS Teil des Schluessels sein: ein noch wartepflichtiger Knoten
+            # erzeugt NUR eine Wartekante (Block 2/Fahrtkante bleibt aus),
+            # waehrend ein bereits abfahrbereiter Knoten am GLEICHEN
+            # `(seg_idx, soc_bucket)` die Fahrtkante erzeugt - ohne die Phase
+            # im Schluessel wuerde der zuerst besuchte (noch wartepflichtige)
+            # Knoten den Schluessel belegen und den spaeter erreichten,
+            # bereits abfahrbereiten Knoten von JEDER Erweiterung ausschliessen
+            # (die Fahrt kommt dann nie zustande - Regressionstest: eine an
+            # einem Zwischenstopp gesetzte Abfahrtszeit fuehrte sonst zu
+            # "Kein erreichbarer Zielknoten gefunden").
+            dominanz_key = (seg_idx, soc_bucket, muss_warten)
             if dominanz_key in dominanz_erweitert:
                 continue
             dominanz_erweitert.add(dominanz_key)
@@ -508,14 +572,14 @@ class NetworkXOptimizer(OptimizerInterface):
             if seg_idx == len(segments) and soc_bucket >= ziel_soc_bucket:
                 continue  # Ziel erreicht, nicht weiter erweitern
 
-            # 1. Fahrtkante: bis zum naechsten Entscheidungspunkt (oder bis
+            # 2. Fahrtkante: bis zum naechsten Entscheidungspunkt (oder bis
             # zum Ziel, falls keiner mehr folgt) in einem Sprung fahren -
             # ausser der Nutzer hat fuer diese Position einen festen
             # Fährfahrplan vorgegeben (`ferry_pins`), dann wird die gesamte
             # Fähr-Ueberfahrt separat modelliert (siehe `_add_ferry_edge`).
             # seg_idx zaehlt bereits abgefahrene Segmente (0 = Start,
             # len(segments) = Ziel erreicht).
-            if seg_idx < len(segments):
+            if seg_idx < len(segments) and not muss_warten:
                 if seg_idx in ferry_pins:
                     self._add_ferry_edge(
                         G=G,
@@ -541,7 +605,9 @@ class NetworkXOptimizer(OptimizerInterface):
                         heap=heap,
                     )
 
-            # 2. Ladekante: An dieser Station laden (wenn verfügbar)
+            # 3. Ladekante: An dieser Station laden (wenn verfügbar) - bleibt
+            # auch waehrend einer erzwungenen Zwischenstopp-Wartezeit erlaubt
+            # (Laden UND Warten schliessen sich nicht aus).
             if seg_idx in station_segments:
                 self._add_charging_edges(
                     G=G,
@@ -564,19 +630,64 @@ class NetworkXOptimizer(OptimizerInterface):
                     detour_kosten=detour_kosten,
                 )
 
-            # 3. Zwischenstopp-Zwang: Aufenthaltsdauer einhalten
-            if seg_idx in waypoint_map:
-                for wp in waypoint_map[seg_idx]:
-                    if wp.aufenthaltsdauer:
-                        self._add_waypoint_wait_edge(
-                            G=G,
-                            current=current,
-                            seg_idx=seg_idx,
-                            waypoint=wp,
-                            time_bucket=time_bucket,
-                            max_time_buckets=max_time_buckets,
-                            heap=heap,
-                        )
+            # 4. Zwischenstopp-Zwang: bis zur erforderlichen Abfahrtszeit
+            # warten - optional mit Ladung ueber `wait_ladeleistung_kw`.
+            if muss_warten and required_departure is not None and wait_koordinate is not None:
+                self._add_waypoint_wait_edge(
+                    G=G,
+                    current=current,
+                    seg_idx=seg_idx,
+                    required_departure=required_departure,
+                    koordinate=wait_koordinate,
+                    ladeleistung_kw=wait_ladeleistung_kw,
+                    ladekurve=ladekurve,
+                    vehicle_profile=vehicle_profile,
+                    max_time_buckets=max_time_buckets,
+                    heap=heap,
+                )
+
+    def _required_departure(
+        self,
+        G: DiGraph,
+        current: tuple[int, int, int],
+        seg_idx: int,
+        waypoint_map: dict[int, list[Waypoint]],
+    ) -> tuple[datetime | None, tuple[float, float] | None, float | None]:
+        """Ermittelt die (spaeteste) erzwungene Mindestabfahrtszeit an `seg_idx`.
+
+        Kombiniert je Waypoint `aufenthaltsdauer` (relativ zur TATSAECHLICHEN
+        Ankunft `stop_arrival`) und `geplante_abfahrt` (absolut) - `stop_arrival`
+        ist der Zeitpunkt der TATSAECHLICHEN Ankunft an dieser Position (siehe
+        `_add_drive_edge`/`_add_ferry_edge`), nicht der aktuelle Knoten-
+        Zeitpunkt, der bereits eine laufende Ladung/Wartezeit am selben
+        `seg_idx` widerspiegeln kann (sonst wuerde eine relative
+        `aufenthaltsdauer` bei jeder erneuten Pruefung ab dem NEUEN Zeitpunkt
+        nochmals aufgeschlagen und nie konvergieren). Liegen mehrere
+        Zwischenstopps auf demselben Segment, gewinnt die spaeteste Abfahrts-
+        zeit (deren Koordinate/Ladeleistung wird fuer die Wartekante genutzt).
+        """
+        if seg_idx not in waypoint_map:
+            return None, None, None
+
+        stop_arrival = G.nodes[current].get("stop_arrival", G.nodes[current]["zeitpunkt"])
+        required_departure: datetime | None = None
+        koordinate: tuple[float, float] | None = None
+        ladeleistung_kw: float | None = None
+        for wp in waypoint_map[seg_idx]:
+            kandidaten: list[datetime] = []
+            if wp.aufenthaltsdauer:
+                kandidaten.append(stop_arrival + wp.aufenthaltsdauer)
+            if wp.geplante_abfahrt:
+                kandidaten.append(wp.geplante_abfahrt)
+            if not kandidaten:
+                continue
+            kandidat_abfahrt = max(kandidaten)
+            if required_departure is None or kandidat_abfahrt > required_departure:
+                required_departure = kandidat_abfahrt
+                koordinate = wp.koordinate
+                ladeleistung_kw = wp.ladeleistung_kw
+
+        return required_departure, koordinate, ladeleistung_kw
 
     def _add_drive_edge(  # noqa: PLR0913, PLR0917 -- Fahrtkanten-Konstruktion braucht den vollen Kantenkontext
         self,
@@ -666,6 +777,7 @@ class NetworkXOptimizer(OptimizerInterface):
                 soc_pct=new_soc_pct,
                 zeitpunkt=neuer_zeitpunkt,
                 segment_index=target_seg_idx,
+                stop_arrival=neuer_zeitpunkt,
                 total_cost=COST_INF,
                 parent=None,
             )
@@ -679,6 +791,7 @@ class NetworkXOptimizer(OptimizerInterface):
             G.nodes[next_node]["total_cost"] = new_total_cost
             G.nodes[next_node]["parent"] = current
             G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
+            G.nodes[next_node]["stop_arrival"] = neuer_zeitpunkt
             # `soc_pct` MUSS bei jeder guenstigeren Kante aktualisiert werden
             # (nicht nur beim allerersten Anlegen des Knotens) - sonst kann
             # ein Knoten-Schluessel `(segment_index, soc_bucket, time_bucket)`,
@@ -736,6 +849,7 @@ class NetworkXOptimizer(OptimizerInterface):
                 soc_pct=G.nodes[current]["soc_pct"],
                 zeitpunkt=neuer_zeitpunkt,
                 segment_index=segment_index_end,
+                stop_arrival=neuer_zeitpunkt,
                 total_cost=COST_INF,
                 parent=None,
             )
@@ -749,6 +863,7 @@ class NetworkXOptimizer(OptimizerInterface):
             G.nodes[next_node]["parent"] = current
             G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
             G.nodes[next_node]["soc_pct"] = G.nodes[current]["soc_pct"]
+            G.nodes[next_node]["stop_arrival"] = neuer_zeitpunkt
             self._schedule(heap, next_node, new_total_cost)
 
     def _add_charging_edges(  # noqa: PLR0913, PLR0917 -- Ladekanten-Konstruktion braucht den vollen Kantenkontext
@@ -1106,6 +1221,7 @@ class NetworkXOptimizer(OptimizerInterface):
         kosten = ladezeit_s + 2.0 * detour_zeit_s_je_richtung
         next_node = (seg_idx, new_soc_bucket, new_time_bucket)
 
+        stop_arrival = G.nodes[current].get("stop_arrival", G.nodes[current]["zeitpunkt"])
         if next_node not in G.nodes:
             G.add_node(
                 next_node,
@@ -1114,6 +1230,7 @@ class NetworkXOptimizer(OptimizerInterface):
                 soc_pct=route_soc_pct,
                 zeitpunkt=neuer_zeitpunkt,
                 segment_index=seg_idx,
+                stop_arrival=stop_arrival,
                 total_cost=COST_INF,
                 parent=None,
             )
@@ -1151,6 +1268,7 @@ class NetworkXOptimizer(OptimizerInterface):
             G.nodes[next_node]["parent"] = current
             G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
             G.nodes[next_node]["soc_pct"] = route_soc_pct
+            G.nodes[next_node]["stop_arrival"] = stop_arrival
             self._schedule(heap, next_node, new_total_cost)
 
     def _soc_nach_fester_ladezeit(
@@ -1159,6 +1277,7 @@ class NetworkXOptimizer(OptimizerInterface):
         ladezeit_s: float,
         ladekurve: ChargingCurve,
         batteriekapazitaet_kwh: float,
+        leistungsdeckel_kw: float | None = None,
     ) -> float:
         """Ermittelt den SoC nach einer FESTEN Ladedauer.
 
@@ -1176,6 +1295,7 @@ class NetworkXOptimizer(OptimizerInterface):
             end_soc_pct=MAX_SOC_PCT,
             ladekurve=ladekurve,
             batteriekapazitaet_kwh=batteriekapazitaet_kwh,
+            leistungsdeckel_kw=leistungsdeckel_kw,
         )
         if ladezeit_bei_max <= ladezeit_s:
             return MAX_SOC_PCT  # Batterie ist vor Ablauf der Ladedauer voll
@@ -1198,6 +1318,7 @@ class NetworkXOptimizer(OptimizerInterface):
                 end_soc_pct=start_soc_pct + mid,
                 ladekurve=ladekurve,
                 batteriekapazitaet_kwh=batteriekapazitaet_kwh,
+                leistungsdeckel_kw=leistungsdeckel_kw,
             )
             if dauer < ladezeit_s:
                 lo = mid
@@ -1210,35 +1331,63 @@ class NetworkXOptimizer(OptimizerInterface):
         G: DiGraph,
         current: tuple[int, int, int],
         seg_idx: int,
-        waypoint: Waypoint,
-        time_bucket: int,
+        required_departure: datetime,
+        koordinate: tuple[float, float],
+        ladeleistung_kw: float | None,
+        ladekurve: ChargingCurve,
+        vehicle_profile: VehicleProfile,
         max_time_buckets: int,
         heap: list[tuple[float, int, tuple[int, int, int]]],
     ) -> None:
-        """Füge Kante hinzu, um Zwischenstopp-Aufenthaltsdauer zu warten."""
-        if not waypoint.aufenthaltsdauer:
+        """Füge Kante hinzu, um bis `required_departure` an einem Zwischenstopp zu warten.
+
+        `required_departure` ist der bereits fertig aufgeloeste, absolute
+        Mindestabfahrtszeitpunkt (siehe `_generate_graph`, kombiniert aus
+        `Waypoint.aufenthaltsdauer`/`geplante_abfahrt`) - diese Kante wird nur
+        erzeugt, wenn er noch nicht erreicht ist. Optional wird waehrend der
+        Wartezeit ueber eine vor Ort verfuegbare Ladeleistung
+        (`ladeleistung_kw`) geladen: der resultierende SoC wird per Bisektion
+        (`_soc_nach_fester_ladezeit`, mit `ladeleistung_kw` als Leistungs-
+        deckel gegenueber der Fahrzeug-Ladekurve) fuer die FESTE Wartedauer
+        ermittelt - die Wartezeit selbst ist durch `required_departure`
+        vorgegeben und wird durch das Laden weder verlaengert noch verkuerzt.
+        """
+        current_zeitpunkt = G.nodes[current]["zeitpunkt"]
+        wait_time_s = (required_departure - current_zeitpunkt).total_seconds()
+        if wait_time_s <= 0.0:
             return
 
-        wait_time_s = int(waypoint.aufenthaltsdauer.total_seconds())
-        neuer_zeitpunkt = G.nodes[current]["zeitpunkt"] + timedelta(seconds=wait_time_s)
-        new_time_bucket = time_to_bucket(neuer_zeitpunkt, self._base_time, self.time_step_min)
-
+        new_time_bucket = time_to_bucket(required_departure, self._base_time, self.time_step_min)
         if new_time_bucket > max_time_buckets:
             return  # Zeitlimit überschritten
 
-        # Kosten: Nur Wartezeit (kein SoC-Verlust)
+        current_soc_pct = G.nodes[current]["soc_pct"]
+        new_soc_pct = current_soc_pct
+        if ladeleistung_kw is not None and ladeleistung_kw > 0.0:
+            new_soc_pct = self._soc_nach_fester_ladezeit(
+                start_soc_pct=current_soc_pct,
+                ladezeit_s=wait_time_s,
+                ladekurve=ladekurve,
+                batteriekapazitaet_kwh=vehicle_profile.batteriekapazitaet_kwh,
+                leistungsdeckel_kw=ladeleistung_kw,
+            )
+        new_soc_bucket = soc_to_bucket(new_soc_pct, self.soc_step_pct)
+
+        # Kosten: Nur Wartezeit (kein zusaetzlicher Zeitverlust durchs Laden -
+        # das Laden laeuft waehrend der ohnehin erzwungenen Wartezeit ab).
         kosten = wait_time_s
 
-        next_node = (seg_idx, current[1], new_time_bucket)
+        next_node = (seg_idx, new_soc_bucket, new_time_bucket)
+        stop_arrival = G.nodes[current].get("stop_arrival", current_zeitpunkt)
 
         if next_node not in G.nodes:
             G.add_node(
                 next_node,
                 type="waypoint_wait",
-                waypoint_koordinate=waypoint.koordinate,
-                soc_pct=G.nodes[current]["soc_pct"],
-                zeitpunkt=neuer_zeitpunkt,
+                soc_pct=new_soc_pct,
+                zeitpunkt=required_departure,
                 segment_index=seg_idx,
+                stop_arrival=stop_arrival,
                 total_cost=COST_INF,
                 parent=None,
             )
@@ -1247,11 +1396,22 @@ class NetworkXOptimizer(OptimizerInterface):
         new_total_cost = current_cost + kosten
 
         if new_total_cost < G.nodes[next_node].get("total_cost", COST_INF):
-            G.add_edge(current, next_node, cost=kosten)
+            G.add_edge(
+                current,
+                next_node,
+                cost=kosten,
+                waypoint_koordinate=koordinate,
+                waypoint_ankunftszeit=current_zeitpunkt,
+                waypoint_abfahrtszeit=required_departure,
+                waypoint_ankunfts_soc_pct=current_soc_pct,
+                waypoint_ziel_soc_pct=new_soc_pct,
+                waypoint_ladeleistung_kw=ladeleistung_kw,
+            )
             G.nodes[next_node]["total_cost"] = new_total_cost
             G.nodes[next_node]["parent"] = current
-            G.nodes[next_node]["zeitpunkt"] = neuer_zeitpunkt
-            G.nodes[next_node]["soc_pct"] = G.nodes[current]["soc_pct"]
+            G.nodes[next_node]["zeitpunkt"] = required_departure
+            G.nodes[next_node]["soc_pct"] = new_soc_pct
+            G.nodes[next_node]["stop_arrival"] = stop_arrival
             self._schedule(heap, next_node, new_total_cost)
 
     def _calc_soc_verbrauch_pct(
@@ -1275,6 +1435,7 @@ class NetworkXOptimizer(OptimizerInterface):
         end_soc_pct: float,
         ladekurve: ChargingCurve,
         batteriekapazitaet_kwh: float,
+        leistungsdeckel_kw: float | None = None,
     ) -> float:
         """Berechne Ladezeit in Sekunden für den Ladevorgang `start_soc_pct` → `end_soc_pct`.
 
@@ -1298,7 +1459,10 @@ class NetworkXOptimizer(OptimizerInterface):
             return 0.0
 
         mittlere_leistung_kw = self._mittlere_ladeleistung_kw(
-            start_soc_pct=start_soc_pct, end_soc_pct=end_soc_pct, ladekurve=ladekurve
+            start_soc_pct=start_soc_pct,
+            end_soc_pct=end_soc_pct,
+            ladekurve=ladekurve,
+            leistungsdeckel_kw=leistungsdeckel_kw,
         )
 
         if mittlere_leistung_kw <= 0:
@@ -1312,7 +1476,11 @@ class NetworkXOptimizer(OptimizerInterface):
         return energie_kwh / mittlere_leistung_kw * 3600.0
 
     def _mittlere_ladeleistung_kw(
-        self, start_soc_pct: float, end_soc_pct: float, ladekurve: ChargingCurve
+        self,
+        start_soc_pct: float,
+        end_soc_pct: float,
+        ladekurve: ChargingCurve,
+        leistungsdeckel_kw: float | None = None,
     ) -> float:
         """Berechne mittlere Ladeleistung über einen SoC-Bereich."""
         if start_soc_pct >= end_soc_pct:
@@ -1327,6 +1495,8 @@ class NetworkXOptimizer(OptimizerInterface):
         delta = end_soc_pct - start_soc_pct
         socs = [start_soc_pct + delta * i / sample_points for i in range(sample_points)]
         leistungen = ladekurve.ladeleistung_bei_soc_batch(socs)
+        if leistungsdeckel_kw is not None:
+            leistungen = [min(p, leistungsdeckel_kw) for p in leistungen]
 
         return sum(leistungen) / sample_points
 
@@ -1466,6 +1636,42 @@ class NetworkXOptimizer(OptimizerInterface):
             )
 
         return ladehalte
+
+    def _extract_waypoint_aufenthalte(
+        self,
+        G: DiGraph,
+        path: list[tuple[int, int, int]],
+    ) -> list[ZwischenstoppAufenthalt]:
+        """Extrahiere `ZwischenstoppAufenthalt`-Objekte aus dem Pfad.
+
+        Analog zu `_extract_charging_stops`, aber ueber das EDGE-Attribut
+        `waypoint_ankunftszeit` (siehe `_add_waypoint_wait_edge`) statt
+        `station_id` - Zwischenstopp-Aufenthalte sind unabhaengig von der
+        Supercharger-Stationsinfrastruktur (keine `ChargingStation`, kein
+        Detour-/Preis-Handling).
+        """
+        aufenthalte: list[ZwischenstoppAufenthalt] = []
+
+        for i in range(1, len(path)):
+            prev_node = path[i - 1]
+            curr_node = path[i]
+            edge_data = G.get_edge_data(prev_node, curr_node)
+            if edge_data is None or "waypoint_ankunftszeit" not in edge_data:
+                continue  # Fahrt-/Faehr-/Ladekante, kein Zwischenstopp-Aufenthalt
+
+            aufenthalte.append(
+                ZwischenstoppAufenthalt(
+                    koordinate=edge_data["waypoint_koordinate"],
+                    segment_index=curr_node[0],
+                    ankunftszeit=edge_data["waypoint_ankunftszeit"],
+                    abfahrtszeit=edge_data["waypoint_abfahrtszeit"],
+                    ladeleistung_kw=edge_data["waypoint_ladeleistung_kw"],
+                    ankunfts_soc_pct=edge_data["waypoint_ankunfts_soc_pct"],
+                    ziel_soc_pct=edge_data["waypoint_ziel_soc_pct"],
+                )
+            )
+
+        return aufenthalte
 
     def _compute_waypoint_times(
         self,

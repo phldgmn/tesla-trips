@@ -36,12 +36,17 @@ export interface TripSimulationResult {
   gesamt_fahrzeit_min: number;
   /** Gesamtladezeit in Minuten */
   gesamt_ladezeit_min: number;
+  /** Erzwungene Wartezeit an Zwischenstopps OHNE Ladung, in Minuten (nicht in
+   *  gesamt_fahrzeit_min/gesamt_ladezeit_min enthalten) */
+  gesamt_wartezeit_min: number;
   /** Start-SoC in % */
   start_soc_pct: number;
   /** Ziel-SoC in % */
   ziel_soc_pct: number;
   /** Ladehalte (ein Eintrag pro tatsächlichem Halt, nicht pro Frame) */
   charging_stops: ChargingStop[];
+  /** Zwischenstopp-Aufenthalte (ein Eintrag pro Aufenthalt, nicht pro Frame) */
+  waypoint_stops: WaypointStop[];
   /** Vollstaendige Streckengeometrie der Route als Liste von [lat, lon]-Punkten
    *  (dichte GraphHopper-Polyline, nicht auf `frames` reduziert - fuer eine
    *  winkeltreue Kartendarstellung, siehe route-line.ts::buildSplicedRoute()) */
@@ -140,6 +145,28 @@ export interface ChargingStop {
   /** ISO-8601 timestamp of the cached pricing data used for `price_per_kwh`,
    *  null if no pricing data has ever been scraped for this station */
   pricing_updated_utc: string | null;
+}
+
+/** Ein Zwischenstopp-Aufenthalt (WaypointStop) aus dem Simulationsergebnis
+ *  (`/trips`-Response) - erzwungene Wartezeit an einem Zwischenstopp, optional
+ *  mit Ladung ueber eine vor Ort verfuegbare Ladeleistung. */
+export interface WaypointStop {
+  /** Position des Zwischenstopps als [lat, lon] */
+  position: [number, number];
+  /** Kumulierte Distanz entlang der Route bei diesem Zwischenstopp */
+  distanz_m: number;
+  /** ISO-8601 Ankunftszeitpunkt am Zwischenstopp */
+  ankunftszeit: string;
+  /** ISO-8601 Zeitpunkt der (erzwungenen) Abfahrt */
+  abfahrtszeit: string;
+  /** Genutzte Ladeleistung in kW, null falls nicht geladen wurde */
+  ladeleistung_kw: number | null;
+  /** SoC bei Ankunft in % */
+  ankunfts_soc_pct: number;
+  /** SoC bei Abfahrt in % */
+  ziel_soc_pct: number;
+  /** Waehrend des Aufenthalts geladene Energiemenge in kWh */
+  energie_geladen_kwh: number;
 }
 
 /** Ein Zwischenstopp (Waypoint) mit optionaler Aufenthaltsdauer. */

@@ -32,6 +32,17 @@ class Waypoint(BaseModel):
         default=None,
         description="Gewünschter frühester Abfahrtszeitpunkt an diesem Wegpunkt",
     )
+    ladeleistung_kw: float | None = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Vor Ort verfügbare Ladeleistung an diesem Zwischenstopp in kW (z. B. "
+            "Wallbox beim Übernachtungsziel), optional. Wird nur während einer "
+            "durch `aufenthaltsdauer`/`geplante_abfahrt` erzwungenen Wartezeit "
+            "genutzt - ohne Wartezeit findet kein Ladevorgang statt, da kein "
+            "Zeitfenster dafür existiert."
+        ),
+    )
 
 
 class FerryExclusion(BaseModel):

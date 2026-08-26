@@ -18,6 +18,7 @@ from tripplanner.simulation.models import (
     SimulationFrame,
     TripSimulationResult,
     TripState,
+    WaypointStopSummary,
 )
 
 # Konstanten fuer maximale Werte
@@ -176,17 +177,31 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
 
     # Ladehalte nach Segment-Index sortiert, um beim Durchlauf der FAHREN-
     # Frames den zuletzt ABGESCHLOSSENEN Ladehalt als SoC-Baseline zu finden
-    # (siehe unten).
+    # (siehe unten). Zwischenstopp-Aufenthalte analog - beide koennen den SoC
+    # veraendern (Ladehalt immer, Zwischenstopp nur mit `ladeleistung_kw`).
     ladehalte_sortiert = sorted(charging_plan.ladehalte, key=lambda lh: lh.segment_index)
+    aufenthalte_sortiert = sorted(
+        charging_plan.zwischenstopp_aufenthalte, key=lambda a: a.segment_index
+    )
+    # Gemeinsame SoC-Baseline-Checkpoints (Ladehalt + Zwischenstopp), nach
+    # Segment-Index sortiert - der SPAETESTE Checkpoint bei/vor dem aktuellen
+    # Segment liefert den korrekten Baseline-SoC unabhaengig davon, ob der
+    # SoC-Sprung von einem Ladehalt oder einer Zwischenstopp-Ladung stammt.
+    soc_checkpoints_sortiert: list[tuple[int, float]] = sorted(
+        [(lh.segment_index, lh.ziel_soc_pct) for lh in charging_plan.ladehalte]
+        + [(a.segment_index, a.ziel_soc_pct) for a in charging_plan.zwischenstopp_aufenthalte],
+        key=lambda t: t[0],
+    )
 
     current_soc_pct = start_soc_pct
     frames: list[SimulationFrame] = []
-    # Kumulierte Routendistanz, an der jeder Ladehalt beginnt (Schluessel:
-    # `id()` des `ChargingStop`-Objekts) - erfasst beim ersten LADEN-Frame
-    # dieses Halts, siehe unten. Fuer `ChargingStopSummary.distanz_m` und um
+    # Kumulierte Routendistanz, an der jeder Ladehalt/Zwischenstopp-Aufenthalt
+    # beginnt (Schluessel: `id()` des jeweiligen Objekts) - erfasst beim
+    # ersten LADEN/PAUSE-Frame, siehe unten. Fuer `*Summary.distanz_m` und um
     # `ladehalt_detour_geometrie` an der richtigen Stelle in die Karten-
     # Geometrie einzufuegen (siehe `route-line.ts` im Frontend).
     distanz_bei_ladehalt: dict[int, float] = {}
+    distanz_bei_aufenthalt: dict[int, float] = {}
 
     end_time_s = charging_plan.gesamtreisezeit_s if charging_plan.gesamtreisezeit_s > 0 else 1
 
@@ -196,10 +211,10 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     # Verwende uebergebene Abfahrtszeit als Basis
     base_time = abfahrtszeit
 
-    # Ladehalte mit relativen (Sekunden-seit-Abfahrt) Ankunfts-/Abfahrtszeiten
-    # vorab aufbereiten. Wird sowohl zur Bestimmung des aktuellen Ladehalts
-    # als auch zur Umrechnung von "Gesamtzeit" in "reine Fahrzeit" gebraucht
-    # (siehe unten).
+    # Ladehalte/Zwischenstopp-Aufenthalte mit relativen (Sekunden-seit-
+    # Abfahrt) Ankunfts-/Abfahrtszeiten vorab aufbereiten. Wird sowohl zur
+    # Bestimmung des aktuellen Halts/Aufenthalts als auch zur Umrechnung von
+    # "Gesamtzeit" in "reine Fahrzeit" gebraucht (siehe unten).
     ladehalte_mit_relzeit = [
         (
             (lh.ankunftszeit - base_time).total_seconds(),
@@ -208,15 +223,29 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         )
         for lh in charging_plan.ladehalte
     ]
+    aufenthalte_mit_relzeit = [
+        (
+            (a.ankunftszeit - base_time).total_seconds(),
+            (a.abfahrtszeit - base_time).total_seconds(),
+            a,
+        )
+        for a in charging_plan.zwischenstopp_aufenthalte
+    ]
     total_charging_time_s = sum(
         rel_abfahrt - rel_ankunft for rel_ankunft, rel_abfahrt, _ in ladehalte_mit_relzeit
     )
-    # Reine Fahrzeit = Gesamtreisezeit abzueglich aller Ladezeiten. Die
+    total_waypoint_wait_time_s = sum(
+        rel_abfahrt - rel_ankunft for rel_ankunft, rel_abfahrt, _ in aufenthalte_mit_relzeit
+    )
+    # Reine Fahrzeit = Gesamtreisezeit abzueglich aller Lade-/Wartezeiten. Die
     # zurueckgelegte Distanz muss proportional zur bereits VERSTRICHENEN
     # FAHRZEIT wachsen, nicht zur verstrichenen Gesamtzeit (siehe Bugfix
-    # unten) - sonst "faehrt" das Fahrzeug waehrend eines Ladehalts entlang
-    # der Route weiter, statt an der Ladestation stehen zu bleiben.
-    total_driving_time_s = max(end_time_s - total_charging_time_s, 1e-9)
+    # unten) - sonst "faehrt" das Fahrzeug waehrend eines Ladehalts/
+    # Zwischenstopp-Aufenthalts entlang der Route weiter, statt stehen zu
+    # bleiben.
+    total_driving_time_s = max(
+        end_time_s - total_charging_time_s - total_waypoint_wait_time_s, 1e-9
+    )
 
     # Kumulierte, je Segment aus der tatsaechlichen Geschwindigkeit
     # berechnete Fahrzeit (`SegmentEnergyResult.fahrzeit_s`) statt einer
@@ -236,19 +265,29 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     cumulative_times = [t * time_scale for t in raw_cumulative_times]
 
     while current_time_s <= end_time_s + 1e-6:
-        # Aktuellen Ladehalt bestimmen und zugleich die bereits waehrend
-        # Ladehalten verstrichene Zeit bis zum aktuellen Zeitpunkt aufsummieren
-        # (fuer bereits abgeschlossene Ladehalte vollstaendig, fuer den
-        # laufenden Ladehalt anteilig).
+        # Aktuellen Ladehalt/Zwischenstopp-Aufenthalt bestimmen und zugleich
+        # die bereits waehrend Halten/Aufenthalten verstrichene Zeit bis zum
+        # aktuellen Zeitpunkt aufsummieren (fuer bereits abgeschlossene
+        # vollstaendig, fuer den laufenden anteilig). Ein Ladehalt und ein
+        # Zwischenstopp-Aufenthalt ueberlappen sich nie zeitlich (dieselbe
+        # Fahrt kann nicht an zwei Orten gleichzeitig stehen).
         aktueller_ladehalt = None
-        charging_elapsed_before_now_s = 0.0
+        aktueller_aufenthalt = None
+        stationaer_elapsed_before_now_s = 0.0
         rel_ankunftszeit_s = 0.0
         for rel_ankunft, rel_abfahrt, ladehalt in ladehalte_mit_relzeit:
             if rel_abfahrt <= current_time_s:
-                charging_elapsed_before_now_s += rel_abfahrt - rel_ankunft
+                stationaer_elapsed_before_now_s += rel_abfahrt - rel_ankunft
             elif rel_ankunft <= current_time_s:
-                charging_elapsed_before_now_s += current_time_s - rel_ankunft
+                stationaer_elapsed_before_now_s += current_time_s - rel_ankunft
                 aktueller_ladehalt = ladehalt
+                rel_ankunftszeit_s = rel_ankunft
+        for rel_ankunft, rel_abfahrt, aufenthalt in aufenthalte_mit_relzeit:
+            if rel_abfahrt <= current_time_s:
+                stationaer_elapsed_before_now_s += rel_abfahrt - rel_ankunft
+            elif rel_ankunft <= current_time_s:
+                stationaer_elapsed_before_now_s += current_time_s - rel_ankunft
+                aktueller_aufenthalt = aufenthalt
                 rel_ankunftszeit_s = rel_ankunft
 
         # Zurueckgelegte Distanz/Segment-Index anhand der bereits verstrichenen
@@ -258,7 +297,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         # Reise, sonst "hinkt" die Positions-/SoC-Schaetzung nach einem
         # Ladehalt der tatsaechlichen Segment-Grenze hinterher (Ladehalt-Zeit
         # "friert" die Distanz ein statt sie weiterzurechnen).
-        effective_driving_time_s = current_time_s - charging_elapsed_before_now_s
+        effective_driving_time_s = current_time_s - stationaer_elapsed_before_now_s
 
         segment_idx, progress_in_segment = _find_segment_for_time(
             cumulative_times, total_driving_time_s, effective_driving_time_s, route
@@ -280,6 +319,27 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
                 current_soc_pct = aktueller_ladehalt.ankunfts_soc_pct + charge_progress * (
                     aktueller_ladehalt.ziel_soc_pct - aktueller_ladehalt.ankunfts_soc_pct
                 )
+        elif aktueller_aufenthalt is not None:
+            # Zwischenstopp-Aufenthalt: PAUSE ohne Ladeleistung, LADEN mit -
+            # das Fahrzeug steht in beiden Faellen an der Zwischenstopp-
+            # Koordinate (siehe Positions-Block unten).
+            zustand = (
+                TripState.LADEN
+                if aktueller_aufenthalt.ladeleistung_kw is not None
+                else TripState.PAUSE
+            )
+            geschwindigkeit_kmh = 0.0
+            distanz_bei_aufenthalt.setdefault(id(aktueller_aufenthalt), current_distance_m)
+
+            total_wait_time_s = (
+                aktueller_aufenthalt.abfahrtszeit - aktueller_aufenthalt.ankunftszeit
+            ).total_seconds()
+            if total_wait_time_s > 0:
+                wait_progress = (current_time_s - rel_ankunftszeit_s) / total_wait_time_s
+                wait_progress = min(1.0, max(0.0, wait_progress))
+                current_soc_pct = aktueller_aufenthalt.ankunfts_soc_pct + wait_progress * (
+                    aktueller_aufenthalt.ziel_soc_pct - aktueller_aufenthalt.ankunfts_soc_pct
+                )
         else:
             zustand = TripState.FAHREN
 
@@ -288,18 +348,19 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
                 geschwindigkeit_kmh = energy.geschwindigkeit_m_s * ms_to_kmh
 
                 # SoC-Baseline: der zuletzt VOR/AN diesem Segment abgeschlossene
-                # Ladehalt (dessen Ziel-SoC), sonst der Start-SoC. Ohne diese
-                # Baseline wuerde jeder Ladegewinn beim naechsten FAHREN-Frame
-                # verworfen, weil `start_soc_pct` immer auf den Reisebeginn
-                # zurueckgreifen wuerde (siehe
+                # Ladehalt ODER Zwischenstopp-Aufenthalt (dessen Ziel-SoC),
+                # sonst der Start-SoC. Ohne diese Baseline wuerde jeder
+                # Ladegewinn beim naechsten FAHREN-Frame verworfen, weil
+                # `start_soc_pct` immer auf den Reisebeginn zurueckgreifen
+                # wuerde (siehe
                 # docs/plans/08-simulation-visualization-api.md, Abschnitt 5.1.1).
                 baseline_soc_pct = start_soc_pct
                 baseline_segment_idx = 0
-                for ladehalt in ladehalte_sortiert:
-                    if ladehalt.segment_index > segment_idx:
+                for checkpoint_segment_idx, checkpoint_ziel_soc_pct in soc_checkpoints_sortiert:
+                    if checkpoint_segment_idx > segment_idx:
                         break
-                    baseline_soc_pct = ladehalt.ziel_soc_pct
-                    baseline_segment_idx = ladehalt.segment_index
+                    baseline_soc_pct = checkpoint_ziel_soc_pct
+                    baseline_segment_idx = checkpoint_segment_idx
 
                 # Energie seit der Baseline: Praefix-Summe der vollstaendig
                 # durchfahrenen Segmente zwischen Baseline und aktuellem
@@ -323,6 +384,11 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
             # exakte Stationskoordinate statt Streckeninterpolation, damit
             # alle LADEN-Frames eines Halts auf demselben Punkt liegen.
             position = aktueller_ladehalt.station.coordinate
+        elif aktueller_aufenthalt is not None:
+            # Waehrend eines Zwischenstopp-Aufenthalts steht das Fahrzeug an
+            # dessen Koordinate - exakte Koordinate statt Streckeninterpolation,
+            # analog zum Ladehalt oben.
+            position = aktueller_aufenthalt.koordinate
         else:
             start_pt_idx = 0
             end_pt_idx = len(segment.geometrie) - 1
@@ -378,12 +444,53 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
             )
         )
 
+    waypoint_stops: list[WaypointStopSummary] = []
+    for aufenthalt in aufenthalte_sortiert:
+        waypoint_stops.append(
+            WaypointStopSummary(
+                position=aufenthalt.koordinate,
+                # Fallback (kein LADEN/PAUSE-Frame erfasst, z. B. sehr kurze
+                # Wartezeit unterhalb der Frame-Aufloesung
+                # `output_resolution_seconds`): Distanz am Beginn des
+                # Zwischenstopp-Segments.
+                distanz_m=distanz_bei_aufenthalt.get(
+                    id(aufenthalt),
+                    cumulative_distances[aufenthalt.segment_index - 1]
+                    if aufenthalt.segment_index > 0
+                    else 0.0,
+                ),
+                ankunftszeit=aufenthalt.ankunftszeit,
+                abfahrtszeit=aufenthalt.abfahrtszeit,
+                ladeleistung_kw=aufenthalt.ladeleistung_kw,
+                ankunfts_soc_pct=aufenthalt.ankunfts_soc_pct,
+                ziel_soc_pct=aufenthalt.ziel_soc_pct,
+                energie_geladen_kwh=max(
+                    0.0,
+                    (aufenthalt.ziel_soc_pct - aufenthalt.ankunfts_soc_pct)
+                    / 100.0
+                    * battery_capacity_kwh,
+                ),
+            )
+        )
+
     gesamt_ladezeit_min = 0.0
     for ladehalt in charging_plan.ladehalte:
         ladezeit_s = (ladehalt.abfahrtszeit - ladehalt.ankunftszeit).total_seconds()
         gesamt_ladezeit_min += ladezeit_s / 60.0
 
-    gesamt_fahrzeit_min = max(0.0, (end_time_s / 60.0) - gesamt_ladezeit_min)
+    # Zwischenstopp-Aufenthalte MIT Ladeleistung zaehlen als Ladezeit (siehe
+    # `gesamt_ladezeit_min` oben), OHNE als separate Wartezeit
+    # (`gesamt_wartezeit_min`) - beide zusammen mit `gesamt_fahrzeit_min`
+    # ergeben die volle Gesamtreisezeit.
+    gesamt_wartezeit_min = 0.0
+    for aufenthalt in charging_plan.zwischenstopp_aufenthalte:
+        wartezeit_s = (aufenthalt.abfahrtszeit - aufenthalt.ankunftszeit).total_seconds()
+        if aufenthalt.ladeleistung_kw is not None:
+            gesamt_ladezeit_min += wartezeit_s / 60.0
+        else:
+            gesamt_wartezeit_min += wartezeit_s / 60.0
+
+    gesamt_fahrzeit_min = max(0.0, (end_time_s / 60.0) - gesamt_ladezeit_min - gesamt_wartezeit_min)
 
     end_soc_pct = frames[-1].soc_pct if frames else start_soc_pct
 
@@ -392,8 +499,10 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         gesamt_distanz_km=total_distance_m / 1000.0,
         gesamt_fahrzeit_min=gesamt_fahrzeit_min,
         gesamt_ladezeit_min=gesamt_ladezeit_min,
+        gesamt_wartezeit_min=gesamt_wartezeit_min,
         start_soc_pct=start_soc_pct,
         ziel_soc_pct=end_soc_pct,
         charging_stops=charging_stops,
+        waypoint_stops=waypoint_stops,
         construction_zones=construction_zones or [],
     )

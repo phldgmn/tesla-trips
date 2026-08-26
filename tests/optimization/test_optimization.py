@@ -36,7 +36,7 @@ from tripplanner.optimization.models import (
     OptimizationConstraints,
 )
 from tripplanner.routing.models import Route, RouteSegment
-from tripplanner.trip_input.models import VehicleProfile
+from tripplanner.trip_input.models import VehicleProfile, Waypoint
 
 # Fixe Koordinaten für Tests
 BERLIN_COORD: tuple[float, float] = (52.5200, 13.4050)
@@ -538,12 +538,16 @@ class TestZeitbudgetBeruecksichtigtLadezeit:
             total_energy_kwh=30.0,  # deutlich unter Akkukapazitaet - kein Laden noetig
             vehicle_profile=vehicle_profile,
             constraints=constraints,
+            waypoints=[],
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0),
         )
         buckets_mit_vielen_ladestopps = optimizer._estimate_max_time_buckets(
             total_time_s=total_time_s,
             total_energy_kwh=300.0,  # 5x Akkukapazitaet - mehrere Ladestopps noetig
             vehicle_profile=vehicle_profile,
             constraints=constraints,
+            waypoints=[],
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0),
         )
 
         assert buckets_mit_vielen_ladestopps > buckets_ohne_laden
@@ -922,6 +926,211 @@ class TestLadedauerVorgabe:
 
         assert len(plan.ladehalte) == 1
         assert plan.ladehalte[0].geschaetzte_ladedauer_s != 1800
+
+
+class TestZwischenstoppErzwingtWartezeit:
+    """Regressionstest: Bug - eine an einem Zwischenstopp gesetzte
+    `geplante_abfahrt`/`aufenthaltsdauer` war nur ein optionaler Kostenfaktor,
+    den der A*-Optimierer als teurer verworfen hat (die Fahrt "sprang" direkt
+    weiter, ohne zu warten) - sichtbar als falsche (zu frühe) Ankunftszeit am
+    Fahrtziel trotz gesetzter Abfahrtszeit an einem Zwischenstopp.
+    """
+
+    def _basis_szenario(
+        self,
+    ) -> tuple[Route, list[SegmentEnergyResult], VehicleProfile]:
+        route = Route(
+            segments=[
+                RouteSegment(
+                    segment_index=0,
+                    geometrie=[BERLIN_COORD, (52.5, 12.5)],
+                    laenge_m=50_000,
+                    strassenklasse="MOTORWAY",
+                    tempolimit_kmh=130,
+                    steigung_rohdaten=0.0,
+                    bearing_deg=310.0,
+                ),
+                RouteSegment(
+                    segment_index=1,
+                    geometrie=[(52.5, 12.5), (53.0, 11.5)],
+                    laenge_m=50_000,
+                    strassenklasse="MOTORWAY",
+                    tempolimit_kmh=120,
+                    steigung_rohdaten=0.0,
+                    bearing_deg=290.0,
+                ),
+                RouteSegment(
+                    segment_index=2,
+                    geometrie=[(53.0, 11.5), HAMBURG_COORD],
+                    laenge_m=50_000,
+                    strassenklasse="MOTORWAY",
+                    tempolimit_kmh=110,
+                    steigung_rohdaten=0.0,
+                    bearing_deg=270.0,
+                ),
+            ],
+            gesamtlaenge_m=150_000,
+            geometrie=[BERLIN_COORD, (52.5, 12.5), (53.0, 11.5), HAMBURG_COORD],
+        )
+        energy_results = [
+            SegmentEnergyResult(
+                segment_index=0,
+                energiebedarf_kwh=8.0,
+                rekuperation_kwh=0.0,
+                energiebedarf_brutto_kwh=8.0,
+                geschwindigkeit_m_s=30.0,
+                fahrzeit_s=1667,
+                streckenlaenge_m=50_000,
+            ),
+            SegmentEnergyResult(
+                segment_index=1,
+                energiebedarf_kwh=8.0,
+                rekuperation_kwh=0.0,
+                energiebedarf_brutto_kwh=8.0,
+                geschwindigkeit_m_s=25.0,
+                fahrzeit_s=2000,
+                streckenlaenge_m=50_000,
+            ),
+            SegmentEnergyResult(
+                segment_index=2,
+                energiebedarf_kwh=8.0,
+                rekuperation_kwh=0.0,
+                energiebedarf_brutto_kwh=8.0,
+                geschwindigkeit_m_s=20.0,
+                fahrzeit_s=2500,
+                streckenlaenge_m=50_000,
+            ),
+        ]
+        vehicle_profile = VehicleProfile(
+            masse_kg=1706.0,
+            cw_wert=0.23,
+            stirnflaeche_m2=2.22,
+            rollwiderstandsbeiwert=0.011,
+            batteriekapazitaet_kwh=62.5,
+        )
+        return route, energy_results, vehicle_profile
+
+    def test_geplante_abfahrt_verzoegert_ankunft_am_ziel(self) -> None:
+        """Eine über Nacht geplante Abfahrt an einem Zwischenstopp MUSS die
+        Gesamtreisezeit um die volle Wartezeit verlängern - nicht ignoriert
+        werden (siehe Nutzer-Report: Start 6:15, Ankunft am Zwischenstopp
+        18:44, geplante Abfahrt dort erst am Folgetag 6:30, aber Ankunft am
+        Ziel bereits um 22:55 desselben Tages berechnet)."""
+        route, energy_results, vehicle_profile = self._basis_szenario()
+        constraints = OptimizationConstraints(min_soc_pct=15.0, ziel_soc_pct=35.0)
+        optimizer = create_networkx_optimizer()
+        abfahrtszeit = datetime(2026, 8, 30, 6, 15, 0)
+        geplante_abfahrt = datetime(2026, 8, 31, 6, 30, 0)
+        wp = Waypoint(koordinate=(52.5, 12.5), geplante_abfahrt=geplante_abfahrt)
+
+        plan = optimizer.optimize(
+            route=route,
+            segments=route.segments,
+            gradients=[],
+            energy_results=energy_results,
+            charging_stations=[],
+            waypoints=[wp],
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+            start_soc_pct=80.0,
+            abfahrtszeit=abfahrtszeit,
+        )
+
+        ankunft_ziel = abfahrtszeit + timedelta(seconds=plan.gesamtreisezeit_s)
+        # Die Ankunft am Ziel MUSS nach der geplanten Abfahrt am Zwischenstopp
+        # liegen - eine bypassbare Wartezeit wuerde stattdessen weit vor
+        # `geplante_abfahrt` ankommen (reine Fahrzeit ohne Wartezeit).
+        assert ankunft_ziel > geplante_abfahrt
+        assert len(plan.zwischenstopp_aufenthalte) == 1
+        aufenthalt = plan.zwischenstopp_aufenthalte[0]
+        assert aufenthalt.abfahrtszeit == geplante_abfahrt
+        assert aufenthalt.ankunftszeit < geplante_abfahrt
+
+    def test_geplante_abfahrt_vor_ankunft_erzwingt_keine_wartezeit(self) -> None:
+        """Liegt `geplante_abfahrt` vor der tatsaechlichen Ankunft, wird KEINE
+        Wartezeit erzwungen - der Zwischenstopp bleibt optional passierbar."""
+        route, energy_results, vehicle_profile = self._basis_szenario()
+        constraints = OptimizationConstraints(min_soc_pct=15.0, ziel_soc_pct=35.0)
+        optimizer = create_networkx_optimizer()
+        abfahrtszeit = datetime(2026, 8, 30, 6, 15, 0)
+        wp = Waypoint(koordinate=(52.5, 12.5), geplante_abfahrt=abfahrtszeit + timedelta(minutes=1))
+
+        plan = optimizer.optimize(
+            route=route,
+            segments=route.segments,
+            gradients=[],
+            energy_results=energy_results,
+            charging_stations=[],
+            waypoints=[wp],
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+            start_soc_pct=80.0,
+            abfahrtszeit=abfahrtszeit,
+        )
+
+        # Reine Fahrzeit (keine erzwungene Wartezeit): Summe der drei
+        # Segment-Fahrzeiten.
+        assert plan.gesamtreisezeit_s == 1667 + 2000 + 2500
+        assert plan.zwischenstopp_aufenthalte == []
+
+    def test_ladeleistung_kw_laedt_waehrend_erzwungener_wartezeit(self) -> None:
+        """Ist an einem Zwischenstopp mit erzwungener Wartezeit eine
+        Ladeleistung angegeben, wird der SoC waehrend der Wartezeit erhoeht -
+        die Ladeleistung ist optional und ohne sie bleibt der SoC unveraendert
+        (siehe `test_geplante_abfahrt_verzoegert_ankunft_am_ziel`)."""
+        route, energy_results, vehicle_profile = self._basis_szenario()
+        constraints = OptimizationConstraints(min_soc_pct=15.0, ziel_soc_pct=35.0)
+        optimizer = create_networkx_optimizer()
+        abfahrtszeit = datetime(2026, 8, 30, 6, 15, 0)
+        wp = Waypoint(
+            koordinate=(52.5, 12.5),
+            geplante_abfahrt=abfahrtszeit + timedelta(hours=2),
+            ladeleistung_kw=11.0,
+        )
+
+        plan = optimizer.optimize(
+            route=route,
+            segments=route.segments,
+            gradients=[],
+            energy_results=energy_results,
+            charging_stations=[],
+            waypoints=[wp],
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+            start_soc_pct=50.0,
+            abfahrtszeit=abfahrtszeit,
+        )
+
+        assert len(plan.zwischenstopp_aufenthalte) == 1
+        aufenthalt = plan.zwischenstopp_aufenthalte[0]
+        assert aufenthalt.ladeleistung_kw == 11.0
+        assert aufenthalt.ziel_soc_pct > aufenthalt.ankunfts_soc_pct
+
+    def test_ohne_ladeleistung_kw_bleibt_soc_waehrend_wartezeit_unveraendert(self) -> None:
+        """Ohne `ladeleistung_kw` bleibt der SoC waehrend der erzwungenen
+        Wartezeit unveraendert (kein automatisches Laden ohne Ladepunkt)."""
+        route, energy_results, vehicle_profile = self._basis_szenario()
+        constraints = OptimizationConstraints(min_soc_pct=15.0, ziel_soc_pct=35.0)
+        optimizer = create_networkx_optimizer()
+        abfahrtszeit = datetime(2026, 8, 30, 6, 15, 0)
+        wp = Waypoint(koordinate=(52.5, 12.5), geplante_abfahrt=abfahrtszeit + timedelta(hours=2))
+
+        plan = optimizer.optimize(
+            route=route,
+            segments=route.segments,
+            gradients=[],
+            energy_results=energy_results,
+            charging_stations=[],
+            waypoints=[wp],
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+            start_soc_pct=80.0,
+            abfahrtszeit=abfahrtszeit,
+        )
+
+        aufenthalt = plan.zwischenstopp_aufenthalte[0]
+        assert aufenthalt.ladeleistung_kw is None
+        assert aufenthalt.ziel_soc_pct == aufenthalt.ankunfts_soc_pct
 
 
 class TestFaehrZeitfenster:

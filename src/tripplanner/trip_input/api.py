@@ -585,48 +585,6 @@ async def _step_route_charging_detours(
     return detouren
 
 
-def _segment_index_for_coordinate(koordinate: Coordinate, segments: list[RouteSegment]) -> int:
-    """Segment, dessen Ende der gegebenen Koordinate am nächsten liegt (haversine)."""
-    best_idx, best_dist = 0, float("inf")
-    for idx, seg in enumerate(segments):
-        dist = haversine_distance_m(koordinate, seg.geometrie[-1])
-        if dist < best_dist:
-            best_dist, best_idx = dist, idx
-    return best_idx
-
-
-def _with_derived_wait_time(
-    zwischenstopps: list[Waypoint],
-    segment_eta_list: list[tuple[RouteSegment, timedelta]],
-    abfahrtszeit: datetime,
-) -> list[Waypoint]:
-    """Leitet aus einem optionalen `geplante_abfahrt` je Wegpunkt eine effektive Wartezeit ab.
-
-    Heuristik: einmalige Annäherung anhand der initialen ETA-Schätzung, keine
-    iterative Konvergenz — konsistent mit dem bestehenden Ansatz der iterativen
-    ETA/Wetter-Schätzung an anderer Stelle im Modul, hier aber bewusst einstufig.
-    """
-    segments = [seg for seg, _ in segment_eta_list]
-    kumuliert: list[timedelta] = []
-    laufend = timedelta()
-    for _, dauer in segment_eta_list:
-        laufend += dauer
-        kumuliert.append(laufend)
-    ergebnis: list[Waypoint] = []
-    for wp in zwischenstopps:
-        if wp.geplante_abfahrt is None:
-            ergebnis.append(wp)
-            continue
-        seg_idx = _segment_index_for_coordinate(wp.koordinate, segments)
-        geschaetzte_ankunft = abfahrtszeit + kumuliert[seg_idx]
-        abgeleitete_wartezeit = max(timedelta(), wp.geplante_abfahrt - geschaetzte_ankunft)
-        bestehende = wp.aufenthaltsdauer or timedelta()
-        ergebnis.append(
-            wp.model_copy(update={"aufenthaltsdauer": max(bestehende, abgeleitete_wartezeit)})
-        )
-    return ergebnis
-
-
 def _bbox_center(sw: Coordinate, no: Coordinate) -> Coordinate:
     """Mittelpunkt einer (lat, lon)-Bounding-Box."""
     return ((sw[0] + no[0]) / 2.0, (sw[1] + no[1]) / 2.0)
@@ -888,12 +846,6 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
     with _log_step("estimate_initial_eta"):
         segment_eta_list = _step_4_estimate_initial_eta(route, request.abfahrtszeit)
 
-    # Note: Derived waiting time is a cost factor for the optimizer, not a required
-    # minimum stop duration - the A* path can bypass it if no SoC/charging need arises.
-    waypoints_with_wait_time = _with_derived_wait_time(
-        request.zwischenstopps, segment_eta_list, request.abfahrtszeit
-    )
-
     # Prepare ferry time windows as optimizer input
     ferry_pins = {
         f.segment_index_start: (f.segment_index_end, f.abfahrt, f.ankunft)
@@ -1006,7 +958,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
                 request.abfahrtszeit,
                 elevation_provider,
                 elevation_points,
-                zwischenstopps=waypoints_with_wait_time,
+                zwischenstopps=request.zwischenstopps,
                 charging_stations=charging_stations,
                 detour_kosten=detour_kosten,
                 ladedauer_vorgaben=charging_duration_map,
@@ -1437,6 +1389,11 @@ class WaypointAPI(BaseModel):
         None,
         description="Gewünschter frühester Abfahrtszeitpunkt (ISO-8601)",
     )
+    ladeleistung_kw: float | None = Field(
+        None,
+        ge=0.0,
+        description=("Vor Ort verfügbare Ladeleistung an diesem Zwischenstopp in kW, optional"),
+    )
 
 
 class FaehrAusschlussAPI(BaseModel):
@@ -1720,17 +1677,47 @@ class ConstructionZoneAPI(BaseModel):
     )
 
 
+class WaypointStopAPI(BaseModel):
+    """Zwischenstopp-Aufenthalt in der API-Response, ein Eintrag pro Aufenthalt."""
+
+    position: tuple[float, float] = Field(..., description="(lat, lon) des Zwischenstopps")
+    distanz_m: float = Field(
+        ..., ge=0.0, description="Kumulierte Distanz entlang der Route bei diesem Zwischenstopp"
+    )
+    ankunftszeit: str = Field(..., description="ISO-8601 Ankunftszeitpunkt am Zwischenstopp")
+    abfahrtszeit: str = Field(..., description="ISO-8601 Zeitpunkt der (erzwungenen) Abfahrt")
+    ladeleistung_kw: float | None = Field(
+        default=None, ge=0.0, description="Genutzte Ladeleistung in kW, None falls nicht geladen"
+    )
+    ankunfts_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
+    ziel_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Abfahrt in %")
+    energie_geladen_kwh: float = Field(
+        ..., ge=0.0, description="Waehrend des Aufenthalts geladene Energiemenge in kWh"
+    )
+
+
 class TripSimulationResultAPI(BaseModel):
     """API-Response für /trips-Endpunkt."""
 
     gesamt_distanz_km: float = Field(..., description="Gesamtdistanz in km")
     gesamt_fahrzeit_min: float = Field(..., description="Gesamtfahrzeit in Minuten")
     gesamt_ladezeit_min: float = Field(..., description="Gesamtladezeit in Minuten")
+    gesamt_wartezeit_min: float = Field(
+        default=0.0,
+        description=(
+            "Erzwungene Wartezeit an Zwischenstopps OHNE Ladung, in Minuten "
+            "(nicht in gesamt_fahrzeit_min/gesamt_ladezeit_min enthalten)"
+        ),
+    )
     start_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Start-SoC in %")
     ziel_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ziel-SoC in %")
     frames: list[FrameAPI] = Field(..., description="Liste von Simulationsframes")
     charging_stops: list[ChargingStopAPI] = Field(
         default_factory=list, description="Ein Eintrag pro Ladehalt, fuer die Kartendarstellung"
+    )
+    waypoint_stops: list[WaypointStopAPI] = Field(
+        default_factory=list,
+        description="Ein Eintrag pro Zwischenstopp-Aufenthalt, fuer die Kartendarstellung",
     )
     route_geometrie: list[Coordinate] = Field(
         ...,
@@ -1803,6 +1790,7 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
                 "geplante_abfahrt": datetime.fromisoformat(wp.geplante_abfahrt)
                 if wp.geplante_abfahrt
                 else None,
+                "ladeleistung_kw": wp.ladeleistung_kw,
             }
             for wp in request.zwischenstopps
         ],
@@ -1871,6 +1859,7 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
             gesamt_distanz_km=ergebnis.gesamt_distanz_km,
             gesamt_fahrzeit_min=ergebnis.gesamt_fahrzeit_min,
             gesamt_ladezeit_min=ergebnis.gesamt_ladezeit_min,
+            gesamt_wartezeit_min=ergebnis.gesamt_wartezeit_min,
             start_soc_pct=ergebnis.start_soc_pct,
             ziel_soc_pct=ergebnis.ziel_soc_pct,
             frames=[
@@ -1908,6 +1897,19 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
                     else None,
                 )
                 for stop in ergebnis.charging_stops
+            ],
+            waypoint_stops=[
+                WaypointStopAPI(
+                    position=stop.position,
+                    distanz_m=stop.distanz_m,
+                    ankunftszeit=stop.ankunftszeit.isoformat(),
+                    abfahrtszeit=stop.abfahrtszeit.isoformat(),
+                    ladeleistung_kw=stop.ladeleistung_kw,
+                    ankunfts_soc_pct=stop.ankunfts_soc_pct,
+                    ziel_soc_pct=stop.ziel_soc_pct,
+                    energie_geladen_kwh=stop.energie_geladen_kwh,
+                )
+                for stop in ergebnis.waypoint_stops
             ],
             route_geometrie=route_geometrie,
             erkannte_faehren=[

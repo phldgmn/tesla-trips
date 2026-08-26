@@ -17,7 +17,7 @@ import pytest
 
 from tripplanner.charging_infrastructure.models import ChargingStation
 from tripplanner.energy.models import SegmentEnergyResult
-from tripplanner.optimization.models import ChargingPlan, ChargingStop
+from tripplanner.optimization.models import ChargingPlan, ChargingStop, ZwischenstoppAufenthalt
 from tripplanner.routing.models import Coordinate, Route, RouteSegment
 from tripplanner.simulation import TripState, simulate_trip
 
@@ -642,3 +642,144 @@ class TestSocBaselineAfterChargingStop:
 
         assert result.frames[-1].soc_pct == pytest.approx(erwarteter_end_soc, abs=0.5)
         assert result.frames[-1].soc_pct != pytest.approx(wrong_end_soc, abs=1.0)
+
+
+class TestZwischenstoppAufenthalt:
+    """Regressionstests: eine erzwungene Zwischenstopp-Wartezeit
+    (`ChargingPlan.zwischenstopp_aufenthalte`) muss als stationaere Phase
+    simuliert werden (Fahrzeug steht an der Zwischenstopp-Koordinate) statt
+    als zusaetzliche, ueber die gesamte Route verschmierte Fahrzeit - sonst
+    "kriecht" das Fahrzeug waehrend der Wartezeit langsam entlang der Route
+    weiter, statt an der tatsaechlichen Stopp-Position stehen zu bleiben.
+    """
+
+    def test_wartezeit_ohne_ladeleistung_ergibt_pause_frame_an_stopp_koordinate(
+        self,
+        route_3_segments: Route,
+        energy_results_3_segments: list[SegmentEnergyResult],
+    ) -> None:
+        """Ein Zwischenstopp-Aufenthalt ohne Ladeleistung erzeugt PAUSE-Frames
+        exakt an dessen Koordinate, mit unveraendertem SoC."""
+        base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
+        stopp_koordinate = (51.0, 12.0)
+        aufenthalt = ZwischenstoppAufenthalt(
+            koordinate=stopp_koordinate,
+            segment_index=1,
+            ankunftszeit=base_time + timedelta(seconds=1500),
+            abfahrtszeit=base_time + timedelta(seconds=3300),
+            ladeleistung_kw=None,
+            ankunfts_soc_pct=55.0,
+            ziel_soc_pct=55.0,
+        )
+        plan = ChargingPlan(
+            ladehalte=[],
+            gesamtreisezeit_s=6300,
+            zwischenstopp_aufenthalte=[aufenthalt],
+        )
+
+        result = simulate_trip(
+            route=route_3_segments,
+            charging_plan=plan,
+            segment_energy=energy_results_3_segments,
+            start_soc_pct=80.0,
+            output_resolution_seconds=60,
+            abfahrtszeit=base_time,
+        )
+
+        pause_frames = [f for f in result.frames if f.zustand == TripState.PAUSE]
+        assert len(pause_frames) >= 1
+        for frame in pause_frames:
+            assert frame.position == stopp_koordinate
+            assert frame.geschwindigkeit_kmh == 0.0
+            assert frame.soc_pct == pytest.approx(55.0, abs=0.5)
+        assert result.gesamt_wartezeit_min == pytest.approx(30.0, abs=0.1)
+        assert result.waypoint_stops[0].position == stopp_koordinate
+        assert result.waypoint_stops[0].ladeleistung_kw is None
+
+    def test_wartezeit_mit_ladeleistung_ergibt_laden_frame_mit_steigendem_soc(
+        self,
+        route_3_segments: Route,
+        energy_results_3_segments: list[SegmentEnergyResult],
+    ) -> None:
+        """Ein Zwischenstopp-Aufenthalt MIT Ladeleistung erzeugt LADEN-Frames
+        mit zwischen Ankunfts-/Ziel-SoC interpoliertem SoC."""
+        base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
+        stopp_koordinate = (51.0, 12.0)
+        aufenthalt = ZwischenstoppAufenthalt(
+            koordinate=stopp_koordinate,
+            segment_index=1,
+            ankunftszeit=base_time + timedelta(seconds=1500),
+            abfahrtszeit=base_time + timedelta(seconds=3300),
+            ladeleistung_kw=11.0,
+            ankunfts_soc_pct=40.0,
+            ziel_soc_pct=60.0,
+        )
+        plan = ChargingPlan(
+            ladehalte=[],
+            gesamtreisezeit_s=6300,
+            zwischenstopp_aufenthalte=[aufenthalt],
+        )
+
+        result = simulate_trip(
+            route=route_3_segments,
+            charging_plan=plan,
+            segment_energy=energy_results_3_segments,
+            start_soc_pct=80.0,
+            output_resolution_seconds=60,
+            abfahrtszeit=base_time,
+        )
+
+        laden_frames = [f for f in result.frames if f.zustand == TripState.LADEN]
+        assert len(laden_frames) >= 1
+        for frame in laden_frames:
+            assert frame.position == stopp_koordinate
+        assert laden_frames[0].soc_pct <= 45.0
+        assert laden_frames[-1].soc_pct > laden_frames[0].soc_pct
+        assert result.gesamt_wartezeit_min == pytest.approx(0.0, abs=0.1)
+        assert result.gesamt_ladezeit_min == pytest.approx(30.0, abs=0.1)
+        assert result.waypoint_stops[0].ladeleistung_kw == 11.0
+        assert result.waypoint_stops[0].energie_geladen_kwh > 0.0
+
+    def test_soc_nach_wartezeit_bleibt_baseline_fuer_folgefahrt(
+        self,
+        route_3_segments: Route,
+        energy_results_3_segments: list[SegmentEnergyResult],
+    ) -> None:
+        """Nach einer Zwischenstopp-Ladung muss der SoC waehrend der
+        anschliessenden Fahrt vom dort erreichten Ziel-SoC ausgehen, nicht vom
+        Start-SoC der gesamten Reise (analog zu Ladehalten an Superchargern,
+        siehe `TestSocBaselineAfterChargingStop`)."""
+        base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
+        aufenthalt = ZwischenstoppAufenthalt(
+            koordinate=(51.0, 12.0),
+            segment_index=1,
+            ankunftszeit=base_time + timedelta(seconds=1500),
+            abfahrtszeit=base_time + timedelta(seconds=3300),
+            ladeleistung_kw=11.0,
+            ankunfts_soc_pct=30.0,
+            ziel_soc_pct=70.0,
+        )
+        plan = ChargingPlan(
+            ladehalte=[],
+            gesamtreisezeit_s=6300,
+            zwischenstopp_aufenthalte=[aufenthalt],
+        )
+
+        result = simulate_trip(
+            route=route_3_segments,
+            charging_plan=plan,
+            segment_energy=energy_results_3_segments,
+            start_soc_pct=80.0,
+            output_resolution_seconds=60,
+            abfahrtszeit=base_time,
+        )
+
+        fahren_frames_nach_aufenthalt = [
+            f
+            for f in result.frames
+            if f.zustand == TripState.FAHREN and f.zeitpunkt > aufenthalt.abfahrtszeit
+        ]
+        assert fahren_frames_nach_aufenthalt
+        # Erster FAHREN-Frame nach der Ladung darf nicht weit unter 70% liegen
+        # (waere er von 80% Start-SoC ausgegangen, laege er deutlich tiefer).
+        assert fahren_frames_nach_aufenthalt[0].soc_pct > 60.0
