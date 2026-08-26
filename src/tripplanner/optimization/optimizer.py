@@ -1402,6 +1402,17 @@ class NetworkXOptimizer(OptimizerInterface):
             if station is None:
                 continue  # Sollte nicht vorkommen (station_id stets gueltig)
 
+            # Duplikate vermeiden: zwei aufeinanderfolgende Ladekanten mit
+            # derselben station_id entstehen, wenn ein Knoten per
+            # Ladekante und dann per Fahrtkante neu erzeugt wird
+            # (_fuege_ladekante_hinzu setzt station_id erst beim ersten
+            # Erzeugen des Zielknotens; trifft eine Ladekante auf einen
+            # vorhandenen Fahrtknoten, bleibt der Knoten station_id-frei,
+            # aber die Kante tragt es). Solche Ketten gehoeren zum
+            # Graphenaufbau, nicht zum resultierenden Ladeplan.
+            if ladehalte and ladehalte[-1].station.station_id == station.station_id:
+                continue
+
             # `ankunfts_soc_pct`/`ziel_soc_pct`/`ladezeit_s`/`ankunftszeit`/
             # `abfahrtszeit` direkt aus den Kanten-Attributen lesen (siehe
             # `_fuege_ladekante_hinzu`) statt aus den Knoten-`soc_pct`/
