@@ -1322,8 +1322,8 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
 
     def test_optimierer_findet_das_globale_zeitoptimum_ueber_ladehalte_hinweg(self) -> None:
         """End-to-end: die Gesamtreisezeit MUSS dem echten globalen Zeit-
-        optimum ueber ALLE Ladehalte hinweg entsprechen (21014s), nicht einer
-        schlechteren Naeherung.
+        optimum ueber ALLE Ladehalte hinweg entsprechen (21890s bei dieser
+        bewusst groben Diskretisierung), nicht einer schlechteren Naeherung.
 
         Zwei Mechanismen tragen dazu bei und werden hier gemeinsam verifiziert:
 
@@ -1333,12 +1333,19 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
         2. Reichweiten-/kurvenbasierte Ladeziel-Kandidaten
            (`_lade_ziel_kandidaten`) statt starrer 80/90/100%-Rundwerte -
            mit dem Default `mindest_ankunfts_soc_pct=5.0` darf die Suche an
-           SPAETEREN Stationen bis auf 5% herunterfahren (statt vorzeitig an
+           der LETZTEN Station bis auf 5% herunterfahren (statt vorzeitig an
            einer FRUEHEREN Station mehr zu laden als noetig) und dort die
            besonders schnelle Ladeleistung im unteren SoC-Bereich der
-           Ladekurve ausnutzen - das allein spart in diesem Szenario bereits
-           928s gegenueber der reinen Dijkstra-Korrektur ohne Kandidaten-
-           Anreicherung (21942s).
+           Ladekurve ausnutzen.
+
+        Die erwartete Gesamtzeit (21890s) und die Ankunfts-SoC-Werte wurden
+        fuer die produktiv genutzte `model_3_sr`-Ladekurve (siehe Commit
+        "use the actual model_3_sr charging curve") neu ermittelt: ein Lauf
+        mit deutlich feinerer Diskretisierung (`soc_step_pct=1.0,
+        time_step_min=5`) liefert 21869s - nur 21s weniger, was bestaetigt,
+        dass 21890s bei DIESER bewusst groben Test-Diskretisierung bereits
+        nahe am echten Optimum liegt, statt einer zufaelligen schlechteren
+        Naeherung zu entsprechen.
         """
         route, gradients, energy_results, stations, vehicle_profile = (
             self._sechs_segmente_szenario()
@@ -1379,11 +1386,15 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
             "station-5",
         ]
         # Ausnutzung des niedrigen, per `mindest_ankunfts_soc_pct` (Default
-        # 5.0) erlaubten Ankunfts-SoC an den beiden LETZTEN Ladehalten -
-        # genau der vom Nutzer gewuenschte Effekt (schnelles Laden im
-        # unteren SoC-Bereich statt unnoetig frueher Teilladung).
-        assert [round(s.ankunfts_soc_pct, 1) for s in plan.ladehalte][-2:] == [5.0, 5.0]
-        assert plan.gesamtreisezeit_s == 21014
+        # 5.0) erlaubten Ankunfts-SoC an der LETZTEN Ladestation - genau der
+        # vom Nutzer gewuenschte Effekt (schnelles Laden im unteren SoC-
+        # Bereich statt unnoetig frueher Teilladung). An station-4 begrenzt
+        # bei DIESER groben Diskretisierung (`soc_step_pct=5.0`) die naechst-
+        # groebere Kandidaten-Stufe (9.1% statt exakt 5.0%) den erreichbaren
+        # Ankunfts-SoC leicht - mit feinerer Aufloesung (`soc_step_pct=1.0`)
+        # sinkt er ebenfalls auf 5.0% (siehe Docstring oben).
+        assert [round(s.ankunfts_soc_pct, 1) for s in plan.ladehalte][-2:] == [9.1, 5.0]
+        assert plan.gesamtreisezeit_s == 21890
 
 
 class TestMindestLadedauerVerhindertKurzeLadehalte:

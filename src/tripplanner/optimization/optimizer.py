@@ -807,8 +807,18 @@ class NetworkXOptimizer(OptimizerInterface):
                 detour_kosten=detour_kosten,
             )
             ankunft_soc_pct = current_soc_pct - detour_soc_pct
-            if ankunft_soc_pct < 0.0:
-                continue  # Reichweite reicht nicht einmal bis zur Station
+            # Untergrenze `mindest_ankunfts_soc_pct` gilt fuer den
+            # TATSAECHLICHEN SoC AN der Station, nicht nur fuer den
+            # On-Route-SoC am Checkpoint vor dem Abstecher: eine abseits der
+            # Route liegende Station (siehe `_detour_kosten`) kostet
+            # zusaetzliche Reichweite fuer den Hinweg dorthin - ohne diesen
+            # Check wuerde `_add_drive_edge`s Floor-Pruefung (die nur den
+            # On-Route-SoC kennt) durch den anschliessenden Abstecher
+            # unterlaufen und ein Ladehalt mit SoC UNTER der vom Nutzer
+            # gesetzten Sicherheitsreserve entstehen (siehe Regressionstest
+            # `test_create_trip_simulation_mindest_ankunfts_soc_pct_erlaubt_niedrigere_ladezeit`).
+            if ankunft_soc_pct < constraints.mindest_ankunfts_soc_pct:
+                continue  # Reichweite reicht nicht bis zur Station UEBER der Sicherheitsreserve
 
             vorgabe_s = ladedauer_vorgaben.get(station.station_id)
             if vorgabe_s is not None:
@@ -1402,15 +1412,34 @@ class NetworkXOptimizer(OptimizerInterface):
             if station is None:
                 continue  # Sollte nicht vorkommen (station_id stets gueltig)
 
-            # Duplikate vermeiden: zwei aufeinanderfolgende Ladekanten mit
-            # derselben station_id entstehen, wenn ein Knoten per
-            # Ladekante und dann per Fahrtkante neu erzeugt wird
-            # (_fuege_ladekante_hinzu setzt station_id erst beim ersten
-            # Erzeugen des Zielknotens; trifft eine Ladekante auf einen
-            # vorhandenen Fahrtknoten, bleibt der Knoten station_id-frei,
-            # aber die Kante tragt es). Solche Ketten gehoeren zum
-            # Graphenaufbau, nicht zum resultierenden Ladeplan.
+            # Ketten-Zusammenfuehrung: Der Zustandsgraph erlaubt MEHRERE
+            # aufeinanderfolgende Ladekanten an derselben Station (Knoten
+            # eines Ladeziel-Kandidaten teilt denselben `seg_idx` wie der
+            # Ausgangsknoten und ist daher selbst wieder Ausgangspunkt fuer
+            # `_add_charging_edges`) - das ist GEWOLLT: es erschliesst
+            # SoC-Ziele, die aus dem urspruenglichen Ankunfts-SoC keine
+            # eigene Kandidaten waeren, aus einem bereits erreichten
+            # Zwischen-Ladeziel heraus (siehe `_lade_ziel_kandidaten`).
+            # Physisch ist das aber EIN einziger Ladehalt, kein zweiter -
+            # aufeinanderfolgende Kanten mit derselben `station_id` werden
+            # daher zu EINEM `ChargingStop` zusammengefuehrt: Ankunfts-SoC/
+            # -zeit von der ERSTEN Kante der Kette, Ziel-SoC/-zeit von der
+            # LETZTEN, Ladedauer als Summe aller Kettenglieder (sonst wuerde
+            # ein Teil der tatsaechlich verbrachten Ladezeit im Ergebnis
+            # verschwinden, siehe Regressionstest
+            # `test_optimierer_findet_das_globale_zeitoptimum_ueber_ladehalte_hinweg`).
             if ladehalte and ladehalte[-1].station.station_id == station.station_id:
+                vorheriger = ladehalte[-1]
+                ladehalte[-1] = ChargingStop(
+                    station=station,
+                    segment_index=curr_node[0],
+                    ankunfts_soc_pct=vorheriger.ankunfts_soc_pct,
+                    ziel_soc_pct=edge_data["ziel_soc_pct"],
+                    geschaetzte_ladedauer_s=vorheriger.geschaetzte_ladedauer_s
+                    + int(edge_data["ladezeit_s"]),
+                    ankunftszeit=vorheriger.ankunftszeit,
+                    abfahrtszeit=edge_data["abfahrtszeit"],
+                )
                 continue
 
             # `ankunfts_soc_pct`/`ziel_soc_pct`/`ladezeit_s`/`ankunftszeit`/
