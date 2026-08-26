@@ -85,19 +85,19 @@ const basemapStyle = buildBasemapStyle(
   TILES_BASE_URL,
 );
 
-// Farbpalette für den kontinuierlichen SoC-Verlauf: rot → orange → gelb →
-// hellgrün → grün, äquidistant über den vollen 0–100%-Bereich verteilt.
+// Farbpalette für den kontinuierlichen SoC-Verlauf: rot (≤5%) → orange (5-15%) → gelb (15-25%) → grün (25-75%) → blau (>75%).
 const SOC_COLOR_STOPS: readonly [
   soc: number,
   r: number,
   g: number,
   b: number,
 ][] = [
-  [0, 0xef, 0x44, 0x44],
-  [25, 0xf9, 0x73, 0x16],
-  [50, 0xea, 0xb3, 0x08],
-  [75, 0x84, 0xcc, 0x16],
-  [100, 0x22, 0xc5, 0x5e],
+  [0, 0xef, 0x44, 0x44], // 0% - red
+  [5, 0xef, 0x44, 0x44], // 5% - red (red only for ≤5%)
+  [15, 0xf9, 0x73, 0x16], // 15% - orange (orange for ≤15%)
+  [25, 0xea, 0xb3, 0x08], // 25% - yellow
+  [75, 0x22, 0xc5, 0x5e], // 75% - green
+  [100, 0x3b, 0x82, 0xf6], // 100% - blue
 ];
 
 function toHex(value: number): string {

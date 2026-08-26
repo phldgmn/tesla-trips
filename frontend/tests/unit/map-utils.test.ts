@@ -28,15 +28,16 @@ describe("MapVisualization utilities", () => {
   describe("socToColor", () => {
     it("returns the exact anchor colors at the palette's SoC breakpoints", () => {
       expect(socToColor(0)).toBe("#ef4444");
-      expect(socToColor(25)).toBe("#f97316");
-      expect(socToColor(50)).toBe("#eab308");
-      expect(socToColor(75)).toBe("#84cc16");
-      expect(socToColor(100)).toBe("#22c55e");
+      expect(socToColor(5)).toBe("#ef4444");
+      expect(socToColor(15)).toBe("#f97316");
+      expect(socToColor(25)).toBe("#eab308");
+      expect(socToColor(75)).toBe("#22c55e");
+      expect(socToColor(100)).toBe("#3b82f6");
     });
 
     it("clamps out-of-range SoC values to the nearest anchor color", () => {
       expect(socToColor(-10)).toBe("#ef4444");
-      expect(socToColor(150)).toBe("#22c55e");
+      expect(socToColor(150)).toBe("#3b82f6");
     });
 
     it("interpolates continuously between anchors instead of snapping to buckets", () => {
