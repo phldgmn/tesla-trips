@@ -1272,77 +1272,17 @@ export function TripPlannerForm({
         </div>
       </Modal>
 
-      {/* 2. Alle Fähren vermeiden + Zugriff auf ignorierte Fähren - in einer
-          Zeile, wie die übrigen Buttons/Kacheln formatiert (statt isolierter
-          Checkbox + separatem Vollbreite-Button) */}
+      {/* 2. Wetter-, Baustellen- und Fähren-Kontrollen in einer (bei Bedarf
+          umbrechenden) Zeile im selben Pill-Stil. Die Fähren-Pille steht
+          bewusst am Ende und ist zweigeteilt: links ein Toggle (invertierte
+          Bedeutung: an = Fähren erlaubt), rechts - durch einen dünnen
+          Trenner abgesetzt - ein reiner Zähler-Button, der nur das Modal
+          für dauerhaft ignorierte Fähren öffnet (kein eigener Toggle-Status). */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          gap: "0.5rem",
-          marginBottom: "1rem",
-        }}
-      >
-        <label
-          htmlFor="alle-faehren-vermeiden-checkbox"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.5rem",
-            flex: 1,
-            minWidth: 0,
-            padding: "0.6rem 0.75rem",
-            background: alleFaehrenVermeiden ? "#eff6ff" : "white",
-            border: `1px solid ${alleFaehrenVermeiden ? "#93c5fd" : "#e5e7eb"}`,
-            borderRadius: "6px",
-            cursor: isSubmitting ? "not-allowed" : "pointer",
-            boxSizing: "border-box",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={alleFaehrenVermeiden}
-            onChange={(e) => setAlleFaehrenVermeiden(e.target.checked)}
-            id="alle-faehren-vermeiden-checkbox"
-            disabled={isSubmitting}
-          />
-          <span
-            style={{
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            Alle Fähren vermeiden
-          </span>
-        </label>
-        <button
-          type="button"
-          onClick={() => setIsIgnorierteFaehrenModalOpen(true)}
-          style={{
-            flexShrink: 0,
-            padding: "0.6rem 0.6rem",
-            background: "#f3f4f6",
-            border: "1px solid #d1d5db",
-            borderRadius: "6px",
-            cursor: "pointer",
-            fontSize: "0.8rem",
-            whiteSpace: "nowrap",
-          }}
-          title="Ignorierte Fähren verwalten"
-        >
-          Ignoriert ({vermiedeneFaehren.length})
-        </button>
-      </div>
-
-      {/* 2b. Wetter/Baustellen einzeln deaktivierbar: umgeht KEINEN Bug, gibt
-          dem Nutzer aber die Kontrolle, einen langsamen/ratenlimitierten
-          Provider für eine schnellere Berechnung zu überspringen (siehe
-          `wetter_detailgrad`/`baustellen_beruecksichtigen` im Backend). */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
+          flexWrap: "wrap",
           gap: "0.4rem",
           marginBottom: "1rem",
         }}
@@ -1415,6 +1355,66 @@ export function TripPlannerForm({
           <Construction size={13} />
           Baustellen
         </button>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "stretch",
+            borderRadius: "999px",
+            border: `1px solid ${!alleFaehrenVermeiden ? "#93c5fd" : "#e5e7eb"}`,
+            overflow: "hidden",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setAlleFaehrenVermeiden(!alleFaehrenVermeiden)}
+            disabled={isSubmitting}
+            aria-pressed={!alleFaehrenVermeiden}
+            title={
+              alleFaehrenVermeiden
+                ? "Fähren werden bei der Berechnung vermieden (klicken zum Erlauben)"
+                : "Fähren sind bei der Berechnung erlaubt (klicken zum Vermeiden)"
+            }
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.3rem",
+              padding: "0.35rem 0.55rem 0.35rem 0.65rem",
+              background: !alleFaehrenVermeiden ? "#eff6ff" : "#f9fafb",
+              border: "none",
+              cursor: isSubmitting ? "not-allowed" : "pointer",
+              fontSize: "0.78rem",
+              color: !alleFaehrenVermeiden ? "#1d4ed8" : "#6b7280",
+            }}
+          >
+            <Ship size={13} />
+            Fähren
+          </button>
+          <div
+            style={{
+              width: "1px",
+              background: !alleFaehrenVermeiden ? "#93c5fd" : "#e5e7eb",
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => setIsIgnorierteFaehrenModalOpen(true)}
+            disabled={isSubmitting}
+            title="Ignorierte Fähren verwalten"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              padding: "0.35rem 0.6rem 0.35rem 0.5rem",
+              background: vermiedeneFaehren.length > 0 ? "#fffbeb" : "#f9fafb",
+              border: "none",
+              cursor: isSubmitting ? "not-allowed" : "pointer",
+              fontSize: "0.78rem",
+              fontWeight: vermiedeneFaehren.length > 0 ? 600 : 400,
+              color: vermiedeneFaehren.length > 0 ? "#b45309" : "#6b7280",
+            }}
+          >
+            {vermiedeneFaehren.length}
+          </button>
+        </div>
       </div>
 
       {/* 3. Route (dynamische Stopp-/Ladehalt-/Fähren-Timeline) */}
@@ -2304,8 +2304,8 @@ export function TripPlannerForm({
         })}
       </ol>
 
-      {/* Ignorierte Fähren - Modal, ausgelöst über den "Ignoriert (n)"-Button
-          oben neben "Alle Fähren vermeiden"; enthält dauerhaft ausgeschlossene
+      {/* Ignorierte Fähren - Modal, ausgelöst über den Zähler-Teil der
+          zweigeteilten "Fähren"-Pille; enthält dauerhaft ausgeschlossene
           Fährverbindungen (unabhängig von der aktuell berechneten Route). */}
       <Modal
         open={isIgnorierteFaehrenModalOpen}
