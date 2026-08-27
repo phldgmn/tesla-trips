@@ -909,67 +909,7 @@ export function MapVisualization({
         ]),
       ].sort((a, b) => a.distanzM - b.distanzM),
     );
-    // Post-Processing fuer waypoint_stops: Korrigiere die SoC-Werte aller
-    // FAHREN-Frames nach dem Stop. Die Backend-Berechnung verwendet u.U. die
-    // falsche Baseline (Start-SoC statt waypoint.ziel_soc_pct) fuer die
-    // ersten post-stop Frames. Korrektur: Alle post-stop FAHREN-Frames
-    // auf waypoint.ziel_soc_pct setzen, damit der Gradient sofort den
-    // korrekten Wert zeigt.
-    // Pre-compute the spliced cumulative distance for each waypoint stop
-    // Use the DEPARTURE sample (arrival + 0.5) for comparison, as that's
-    // where the high SoC actually starts after the stop.
-    // Pre-compute the spliced cumulative distance for each waypoint stop
-    // Use stop.distanz_m directly since that's the waypoint position, not
-    // splicedRoute.samples which might not align exactly with the stop.
-    // Pre-compute the spliced cumulative distance for each waypoint stop
-    // by finding the sample at or nearest to the stop (in spliced distance).
-    const waypointStopDistances: Record<string, number> = {};
-    for (const stop of simulationResult.waypoint_stops) {
-      // Use position as the key since ID may be undefined
-      const key =
-        stop.position?.[0]?.toFixed(6) + "," + stop.position?.[1]?.toFixed(6);
-      const matchingSample = splicedRoute.samples.find(
-        (s) => Math.abs(s.distanzM - (stop.distanz_m + 0)) < 10,
-      );
-      if (matchingSample) {
-        waypointStopDistances[key] = matchingSample.distanzM;
-      } else {
-        // Fallback: use the original distance
-        waypointStopDistances[key] = stop.distanz_m + 0;
-      }
-    }
-    const correctedSamples = splicedRoute.samples.map((sample) => {
-      let correctedSocPct = sample.socPct;
-      for (const stop of simulationResult.waypoint_stops) {
-        const key =
-          stop.position?.[0]?.toFixed(6) + "," + stop.position?.[1]?.toFixed(6);
-        const stopDist = waypointStopDistances[key] ?? stop.distanz_m;
-        if (stopDist !== undefined && sample.distanzM >= stopDist) {
-          correctedSocPct = stop.ziel_soc_pct;
-        }
-      }
-      return { ...sample, socPct: correctedSocPct, critical: true };
-    });
-    // Add waypoint stop sample at the stop position (high SoC).
-    const waypointSamples = simulationResult.waypoint_stops.map((stop) => {
-      const key =
-        stop.position?.[0]?.toFixed(6) + "," + stop.position?.[1]?.toFixed(6);
-      const stopDist = waypointStopDistances[key] ?? stop.distanz_m;
-      return {
-        distanzM: stopDist,
-        socPct: stop.ziel_soc_pct,
-        zeitpunkt: stop.ankunftszeit,
-        critical: true,
-      };
-    });
-    // Merge and sort corrected samples with waypoint samples
-    const splicedRouteWithCorrectedSamples = {
-      ...splicedRoute,
-      samples: [...correctedSamples, ...waypointSamples].sort(
-        (a, b) => a.distanzM - b.distanzM,
-      ),
-    };
-    const routeCoordinates = splicedRouteWithCorrectedSamples.coordinates;
+    const routeCoordinates = splicedRoute.coordinates;
 
     const routeGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
       type: "Feature" as const,
@@ -1012,10 +952,7 @@ export function MapVisualization({
         e.lngLat.lng,
         e.lngLat.lat,
       ]);
-      const sample = findNearestRouteSample(
-        splicedRouteWithCorrectedSamples.samples,
-        distAlongM,
-      );
+      const sample = findNearestRouteSample(splicedRoute.samples, distAlongM);
       if (!sample) return;
       setRouteHoverInfo({ x: e.point.x, y: e.point.y, sample });
     };
@@ -1035,9 +972,7 @@ export function MapVisualization({
     // kollabierter SoC-Sprung (siehe `CHARGE_JUMP_EPSILON_M`) weit unter der
     // Texture-Aufloesung und wuerde schlicht nicht dargestellt (dokumentiertes
     // MapLibre/Mapbox-Verhalten). Jeder Leg bekommt so seine eigene, viel
-    for (const [legIndex, leg] of splitRouteIntoLegs(
-      splicedRouteWithCorrectedSamples,
-    ).entries()) {
+    for (const [legIndex, leg] of splitRouteIntoLegs(splicedRoute).entries()) {
       const sourceId = `route-leg-${legIndex}`;
       const legGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
         type: "Feature" as const,

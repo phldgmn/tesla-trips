@@ -157,10 +157,15 @@ class NetworkXOptimizer(OptimizerInterface):
             segment_index=0,
         )
 
-        # Mappe Zwischenstopps auf Segmente (Segment-Index → Waypoint)
+        # Mappe Zwischenstopps auf Segmente (Segment-Index → Waypoint). Der
+        # Suchstart wird pro Waypoint monoton fortgeschrieben (siehe
+        # `_waypoint_to_segment`-Docstring) - Zwischenstopps treten in der
+        # Reihenfolge von `waypoints` entlang der Route auf.
         waypoint_map: dict[int, list[Waypoint]] = {}
+        next_search_start_idx = 0
         for wp in waypoints:
-            seg_idx = self._waypoint_to_segment(wp, segments)
+            seg_idx = self._waypoint_to_segment(wp, segments, next_search_start_idx)
+            next_search_start_idx = seg_idx
             if seg_idx not in waypoint_map:
                 waypoint_map[seg_idx] = []
             waypoint_map[seg_idx].append(wp)
@@ -309,16 +314,38 @@ class NetworkXOptimizer(OptimizerInterface):
             zwischenstopp_aufenthalte=zwischenstopp_aufenthalte,
         )
 
-    def _waypoint_to_segment(self, waypoint: Waypoint, segments: list[RouteSegment]) -> int:
-        """Ermittle das Segment, das einem Waypoint am nächsten liegt."""
+    def _waypoint_to_segment(
+        self,
+        waypoint: Waypoint,
+        segments: list[RouteSegment],
+        min_seg_idx: int = 0,
+    ) -> int:
+        """Ermittle das Segment, das einem Waypoint am nächsten liegt.
+
+        Sucht nur ab `min_seg_idx` (Segmente vor dem vorherigen, in Fahrt-
+        richtung bereits zugeordneten Waypoint werden ausgeschlossen).
+        `RouteSegment`s sind einer pro GraphHopper-Polyline-Punktpaar (siehe
+        `GraphHopperRoutingProvider._map_path_to_route`), also sehr
+        feingranular - eine reine Distanzsuche ueber ALLE Segmente kann bei
+        sich kreuzenden/parallel verlaufenden Strassen (z. B. eine Route, die
+        nahe an einer bereits befahrenen Kreuzung vorbeikommt) faelschlich
+        einen geometrisch nahen, aber entlang der Route weit entfernten
+        Punkt treffen - sichtbar u. a. als falscher SoC-Gradient-Sprung weit
+        vor/hinter dem tatsaechlichen Zwischenstopp auf der Karte. Da
+        Zwischenstopps als GraphHopper-Via-Punkte in Anfragereihenfolge in
+        die Route geroutet werden (siehe `GraphHopperRoutingProvider.
+        berechne_route`), muessen sie auch entlang der Route in dieser
+        Reihenfolge auftreten - ein monoton steigender Suchstart pro
+        Waypoint erzwingt das.
+        """
         wp_coord = waypoint.koordinate
 
         min_dist = float("inf")
-        closest_seg_idx = 0
+        closest_seg_idx = min_seg_idx
 
-        for idx, seg in enumerate(segments):
+        for idx in range(min_seg_idx, len(segments)):
             # Benutze den Segment-Startpunkt als Referenz
-            seg_start = seg.geometrie[0]
+            seg_start = segments[idx].geometrie[0]
             dist = self._haversine_distance(wp_coord, seg_start)
             if dist < min_dist:
                 min_dist = dist
@@ -1683,8 +1710,10 @@ class NetworkXOptimizer(OptimizerInterface):
         """Berechne Mindestankunftszeit für Zwischenstopps."""
         min_ankunftszeit: dict[int, datetime] = {}
 
+        next_search_start_idx = 0
         for wp in waypoints:
-            seg_idx = self._waypoint_to_segment(wp, segments)
+            seg_idx = self._waypoint_to_segment(wp, segments, next_search_start_idx)
+            next_search_start_idx = seg_idx
             if seg_idx not in min_ankunftszeit:
                 min_ankunftszeit[seg_idx] = abfahrtszeit
 

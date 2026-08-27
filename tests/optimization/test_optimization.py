@@ -928,6 +928,67 @@ class TestLadedauerVorgabe:
         assert plan.ladehalte[0].geschaetzte_ladedauer_s != 1800
 
 
+class TestWaypointSegmentMatchingIgnoriertFrueheKreuzungen:
+    """Regressionstest: Bug - `_waypoint_to_segment` suchte den naechstgelegenen
+    Segment-Startpunkt ueber die GESAMTE Route per reiner Luftlinien-Distanz,
+    unabhaengig davon, wo entlang der Route bereits vorherige Zwischenstopps
+    aufgeloest wurden. Bei einer Route, die sich selbst kreuzt oder in der
+    Naehe eines fruehen Streckenabschnitts eine Schleife dreht (z. B. eine
+    kleine Ortsdurchfahrt), konnte ein spaeterer Zwischenstopp faelschlich auf
+    diesen geometrisch naeheren, aber weit VOR dem tatsaechlichen Zwischenstopp
+    liegenden fruehen Streckenabschnitt gemappt werden. Sichtbar auf der Karte
+    als SoC-Farbverlaufssprung weit entfernt vom tatsaechlichen Zwischenstopp-
+    Marker (der SoC-Sprung landete auf dem falschen, frueheren Segment-Index).
+    """
+
+    def _kreuzende_segmente(self) -> list[RouteSegment]:
+        """Route mit 10 Segmenten: Segment 2 liegt exakt auf der spaeter
+        angefragten Zwischenstopp-Koordinate (eine fruehe, unabhaengige
+        Kreuzung der Route), Segment 7 ist der tatsaechliche Via-Punkt (etwas
+        weiter entfernt, aber der eigentlich gemeinte Zwischenstopp weiter
+        entlang der Route)."""
+        segmente = []
+        for i in range(10):
+            if i == 2:
+                start = (60.0, 14.0)  # exakter Treffer, aber falsche Kreuzung
+            elif i == 7:
+                start = (60.0001, 14.0)  # ~11 m entfernt - der echte Via-Punkt
+            else:
+                start = (61.0 + i, 20.0 + i)  # weit entfernt, irrelevant
+            segmente.append(
+                RouteSegment(
+                    segment_index=i,
+                    geometrie=[start, (start[0] + 0.01, start[1] + 0.01)],
+                    laenge_m=1000.0,
+                    strassenklasse="MOTORWAY",
+                    bearing_deg=0.0,
+                )
+            )
+        return segmente
+
+    def test_unbeschraenkte_suche_findet_die_falsche_fruehe_kreuzung(self) -> None:
+        """Demonstriert den Bug: eine Suche ohne Mindest-Segment-Index landet
+        auf der geometrisch naeheren, aber falschen fruehen Kreuzung."""
+        optimizer = create_networkx_optimizer()
+        segmente = self._kreuzende_segmente()
+        wp = Waypoint(koordinate=(60.0, 14.0))
+
+        assert optimizer._waypoint_to_segment(wp, segmente) == 2
+
+    def test_suche_ab_vorherigem_zwischenstopp_findet_den_echten_via_punkt(
+        self,
+    ) -> None:
+        """Mit dem Fix: sobald ein vorheriger Zwischenstopp bereits Segment 5
+        aufgeloest hat, schliesst die Suche fuer den naechsten Zwischenstopp
+        die fruehere Kreuzung (Segment 2) aus und findet den tatsaechlichen
+        Via-Punkt (Segment 7)."""
+        optimizer = create_networkx_optimizer()
+        segmente = self._kreuzende_segmente()
+        wp = Waypoint(koordinate=(60.0, 14.0))
+
+        assert optimizer._waypoint_to_segment(wp, segmente, 5) == 7
+
+
 class TestZwischenstoppErzwingtWartezeit:
     """Regressionstest: Bug - eine an einem Zwischenstopp gesetzte
     `geplante_abfahrt`/`aufenthaltsdauer` war nur ein optionaler Kostenfaktor,
