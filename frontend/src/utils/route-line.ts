@@ -280,6 +280,16 @@ export function buildSplicedRoute(
       }
       const stationDetourDistanzM = detourCum[splitIdx];
 
+      // Erkennen, ob der Ladehalt am Abzweigpunkt (routeIndexVor) liegt.
+      // In diesem Fall entspricht der gesamte ersetzte Hauptroutensegment
+      // [rangeStartOriginal, rangeEndOriginal] dem kompletten Detour-Rundkurs
+      // (Hin- + Rueckweg), nicht nur dem Rueckweg. Alle Frames in diesem
+      // Bereich sind Phantom-Frames und werden uebersprungen.
+      const BRANCH_POINT_THRESHOLD_M = 3000;
+      const isChargeAtBranchPoint =
+        Math.abs(detour.chargeDistanzM - rangeStartOriginal) <=
+        BRANCH_POINT_THRESHOLD_M;
+
       // Frames, die (durch die Zeit-Diskretisierung der Simulation) noch VOR
       // dem tatsaechlichen Abzweigpunkt, aber bereits innerhalb des per
       // `margin_m`-Puffer ersetzten Bereichs liegen (siehe
@@ -291,15 +301,90 @@ export function buildSplicedRoute(
       // Puffer wuerde Vor-Ladehalt-Frames mit niedrigem SoC teils HINTER den
       // SoC-Sprung an der Station projizieren (sichtbar als falsche SoC-
       // Werte im Routen-Hover-Tooltip einige Kilometer nach dem Ladehalt).
+      //
+      // Klassifizierung per `zeitpunkt`: Frames mit zeitpunkt < ankunftszeit
+      // sind Vor-Ladehalt-Frames (gehen auf den Hinweg). Frames mit
+      // zeitpunkt > abfahrtszeit sind Nach-Ladehalt-Frames (gehen auf den
+      // Rueckweg oder werden nach dem Detour verarbeitet). Frames ohne
+      // zeitpunkt fallen fallback-maessig auf die distanzM-Klassifizierung
+      // zurueck (<= chargeDistanzM = Hinweg, > chargeDistanzM = Rueckweg).
+      //
+      // Sonderfall: Ladehalt am Abzweigpunkt (isChargeAtBranchPoint).
+      // Dann ist der gesamte Bereich [rangeStartOriginal, rangeEndOriginal]
+      // Phantom-Bereich - alle Frames darin werden uebersprungen.
+      const ankunftsZeit = detour.ankunftszeit
+        ? new Date(detour.ankunftszeit).getTime()
+        : null;
+      const abfahrtsZeit = detour.abfahrtszeit
+        ? new Date(detour.abfahrtszeit).getTime()
+        : null;
       while (
         frameIdx < sortedFrames.length &&
         sortedFrames[frameIdx].distanzM <= rangeEndOriginal
       ) {
         const frame = sortedFrames[frameIdx];
+        const frameZeit = frame.zeitpunkt
+          ? new Date(frame.zeitpunkt).getTime()
+          : null;
+
+        // Sonderfall: Ladehalt am Abzweigpunkt -> gesamter Pufferbereich ist Phantom
+        if (isChargeAtBranchPoint && frame.distanzM >= rangeStartOriginal) {
+          // Frame im ersetzten Segment -> ueberspringen (Phantom-Frame)
+          frameIdx++;
+          continue;
+        }
+
+        // Nur Frames in der Naehe von chargeDistanzM (margin_m ~ 3 km) per zeitpunkt
+        // klassifizieren. Weiter entfernte Frames werden rein per distanzM
+        // einsortiert, da ihre zeitpunkt-Daten auf dem ersetzten Hauptroutensegment
+        // nicht verlässlich sind (Phantom-Frames).
+        const CLASSIFICATION_THRESHOLD_M = 5000;
+        const distFromCharge = frame.distanzM - detour.chargeDistanzM;
+        const useTimeClassification =
+          frameZeit !== null &&
+          Math.abs(distFromCharge) <= CLASSIFICATION_THRESHOLD_M;
+        const isPreCharge = useTimeClassification
+          ? frameZeit < (ankunftsZeit ?? Infinity)
+          : frame.distanzM <= detour.chargeDistanzM;
+        const isPostCharge = useTimeClassification
+          ? frameZeit > (abfahrtsZeit ?? -Infinity)
+          : frame.distanzM > detour.chargeDistanzM;
+        // Schwelle für Nach-Ladehalt-Frames auf dem Rueckweg: nur Frames nah an
+        // chargeDistanzM (innerhalb von ~5 km) werden auf den Rueckweg interpoliert;
+        // weiter entfernte Frames sind Phantom-Frames und werden uebersprungen.
+        // Schwelle für Nach-Ladehalt-Frames auf dem Rueckweg: nur Frames nah an
+        // chargeDistanzM (innerhalb von ~5 km NACH dem Ladehalt) werden auf den
+        // Rueckweg interpoliert; Frames VOR chargeDistanzM mit post-charging
+        // zeitpunkt sind Phantom-Frames (Simulation lief auf Hauptroute weiter)
+        // und werden uebersprungen. Weiter entfernte Frames sind Phantom-Frames
+        // und werden uebersprungen.
+        const POST_CHARGE_THRESHOLD_M = 5000;
+        const isPostChargeNear =
+          isPostCharge &&
+          distFromCharge >= 0 &&
+          distFromCharge <= POST_CHARGE_THRESHOLD_M;
+
         if (frame.distanzM < rangeStartOriginal) {
-          emitPlainFrame(frame.distanzM, frame.socPct, frame.zeitpunkt);
-        } else if (frame.distanzM <= detour.chargeDistanzM) {
-          // Hinweg: [rangeStartOriginal, chargeDistanzM] -> [0, stationDetourDistanzM]
+          // Frame liegt vor dem Pufferbereich -> normal emittieren, aber
+          // Frames mit zeitpunkt NACH Ankunft (ankunftsZeit) sind
+          // Phantom-Frames (Simulation lief auf Hauptroute weiter, waehrend
+          // Auto schon abbiegt/laedt) und werden uebersprungen.
+          const isAfterArrival =
+            frameZeit !== null && ankunftsZeit !== null
+              ? frameZeit > ankunftsZeit
+              : false;
+          if (isPostCharge || isAfterArrival) {
+            frameIdx++;
+          } else {
+            emitPlainFrame(frame.distanzM, frame.socPct, frame.zeitpunkt);
+            frameIdx++;
+          }
+        } else if (
+          isPreCharge &&
+          !isPostCharge &&
+          frame.distanzM < detour.chargeDistanzM
+        ) {
+          // Vor-Ladehalt-Frame: auf Hinweg interpolieren
           const outboundSpan = detour.chargeDistanzM - rangeStartOriginal;
           const frac =
             outboundSpan > 0
@@ -311,8 +396,9 @@ export function buildSplicedRoute(
             socPct: frame.socPct,
             zeitpunkt: frame.zeitpunkt,
           });
-        } else {
-          // Rueckweg: [chargeDistanzM, rangeEndOriginal] -> [stationDetourDistanzM, detourLen]
+          frameIdx++;
+        } else if (isPostChargeNear) {
+          // Nach-Ladehalt-Frame nahe am Ladehalt: auf Rueckweg interpolieren
           const inboundSpan = rangeEndOriginal - detour.chargeDistanzM;
           const frac =
             inboundSpan > 0
@@ -327,10 +413,22 @@ export function buildSplicedRoute(
             socPct: frame.socPct,
             zeitpunkt: frame.zeitpunkt,
           });
+          frameIdx++;
+        } else if (isPostCharge) {
+          // Nach-Ladehalt-Frame weit hinter dem Ladehalt: Phantom-Frame auf dem
+          // ersetzten Hauptroutensegment. NICHT hier verarbeiten, sondern nach
+          // dem Detour-Block mit korrektem Offset emittieren.
+          // frameIdx NICHT inkrementieren, damit der Frame im naechsten
+          // Schleifendurchlauf (nach dem Detour) wieder gesehen wird.
+          break;
+        } else {
+          // Frame ohne eindeutige Zeit-Zuordnung (kein zeitpunkt oder genau im
+          // Ladezeitfenster) -> ueberspringen, da er keiner realen Fahrt
+          // entspricht (Phantom-Frame auf Hauptroute zwischen Abzweig und
+          // Wiedereinstieg).
+          frameIdx++;
         }
-        frameIdx++;
       }
-
       coordinates.push(toLngLat(detour.detour[0]));
       const arrivalDistanzM =
         rangeStartOriginal + offset + stationDetourDistanzM;
