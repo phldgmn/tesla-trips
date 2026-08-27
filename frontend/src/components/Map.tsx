@@ -910,8 +910,8 @@ export function MapVisualization({
     const correctedSamples = splicedRoute.samples.map((sample) => {
       let correctedSocPct = sample.socPct;
       for (const stop of simulationResult.waypoint_stops) {
-        if (sample.distanzM > stop.distanz_m) {
-          // Frame nach dem waypoint_stop: use ziel_soc_pct
+        // Use >= with small tolerance to catch frames that are exactly at the stop distance
+        if (sample.distanzM >= stop.distanz_m - 0.01) {
           correctedSocPct = stop.ziel_soc_pct;
         }
       }
