@@ -412,12 +412,24 @@ export function buildSplicedRoute(
           });
           frameIdx++;
         } else if (isPostCharge) {
-          // Nach-Ladehalt-Frame weit hinter dem Ladehalt: Phantom-Frame auf dem
-          // ersetzten Hauptroutensegment. NICHT hier verarbeiten, sondern nach
-          // dem Detour-Block mit korrektem Offset emittieren.
-          // frameIdx NICHT inkrementieren, damit der Frame im naechsten
-          // Schleifendurchlauf (nach dem Detour) wieder gesehen wird.
-          break;
+          // Post-Stop-Frame: entweder auf Rueckweg (echter Lade-Detour) oder direkt
+          // emittieren (Stopover ohne echten Detour). Unterscheidung: Wenn der
+          // Rueckweg sehr kurz ist (detourLen - stationDetourDistanzM < 100 m),
+          // ist es kein echter Lade-Detour, sondern ein Stopover, und Frames
+          // sollen direkt emittiert werden (siehe Issue mit 100% SoC nach Stop).
+          const returnLegLen = detourLen - stationDetourDistanzM;
+          if (returnLegLen < 100) {
+            // Stopover ohne echten Rueckweg: Frame direkt emittieren
+            emitPlainFrame(frame.distanzM, frame.socPct, frame.zeitpunkt);
+            frameIdx++;
+          } else {
+            // echter Lade-Detour mit Rueckweg
+            // Phantom-Frame auf dem ersetzten Hauptroutensegment. NICHT hier verarbeiten, sondern nach
+            // dem Detour-Block mit korrektem Offset emittieren.
+            // frameIdx NICHT inkrementieren, damit der Frame im naechsten
+            // Schleifendurchlauf (nach dem Detour) wieder gesehen wird.
+            break;
+          }
         } else {
           // Frame ohne eindeutige Zeit-Zuordnung (kein zeitpunkt oder genau im
           // Ladezeitfenster) -> ueberspringen, da er keiner realen Fahrt
