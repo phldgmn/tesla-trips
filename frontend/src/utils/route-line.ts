@@ -358,10 +358,9 @@ export function buildSplicedRoute(
         // zeitpunkt sind Phantom-Frames (Simulation lief auf Hauptroute weiter)
         // und werden uebersprungen. Weiter entfernte Frames sind Phantom-Frames
         // und werden uebersprungen.
-        const POST_CHARGE_THRESHOLD_M = 5000;
         const isPostChargeNear =
           isPostCharge &&
-          distFromCharge >= 0 &&
+          distFromCharge > 0 && // exclude exact chargeDistanzM to avoid duplicate arrival sample
           distFromCharge <= POST_CHARGE_THRESHOLD_M;
 
         if (frame.distanzM < rangeStartOriginal) {
