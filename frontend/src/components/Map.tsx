@@ -910,13 +910,19 @@ export function MapVisualization({
     // auf waypoint.ziel_soc_pct setzen, damit der Gradient sofort den
     // korrekten Wert zeigt.
     // Pre-compute the spliced cumulative distance for each waypoint stop
+    // Use the DEPARTURE sample (arrival + 0.5) for comparison, as that's
+    // where the high SoC actually starts after the stop.
     const waypointStopDistances: Record<string, number> = {};
     for (const stop of simulationResult.waypoint_stops) {
+      const departureDist = stop.distanz_m + 0.5;
       const matchingSample = splicedRoute.samples.find(
-        (s) => Math.abs(s.distanzM - (stop.distanz_m + 0)) < 10,
+        (s) => Math.abs(s.distanzM - departureDist) < 1,
       );
       if (matchingSample) {
         waypointStopDistances[stop.id ?? ""] = matchingSample.distanzM;
+      } else {
+        // Fallback: use the original departure distance
+        waypointStopDistances[stop.id ?? ""] = departureDist;
       }
     }
     const correctedSamples = splicedRoute.samples.map((sample) => {
