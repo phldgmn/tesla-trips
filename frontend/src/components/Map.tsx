@@ -941,25 +941,6 @@ export function MapVisualization({
       }
       return { ...sample, socPct: correctedSocPct, critical: true };
     });
-    // DEBUG: log waypoint stop data
-    console.log("WAYPOINT DEBUG:", {
-      stops: simulationResult.waypoint_stops.map((s) => ({
-        id: s.id,
-        distanz_m: s.distanz_m,
-        ziel_soc_pct: s.ziel_soc_pct,
-      })),
-      waypointStopDistances,
-    });
-    // DEBUG: log first 5 samples around the first stop
-    const firstStop = simulationResult.waypoint_stops[0];
-    if (firstStop) {
-      const samplesAroundStop = correctedSamples.filter(
-        (s) =>
-          s.distanzM >= firstStop.distanz_m - 10 &&
-          s.distanzM <= firstStop.distanz_m + 10,
-      );
-      console.log("SAMPLES AROUND FIRST STOP:", samplesAroundStop);
-    }
     const splicedRouteWithCorrectedSamples = {
       ...splicedRoute,
       samples: correctedSamples,
