@@ -92,12 +92,11 @@ def _find_situation_records(root: ET.Element) -> list[ET.Element]:
     if records:
         return records
 
-    for elem in root.iter():
-        tag = elem.tag
-        if "SituationRecord" in tag or "situationRecord" in tag:
-            return [elem]
-
-    return []
+    return [
+        elem
+        for elem in root.iter()
+        if elem.tag.rsplit("}", 1)[-1] in ("SituationRecord", "situationRecord")
+    ]
 
 
 def _find_element(parent: ET.Element, tag: str) -> ET.Element | None:
