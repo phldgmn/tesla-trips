@@ -862,52 +862,57 @@ export function MapVisualization({
     // - sonst wuerde die Route nie die Ladestation verlassen (siehe
     // `buildSplicedRoute`). Liefert passend dazu SoC-Stuetzpunkte fuer
     // `buildSocGradientExpression`.
+    //
+    // Zwischenstopps (`waypoint_stops`) werden HIER als Detours OHNE eigene
+    // Geometrie (leere `detourGeometrie`) eingespeist statt als reine
+    // SoC-Stuetzpunkte in den Fahr-Frames: Ladehalte bekommen dadurch schon
+    // eine eigene, kurze Gradient-Leg (siehe `splitRouteIntoLegs`) mit exaktem
+    // Ankunfts-/Abfahrts-Sprung (`emitChargeJump` in `buildSplicedRoute`) -
+    // Zwischenstopps OHNE dieses Splitting blieben Teil einer einzigen,
+    // tausende km langen Leg. MapLibres `line-gradient` backt aber pro Leg
+    // eine FESTE 256-Textur-Aufloesung ueber deren GESAMTE Laenge; bei einer
+    // 1500 km langen Leg verschmiert das jeden noch so exakten SoC-Sprung
+    // ueber mehrere km (sichtbar als falsche Farbe rund um den Zwischenstopp
+    // auf der Karte, unabhaengig davon, wie exakt die zugrundeliegenden
+    // SoC-Werte sind). Das Splitting behebt das exakt wie bei Ladehalten.
     const splicedRoute = buildSplicedRoute(
       simulationResult.route_geometrie,
-      simulationResult.charging_stops.map((stop) => ({
-        position: stop.position,
-        distanzM: stop.distanz_m,
-        detourGeometrie: stop.detour_geometrie,
-        stationIndex: stop.detour_station_index,
-        routeIndexVor: stop.route_index_vor,
-        routeIndexNach: stop.route_index_nach,
-        ankunftsSocPct: stop.ankunfts_soc_pct,
-        zielSocPct: stop.ziel_soc_pct,
-        ankunftszeit: stop.ankunftszeit,
-        abfahrtszeit: stop.abfahrtszeit,
-      })),
-      // Frames + waypoint SoC-Spruenge fuer Gradient.
-      // WICHTIG: LADEN/PAUSE-Frames durch SoC-Sprung ersetzen - der Gradient
-      // soll den Sprung von Ankunfts- zu Ziel-SoC zeigen, nicht die Ladedauer.
       [
-        ...simulationResult.frames
-          .filter((f) => f.zustand === "FAHREN")
-          .map((f) => ({
-            distanzM: f.distanz_m,
-            socPct: f.soc_pct,
-            zeitpunkt: f.zeitpunkt,
-          })),
-        ...simulationResult.waypoint_stops.flatMap((stop) => [
-          {
-            distanzM: stop.distanz_m - 0.01,
-            socPct: stop.ankunfts_soc_pct,
-            zeitpunkt: stop.ankunftszeit,
-            critical: true,
-          },
-          {
-            distanzM: stop.distanz_m,
-            socPct: stop.ziel_soc_pct,
-            zeitpunkt: stop.ankunftszeit,
-            critical: true,
-          },
-          {
-            distanzM: stop.distanz_m + 0.5,
-            socPct: stop.ziel_soc_pct,
-            zeitpunkt: stop.abfahrtszeit,
-            critical: true,
-          },
-        ]),
-      ].sort((a, b) => a.distanzM - b.distanzM),
+        ...simulationResult.charging_stops.map((stop) => ({
+          position: stop.position,
+          distanzM: stop.distanz_m,
+          detourGeometrie: stop.detour_geometrie,
+          stationIndex: stop.detour_station_index,
+          routeIndexVor: stop.route_index_vor,
+          routeIndexNach: stop.route_index_nach,
+          ankunftsSocPct: stop.ankunfts_soc_pct,
+          zielSocPct: stop.ziel_soc_pct,
+          ankunftszeit: stop.ankunftszeit,
+          abfahrtszeit: stop.abfahrtszeit,
+        })),
+        ...simulationResult.waypoint_stops.map((stop) => ({
+          position: stop.position,
+          distanzM: stop.distanz_m,
+          detourGeometrie: [],
+          stationIndex: null,
+          routeIndexVor: null,
+          routeIndexNach: null,
+          ankunftsSocPct: stop.ankunfts_soc_pct,
+          zielSocPct: stop.ziel_soc_pct,
+          ankunftszeit: stop.ankunftszeit,
+          abfahrtszeit: stop.abfahrtszeit,
+        })),
+      ],
+      // Reine Fahr-Frames fuer den Gradienten innerhalb jeder Leg - die
+      // Ankunfts-/Abfahrts-Spruenge selbst kommen jetzt ausschliesslich aus
+      // den oben uebergebenen Detours (Ladehalte UND Zwischenstopps).
+      simulationResult.frames
+        .filter((f) => f.zustand === "FAHREN")
+        .map((f) => ({
+          distanzM: f.distanz_m,
+          socPct: f.soc_pct,
+          zeitpunkt: f.zeitpunkt,
+        })),
     );
     const routeCoordinates = splicedRoute.coordinates;
 

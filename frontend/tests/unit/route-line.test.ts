@@ -475,6 +475,57 @@ describe("splitRouteIntoLegs", () => {
     expect(leg3Critical.map((s) => s.socPct)).toEqual([80]);
     expect(leg3Critical[0].distanzM).toBeLessThan(1);
   });
+
+  it("splits a waypoint stop (no detour geometry, on-route position) into its own leg too", () => {
+    // Regressionstest: `Map.tsx` speist Zwischenstopps (waypoint_stops, KEIN
+    // echter Ladehalt-Abstecher) als Detour OHNE eigene Geometrie
+    // (`detourGeometrie: []`, `routeIndexVor/Nach: null`) ein, statt sie nur
+    // als SoC-Stuetzpunkt in den Fahr-Frames zu kodieren - sonst bliebe der
+    // Zwischenstopp Teil EINER gemeinsamen, ueber hunderte km reichenden
+    // Leg, deren feste 256-Texel `line-gradient`-Textur den SoC-Sprung an
+    // der Stopp-Position verschmiert (unabhaengig davon, wie exakt die
+    // zugrundeliegenden SoC-Werte sind - sichtbar als falsche Kartenfarbe
+    // rund um den Zwischenstopp trotz korrekter Backend-Daten).
+    const route: [number, number][] = [
+      [50.0, 8.0],
+      [50.5, 8.0],
+      [51.0, 8.0],
+      [51.5, 8.0],
+      [52.0, 8.0],
+    ];
+    const waypointPosition: [number, number] = [51.0, 8.0];
+    const distanzM =
+      haversineDistanceM(route[0], route[1]) +
+      haversineDistanceM(route[1], route[2]);
+
+    const spliced = buildSplicedRoute(
+      route,
+      [
+        {
+          position: waypointPosition,
+          distanzM,
+          detourGeometrie: [],
+          stationIndex: null,
+          routeIndexVor: null,
+          routeIndexNach: null,
+          ankunftsSocPct: 25,
+          zielSocPct: 100,
+        },
+      ],
+      [],
+    );
+
+    const legs = splitRouteIntoLegs(spliced);
+
+    expect(legs).toHaveLength(2);
+    for (const leg of legs) {
+      expect(leg.totalDistanceM).toBeLessThan(spliced.totalDistanceM * 0.6);
+    }
+    const leg1Critical = legs[0].samples.filter((s) => s.critical);
+    const leg2Critical = legs[1].samples.filter((s) => s.critical);
+    expect(leg1Critical.map((s) => s.socPct)).toEqual([25]);
+    expect(leg2Critical.map((s) => s.socPct)).toEqual([100]);
+  });
 });
 
 describe("projectDistanceAlongLineM", () => {
