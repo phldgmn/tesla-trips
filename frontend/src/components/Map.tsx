@@ -933,7 +933,7 @@ export function MapVisualization({
           correctedSocPct = stop.ziel_soc_pct;
         }
       }
-      return { ...sample, socPct: correctedSocPct };
+      return { ...sample, socPct: correctedSocPct, critical: true };
     });
     // DEBUG: log waypoint stop data
     console.log("WAYPOINT DEBUG:", {
