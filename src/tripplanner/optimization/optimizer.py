@@ -157,15 +157,12 @@ class NetworkXOptimizer(OptimizerInterface):
             segment_index=0,
         )
 
-        # Mappe Zwischenstopps auf Segmente (Segment-Index → Waypoint). Der
-        # Suchstart wird pro Waypoint monoton fortgeschrieben (siehe
-        # `_waypoint_to_segment`-Docstring) - Zwischenstopps treten in der
-        # Reihenfolge von `waypoints` entlang der Route auf.
+        # Mappe Zwischenstopps auf Segmente (Segment-Index → Waypoint).
+        waypoint_segment_indices = self._map_waypoints_to_segments(
+            waypoints=waypoints, segments=segments, route=route
+        )
         waypoint_map: dict[int, list[Waypoint]] = {}
-        next_search_start_idx = 0
-        for wp in waypoints:
-            seg_idx = self._waypoint_to_segment(wp, segments, next_search_start_idx)
-            next_search_start_idx = seg_idx
+        for wp, seg_idx in zip(waypoints, waypoint_segment_indices, strict=True):
             if seg_idx not in waypoint_map:
                 waypoint_map[seg_idx] = []
             waypoint_map[seg_idx].append(wp)
@@ -303,7 +300,7 @@ class NetworkXOptimizer(OptimizerInterface):
         min_zwischenstopp_ankunftszeit = self._compute_waypoint_times(
             path=path,
             waypoints=waypoints,
-            segments=segments,
+            waypoint_segment_indices=waypoint_segment_indices,
             abfahrtszeit=abfahrtszeit,
         )
 
@@ -313,6 +310,36 @@ class NetworkXOptimizer(OptimizerInterface):
             min_zwischenstopp_ankunftszeit=min_zwischenstopp_ankunftszeit,
             zwischenstopp_aufenthalte=zwischenstopp_aufenthalte,
         )
+
+    def _map_waypoints_to_segments(
+        self,
+        waypoints: list[Waypoint],
+        segments: list[RouteSegment],
+        route: Route,
+    ) -> list[int]:
+        """Ermittelt fuer jeden Waypoint den Segment-Index, an dem er liegt.
+
+        Bevorzugt `route.via_point_indices` - vom Routing-Provider EXAKT
+        gelieferte Segment-Indizes (bei GraphHopper aus der "reached via
+        point"-Instruktion, sign=5; siehe `GraphHopperRoutingProvider.
+        _map_path_to_route`) statt einer reinen Naechster-Punkt-Suche, die
+        auf sich selbst kreuzenden/schleifenden Routen mehrdeutig waere
+        (siehe `_waypoint_to_segment`-Docstring). Faellt auf die monoton
+        fortschreitende Naechster-Punkt-Suche zurueck, falls ein Provider
+        keine (oder eine unpassende Anzahl) `via_point_indices` liefert
+        (z. B. ein zukuenftiger/alternativer Provider ohne diese Information).
+        """
+        if len(route.via_point_indices) == len(waypoints):
+            max_idx = len(segments) - 1
+            return [min(idx, max_idx) for idx in route.via_point_indices]
+
+        indices: list[int] = []
+        next_search_start_idx = 0
+        for wp in waypoints:
+            seg_idx = self._waypoint_to_segment(wp, segments, next_search_start_idx)
+            next_search_start_idx = seg_idx
+            indices.append(seg_idx)
+        return indices
 
     def _waypoint_to_segment(
         self,
@@ -1704,16 +1731,13 @@ class NetworkXOptimizer(OptimizerInterface):
         self,
         path: list[tuple[int, int, int]],
         waypoints: list[Waypoint],
-        segments: list[RouteSegment],
+        waypoint_segment_indices: list[int],
         abfahrtszeit: datetime,
     ) -> dict[int, datetime]:
         """Berechne Mindestankunftszeit für Zwischenstopps."""
         min_ankunftszeit: dict[int, datetime] = {}
 
-        next_search_start_idx = 0
-        for wp in waypoints:
-            seg_idx = self._waypoint_to_segment(wp, segments, next_search_start_idx)
-            next_search_start_idx = seg_idx
+        for wp, seg_idx in zip(waypoints, waypoint_segment_indices, strict=True):
             if seg_idx not in min_ankunftszeit:
                 min_ankunftszeit[seg_idx] = abfahrtszeit
 

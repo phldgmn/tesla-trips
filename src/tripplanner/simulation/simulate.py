@@ -195,13 +195,20 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
 
     current_soc_pct = start_soc_pct
     frames: list[SimulationFrame] = []
-    # Kumulierte Routendistanz, an der jeder Ladehalt/Zwischenstopp-Aufenthalt
-    # beginnt (Schluessel: `id()` des jeweiligen Objekts) - erfasst beim
-    # ersten LADEN/PAUSE-Frame, siehe unten. Fuer `*Summary.distanz_m` und um
-    # `ladehalt_detour_geometrie` an der richtigen Stelle in die Karten-
-    # Geometrie einzufuegen (siehe `route-line.ts` im Frontend).
+    # Kumulierte Routendistanz, an der jeder Ladehalt beginnt (Schluessel:
+    # `id()` des Ladehalts) - erfasst beim ersten LADEN-Frame, siehe unten.
+    # Fuer `ChargingStopSummary.distanz_m` und um `ladehalt_detour_geometrie`
+    # an der richtigen Stelle in die Karten-Geometrie einzufuegen (siehe
+    # `route-line.ts` im Frontend). Zwischenstopp-Aufenthalte brauchen dieses
+    # zeitbasierte Tracking NICHT: ihr `segment_index` (siehe
+    # `NetworkXOptimizer._map_waypoints_to_segments`) zeigt bereits exakt auf
+    # den per GraphHopper-Via-Punkt aufgeloesten Geometrie-Punkt, sodass
+    # `WaypointStopSummary.distanz_m` direkt aus `cumulative_distances`
+    # abgeleitet wird (siehe unten) - rein geometrisch, unabhaengig von der
+    # zeitbasierten Positionsrekonstruktion (die bei Routen mit Faehren vor
+    # dem Zwischenstopp durch GraphHoppers unrealistische Faehr-Segmentzeiten
+    # um mehrere Kilometer abweichen kann, siehe Regressionstest).
     distanz_bei_ladehalt: dict[int, float] = {}
-    distanz_bei_aufenthalt: dict[int, float] = {}
 
     end_time_s = charging_plan.gesamtreisezeit_s if charging_plan.gesamtreisezeit_s > 0 else 1
 
@@ -329,7 +336,6 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
                 else TripState.PAUSE
             )
             geschwindigkeit_kmh = 0.0
-            distanz_bei_aufenthalt.setdefault(id(aktueller_aufenthalt), current_distance_m)
 
             total_wait_time_s = (
                 aktueller_aufenthalt.abfahrtszeit - aktueller_aufenthalt.ankunftszeit
@@ -449,16 +455,14 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         waypoint_stops.append(
             WaypointStopSummary(
                 position=aufenthalt.koordinate,
-                # Fallback (kein LADEN/PAUSE-Frame erfasst, z. B. sehr kurze
-                # Wartezeit unterhalb der Frame-Aufloesung
-                # `output_resolution_seconds`): Distanz am Beginn des
-                # Zwischenstopp-Segments.
-                distanz_m=distanz_bei_aufenthalt.get(
-                    id(aufenthalt),
-                    cumulative_distances[aufenthalt.segment_index - 1]
-                    if aufenthalt.segment_index > 0
-                    else 0.0,
-                ),
+                # Rein geometrisch aus dem (per GraphHopper-Via-Punkt exakt
+                # aufgeloesten, siehe `NetworkXOptimizer.
+                # _map_waypoints_to_segments`) `segment_index` abgeleitet -
+                # NICHT aus der zeitbasierten Positionsrekonstruktion (siehe
+                # Kommentar bei `distanz_bei_ladehalt` oben).
+                distanz_m=cumulative_distances[aufenthalt.segment_index - 1]
+                if aufenthalt.segment_index > 0
+                else 0.0,
                 ankunftszeit=aufenthalt.ankunftszeit,
                 abfahrtszeit=aufenthalt.abfahrtszeit,
                 ladeleistung_kw=aufenthalt.ladeleistung_kw,

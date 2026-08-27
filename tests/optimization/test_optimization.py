@@ -988,6 +988,46 @@ class TestWaypointSegmentMatchingIgnoriertFrueheKreuzungen:
 
         assert optimizer._waypoint_to_segment(wp, segmente, 5) == 7
 
+    def test_map_waypoints_to_segments_prefers_exact_route_via_point_indices(
+        self,
+    ) -> None:
+        """Liefert `route.via_point_indices` einen exakten Segment-Index (von
+        `GraphHopperRoutingProvider`/`FakeRoutingProvider`), wird dieser statt
+        der mehrdeutigen Naechster-Punkt-Suche verwendet - selbst wenn diese
+        (wie in `test_unbeschraenkte_suche_findet_die_falsche_fruehe_kreuzung`)
+        eine falsche, geometrisch naehere fruehe Kreuzung faende."""
+        optimizer = create_networkx_optimizer()
+        segmente = self._kreuzende_segmente()
+        wp = Waypoint(koordinate=(60.0, 14.0))
+        route = Route(
+            segments=segmente,
+            gesamtlaenge_m=sum(s.laenge_m for s in segmente),
+            geometrie=[s.geometrie[0] for s in segmente] + [segmente[-1].geometrie[1]],
+            via_point_indices=[7],
+        )
+
+        assert optimizer._map_waypoints_to_segments(
+            waypoints=[wp], segments=segmente, route=route
+        ) == [7]
+
+    def test_map_waypoints_to_segments_falls_back_without_via_point_indices(
+        self,
+    ) -> None:
+        """Ohne (oder mit einer laengenunpassenden) `route.via_point_indices`
+        faellt die Zuordnung auf die monotone Naechster-Punkt-Suche zurueck."""
+        optimizer = create_networkx_optimizer()
+        segmente = self._kreuzende_segmente()
+        wp = Waypoint(koordinate=(60.0, 14.0))
+        route = Route(
+            segments=segmente,
+            gesamtlaenge_m=sum(s.laenge_m for s in segmente),
+            geometrie=[s.geometrie[0] for s in segmente] + [segmente[-1].geometrie[1]],
+        )
+
+        assert optimizer._map_waypoints_to_segments(
+            waypoints=[wp], segments=segmente, route=route
+        ) == [2]
+
 
 class TestZwischenstoppErzwingtWartezeit:
     """Regressionstest: Bug - eine an einem Zwischenstopp gesetzte

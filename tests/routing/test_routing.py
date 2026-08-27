@@ -154,6 +154,31 @@ class TestFakeRoutingProvider:
 
         assert len(route.segments) >= len(zwischenstopps) + 1
 
+    async def test_berechne_route_mit_waypoints_reports_exact_via_point_segment_index(
+        self, provider: FakeRoutingProvider
+    ) -> None:
+        """`via_point_indices` zeigt exakt auf den Segment-Index, an dem jeder
+        Zwischenstopp beginnt - Grundlage für `NetworkXOptimizer.
+        _map_waypoints_to_segments`, das damit die Mehrdeutigkeit einer reinen
+        Naechster-Punkt-Suche auf sich kreuzenden Routen vermeidet."""
+        start = (52.5200, 13.4050)
+        ziel = (53.5511, 9.9937)
+        zwischenstopps: list[tuple[tuple[float, float], timedelta | None]] = [
+            ((52.3759, 9.7320), None),
+            ((53.0, 10.0), None),
+        ]
+
+        route = await provider.berechne_route_mit_waypoints(start, ziel, zwischenstopps)
+
+        assert len(route.via_point_indices) == len(zwischenstopps)
+        for idx in route.via_point_indices:
+            assert route.segments[idx].geometrie[0] in (
+                zwischenstopps[0][0],
+                zwischenstopps[1][0],
+            )
+        # Indizes sind streng monoton steigend (Zwischenstopps in Fahrtreihenfolge).
+        assert route.via_point_indices[0] < route.via_point_indices[1]
+
     async def test_berechne_route_with_waypoints_request_produces_more_segments(
         self,
         provider: FakeRoutingProvider,

@@ -783,3 +783,52 @@ class TestZwischenstoppAufenthalt:
         # Erster FAHREN-Frame nach der Ladung darf nicht weit unter 70% liegen
         # (waere er von 80% Start-SoC ausgegangen, laege er deutlich tiefer).
         assert fahren_frames_nach_aufenthalt[0].soc_pct > 60.0
+
+    def test_distanz_m_ist_geometrisch_exakt_trotz_zeitskalen_drift(
+        self,
+        route_3_segments: Route,
+        energy_results_3_segments: list[SegmentEnergyResult],
+    ) -> None:
+        """`WaypointStopSummary.distanz_m` MUSS exakt der kumulierten Distanz
+        am `segment_index` des Zwischenstopps entsprechen - unabhaengig von
+        der zeitbasierten Positionsrekonstruktion (`_find_segment_for_time`),
+        die bei einer globalen `time_scale != 1` (z. B. wenn `gesamtreisezeit_s`
+        stark von der Summe der rohen Segment-Fahrzeiten abweicht, wie es bei
+        GraphHopper-Faehrsegmenten mit unrealistisch kurzer Roh-Fahrzeit, aber
+        langer echter Ueberfahrtsdauer vorkommt) systematisch danebenliegt.
+
+        `segment_index=2` liegt bei exakt 110.000 m (50.000 + 60.000 m, Ende
+        von Segment 1 = Beginn von Segment 2). Die rohen Segment-Fahrzeiten
+        summieren sich auf 4500s; `gesamtreisezeit_s` wird hier bewusst auf
+        das Doppelte der reinen Fahrzeit gesetzt (`time_scale = 2.0`) - die
+        zeitbasierte Rekonstruktion wuerde den Zwischenstopp dann faelschlich
+        bei 55.000 m verorten (Segment 1 statt Segment 2, siehe Testkommentare
+        unten), 55 km vom tatsaechlichen Zwischenstopp entfernt."""
+        base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
+        aufenthalt = ZwischenstoppAufenthalt(
+            koordinate=(50.5, 9.0),
+            segment_index=2,
+            ankunftszeit=base_time + timedelta(seconds=3300),
+            abfahrtszeit=base_time + timedelta(seconds=3900),
+            ladeleistung_kw=11.0,
+            ankunfts_soc_pct=30.0,
+            ziel_soc_pct=70.0,
+        )
+        plan = ChargingPlan(
+            ladehalte=[],
+            # total_driving_time_s = 9600 - 600 = 9000s = 2x der rohen
+            # Segment-Fahrzeitsumme (4500s) -> time_scale = 2.0.
+            gesamtreisezeit_s=9600,
+            zwischenstopp_aufenthalte=[aufenthalt],
+        )
+
+        result = simulate_trip(
+            route=route_3_segments,
+            charging_plan=plan,
+            segment_energy=energy_results_3_segments,
+            start_soc_pct=80.0,
+            output_resolution_seconds=60,
+            abfahrtszeit=base_time,
+        )
+
+        assert result.waypoint_stops[0].distanz_m == pytest.approx(110_000.0)

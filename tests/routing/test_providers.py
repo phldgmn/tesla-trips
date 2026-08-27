@@ -5,9 +5,10 @@ Nutzt aufgezeichnete Fixture-Antworten statt Live-HTTP-Calls gegen GraphHopper.
 
 from __future__ import annotations
 
+import polyline
 import pytest
 
-from tripplanner.routing.models import GraphHopperResponse
+from tripplanner.routing.models import GraphHopperPath, GraphHopperResponse
 from tripplanner.routing.providers import GraphHopperRoutingProvider
 from tripplanner.trip_input.models import FerryExclusion, TripRequest
 
@@ -137,6 +138,50 @@ class TestMapPathToRouteFerryDetails:
 
         assert route.segments[0].strassenname is None
         assert route.segments[0].road_environment == "ROAD"
+
+
+class TestMapPathToRouteViaPointIndices:
+    """Tests für die Extraktion von `Route.via_point_indices` aus GraphHoppers
+    'reached via point'-Instruktionen (sign=5) - siehe Docstring dort."""
+
+    def test_extracts_via_point_index_from_reached_via_instruction(
+        self, gh_provider: GraphHopperRoutingProvider
+    ) -> None:
+        """Eine sign=5-Instruktion liefert den exakten Koordinaten-Index als
+        Segment-Index, unabhängig von geometrischer Nähe anderer Punkte."""
+        coords = [(52.0 + i * 0.01, 13.0) for i in range(10)]
+        path = GraphHopperPath(
+            distance=1000.0,
+            time=60_000,
+            points=polyline.encode(coords),
+            points_encoded=True,
+            instructions=[
+                {"sign": 0, "interval": [0, 4], "text": "start", "distance": 400, "time": 20000},
+                {
+                    "sign": 5,
+                    "interval": [4, 4],
+                    "text": "Waypoint 1",
+                    "distance": 0,
+                    "time": 0,
+                },
+                {"sign": 4, "interval": [4, 9], "text": "arrive", "distance": 500, "time": 30000},
+            ],
+        )
+
+        route = gh_provider._map_path_to_route(path)
+
+        assert route.via_point_indices == [4]
+
+    def test_no_via_point_instructions_yields_empty_list(
+        self,
+        gh_provider: GraphHopperRoutingProvider,
+        graphhopper_response_basic: GraphHopperResponse,
+    ) -> None:
+        """Eine Antwort ohne Zwischenstopps (keine sign=5-Instruktion) liefert
+        eine leere `via_point_indices`-Liste statt eines Fehlers."""
+        route = gh_provider._map_path_to_route(graphhopper_response_basic.paths[0])
+
+        assert route.via_point_indices == []
 
 
 class TestNormalizeMaxSpeed:

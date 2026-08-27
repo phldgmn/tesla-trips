@@ -90,6 +90,21 @@ class Route(BaseModel):
     bbox: tuple[float, float, float, float] | None = Field(
         default=None, description="Bounding box [min_lat, min_lon, max_lat, max_lon] (optional)"
     )
+    via_point_indices: list[int] = Field(
+        default_factory=list,
+        description=(
+            "Segment-Index jedes Zwischenstopps in Anfragereihenfolge (Index in "
+            "`segments`, dessen Geometrie-Startpunkt exakt dem Zwischenstopp "
+            "entspricht). Von den Routing-Providern EXAKT geliefert (bei "
+            "GraphHopper aus der 'reached via point'-Instruktion, sign=5, bei "
+            "`FakeRoutingProvider` aus den Teilstrecken-Grenzen) - vermeidet die "
+            "Mehrdeutigkeit einer reinen Naechster-Punkt-Suche auf Routen, die "
+            "sich selbst kreuzen oder in der Naehe eines fruehen Streckenab-"
+            "schnitts eine Schleife drehen (siehe "
+            "`NetworkXOptimizer._map_waypoints_to_segments`). Leer, wenn keine "
+            "Zwischenstopps angefragt wurden."
+        ),
+    )
 
 
 class GraphHopperResponse(BaseModel):

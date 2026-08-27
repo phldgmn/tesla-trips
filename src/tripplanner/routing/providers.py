@@ -21,6 +21,10 @@ from tripplanner.routing.models import (
 )
 from tripplanner.trip_input.models import FerryExclusion, TripRequest
 
+# GraphHopper-Instruktions-`sign`-Wert fuer "reached via point" - siehe
+# `GraphHopperRoutingProvider._map_path_to_route`.
+VIA_POINT_REACHED_SIGN = 5
+
 
 class RoutingProvider(Protocol):
     """Interface für Routing-Anbieter. Ermöglicht Fake-Implementierungen für Tests."""
@@ -63,6 +67,12 @@ class FakeRoutingProvider:
         segments: list[RouteSegment] = []
         total_distance = 0.0
         full_geometrie = [start]
+        # Exakter Segment-Index jedes Zwischenstopps (siehe
+        # `Route.via_point_indices`-Docstring): hier trivial verfuegbar, da
+        # jede Teilstrecke separat konkateniert wird - der Zwischenstopp
+        # `waypoints[i]` liegt exakt an der Segment-Anzahl nach Abschluss der
+        # vorherigen Teilstrecke.
+        via_point_indices: list[int] = []
 
         for i in range(len(waypoints) - 1):
             for seg_start, seg_ende, laenge_m in self._diskretisiere_teilstrecke(
@@ -82,6 +92,10 @@ class FakeRoutingProvider:
                 )
                 total_distance += laenge_m
                 full_geometrie.append(seg_ende)
+            # waypoints[i + 1] ist ein Zwischenstopp, falls es nicht das Ziel
+            # (letztes Element) ist.
+            if i + 1 < len(waypoints) - 1:
+                via_point_indices.append(len(segments))
         if not segments:
             # Start und Ziel identisch: liefere minimale Route mit einem Segment
             segments.append(
@@ -108,6 +122,7 @@ class FakeRoutingProvider:
                 max(wp[0] for wp in waypoints),
                 max(wp[1] for wp in waypoints),
             ),
+            via_point_indices=via_point_indices,
         )
 
     def _diskretisiere_teilstrecke(
@@ -383,11 +398,25 @@ class GraphHopperRoutingProvider:
         else:
             bbox = None
 
+        # Exakter Segment-Index jedes Zwischenstopps: GraphHopper markiert das
+        # Erreichen eines Via-Punkts (jeder in `points` uebergebene Punkt
+        # zwischen Start und Ziel) mit einer eigenen Instruktion `sign == 5`
+        # ("reached via point"), deren `interval` exakt auf den Koordinaten-
+        # Index dieses Punkts zeigt - eine reine Naechster-Punkt-Suche waere
+        # auf sich selbst kreuzenden/schleifenden Routen mehrdeutig (siehe
+        # `Route.via_point_indices`-Docstring).
+        via_point_indices = [
+            int(instr["interval"][0])
+            for instr in path.instructions
+            if isinstance(instr, dict) and instr.get("sign") == VIA_POINT_REACHED_SIGN
+        ]
+
         return Route(
             segments=segments,
             gesamtlaenge_m=total_distance,
             geometrie=full_geometrie,
             bbox=bbox,
+            via_point_indices=via_point_indices,
         )
 
     def _normalize_max_speed(self, value: str | float | None) -> int | None:
