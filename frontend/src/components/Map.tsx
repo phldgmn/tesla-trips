@@ -921,19 +921,53 @@ export function MapVisualization({
     // Pre-compute the spliced cumulative distance for each waypoint stop
     // Use stop.distanz_m directly since that's the waypoint position, not
     // splicedRoute.samples which might not align exactly with the stop.
+    // Pre-compute the spliced cumulative distance for each waypoint stop
+    // by finding the sample at or nearest to the stop (in spliced distance).
+    const waypointStopDistances: Record<string, number> = {};
+    for (const stop of simulationResult.waypoint_stops) {
+      // Use position as the key since ID may be undefined
+      const key =
+        stop.position?.[0]?.toFixed(6) + "," + stop.position?.[1]?.toFixed(6);
+      const matchingSample = splicedRoute.samples.find(
+        (s) => Math.abs(s.distanzM - (stop.distanz_m + 0)) < 10,
+      );
+      if (matchingSample) {
+        waypointStopDistances[key] = matchingSample.distanzM;
+      } else {
+        // Fallback: use the original distance
+        waypointStopDistances[key] = stop.distanz_m + 0;
+      }
+    }
     const correctedSamples = splicedRoute.samples.map((sample) => {
       let correctedSocPct = sample.socPct;
       for (const stop of simulationResult.waypoint_stops) {
-        // Correct all samples at or after the waypoint stop's position
-        if (sample.distanzM >= stop.distanz_m) {
+        const key =
+          stop.position?.[0]?.toFixed(6) + "," + stop.position?.[1]?.toFixed(6);
+        const stopDist = waypointStopDistances[key] ?? stop.distanz_m;
+        if (stopDist !== undefined && sample.distanzM >= stopDist) {
           correctedSocPct = stop.ziel_soc_pct;
         }
       }
       return { ...sample, socPct: correctedSocPct, critical: true };
     });
+    // Add waypoint stop sample at the stop position (high SoC).
+    const waypointSamples = simulationResult.waypoint_stops.map((stop) => {
+      const key =
+        stop.position?.[0]?.toFixed(6) + "," + stop.position?.[1]?.toFixed(6);
+      const stopDist = waypointStopDistances[key] ?? stop.distanz_m;
+      return {
+        distanzM: stopDist,
+        socPct: stop.ziel_soc_pct,
+        zeitpunkt: stop.ankunftszeit,
+        critical: true,
+      };
+    });
+    // Merge and sort corrected samples with waypoint samples
     const splicedRouteWithCorrectedSamples = {
       ...splicedRoute,
-      samples: correctedSamples,
+      samples: [...correctedSamples, ...waypointSamples].sort(
+        (a, b) => a.distanzM - b.distanzM,
+      ),
     };
     const routeCoordinates = splicedRouteWithCorrectedSamples.coordinates;
 
