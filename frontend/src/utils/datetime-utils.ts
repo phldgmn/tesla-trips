@@ -38,14 +38,14 @@ export function getDefaultDepartureIso(): string {
  *  "ungültig" bei fehlendem/ungültigem Wert. Gemeinsam genutzt von
  *  `TripSummary` (Zeitplan) und `TripPlannerForm` (Route/Fähren/Ladehalte). */
 export function formatZeitpunkt(iso: string | null): string {
-  if (iso === null) return "unbekannt";
+  if (iso === null) return "–";
   try {
     return new Date(iso).toLocaleString("de-DE", {
       dateStyle: "medium",
       timeStyle: "short",
     });
   } catch {
-    return "ungültig";
+    return "–";
   }
 }
 

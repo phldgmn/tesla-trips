@@ -273,8 +273,6 @@ function TripSummary({ result, stops }: TripSummaryProps) {
         fontFamily: "system-ui, -apple-system, sans-serif",
       }}
     >
-      <h2 style={{ marginBottom: "0.75rem" }}>Reisezusammenfassung</h2>
-
       <table
         style={{
           width: "100%",
@@ -284,7 +282,7 @@ function TripSummary({ result, stops }: TripSummaryProps) {
       >
         <tbody>
           <tr>
-            <td style={labelCellStyle}>Gesamtdistanz</td>
+            <td style={labelCellStyle}>Distanz</td>
             <td style={valueCellStyle}>{formatKm(result.gesamt_distanz_km)}</td>
           </tr>
           <tr>
@@ -297,6 +295,14 @@ function TripSummary({ result, stops }: TripSummaryProps) {
             <td style={labelCellStyle}>Ladezeit</td>
             <td style={valueCellStyle}>
               {formatMinuten(result.gesamt_ladezeit_min)}
+            </td>
+          </tr>
+          <tr>
+            <td style={labelCellStyle}>Reisezeit</td>
+            <td style={valueCellStyle}>
+              {formatMinuten(
+                result.gesamt_fahrzeit_min + result.gesamt_ladezeit_min,
+              )}
             </td>
           </tr>
           {result.gesamt_wartezeit_min > 0 && (
@@ -325,7 +331,7 @@ function TripSummary({ result, stops }: TripSummaryProps) {
           )}
           {result.charging_stops.length > 0 && (
             <tr>
-              <td style={labelCellStyle}>Ladekosten (geschätzt)</td>
+              <td style={labelCellStyle}>Ladekosten</td>
               <td style={valueCellStyle}>
                 {eurTotal !== null ? (
                   <Popover
@@ -420,11 +426,11 @@ function TripSummary({ result, stops }: TripSummaryProps) {
               <th style={headerCellStyle}>Ort</th>
               <th style={headerCellStyle}>Ankunft</th>
               <th style={headerCellStyle}>Abfahrt</th>
-              <th style={headerCellStyle}>Strecke seit letztem</th>
-              <th style={headerCellStyle}>Dauer seit letztem</th>
-              <th style={headerCellStyle}>SoC bei Ankunft</th>
-              <th style={headerCellStyle}>SoC bei Abfahrt</th>
-              <th style={headerCellStyle}>Geladene Energie</th>
+              <th style={headerCellStyle}>Strecke</th>
+              <th style={headerCellStyle}>Dauer</th>
+              <th style={headerCellStyle}>SoC (An)</th>
+              <th style={headerCellStyle}>SoC (Ab)</th>
+              <th style={headerCellStyle}>Energie</th>
               <th style={headerCellStyle}>Preis</th>
             </tr>
           </thead>
@@ -432,31 +438,33 @@ function TripSummary({ result, stops }: TripSummaryProps) {
             {schedule.map((eintrag) => (
               <tr key={eintrag.key}>
                 <td style={cellStyle}>{eintrag.art}</td>
-                <td style={cellStyle}>{eintrag.label}</td>
+                <td style={cellStyle}>
+                  {eintrag.label.replace("Tesla Supercharger - ", "")}
+                </td>
                 <td style={cellStyle}>{formatZeitpunkt(eintrag.arrival)}</td>
                 <td style={cellStyle}>{formatZeitpunkt(eintrag.departure)}</td>
-                <td style={cellStyle}>
+                <td style={rightCellStyle}>
                   {formatKmOrDash(eintrag.distanceSinceLastKm)}
                 </td>
-                <td style={cellStyle}>
+                <td style={rightCellStyle}>
                   {formatMinutenOrDash(eintrag.durationSinceLastMin)}
                 </td>
-                <td style={cellStyle}>
+                <td style={rightCellStyle}>
                   {formatSocOrDash(eintrag.ankunftsSocPct)}
                 </td>
-                <td style={cellStyle}>
+                <td style={rightCellStyle}>
                   {formatSocOrDash(eintrag.abfahrtsSocPct)}
                 </td>
-                <td style={cellStyle}>
+                <td style={rightCellStyle}>
                   {formatKwhOrDash(eintrag.energieGeladenKwh)}
                 </td>
-                <td style={cellStyle}>
+                <td style={rightCellStyle}>
                   {eintrag.art === "Ladehalt"
                     ? formatCostOrDash(
                         eintrag.estimatedCost,
                         eintrag.costCurrency,
                       )
-                    : ""}
+                    : "–"}
                 </td>
               </tr>
             ))}
@@ -552,6 +560,11 @@ const headerCellStyle: React.CSSProperties = {
 const cellStyle: React.CSSProperties = {
   padding: "0.25rem 0.5rem",
   borderBottom: "1px solid #ddd",
+};
+
+const rightCellStyle: React.CSSProperties = {
+  ...cellStyle,
+  textAlign: "right",
 };
 
 export default TripSummary;
