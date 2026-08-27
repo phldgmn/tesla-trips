@@ -889,14 +889,16 @@ export function MapVisualization({
           })),
         ...simulationResult.waypoint_stops.flatMap((stop) => [
           {
-            distanzM: stop.distanz_m,
+            distanzM: stop.distanz_m - 0.01,
             socPct: stop.ankunfts_soc_pct,
             zeitpunkt: stop.ankunftszeit,
+            critical: true,
           },
           {
             distanzM: stop.distanz_m + 0.5,
             socPct: stop.ziel_soc_pct,
             zeitpunkt: stop.abfahrtszeit,
+            critical: true,
           },
         ]),
       ].sort((a, b) => a.distanzM - b.distanzM),
@@ -907,11 +909,21 @@ export function MapVisualization({
     // ersten post-stop Frames. Korrektur: Alle post-stop FAHREN-Frames
     // auf waypoint.ziel_soc_pct setzen, damit der Gradient sofort den
     // korrekten Wert zeigt.
+    // Pre-compute the spliced cumulative distance for each waypoint stop
+    const waypointStopDistances: Record<string, number> = {};
+    for (const stop of simulationResult.waypoint_stops) {
+      const matchingSample = splicedRoute.samples.find(
+        (s) => Math.abs(s.distanzM - (stop.distanz_m + 0)) < 10,
+      );
+      if (matchingSample) {
+        waypointStopDistances[stop.id ?? ""] = matchingSample.distanzM;
+      }
+    }
     const correctedSamples = splicedRoute.samples.map((sample) => {
       let correctedSocPct = sample.socPct;
       for (const stop of simulationResult.waypoint_stops) {
-        // Use >= with small tolerance to catch frames that are exactly at the stop distance
-        if (sample.distanzM >= stop.distanz_m - 0.01) {
+        const stopDist = waypointStopDistances[stop.id ?? ""];
+        if (stopDist !== undefined && sample.distanzM >= stopDist - 5) {
           correctedSocPct = stop.ziel_soc_pct;
         }
       }
