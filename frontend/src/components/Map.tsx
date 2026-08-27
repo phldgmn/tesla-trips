@@ -901,7 +901,27 @@ export function MapVisualization({
         ]),
       ].sort((a, b) => a.distanzM - b.distanzM),
     );
-    const routeCoordinates = splicedRoute.coordinates;
+    // Post-Processing fuer waypoint_stops: Korrigiere die SoC-Werte aller
+    // FAHREN-Frames nach dem Stop. Die Backend-Berechnung verwendet u.U. die
+    // falsche Baseline (Start-SoC statt waypoint.ziel_soc_pct) fuer die
+    // ersten post-stop Frames. Korrektur: Alle post-stop FAHREN-Frames
+    // auf waypoint.ziel_soc_pct setzen, damit der Gradient sofort den
+    // korrekten Wert zeigt.
+    const correctedSamples = splicedRoute.samples.map((sample) => {
+      let correctedSocPct = sample.socPct;
+      for (const stop of simulationResult.waypoint_stops) {
+        if (sample.distanzM > stop.distanz_m) {
+          // Frame nach dem waypoint_stop: use ziel_soc_pct
+          correctedSocPct = stop.ziel_soc_pct;
+        }
+      }
+      return { ...sample, socPct: correctedSocPct };
+    });
+    const splicedRouteWithCorrectedSamples = {
+      ...splicedRoute,
+      samples: correctedSamples,
+    };
+    const routeCoordinates = splicedRouteWithCorrectedSamples.coordinates;
 
     const routeGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
       type: "Feature" as const,
@@ -944,7 +964,10 @@ export function MapVisualization({
         e.lngLat.lng,
         e.lngLat.lat,
       ]);
-      const sample = findNearestRouteSample(splicedRoute.samples, distAlongM);
+      const sample = findNearestRouteSample(
+        splicedRouteWithCorrectedSamples.samples,
+        distAlongM,
+      );
       if (!sample) return;
       setRouteHoverInfo({ x: e.point.x, y: e.point.y, sample });
     };
@@ -964,10 +987,9 @@ export function MapVisualization({
     // kollabierter SoC-Sprung (siehe `CHARGE_JUMP_EPSILON_M`) weit unter der
     // Texture-Aufloesung und wuerde schlicht nicht dargestellt (dokumentiertes
     // MapLibre/Mapbox-Verhalten). Jeder Leg bekommt so seine eigene, viel
-    // kuerzere Texture-Basislaenge - der SoC-Sprung liegt dann exakt an der
-    // Grenze zwischen zwei Layern statt in einer gemeinsamen Texture verloren
-    // zu gehen.
-    for (const [legIndex, leg] of splitRouteIntoLegs(splicedRoute).entries()) {
+    for (const [legIndex, leg] of splitRouteIntoLegs(
+      splicedRouteWithCorrectedSamples,
+    ).entries()) {
       const sourceId = `route-leg-${legIndex}`;
       const legGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
         type: "Feature" as const,
