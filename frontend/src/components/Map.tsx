@@ -895,6 +895,12 @@ export function MapVisualization({
             critical: true,
           },
           {
+            distanzM: stop.distanz_m,
+            socPct: stop.ziel_soc_pct,
+            zeitpunkt: stop.ankunftszeit,
+            critical: true,
+          },
+          {
             distanzM: stop.distanz_m + 0.5,
             socPct: stop.ziel_soc_pct,
             zeitpunkt: stop.abfahrtszeit,
