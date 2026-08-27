@@ -876,13 +876,30 @@ export function MapVisualization({
         ankunftszeit: stop.ankunftszeit,
         abfahrtszeit: stop.abfahrtszeit,
       })),
-      simulationResult.frames
-        .filter((f) => f.zustand === "FAHREN")
-        .map((f) => ({
-          distanzM: f.distanz_m,
-          socPct: f.soc_pct,
-          zeitpunkt: f.zeitpunkt,
-        })),
+      // Frames + waypoint SoC-Spruenge fuer Gradient.
+      // WICHTIG: LADEN/PAUSE-Frames durch SoC-Sprung ersetzen - der Gradient
+      // soll den Sprung von Ankunfts- zu Ziel-SoC zeigen, nicht die Ladedauer.
+      [
+        ...simulationResult.frames
+          .filter((f) => f.zustand === "FAHREN")
+          .map((f) => ({
+            distanzM: f.distanz_m,
+            socPct: f.soc_pct,
+            zeitpunkt: f.zeitpunkt,
+          })),
+        ...simulationResult.waypoint_stops.flatMap((stop) => [
+          {
+            distanzM: stop.distanz_m,
+            socPct: stop.ankunfts_soc_pct,
+            zeitpunkt: stop.ankunftszeit,
+          },
+          {
+            distanzM: stop.distanz_m + 0.5,
+            socPct: stop.ziel_soc_pct,
+            zeitpunkt: stop.abfahrtszeit,
+          },
+        ]),
+      ].sort((a, b) => a.distanzM - b.distanzM),
     );
     const routeCoordinates = splicedRoute.coordinates;
 

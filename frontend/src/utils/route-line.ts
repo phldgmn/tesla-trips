@@ -356,8 +356,10 @@ export function buildSplicedRoute(
         // chargeDistanzM (innerhalb von ~5 km NACH dem Ladehalt) werden auf den
         // Rueckweg interpoliert; Frames VOR chargeDistanzM mit post-charging
         // zeitpunkt sind Phantom-Frames (Simulation lief auf Hauptroute weiter)
-        // und werden uebersprungen. Weiter entfernte Frames sind Phantom-Frames
-        // und werden uebersprungen.
+        // Schwelle fuer Nach-Ladehalt-Frames auf dem Rueckweg: nur Frames nah an
+        // chargeDistanzM (innerhalb von ~5 km) werden auf den Rueckweg interpoliert;
+        // weiter entfernte Frames sind Phantom-Frames und werden uebersprungen.
+        const POST_CHARGE_THRESHOLD_M = 5000;
         const isPostChargeNear =
           isPostCharge &&
           distFromCharge > 0 && // exclude exact chargeDistanzM to avoid duplicate arrival sample
