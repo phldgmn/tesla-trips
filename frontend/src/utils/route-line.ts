@@ -383,10 +383,12 @@ export function buildSplicedRoute(
           !isPostCharge &&
           frame.distanzM < detour.chargeDistanzM
         ) {
-          // Vor-Ladehalt-Frame: auf Hinweg interpolieren
+          // Minimum outbound span to allow proportional interpolation.
+          // For short detours (<5 km) map pre-charge frames to the start of the detour.
+          const OUTBOUND_SPAN_THRESHOLD_M = 5_000;
           const outboundSpan = detour.chargeDistanzM - rangeStartOriginal;
           const frac =
-            outboundSpan > 0
+            outboundSpan > OUTBOUND_SPAN_THRESHOLD_M
               ? (frame.distanzM - rangeStartOriginal) / outboundSpan
               : 0;
           samples.push({
