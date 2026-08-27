@@ -208,8 +208,10 @@ class TripSimulationResult(BaseModel):
         default=0.0,
         ge=0,
         description=(
-            "Erzwungene Wartezeit an Zwischenstopps OHNE Ladung, in Minuten "
-            "(nicht in `gesamt_fahrzeit_min`/`gesamt_ladezeit_min` enthalten)"
+            "Aufenthaltszeit an Zwischenstopps (Waypoints), in Minuten - auch "
+            "wenn dort geladen wird. Nicht in `gesamt_fahrzeit_min`/"
+            "`gesamt_ladezeit_min` enthalten; nur tatsaechliche Ladestopps "
+            "zahlen in `gesamt_ladezeit_min`."
         ),
     )
     start_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Start-SoC in %")

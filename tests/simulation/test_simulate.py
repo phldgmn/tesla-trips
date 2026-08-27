@@ -735,8 +735,11 @@ class TestZwischenstoppAufenthalt:
             assert frame.position == stopp_koordinate
         assert laden_frames[0].soc_pct <= 45.0
         assert laden_frames[-1].soc_pct > laden_frames[0].soc_pct
-        assert result.gesamt_wartezeit_min == pytest.approx(0.0, abs=0.1)
-        assert result.gesamt_ladezeit_min == pytest.approx(30.0, abs=0.1)
+        # Zwischenstopp-Aufenthalt zaehlt trotz Ladeleistung als WARTEzeit,
+        # nicht als Ladezeit - nur tatsaechliche Ladestopps gehen in
+        # `gesamt_ladezeit_min` ein.
+        assert result.gesamt_wartezeit_min == pytest.approx(30.0, abs=0.1)
+        assert result.gesamt_ladezeit_min == pytest.approx(0.0, abs=0.1)
         assert result.waypoint_stops[0].ladeleistung_kw == 11.0
         assert result.waypoint_stops[0].energie_geladen_kwh > 0.0
 

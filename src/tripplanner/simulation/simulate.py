@@ -482,17 +482,15 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         ladezeit_s = (ladehalt.abfahrtszeit - ladehalt.ankunftszeit).total_seconds()
         gesamt_ladezeit_min += ladezeit_s / 60.0
 
-    # Zwischenstopp-Aufenthalte MIT Ladeleistung zaehlen als Ladezeit (siehe
-    # `gesamt_ladezeit_min` oben), OHNE als separate Wartezeit
-    # (`gesamt_wartezeit_min`) - beide zusammen mit `gesamt_fahrzeit_min`
-    # ergeben die volle Gesamtreisezeit.
+    # Zwischenstopp-Aufenthalte zaehlen ausschliesslich als Wartezeit
+    # (`gesamt_wartezeit_min`) - auch wenn an ihnen geladen wird. Nur die
+    # tatsaechlichen Ladestopps (Supercharger, `ladehalte`; siehe
+    # `gesamt_ladezeit_min` oben) gehen in die Gesamtladezeit ein. Beide
+    # zusammen mit `gesamt_fahrzeit_min` ergeben die volle Gesamtreisezeit.
     gesamt_wartezeit_min = 0.0
     for aufenthalt in charging_plan.zwischenstopp_aufenthalte:
         wartezeit_s = (aufenthalt.abfahrtszeit - aufenthalt.ankunftszeit).total_seconds()
-        if aufenthalt.ladeleistung_kw is not None:
-            gesamt_ladezeit_min += wartezeit_s / 60.0
-        else:
-            gesamt_wartezeit_min += wartezeit_s / 60.0
+        gesamt_wartezeit_min += wartezeit_s / 60.0
 
     gesamt_fahrzeit_min = max(0.0, (end_time_s / 60.0) - gesamt_ladezeit_min - gesamt_wartezeit_min)
 
