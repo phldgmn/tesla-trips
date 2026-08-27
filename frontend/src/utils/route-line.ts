@@ -383,17 +383,13 @@ export function buildSplicedRoute(
           !isPostCharge &&
           frame.distanzM < detour.chargeDistanzM
         ) {
-          // Minimum outbound span to allow proportional interpolation.
-          // For short detours (<5 km) map pre-charge frames to the start of the detour.
-          const OUTBOUND_SPAN_THRESHOLD_M = 5_000;
-          const outboundSpan = detour.chargeDistanzM - rangeStartOriginal;
-          const frac =
-            outboundSpan > OUTBOUND_SPAN_THRESHOLD_M
-              ? (frame.distanzM - rangeStartOriginal) / outboundSpan
-              : 0;
+          // Pre-Ladehalt-Frame: alle auf den Start des Detours legen, damit die
+          // vorherige, niedrige SoC-Spanne bis zur Station korrekt angezeigt wird.
+          // Es wird KEINE Interpolation auf dem Hinweg vorgenommen, da das zu
+          // falschen hoch-SoC-Segmenten direkt vor der Ladestation führen würde
+          // (siehe Issue mit 44% SoC vor dem Charger).
           samples.push({
-            distanzM:
-              rangeStartOriginal + offset + frac * stationDetourDistanzM,
+            distanzM: rangeStartOriginal + offset,
             socPct: frame.socPct,
             zeitpunkt: frame.zeitpunkt,
           });
