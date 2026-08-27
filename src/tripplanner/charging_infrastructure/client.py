@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import importlib
 import json
+import threading
+import time
 from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Protocol, runtime_checkable
 from urllib.parse import quote
 
 import httpx
@@ -30,6 +34,91 @@ def _debug_log(log_path: Path | None, msg: str, label: str = "DEBUG") -> None:
             f.write(f"[{timestamp}] [{label}] {msg}\n")
     except OSError:
         pass
+
+
+class CurlError(Exception):
+    """HTTP-Request fehlgeschlagen (WAF-Block, Rate-Limit, Netzwerkfehler).
+
+    Gemeinsamer Fehlertyp fuer alle Tesla-Clients (curl_cffi und nodriver),
+    damit Aufrufer unabhaengig vom gewaehlten Transport-Mechanismus denselben
+    Exception-Typ abfangen koennen.
+    """
+
+
+@runtime_checkable
+class TeslaClient(Protocol):
+    """Protokoll fuer Tesla-API-Clients (curl_cffi- und nodriver-Backend).
+
+    Beide Implementierungen (`TeslaLocationsClient` und `NodriverTeslaClient`)
+    bieten dieselbe Schnittstelle fuer Standortliste, Detaildaten und
+    Preis-HTML. `runtime_checkable` erlaubt ``isinstance``-Pruefungen.
+    """
+
+    async def fetch_locations(
+        self, country: str = "DE", view: str = "map"
+    ) -> list[dict[str, Any]]: ...
+
+    async def fetch_location_details(
+        self,
+        slug: str,
+        in_hk_mo_tw: bool = False,
+        locale: str = "de_DE",
+    ) -> dict[str, Any]: ...
+
+    async def fetch_all_supercharger_details(
+        self, country: str = "DE", delay_s: float | None = None
+    ) -> list[dict[str, Any]]: ...
+
+    async def fetch_pricing_html(self, slug: str) -> str: ...
+
+    async def close(self) -> None: ...
+
+
+def create_tesla_client(
+    transport: str = "nodriver",
+    *,
+    rate_limit_delay_s: float = 0.5,
+    debug_log: Path | None = None,
+) -> TeslaClient:
+    """Erzeugt einen Tesla-API-Client mit dem gewuenschten Transport.
+
+    Default ist ``nodriver`` (echter Chromium-Browser via CDP), da dieser den
+    Akamai-WAF von tesla.com zuverlaessiger umgeht als curl_cffi. ``curl_cffi``
+    bleibt als leichtgewichtigere Alternative verfuegbar (JA3/TLS-Fingerprint-
+    Impersonation). Bei nicht installiertem ``nodriver`` wird automatisch auf
+    curl_cffi zurueckgefallen.
+
+    Args:
+        transport: ``"nodriver"`` (Default) oder ``"curl_cffi"``.
+        rate_limit_delay_s: Verzoegerung zwischen Detail-Requests.
+        debug_log: Optionaler Dateipfad fuer Request/Response-Debug-Log.
+
+    Returns:
+        Ein ``TeslaClient``-kompatibles Objekt (nodriver oder curl_cffi).
+
+    Raises:
+        ValueError: Bei unbekanntem ``transport``-Wert.
+    """
+    if transport == "nodriver":
+        try:
+            importlib.import_module("nodriver")
+        except ImportError:
+            # nodriver nicht installiert -> curl_cffi als Fallback.
+            transport = "curl_cffi"
+
+    if transport == "nodriver":
+        return NodriverTeslaClient(
+            rate_limit_delay_s=rate_limit_delay_s,
+            debug_log=debug_log,
+        )
+    if transport == "curl_cffi":
+        return TeslaLocationsClient(
+            rate_limit_delay_s=rate_limit_delay_s,
+            debug_log=debug_log,
+        )
+    raise ValueError(
+        f"Unbekannter Tesla-Client-Transport '{transport}'. Erlaubt: 'nodriver', 'curl_cffi'."
+    )
 
 
 class SuperchargeInfoClient:
@@ -183,8 +272,8 @@ class TeslaLocationsClient:
     ``sec-ch-ua-*``, ``user-agent`` und ``priority`` Header werden vom
     Impersonation-Preset automatisch injiziert."""
 
-    class CurlError(Exception):
-        """HTTP-Request fehlgeschlagen."""
+    CurlError = CurlError
+    """Alias auf den modulweiten ``CurlError`` (siehe oben)."""
 
     def __init__(
         self,
@@ -422,6 +511,354 @@ class TeslaLocationsClient:
             CurlError: Bei curl-Fehlern, WAF-Block (403/429) oder anderen
                 Nicht-200-Antworten.
         """
+        encoded_slug = quote(slug, safe="")
+        url = f"{self.PRICING_BASE_URL}/{encoded_slug}"
+        return await self._fetch(url)
+
+
+class NodriverBrowserFetcher:
+    """Verwaltet eine nodriver-Chromium-Instanz in einem Hintergrund-Thread.
+
+    ``nodriver`` steuert einen echten Chromium-Browser via CDP und bringt eine
+    eigene asyncio-Event-Loop mit, die nicht mit ``asyncio.run()`` oder der
+    laufenden FastAPI-Loop kompatibel ist. Dieser Wrapper startet daher einen
+    starten und Anfragen aus dem aufrufenden Thread via
+    ``asyncio.run_coroutine_threadsafe`` hineingereicht.
+
+    Der Browser wird pro Fetcher-Instanz nur einmal gestartet und bei
+    ``close()`` wieder beendet (vergleichbar mit der Session-Wiederverwendung
+    des curl_cffi-Backends).
+    """
+
+    _NAVIGATION_TIMEOUT_S: float = 15.0
+
+    def _thread_main(self) -> None:
+        """Laesst die eigene Event-Loop des Daemon-Threads laufen."""
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
+        # Beim Herunterfahren: Browser beenden und Loop schliessen.
+        if self._browser is not None and self._loop is not None:
+            try:
+                # Browser.aclose() ist async und benoetigt eine laufende Loop.
+                self._loop.run_until_complete(self._browser.aclose())
+                # Browser.stop() ist synchron, beendet den Subprozess.
+                self._browser.stop()
+            except Exception:
+                pass
+        self._loop.close()
+
+    def __init__(self, headless: bool = True) -> None:
+        """Initialisiert den Fetcher (startet den Browser noch nicht).
+
+        Args:
+            headless: Ob Chromium headless laufen soll (Default True).
+        """
+        self._headless = headless
+        self._loop: asyncio.AbstractEventLoop | None = None  # type: ignore[assignment, no-redef]
+        self._thread: threading.Thread | None = None
+        self._browser: Any | None = None
+        self._closed = False
+
+    def _ensure_started(self) -> asyncio.AbstractEventLoop:
+        """Startet den Daemon-Thread (idempotent) und liefert dessen Loop."""
+        if self._thread is None or not self._thread.is_alive():
+            self._loop = None  # type: ignore[assignment]
+            self._thread = threading.Thread(
+                target=self._thread_main,
+                daemon=True,
+                name="nodriver-browser",
+            )
+            self._thread.start()
+        # Warten bis die Loop bereit ist.
+        for _ in range(100):
+            if self._loop is not None:
+                break
+            time.sleep(0.05)
+        if self._loop is None:
+            raise CurlError("nodriver-Browser-Thread konnte nicht gestartet werden")
+        return self._loop
+
+    def _submit(self, coro: Any) -> concurrent.futures.Future[Any]:
+        loop = self._ensure_started()
+        return asyncio.run_coroutine_threadsafe(coro, loop)
+
+    async def _ensure_browser(self) -> Any:
+        if self._browser is None:
+            import nodriver as uc
+
+            self._browser = await uc.start(headless=self._headless)  # type: ignore[attr-defined]
+        return self._browser
+
+    async def _fetch_async(self, url: str) -> tuple[int, str]:
+        """Fuehrt die eigentliche CDP-Navigation in der nodriver-Loop aus."""
+        import base64
+
+        from nodriver import cdp
+
+        browser = await self._ensure_browser()
+        tab = browser.main_tab
+
+        # Status- und Request-ID der Haupt-Dokument-Antwort via Network-Events
+        # einsammeln, BEVOR navigiert wird (sonst verpassen wir die Response).
+        captured: dict[str, Any] = {}
+
+        def on_response(event: Any) -> None:
+            if getattr(event, "type_", None) == "Document":
+                captured["request_id"] = event.request_id
+                captured["status"] = event.response.status
+
+        await tab.send(cdp.network.enable())
+        tab.add_handler(cdp.network.ResponseReceived, on_response)
+        try:
+            await tab.get(url)
+            await tab  # kurzes Settle (await -> wait(0.5))
+            deadline = time.monotonic() + self._NAVIGATION_TIMEOUT_S
+            while "status" not in captured and time.monotonic() < deadline:
+                await asyncio.sleep(0.1)
+        finally:
+            tab.remove_handler(cdp.network.ResponseReceived, on_response)
+
+        if "status" not in captured:
+            raise CurlError(f"nodriver: keine HTTP-Antwort fuer {url} empfangen")
+
+        status: int = captured["status"]
+        request_id = captured.get("request_id")
+
+        body = ""
+        if request_id is not None:
+            try:
+                raw_body, base64_encoded = await tab.send(
+                    cdp.network.get_response_body(request_id=request_id)
+                )
+                if base64_encoded:
+                    body = base64.b64decode(raw_body).decode("utf-8", errors="replace")
+                else:
+                    body = raw_body
+            except Exception:
+                # Fallback: gerenderten Text auslesen (z.B. JSON als <pre>).
+                inner = await tab.evaluate(
+                    "document.body ? document.body.innerText : ''",
+                    return_by_value=True,
+                )
+                body = inner if isinstance(inner, str) else ""
+
+        return status, body
+
+    def fetch(self, url: str) -> tuple[int, str]:
+        """Holt eine URL und liefert (Statuscode, Rohtext) synchron.
+
+        Blockiert den aufrufenden Thread bis zur Antwort. Wirft ``CurlError``
+        bei Browser-/Netzwerk-Fehlern.
+        """
+        if self._closed:
+            raise CurlError("nodriver-Fetcher wurde bereits geschlossen")
+        try:
+            future = self._submit(self._fetch_async(url))
+            return future.result(timeout=self._NAVIGATION_TIMEOUT_S + 15.0)  # type: ignore[no-any-return]
+        except Exception as e:
+            raise CurlError(f"nodriver request failed: {e}") from e
+
+    def close(self) -> None:
+        """Beendet den Browser und den Hintergrund-Thread."""
+        if self._closed:
+            return
+        self._closed = True
+        if self._browser is not None and self._loop is not None:
+            try:
+                future = asyncio.run_coroutine_threadsafe(self._browser.stop(), self._loop)
+                future.result(timeout=15.0)
+            except Exception:
+                pass
+            self._browser = None
+        if self._loop is not None:
+            self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._thread is not None:
+            self._thread.join(timeout=5.0)
+            self._thread = None
+
+
+class NodriverTeslaClient:
+    """HTTP-Client fuer die oeffentliche Tesla Locations-API via nodriver.
+
+    Nutzt einen echten Chromium-Browser (nodriver, CDP), um den Akamai-WAF von
+    tesla.com zu umgehen. Anders als ``TeslaLocationsClient`` (curl_cffi mit
+    TLS-Fingerprint-Impersonation) rendert er die Seiten wie ein echter
+    Browser und umgeht damit auch strengere Absicherungen - dafuer pro Request
+    deutlich langsamer und ressourcenintensiver.
+
+    Schnittstellen-kompatibel zu ``TeslaLocationsClient`` (siehe
+    ``TeslaClient``-Protokoll): dieselben Methoden fuer Standortliste,
+    Detaildaten und Preis-HTML sowie derselbe ``CurlError``-Typ.
+    """
+
+    BASE_URL: str = "https://www.tesla.com/api/findus"
+
+    PRICING_BASE_URL: str = "https://www.tesla.com/findus/location/supercharger"
+    """Oeffentliche Standort-Detailseite (einzige Seite mit kWh-Preisen)."""
+
+    CurlError = CurlError
+    """Alias auf den modulweiten ``CurlError`` (siehe oben)."""
+
+    def __init__(
+        self,
+        rate_limit_delay_s: float = 0.5,
+        debug_log: Path | None = None,
+        fetcher: NodriverBrowserFetcher | None = None,
+    ) -> None:
+        """Initialize the client.
+
+        Args:
+            rate_limit_delay_s: Delay in seconds between detail requests.
+            debug_log: Optional file path for debug logging (requests,
+                responses, errors).
+            fetcher: Optionaler vorab konfigurierter Fetcher (fuer Tests).
+                Wenn None, wird ein eigener Fetcher erzeugt und von close()
+                beendet.
+        """
+        self._delay = rate_limit_delay_s
+        self._debug_log = debug_log
+        if fetcher is None:
+            self._fetcher = NodriverBrowserFetcher()
+            self._owns_fetcher = True
+        else:
+            self._fetcher = fetcher
+            self._owns_fetcher = False
+
+    async def _log_request(self, method: str, url: str) -> None:
+        """Loggt eine Anfrage fuer Debug-Zwecke."""
+        if self._debug_log is None:
+            return
+        _debug_log(self._debug_log, f"{method} {url}", label="NODRIVER")
+
+    async def _fetch(self, url: str) -> str:
+        """Fuehrt GET aus und liefert den Response-Body als Text.
+
+        Wirft ``CurlError`` bei HTTP-Fehlern (403, 429, andere Nicht-200)
+        oder leeren Antworten.
+
+        Args:
+            url: Vollstaendige URL mit Query-Parametern
+
+        Returns:
+            Response-Body als Text
+
+        Raises:
+            CurlError: Bei HTTP-Fehlern, leeren Antworten oder Netzwerkfehlern
+        """
+        await self._log_request("GET", url)
+        status, body = await asyncio.to_thread(self._fetcher.fetch, url)
+
+        if self._debug_log is not None:
+            _debug_log(
+                self._debug_log,
+                f"NODRIVER GET {url} -> {status}\n  Body ({len(body)} bytes): {body[:2000]}",
+                label="NODRIVER",
+            )
+
+        if not body.strip():
+            raise CurlError("empty response")
+        if status == HTTPStatus.FORBIDDEN:
+            raise CurlError("Tesla API: 403 Access Denied (mglw. rate-limited)")
+        if status == HTTPStatus.TOO_MANY_REQUESTS:
+            raise CurlError("Tesla API: 429 Too Many Requests (Rate-Limit)")
+        if status != HTTPStatus.OK:
+            raise CurlError(f"Tesla API: HTTP {status}")
+
+        return body
+
+    async def _fetch_json(self, url: str) -> dict[str, Any]:
+        """Fuehrt GET aus und parst JSON-Antwort (siehe ``_fetch``)."""
+        body = await self._fetch(url)
+        try:
+            parsed = json.loads(body)
+            _debug_log(
+                self._debug_log,
+                f"JSON parsed: {type(parsed).__name__}, "
+                f"top keys: {list(parsed.keys()) if isinstance(parsed, dict) else 'N/A'}",
+                label="JSON",
+            )
+            return parsed  # type: ignore[no-any-return]
+        except json.JSONDecodeError as e:
+            _debug_log(
+                self._debug_log,
+                f"JSON parse error: {e}\nbody preview: {body[:300]}",
+                label="ERROR",
+            )
+            raise CurlError(f"invalid JSON: {e}"[:200]) from e
+
+    async def close(self) -> None:
+        """Beendet den zugrunde liegenden nodriver-Fetcher (wenn owned)."""
+        if self._owns_fetcher:
+            await asyncio.to_thread(self._fetcher.close)
+
+    async def fetch_locations(
+        self,
+        country: str = "DE",
+        view: str = "map",
+    ) -> list[dict[str, Any]]:
+        """Fetch all Tesla locations for a given country."""
+        url = f"{self.BASE_URL}/get-locations?country={country}&view={view}"
+        data = await self._fetch_json(url)
+        return data.get("data", {}).get("data", [])  # type: ignore[no-any-return]
+
+    async def fetch_location_details(
+        self,
+        slug: str,
+        in_hk_mo_tw: bool = False,
+        locale: str = "de_DE",
+    ) -> dict[str, Any]:
+        """Fetch full details for a single Tesla location."""
+        encoded_slug = quote(slug, safe="")
+        url = (
+            f"{self.BASE_URL}/get-location-details"
+            f"?locationSlug={encoded_slug}&functionTypes=party"
+            f"&locale={locale}&isInHkMoTw={str(in_hk_mo_tw).lower()}"
+        )
+        try:
+            data = await self._fetch_json(url)
+            return data.get("data", {})  # type: ignore[no-any-return]
+        except (json.JSONDecodeError, CurlError):
+            return {}
+
+    async def fetch_all_supercharger_details(
+        self,
+        country: str = "DE",
+        delay_s: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch details for all supercharger locations in a country."""
+        locations = await self.fetch_locations(country)
+        superchargers = [
+            loc
+            for loc in locations
+            if "supercharger" in loc.get("location_type", []) and not loc.get("inCN", False)
+        ]
+
+        effective_delay = delay_s if delay_s is not None else self._delay
+        details: list[dict[str, Any]] = []
+        for loc in superchargers:
+            slug: str = loc.get("location_url_slug", "")
+            if not slug:
+                continue
+            try:
+                detail = await self.fetch_location_details(
+                    slug,
+                    in_hk_mo_tw=loc.get("inHkMoTw", False),
+                )
+                if not detail:
+                    continue  # empty response -> skip
+                detail["_uuid"] = loc.get("uuid", "")
+                detail["_slug"] = slug
+                details.append(detail)
+            except Exception:
+                continue  # skip failed detail requests
+            if effective_delay > 0:
+                await asyncio.sleep(effective_delay)
+
+        return details
+
+    async def fetch_pricing_html(self, slug: str) -> str:
+        """Fetches the raw HTML of a Supercharger's public detail page."""
         encoded_slug = quote(slug, safe="")
         url = f"{self.PRICING_BASE_URL}/{encoded_slug}"
         return await self._fetch(url)

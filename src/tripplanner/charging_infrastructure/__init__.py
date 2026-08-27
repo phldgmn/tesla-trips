@@ -6,7 +6,9 @@ Exports:
 - Provider: `ChargingStationProvider`,
   `LocalFileChargingStationProvider`, `FakeChargingStationProvider`,
   `TeslaChargingStationProvider`
-- Persistenz: `SQLiteDatabase`, `SuperchargeInfoClient`
+- HTTP-Clients: `SuperchargeInfoClient`, `TeslaLocationsClient`
+  (curl_cffi), `NodriverTeslaClient` (nodriver / Chromium via CDP),
+  `create_tesla_client` (Factory, Default: nodriver)
 - Pricing: `parse_pricing_tiers`, `select_owner_rate_for_time`,
   `PricingParseError`, `CachedPricing`, `PricingQueueDrainResult`
 - Hilfsfunktionen: `init_charging_infrastructure`,
@@ -20,8 +22,12 @@ from .charging_infrastructure import (
     init_charging_infrastructure,
     refresh_supercharger_station,
 )
-from .client import SuperchargeInfoClient, TeslaLocationsClient
-from .database import SQLiteDatabase
+from .client import (
+    NodriverTeslaClient,
+    SuperchargeInfoClient,
+    TeslaLocationsClient,
+    create_tesla_client,
+)
 from .models import (
     ChargingPricingTier,
     ChargingStation,
@@ -48,6 +54,7 @@ __all__ = [
     "ConnectorType",
     "FakeChargingStationProvider",
     "LocalFileChargingStationProvider",
+    "NodriverTeslaClient",
     "PricingParseError",
     "PricingQueueDrainResult",
     "SQLiteDatabase",
@@ -55,6 +62,7 @@ __all__ = [
     "SuperchargeInfoClient",
     "TeslaChargingStationProvider",
     "TeslaLocationsClient",
+    "create_tesla_client",
     "get_all_charging_stations",
     "get_charging_stations_along_route",
     "get_charging_stations_in_radius",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 from pathlib import Path
 from typing import Any
@@ -12,8 +13,11 @@ import pytest
 from curl_cffi import AsyncSession
 
 from tripplanner.charging_infrastructure.client import (
+    CurlError,
+    NodriverTeslaClient,
     SuperchargeInfoClient,
     TeslaLocationsClient,
+    create_tesla_client,
 )
 
 
@@ -407,3 +411,313 @@ class TestTeslaLocationsClient:
         client = TeslaLocationsClient(client=external_session)
         await client.close()
         external_session.close.assert_not_called()
+
+
+class _FakeFetcher:
+    """Minimaler NodriverFetcher-Stub fuer Unit-Tests.
+
+    Liefert eine konfigurierbare Antwort (Status + Body) pro URL und zeichnet
+    alle Aufrufe auf, ohne einen echten Browser zu starten.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self._by_url: dict[str, tuple[int, str]] = {}
+        self._default: tuple[int, str] = (200, "")
+        self.closed = False
+
+    def set_response(self, url: str, status: int, body: str) -> None:
+        self._by_url[url] = (status, body)
+
+    def set_default(self, status: int, body: str) -> None:
+        self._default = (status, body)
+
+    def fetch(self, url: str) -> tuple[int, str]:
+        self.calls.append(url)
+        if url in self._by_url:
+            return self._by_url[url]
+        return self._default
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class TestCreateTeslaClient:
+    """Tests fuer die Factory-Funktion ``create_tesla_client``."""
+
+    def test_returns_curl_cffi_when_requested(self) -> None:
+        client = create_tesla_client(transport="curl_cffi")
+        assert isinstance(client, TeslaLocationsClient)
+
+    def test_returns_nodriver_by_default(self) -> None:
+        client = create_tesla_client()
+        assert isinstance(client, NodriverTeslaClient)
+        # Browser darf bei Konstruktion noch nicht gestartet sein.
+        assert client._fetcher._browser is None
+        assert client._fetcher._thread is None
+
+    def test_unknown_transport_raises_value_error(self) -> None:
+        with pytest.raises(ValueError, match="Unbekannter Tesla-Client-Transport"):
+            create_tesla_client(transport="magic")
+
+    def test_factory_respects_custom_args(self) -> None:
+        client = create_tesla_client(transport="curl_cffi", rate_limit_delay_s=1.25)
+        assert client._delay == 1.25
+
+    def test_nodriver_falls_back_to_curl_cffi_on_import_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Wenn nodriver nicht installiert ist, wird transparent curl_cffi genutzt."""
+        import tripplanner.charging_infrastructure.client as client_module
+
+        def fake_import_module(name: str) -> object:
+            if name == "nodriver":
+                raise ImportError("simulated missing")
+            return importlib.import_module(name)
+
+        monkeypatch.setattr(client_module.importlib, "import_module", fake_import_module)
+        client = create_tesla_client(transport="nodriver")
+        assert isinstance(client, TeslaLocationsClient)
+
+
+class TestNodriverTeslaClient:
+    """Tests fuer ``NodriverTeslaClient`` mit injiziertem Fake-Fetcher."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_locations_parses_json(self) -> None:
+        """Prueft fetch_locations gibt Liste zurueck."""
+        from tripplanner.charging_infrastructure.client import NodriverTeslaClient
+
+        fetcher = _FakeFetcher()
+        fetcher.set_response(
+            "https://www.tesla.com/api/findus/get-locations?country=DE&view=map",
+            200,
+            _FakeFetcher.__module__  # placeholder, will be overridden below
+            or "null",
+        )
+        locations_json = json.dumps(
+            {
+                "data": {
+                    "data": [
+                        {
+                            "uuid": "1001",
+                            "location_url_slug": "berlinsupercharger",
+                            "location_type": ["supercharger"],
+                            "latitude": 52.5,
+                            "longitude": 13.4,
+                        }
+                    ]
+                }
+            }
+        )
+        fetcher.set_response(
+            "https://www.tesla.com/api/findus/get-locations?country=DE&view=map",
+            200,
+            locations_json,
+        )
+
+        client = NodriverTeslaClient(fetcher=fetcher)
+        try:
+            locations = await client.fetch_locations("DE")
+        finally:
+            await client.close()
+
+        assert len(locations) == 1
+        assert locations[0]["location_url_slug"] == "berlinsupercharger"
+        assert len(fetcher.calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_fetch_location_details_parses_json(self) -> None:
+        """Prueft fetch_location_details."""
+        from tripplanner.charging_infrastructure.client import NodriverTeslaClient
+
+        detail_json = json.dumps(
+            {
+                "data": {
+                    "marketing": {"display_name": "Berlin Supercharger"},
+                }
+            }
+        )
+        url = (
+            "https://www.tesla.com/api/findus/get-location-details"
+            "?locationSlug=berlinsupercharger&functionTypes=party"
+            "&locale=de_DE&isInHkMoTw=false"
+        )
+        fetcher = _FakeFetcher()
+        fetcher.set_response(url, 200, detail_json)
+
+        client = NodriverTeslaClient(fetcher=fetcher)
+        try:
+            detail = await client.fetch_location_details("berlinsupercharger")
+        finally:
+            await client.close()
+
+        assert detail["marketing"]["display_name"] == "Berlin Supercharger"
+
+    @pytest.mark.asyncio
+    async def test_fetch_pricing_html_returns_raw_body(self) -> None:
+        """Prueft, dass fetch_pricing_html den Rohtext liefert (kein JSON-Parsing)."""
+        from tripplanner.charging_infrastructure.client import NodriverTeslaClient
+
+        html = '<html><script id="__NEXT_DATA__">{"a": 1}</script></html>'
+        url = "https://www.tesla.com/findus/location/supercharger/rhudensupercharger"
+        fetcher = _FakeFetcher()
+        fetcher.set_response(url, 200, html)
+
+        client = NodriverTeslaClient(fetcher=fetcher)
+        try:
+            body = await client.fetch_pricing_html("rhudensupercharger")
+        finally:
+            await client.close()
+
+        assert body == html
+
+    @pytest.mark.asyncio
+    async def test_fetch_pricing_html_raises_on_waf_block(self) -> None:
+        """Ein 403 (WAF-Block) loest CurlError aus, wie bei curl_cffi."""
+        from tripplanner.charging_infrastructure.client import NodriverTeslaClient
+
+        url = "https://www.tesla.com/findus/location/supercharger/rhudensupercharger"
+        fetcher = _FakeFetcher()
+        fetcher.set_response(url, 403, "<html>Access Denied</html>")
+
+        client = NodriverTeslaClient(fetcher=fetcher)
+        try:
+            with pytest.raises(CurlError, match="403"):
+                await client.fetch_pricing_html("rhudensupercharger")
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_fetch_raises_on_too_many_requests(self) -> None:
+        """Ein 429 loest CurlError aus."""
+        from tripplanner.charging_infrastructure.client import NodriverTeslaClient
+
+        fetcher = _FakeFetcher()
+        fetcher.set_default(429, "rate limited")
+
+        client = NodriverTeslaClient(fetcher=fetcher)
+        try:
+            with pytest.raises(CurlError, match="429"):
+                await client.fetch_locations("DE")
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_fetch_raises_on_server_error(self) -> None:
+        """Ein 500 loest CurlError aus."""
+        from tripplanner.charging_infrastructure.client import NodriverTeslaClient
+
+        fetcher = _FakeFetcher()
+        fetcher.set_default(500, "boom")
+
+        client = NodriverTeslaClient(fetcher=fetcher)
+        try:
+            with pytest.raises(CurlError, match="HTTP 500"):
+                await client.fetch_locations("DE")
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_fetch_raises_on_empty_body(self) -> None:
+        """Eine leere Antwort loest CurlError aus."""
+        from tripplanner.charging_infrastructure.client import NodriverTeslaClient
+
+        fetcher = _FakeFetcher()
+        fetcher.set_default(200, "   ")
+
+        client = NodriverTeslaClient(fetcher=fetcher)
+        try:
+            with pytest.raises(CurlError, match="empty response"):
+                await client.fetch_locations("DE")
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_close_only_closes_owned_fetcher(self) -> None:
+        """Ein extern uebergebener Fetcher wird nicht geschlossen."""
+        from tripplanner.charging_infrastructure.client import NodriverTeslaClient
+
+        external = _FakeFetcher()
+        client = NodriverTeslaClient(fetcher=external)
+        await client.close()
+        assert external.closed is False
+
+    @pytest.mark.asyncio
+    async def test_close_closes_owned_fetcher(self) -> None:
+        """Ein selbst erzeugter Fetcher wird via close() beendet."""
+        from tripplanner.charging_infrastructure.client import NodriverTeslaClient
+
+        client = NodriverTeslaClient()
+        # Ersetze den echten Browser-Fetcher durch einen Fake, der nur den
+        # ``closed``-Marker setzt - ohne den echten Browser zu starten.
+        fake = _FakeFetcher()
+        client._fetcher = fake  # type: ignore[assignment]
+        client._owns_fetcher = True
+        await client.close()
+        assert fake.closed is True
+
+    @pytest.mark.asyncio
+    async def test_fetch_all_supercharger_details_filters_non_supercharger(
+        self,
+    ) -> None:
+        """Prueft Vollstaendigen supercharger-detail-flow (Filter, Reihenfolge)."""
+        from tripplanner.charging_infrastructure.client import NodriverTeslaClient
+
+        locations_url = "https://www.tesla.com/api/findus/get-locations?country=DE&view=map"
+        locations_json = json.dumps(
+            {
+                "data": {
+                    "data": [
+                        {
+                            "uuid": "1001",
+                            "location_url_slug": "berlinsupercharger",
+                            "location_type": ["supercharger"],
+                            "latitude": 52.5,
+                            "longitude": 13.4,
+                            "inCN": False,
+                            "inHkMoTw": False,
+                        },
+                        {
+                            "uuid": "1002",
+                            "location_url_slug": "hamburgservice",
+                            "location_type": ["service"],
+                            "latitude": 53.5,
+                            "longitude": 10.0,
+                            "inCN": False,
+                            "inHkMoTw": False,
+                        },
+                        {
+                            "uuid": "1003",
+                            "location_url_slug": "chinasupercharger",
+                            "location_type": ["supercharger"],
+                            "latitude": 31.2,
+                            "longitude": 121.4,
+                            "inCN": True,
+                            "inHkMoTw": False,
+                        },
+                    ]
+                }
+            }
+        )
+        detail_berlin = json.dumps({"data": {"marketing": {"display_name": "Berlin"}}})
+        detail_url_berlin = (
+            "https://www.tesla.com/api/findus/get-location-details"
+            "?locationSlug=berlinsupercharger&functionTypes=party"
+            "&locale=de_DE&isInHkMoTw=false"
+        )
+
+        fetcher = _FakeFetcher()
+        fetcher.set_response(locations_url, 200, locations_json)
+        fetcher.set_response(detail_url_berlin, 200, detail_berlin)
+
+        client = NodriverTeslaClient(fetcher=fetcher)
+        try:
+            details = await client.fetch_all_supercharger_details("DE", delay_s=0)
+        finally:
+            await client.close()
+
+        # nur Berlin, nicht Hamburg (service) oder China (inCN)
+        assert len(details) == 1
+        assert details[0]["_slug"] == "berlinsupercharger"
+        assert details[0]["_uuid"] == "1001"

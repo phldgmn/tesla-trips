@@ -21,7 +21,7 @@ from tqdm.asyncio import tqdm
 from tripplanner.geo import Coordinate, haversine_distance_m
 from tripplanner.routing.models import Route
 
-from .client import SuperchargeInfoClient, TeslaLocationsClient
+from .client import CurlError, SuperchargeInfoClient, TeslaClient, create_tesla_client
 from .database import _COUNTRY_MAP, SQLiteDatabase
 from .models import (
     ChargingPricingTier,
@@ -509,7 +509,7 @@ class TeslaChargingStationProvider(ChargingStationProvider):
     async def refresh_from_tesla_api(  # noqa: PLR0912
         self,
         countries: list[str] | None = None,
-        tesla_client: TeslaLocationsClient | None = None,
+        tesla_client: TeslaClient | None = None,
         enrich_details: bool = False,
         resume_from_slug: str | None = None,
         delay_s: float = 0.5,
@@ -531,7 +531,7 @@ class TeslaChargingStationProvider(ChargingStationProvider):
 
         Args:
             countries: Liste der ISO-2-Laendercodes (default: DE, DK, SE)
-            tesla_client: Optionaler TeslaLocationsClient
+            tesla_client: Optionaler TeslaClient
             enrich_details: Wenn True, werden Detaildaten abgerufen
             resume_from_slug: Slug, ab dem in Phase 2 weitergemacht werden
                 soll (alle vorherigen werden uebersprungen)
@@ -541,12 +541,12 @@ class TeslaChargingStationProvider(ChargingStationProvider):
             Anzahl der gespeicherten Stationen
 
         Raises:
-            TeslaLocationsClient.CurlError: Bei 403 (WAF-Block) in Phase 2
+            CurlError: Bei 403 (WAF-Block) in Phase 2
         """
         if countries is None:
             countries = ["DE", "DK", "SE"]
         if tesla_client is None:
-            tesla_client = TeslaLocationsClient(debug_log=self._debug_log)
+            tesla_client = create_tesla_client(debug_log=self._debug_log)
 
         # --- Phase 1: Standortliste abrufen und Basis-Datensaetze speichern ---
         all_records = await self._fetch_tesla_locations(countries, tesla_client)
@@ -591,7 +591,7 @@ class TeslaChargingStationProvider(ChargingStationProvider):
                 start_idx,
                 total,
             )
-        except TeslaLocationsClient.CurlError:
+        except CurlError:
             # Teilweise angereicherte Daten trotzdem speichern
             if enriched != all_records:
                 self._db.replace_all_stations(enriched)
@@ -607,13 +607,13 @@ class TeslaChargingStationProvider(ChargingStationProvider):
     async def _fetch_tesla_locations(
         self,
         countries: list[str],
-        tesla_client: TeslaLocationsClient,
+        tesla_client: TeslaClient,
     ) -> list[dict[str, Any]]:
         """Phase 1: Holt Standortliste und erzeugt Basis-Datensaetze.
 
         Args:
             countries: Liste der ISO-2-Laendercodes
-            tesla_client: TeslaLocationsClient
+            tesla_client: TeslaClient
 
         Returns:
             Liste von DB-Record-Dicts (Dedupliziert nach slug)
@@ -640,7 +640,7 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         self,
         enriched: list[dict[str, Any]],
         loc_by_slug: dict[str, dict[str, Any]],
-        tesla_client: TeslaLocationsClient,
+        tesla_client: TeslaClient,
         delay_s: float,
         start_idx: int,
         total: int,
@@ -650,7 +650,7 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         Args:
             enriched: Liste der Basis-Datensaetze (wird inline modifiziert)
             loc_by_slug: Mapping slug -> locations-Dict (fuer inHkMoTw)
-            tesla_client: TeslaLocationsClient
+            tesla_client: TeslaClient
             delay_s: Verzoegerung zwischen Requests
             start_idx: Start-Index (fuer Resume)
             total: Gesamtanzahl
@@ -659,7 +659,7 @@ class TeslaChargingStationProvider(ChargingStationProvider):
             Angereicherte Liste (gleiche Referenz wie enriched)
 
         Raises:
-            TeslaLocationsClient.CurlError: Bei 403 (WAF-Block)
+            CurlError: Bei 403 (WAF-Block)
         """
         for idx in tqdm(
             range(start_idx, total),
@@ -685,9 +685,9 @@ class TeslaChargingStationProvider(ChargingStationProvider):
                     tqdm.write(f"  ok  {slug}")
                 if delay_s > 0:
                     await asyncio.sleep(delay_s)
-            except TeslaLocationsClient.CurlError:
+            except CurlError:
                 tqdm.write(f"  403 {slug} - WAF-Block, breche ab")
-                raise TeslaLocationsClient.CurlError(
+                raise CurlError(
                     f"WAF-Block bei Slug '{slug}'. Setze --resume-from {slug} fort."
                 ) from None
             except Exception:
@@ -976,7 +976,7 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         self,
         slug: str,
         country: str | None = None,
-        tesla_client: TeslaLocationsClient | None = None,
+        tesla_client: TeslaClient | None = None,
     ) -> ChargingStation | None:
         """Ruft Detaildaten fuer eine einzelne Station von der Tesla API ab.
 
@@ -987,16 +987,16 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         Args:
             slug: tesla_location_id (location_url_slug)
             country: ISO-2 Laendercode (wird aus DB ermittelt wenn None)
-            tesla_client: Optionaler TeslaLocationsClient
+            tesla_client: Optionaler TeslaClient
 
         Returns:
             Aktualisierte ChargingStation oder None bei Fehler.
 
         Raises:
-            TeslaLocationsClient.CurlError: Bei 403 (WAF-Block)
+            CurlError: Bei 403 (WAF-Block)
         """
         if tesla_client is None:
-            tesla_client = TeslaLocationsClient(debug_log=self._debug_log)
+            tesla_client = create_tesla_client(debug_log=self._debug_log)
 
         # Bestehenden Eintrag laden: liefert Country-Fallback und die stabile
         # supercharge_info_id. Diese MUSS erhalten bleiben, da sie ein
@@ -1063,7 +1063,7 @@ class TeslaChargingStationProvider(ChargingStationProvider):
     async def _resolve_numeric_slug(
         self,
         record: dict[str, Any],
-        tesla_client: TeslaLocationsClient,
+        tesla_client: TeslaClient,
     ) -> str | None:
         """Loest eine stale numerische `tesla_location_id` in Teslas echten Slug auf.
 
@@ -1079,7 +1079,7 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         Args:
             record: DB-Record-Dict der Station (mit `country_code`,
                 `latitude`, `longitude`).
-            tesla_client: TeslaLocationsClient fuer den API-Zugriff.
+            tesla_client: TeslaClient fuer den API-Zugriff.
 
         Returns:
             Der aufgeloeste `location_url_slug`, oder `None` wenn kein
@@ -1091,7 +1091,7 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         coordinate: Coordinate = (record["latitude"], record["longitude"])
         try:
             locations = await tesla_client.fetch_locations(country)
-        except TeslaLocationsClient.CurlError:
+        except CurlError:
             return None
 
         best_slug: str | None = None
@@ -1113,12 +1113,12 @@ class TeslaChargingStationProvider(ChargingStationProvider):
     async def refresh_pricing(
         self,
         slug: str,
-        tesla_client: TeslaLocationsClient | None = None,
+        tesla_client: TeslaClient | None = None,
     ) -> list[ChargingPricingTier]:
         """Holt und speichert aktuelle Preisdaten fuer eine einzelne Station.
 
         Ruft die oeffentliche Standort-Detailseite ab (siehe
-        `TeslaLocationsClient.fetch_pricing_html` - NICHT die JSON-API, die
+        `TeslaClient.fetch_pricing_html` - NICHT die JSON-API, die
         keine Preisdaten liefert), parst die eingebetteten `chargerPricing`-
         Daten (siehe `pricing.parse_pricing_tiers`) und ersetzt die
         gespeicherten Preise der Station. Entfernt die Station anschliessend
@@ -1135,14 +1135,14 @@ class TeslaChargingStationProvider(ChargingStationProvider):
 
         Args:
             slug: tesla_location_id (location_url_slug) der Station.
-            tesla_client: Optionaler TeslaLocationsClient (fuer Tests).
+            tesla_client: Optionaler TeslaClient (fuer Tests).
 
         Returns:
             Die neu gespeicherten Preistiers (kann leer sein).
 
         Raises:
             ValueError: Wenn `slug` keiner bekannten Station entspricht.
-            TeslaLocationsClient.CurlError: Bei curl-Fehlern, WAF-Block, oder
+            CurlError: Bei curl-Fehlern, WAF-Block, oder
                 wenn eine numerische ID nicht zu einem Tesla-Slug aufgeloest
                 werden konnte.
             PricingParseError: Wenn die Antwort kein auswertbares
@@ -1153,7 +1153,7 @@ class TeslaChargingStationProvider(ChargingStationProvider):
             raise ValueError(f"Unbekannte Station: '{slug}'")
 
         if tesla_client is None:
-            tesla_client = TeslaLocationsClient(debug_log=self._debug_log)
+            tesla_client = create_tesla_client(debug_log=self._debug_log)
 
         try:
             fetch_slug = slug
@@ -1165,7 +1165,7 @@ class TeslaChargingStationProvider(ChargingStationProvider):
                     else None
                 )
                 if resolved is None:
-                    raise TeslaLocationsClient.CurlError(
+                    raise CurlError(
                         f"Slug '{slug}' ist ein numerischer supercharge.info-"
                         "Platzhalter ohne aufloesbaren Tesla-URL-Slug (kein "
                         "Standort innerhalb von "
@@ -1288,7 +1288,7 @@ class TeslaChargingStationProvider(ChargingStationProvider):
     async def drain_pricing_queue(
         self,
         limit: int | None = None,
-        tesla_client: TeslaLocationsClient | None = None,
+        tesla_client: TeslaClient | None = None,
         delay_s: float = 1.5,
     ) -> PricingQueueDrainResult:
         """Arbeitet die Preis-Scrape-Warteschlange in Prioritaets-Reihenfolge ab.
@@ -1304,7 +1304,7 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         Args:
             limit: Optionale Obergrenze fuer die Anzahl abzuarbeitender
                 Eintraege in diesem Lauf.
-            tesla_client: Optionaler TeslaLocationsClient (fuer Tests).
+            tesla_client: Optionaler TeslaClient (fuer Tests).
             delay_s: Pause zwischen aufeinanderfolgenden Requests in Sekunden.
 
         Returns:
@@ -1312,7 +1312,7 @@ class TeslaChargingStationProvider(ChargingStationProvider):
             uebersprungenen (bereits aktuellen) und fehlgeschlagenen Stationen.
         """
         if tesla_client is None:
-            tesla_client = TeslaLocationsClient(debug_log=self._debug_log)
+            tesla_client = create_tesla_client(debug_log=self._debug_log)
 
         entries = self.list_pricing_queue(limit=limit)
         refreshed: list[str] = []
@@ -1343,7 +1343,7 @@ class TeslaChargingStationProvider(ChargingStationProvider):
             try:
                 await self.refresh_pricing(slug, tesla_client=tesla_client)
                 refreshed.append(slug)
-            except (TeslaLocationsClient.CurlError, PricingParseError) as e:
+            except (CurlError, PricingParseError) as e:
                 failed.append((slug, str(e)))
 
             if delay_s > 0 and entry is not entries[-1]:
