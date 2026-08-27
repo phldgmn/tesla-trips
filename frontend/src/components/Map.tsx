@@ -935,7 +935,8 @@ export function MapVisualization({
       let correctedSocPct = sample.socPct;
       for (const stop of simulationResult.waypoint_stops) {
         const stopDist = waypointStopDistances[stop.id ?? ""];
-        if (stopDist !== undefined && sample.distanzM >= stopDist - 5) {
+        // Only correct samples that are after the stop departure
+        if (stopDist !== undefined && sample.distanzM >= stopDist) {
           correctedSocPct = stop.ziel_soc_pct;
         }
       }
