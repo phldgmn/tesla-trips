@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 from tripplanner.cache.store import TTLCache
 from tripplanner.construction import matching
 from tripplanner.construction.models import (
+    DEFAULT_ROADWORKS_SPEED_LIMIT_KMH,
     ConstructionProvider,
     ConstructionZone,
     Land,
@@ -59,7 +60,7 @@ _SE_BOTH_DIRECTIONS_VALUES = frozenset(("BothDirections", "Båda riktningarna"))
 # impacts (delays element is often empty, and the impact structure lacks a
 # numeric speed). 80 km/h is the standard real-world default speed limit at
 # active roadworks absent more specific data.
-_DK_SE_ROADWORKS_DEFAULT_SPEED_LIMIT_KMH = 80
+_DK_SE_ROADWORKS_DEFAULT_SPEED_LIMIT_KMH = DEFAULT_ROADWORKS_SPEED_LIMIT_KMH
 
 
 # ---------------------------------------------------------------------------

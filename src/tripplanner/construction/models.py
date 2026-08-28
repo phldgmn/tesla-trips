@@ -10,9 +10,11 @@ from typing import Annotated, Protocol, Self
 
 from pydantic import BaseModel, Field, model_validator
 
+DEFAULT_ROADWORKS_SPEED_LIMIT_KMH = 80
+
 
 class Sperrungstyp(StrEnum):
-    """Sperrungstyp gemäß DATEX II RoadOrCarriagewayOrLaneManagementType."""
+    """Sperrungstyp gemäß DATEX II RoadOrCarriagewayManagementType."""
 
     FULLY_CLOSED = "fullyClosed"
     PARTIALLY_CLOSED = "partiallyClosed"

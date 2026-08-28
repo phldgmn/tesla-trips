@@ -6,15 +6,9 @@ fällt auf xml.etree.ElementTree zurück (für Unit-Tests ohne externe Abhängig
 
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, NamedTuple
-
-try:
-    import xmlschema
-except ImportError:
-    xmlschema = None  # type: ignore[assignment]
-
-import xml.etree.ElementTree as ET
 
 if TYPE_CHECKING:
     from tripplanner.construction.models import Land
@@ -49,20 +43,6 @@ def parse_datexii_xml(xml_content: str, land: Land) -> list[DATEXIIConstructionZ
     Returns:
         Liste von DATEXIIConstructionZoneInternal (internal).
     """
-    if xmlschema is not None:
-        try:
-            return _parse_with_xmlschema(xml_content, land)
-        except Exception:
-            pass
-
-    return _parse_with_elementtree(xml_content, land)
-
-
-def _parse_with_xmlschema(
-    xml_content: str,
-    land: Land,
-) -> list[DATEXIIConstructionZoneInternal]:
-    """Parse DATEX II XML mit xmlschema (für Integrationstests mit echten Feeds)."""
     return _parse_with_elementtree(xml_content, land)
 
 

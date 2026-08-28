@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 from tripplanner.cache.store import TTLCache
 from tripplanner.construction import matching
 from tripplanner.construction.models import (
+    DEFAULT_ROADWORKS_SPEED_LIMIT_KMH,
     ConstructionProvider,
     ConstructionZone,
     Land,
@@ -49,7 +50,7 @@ AUTOBAHN_BASE_URL = "https://verkehr.autobahn.de/o/autobahn"
 # roadworks absent more specific data (used for both derived Sperrungstyp
 # values below, since ConstructionZone's validator requires tempolimit_kmh
 # for both PARTIALLY_CLOSED and TEMPORARY_SPEED_LIMIT).
-_DE_ROADWORKS_DEFAULT_SPEED_LIMIT_KMH = 80
+_DE_ROADWORKS_DEFAULT_SPEED_LIMIT_KMH = DEFAULT_ROADWORKS_SPEED_LIMIT_KMH
 
 # Shared distance threshold for matching a roadwork's single point coordinate
 # to the nearest route segment (see `matching.MAX_DISTANCE_M`).

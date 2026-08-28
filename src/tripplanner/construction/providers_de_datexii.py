@@ -32,7 +32,12 @@ if TYPE_CHECKING:
 
 from tripplanner.cache.store import TTLCache
 from tripplanner.construction import matching
-from tripplanner.construction.models import ConstructionProvider, ConstructionZone, Land
+from tripplanner.construction.models import (
+    DEFAULT_ROADWORKS_SPEED_LIMIT_KMH,
+    ConstructionProvider,
+    ConstructionZone,
+    Land,
+)
 from tripplanner.construction.parser import DATEXIIConstructionZoneInternal, parse_datexii_xml
 from tripplanner.geo import geodesic_length_m
 
@@ -55,7 +60,7 @@ NRW_ARBEITSSTELLEN_KD_URL = (
 # (no `delayBand` observed in live data). 80 km/h is the standard real-world
 # default speed limit at active Autobahn roadworks absent more specific
 # data, matching the DK/SE and legacy Autobahn-GmbH defaults.
-_DE_DATEXII_DEFAULT_SPEED_LIMIT_KMH = 80
+_DE_DATEXII_DEFAULT_SPEED_LIMIT_KMH = DEFAULT_ROADWORKS_SPEED_LIMIT_KMH
 
 
 class DatexIIGermanyConstructionProvider(ConstructionProvider):

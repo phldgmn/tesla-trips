@@ -13,10 +13,10 @@ from .models import (
     ChargingCurvePoint,
     ChargingStop,
     InterpolationMethod,
-    LadekurveReferenz,
     SoCState,
     VehicleBatteryParameters,
 )
+from .reference_curves import LadekurveReferenz
 
 __all__ = [
     "ChargingCurve",
