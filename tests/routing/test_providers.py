@@ -63,7 +63,7 @@ class TestMapPathToRoute:
     ) -> None:
         """GraphHopper liefert `road_class` klein geschrieben (z. B. "motorway") -
         wird auf Grossschreibung normalisiert, damit z. B.
-        `construction._extract_autobahn_ids`'s `!= "MOTORWAY"`-Vergleich
+        `providers_de_autobahn._extract_autobahn_ids`'s `!= "MOTORWAY"`-Vergleich
         funktioniert (live gegen den echten GraphHopper-Server verifiziert:
         `road_class` liefert dort tatsaechlich Kleinbuchstaben, nicht wie in
         dieser handgeschriebenen Fixture)."""

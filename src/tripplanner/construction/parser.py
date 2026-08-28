@@ -129,6 +129,7 @@ ROADWORKS_TYPES = frozenset(
     {
         "Roadworks",
         "MaintenanceWorks",
+        "ConstructionWorks",
         "LaneClosed",
         "LaneClosure",
         "TemporarySpeedLimit",
@@ -234,6 +235,14 @@ def _parse_situation_record(sr: ET.Element, land: Land) -> DATEXIIConstructionZo
                         koordinaten = [(lat, lon)]
                     except ValueError:
                         pass
+
+    # NRW Mobilitätsdaten schema variant: posList nested directly under
+    # groupOfLocations (e.g. groupOfLocations/linearExtension/linearExtended/
+    # gmlLineString/posList) rather than under locationReference.
+    if not koordinaten and locations is not None:
+        pos_list_in_group = _find_element(locations, ".//posList")
+        if pos_list_in_group is not None and pos_list_in_group.text:
+            koordinaten = _parse_v3_pos_list(pos_list_in_group.text)
 
     source_elem = _find_element(sr, ".//source")
     umleitungshinweis: str | None = None

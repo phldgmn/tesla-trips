@@ -355,7 +355,7 @@ class GraphHopperRoutingProvider:
             # (e.g. "motorway"), but this codebase's convention (see
             # RouteSegment.strassenklasse docstring, FakeRoutingProvider's
             # hardcoded "PRIMARY"/"OTHER") is uppercase - normalize here so
-            # every consumer (e.g. construction._extract_autobahn_ids's
+            # every consumer (e.g. providers_de_autobahn._extract_autobahn_ids's
             # `!= "MOTORWAY"` check) can compare case-sensitively.
             strassenklasse = (
                 str(strassenklasse_raw).upper() if strassenklasse_raw is not None else "OTHER"

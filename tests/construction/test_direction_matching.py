@@ -9,10 +9,11 @@ the same road. These tests verify:
    (bearing ~180 deg apart) are excluded.
 2. SE zones with an explicit `AffectedDirectionValue` (not "both directions")
    trust the source over the geometry-bearing heuristic.
-3. DE roadworks (point-only, no direction data in source) are unaffected by
-   direction filtering - this is a documented data-source limitation.
-4. `laenge_m` is derived from the zone's own LineString geometry (DK/SE) or,
-   absent that, from the span of matched route segments (DE).
+3. `laenge_m` is derived from the zone's own LineString geometry (DK/SE) or,
+   absent that, from the span of matched route segments.
+
+DE roadwork direction-limitation and laenge_m tests (point-only Autobahn GmbH
+data, no direction data in source) live in `test_providers_de_autobahn.py`.
 """
 
 from __future__ import annotations
@@ -20,13 +21,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import httpx
-import pytest
 
 from tripplanner.construction.parser import DATEXIIConstructionZoneInternal
 from tripplanner.construction.providers import (
     ConstructionProviderConfig,
     ConstructionProviderImpl,
-    _parse_autobahn_roadwork,
 )
 from tripplanner.geo import geodesic_length_m
 from tripplanner.routing.models import Route, RouteSegment
@@ -159,53 +158,8 @@ class TestSeAffectedDirectionValue:
         assert ids == []
 
 
-class TestDeDirectionLimitation:
-    """DE roadworks (point-only, no direction data) are unaffected by direction filtering."""
-
-    def test_de_roadwork_opposite_side_of_road_still_matches(self) -> None:
-        """No direction data available for DE -> proximity-only matching still applies."""
-        route = _make_route(bearing=45.0)
-        entry = {
-            "coordinate": {"lat": 50.0005, "long": 9.0005},
-            "impact": {"symbols": ["ARROW_DOWN"]},
-            "display_type": "ROADWORKS",
-            "startTimestamp": "2024-06-01T08:00:00+02:00",
-        }
-
-        zone = _parse_autobahn_roadwork(entry, route)
-
-        assert zone is not None
-        assert zone.betroffene_segmente == [0]
-
-
 class TestLaengeM:
     """`laenge_m` derivation: LineString geometry directly, else matched-segment span."""
-
-    def test_de_roadwork_laenge_m_from_matched_segment_span(self) -> None:
-        """DE (point-only) derives laenge_m from the matched route segment's own length."""
-        route = _make_route(bearing=45.0)
-        entry = {
-            "coordinate": {"lat": 50.0005, "long": 9.0005},
-            "impact": {"symbols": ["ARROW_DOWN"]},
-            "display_type": "ROADWORKS",
-            "startTimestamp": "2024-06-01T08:00:00+02:00",
-        }
-
-        zone = _parse_autobahn_roadwork(entry, route)
-
-        assert zone is not None
-        assert zone.laenge_m == pytest.approx(route.segments[0].laenge_m)
-
-    def test_de_roadwork_no_match_has_no_laenge_m(self) -> None:
-        route = _make_route(bearing=45.0)
-        entry = {
-            "coordinate": {"lat": 52.0, "long": 13.0},
-            "impact": {"symbols": ["ARROW_DOWN"]},
-            "display_type": "ROADWORKS",
-            "startTimestamp": "2024-06-01T08:00:00+02:00",
-        }
-
-        assert _parse_autobahn_roadwork(entry, route) is None
 
     def test_geodesic_length_m_used_directly_for_linestring_zones(self) -> None:
         """Sanity check: the helper used for DK/SE zones matches its own contract."""

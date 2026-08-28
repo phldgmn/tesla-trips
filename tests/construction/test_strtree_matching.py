@@ -5,8 +5,10 @@ These tests verify:
    call, not once per zone / country (fixes O(n*m) perf regression).
 2. DATEX II zones near (but not exactly intersecting) a route segment match
    via distance threshold (fixes DK/SE zero-match display bug).
-3. DE roadwork point matching also uses the shared distance threshold.
-4. Country fetches (DE/DK/SE) are scheduled concurrently via asyncio.gather.
+3. Country fetches (DE/DK/SE) are scheduled concurrently via asyncio.gather.
+
+DE roadwork point-matching (Autobahn GmbH open API) is covered in
+`test_providers_de_autobahn.py`.
 """
 
 from __future__ import annotations
@@ -22,14 +24,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from tripplanner.construction.models import Land
+from tripplanner.construction import matching
+from tripplanner.construction.models import ConstructionZone, Land
 from tripplanner.construction.parser import DATEXIIConstructionZoneInternal
 from tripplanner.construction.providers import (
-    _DE_ROADWORKS_MAX_DISTANCE_M,
     ConstructionProviderConfig,
     ConstructionProviderImpl,
-    _parse_autobahn_roadwork,
+    FakeConstructionProvider,
 )
+from tripplanner.construction.providers_de_autobahn import AutobahnConstructionProvider
 from tripplanner.routing.models import Route, RouteSegment
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "construction"
@@ -95,6 +98,28 @@ def _make_linezone(
     )
 
 
+class _DelayedDeProvider:
+    """Test double for `self._de_provider` that records start/end order and sleeps.
+
+    Isolates `TestConcurrentCountryFetch` from the default DE provider's own
+    implementation (network calls, internal concurrency) so these tests
+    exercise exactly one thing: that `ConstructionProviderImpl.
+    fetch_construction_zones` schedules DE/DK/SE via `asyncio.gather`.
+    """
+
+    def __init__(self, order: list[str], delay: float = 0.05) -> None:
+        self._order = order
+        self._delay = delay
+
+    async def fetch_construction_zones(
+        self, route: Route, laender: list[Land]
+    ) -> list[ConstructionZone]:
+        self._order.append("DE-start")
+        await asyncio.sleep(self._delay)
+        self._order.append("DE-end")
+        return []
+
+
 # ---------------------------------------------------------------------------
 # 1. STRtree built exactly once per fetch_construction_zones() call
 # ---------------------------------------------------------------------------
@@ -103,8 +128,9 @@ class TestStrtreeBuiltOnce:
 
     @pytest.mark.asyncio
     async def test_strtree_construction_count_de(self) -> None:
-        """DE path: one STRtree per fetch_construction_zones call."""
+        """DE path (Autobahn GmbH revert provider): one STRtree per call, owned by it."""
         provider = _make_provider()
+        provider._de_provider = AutobahnConstructionProvider(client=provider._client)
         route = _make_n_segments(200)
         # Give each segment a strassenref so _extract_autobahn_ids finds A 1 and A 9
         for i, seg in enumerate(route.segments):
@@ -129,7 +155,9 @@ class TestStrtreeBuiltOnce:
 
         provider._client.get = AsyncMock(side_effect=get_side)
 
-        with patch("tripplanner.construction.providers.STRtree", autospec=True) as MockSTRtree:
+        # DE-only request: ConstructionProviderImpl skips its own STRtree build
+        # (only needed for DK/SE); the Autobahn provider builds exactly one.
+        with patch("tripplanner.construction.matching.STRtree", autospec=True) as MockSTRtree:
             MockSTRtree.return_value = MagicMock()
             zones = await provider.fetch_construction_zones(route, [Land.DE])
 
@@ -142,7 +170,7 @@ class TestStrtreeBuiltOnce:
         provider = _make_provider()
         route = _make_n_segments(200)
 
-        with patch("tripplanner.construction.providers.STRtree", autospec=True) as MockSTRtree:
+        with patch("tripplanner.construction.matching.STRtree", autospec=True) as MockSTRtree:
             MockSTRtree.return_value = MagicMock()
 
             mock_resp = MagicMock(spec=httpx.Response)
@@ -155,15 +183,7 @@ class TestStrtreeBuiltOnce:
                 "expires_in": 3600,
             }
 
-            async def get_side(url: str, **kw: Any):
-                if "verkehr.autobahn.de" in url:
-                    mr = MagicMock(spec=httpx.Response)
-                    mr.raise_for_status = MagicMock()
-                    mr.json = MagicMock(return_value={"roadworks": []})
-                    return mr
-                return mock_resp
-
-            provider._client.get = AsyncMock(side_effect=get_side)
+            provider._client.get = AsyncMock(return_value=mock_resp)
             provider._client.post = AsyncMock(return_value=token_resp)
 
             await provider.fetch_construction_zones(route, [Land.DK])
@@ -171,13 +191,16 @@ class TestStrtreeBuiltOnce:
 
     @pytest.mark.asyncio
     async def test_strtree_construction_count_multi_country(self) -> None:
-        """DE+DK+SE: still only one STRtree per overall fetch call."""
-        provider = _make_provider()
-        route = _make_n_segments(200)
+        """DE+DK+SE: ConstructionProviderImpl still builds only one STRtree, for DK/SE.
 
-        mock_de_resp = MagicMock(spec=httpx.Response)
-        mock_de_resp.raise_for_status = MagicMock()
-        mock_de_resp.json = MagicMock(return_value={"roadworks": []})
+        DE is delegated to `self._de_provider` (a `FakeConstructionProvider`
+        here, isolating this test from the default NRW provider's own,
+        independently-owned spatial index — see `test_providers_de_datexii.py`
+        and `test_providers_de_autobahn.py` for DE-specific STRtree coverage).
+        """
+        provider = _make_provider()
+        provider._de_provider = FakeConstructionProvider([])
+        route = _make_n_segments(200)
 
         mock_dk_resp = MagicMock(spec=httpx.Response)
         mock_dk_resp.raise_for_status = MagicMock()
@@ -195,20 +218,15 @@ class TestStrtreeBuiltOnce:
         token_resp = MagicMock(spec=httpx.Response)
         token_resp.json.return_value = {"access_token": "tok", "expires_in": 3600}
 
-        async def get_side(url: str, **kw: Any):
-            if "verkehr.autobahn.de" in url:
-                return mock_de_resp
-            return mock_dk_resp
-
         async def post_side(url: str, **kw: Any):
             if "login.microsoftonline.com" in url:
                 return token_resp
             return mock_se_resp
 
-        provider._client.get = AsyncMock(side_effect=get_side)
+        provider._client.get = AsyncMock(return_value=mock_dk_resp)
         provider._client.post = AsyncMock(side_effect=post_side)
 
-        with patch("tripplanner.construction.providers.STRtree", autospec=True) as MockSTRtree:
+        with patch("tripplanner.construction.matching.STRtree", autospec=True) as MockSTRtree:
             MockSTRtree.return_value = MagicMock()
             await provider.fetch_construction_zones(route, [Land.DE, Land.DK, Land.SE])
 
@@ -253,37 +271,6 @@ class TestNearMatchDistanceThreshold:
 
 
 # ---------------------------------------------------------------------------
-# 3. DE roadwork near segment matches via shared distance threshold
-# ---------------------------------------------------------------------------
-class TestDEDistanceThreshold:
-    """DE roadwork point matching also uses the shared distance threshold."""
-
-    def test_de_roadwork_near_segment_matches(self) -> None:
-        """DE roadwork within threshold but not at vertex should match."""
-        route = _make_n_segments(1, spacing_deg=0.01)
-        entry = {
-            "coordinate": {"lat": 50.0015, "long": 9.0},
-            "impact": {"symbols": ["ARROW_DOWN"]},
-            "display_type": "ROADWORKS",
-            "startTimestamp": "2024-06-01T08:00:00+02:00",
-        }
-        zone = _parse_autobahn_roadwork(entry, route)
-        assert zone is not None
-        assert zone.betroffene_segmente == [0]
-
-    def test_de_roadwork_far_from_segment_no_match(self) -> None:
-        """DE roadwork beyond threshold returns None."""
-        route = _make_n_segments(1, spacing_deg=0.01)
-        entry = {
-            "coordinate": {"lat": 52.0, "long": 13.0},
-            "impact": {"symbols": ["ARROW_DOWN"]},
-            "display_type": "ROADWORKS",
-            "startTimestamp": "2024-06-01T08:00:00+02:00",
-        }
-        assert _parse_autobahn_roadwork(entry, route) is None
-
-
-# ---------------------------------------------------------------------------
 # 4. Concurrency: country fetches scheduled via asyncio.gather
 # ---------------------------------------------------------------------------
 class TestConcurrentCountryFetch:
@@ -293,9 +280,9 @@ class TestConcurrentCountryFetch:
     async def test_fetches_are_concurrent(self) -> None:
         """All three country fetches start before any finishes."""
         provider = _make_provider()
-        route = _make_n_segments(10)
-
         order: list[str] = []
+        provider._de_provider = _DelayedDeProvider(order)
+        route = _make_n_segments(10)
 
         async def _make_mock_response(
             text: str = "", json_data: dict[str, Any] | None = None
@@ -310,16 +297,10 @@ class TestConcurrentCountryFetch:
 
         dk_resp = await _make_mock_response(text=VALID_DK_XML)
         se_resp = await _make_mock_response(json_data={"Situations": []})
-        de_resp = await _make_mock_response(json_data={"roadworks": []})
         token_resp = MagicMock(spec=httpx.Response)
         token_resp.json.return_value = {"access_token": "tok", "expires_in": 3600}
 
         async def get_side(url: str, **kw: Any) -> MagicMock:
-            if "verkehr.autobahn.de" in url:
-                order.append("DE-start")
-                await asyncio.sleep(0.05)
-                order.append("DE-end")
-                return de_resp
             order.append("DK-start")
             await asyncio.sleep(0.05)
             order.append("DK-end")
@@ -353,6 +334,7 @@ class TestConcurrentCountryFetch:
     async def test_concurrent_fetch_timing(self) -> None:
         """Sequential fetches take ~3x longer than concurrent."""
         provider = _make_provider()
+        provider._de_provider = _DelayedDeProvider([])
         route = _make_n_segments(10)
 
         async def _slow_response(delay: float) -> MagicMock:
@@ -366,17 +348,7 @@ class TestConcurrentCountryFetch:
         token_resp = MagicMock(spec=httpx.Response)
         token_resp.json.return_value = {"access_token": "tok", "expires_in": 3600}
 
-        async def get_side(url: str, **kw: Any) -> MagicMock:
-            if "verkehr.autobahn.de" in url:
-                await asyncio.sleep(0.05)
-                return MagicMock(
-                    spec=httpx.Response,
-                    raise_for_status=MagicMock(),
-                    json=MagicMock(return_value={"roadworks": []}),
-                )
-            return slow_resp
-
-        provider._client.get = AsyncMock(side_effect=get_side)
+        provider._client.get = AsyncMock(return_value=slow_resp)
         provider._client.post = AsyncMock(return_value=token_resp)
 
         start = asyncio.get_event_loop().time()
@@ -389,11 +361,8 @@ class TestConcurrentCountryFetch:
     async def test_fetch_construction_zones_uses_gather(self) -> None:
         """fetch_construction_zones uses asyncio.gather for country fetches."""
         provider = _make_provider()
+        provider._de_provider = FakeConstructionProvider([])
         route = _make_n_segments(10)
-
-        mock_de_resp = MagicMock(spec=httpx.Response)
-        mock_de_resp.raise_for_status = MagicMock()
-        mock_de_resp.json = MagicMock(return_value={"roadworks": []})
 
         mock_dk_resp = MagicMock(spec=httpx.Response)
         mock_dk_resp.raise_for_status = MagicMock()
@@ -406,21 +375,14 @@ class TestConcurrentCountryFetch:
         token_resp = MagicMock(spec=httpx.Response)
         token_resp.json.return_value = {"access_token": "tok", "expires_in": 3600}
 
-        async def get_side(url: str, **kw: Any) -> MagicMock:
-            if "verkehr.autobahn.de" in url:
-                return mock_de_resp
-            return mock_dk_resp
-
         async def post_side(url: str, **kw: Any) -> MagicMock:
             if "login.microsoftonline.com" in url:
                 return token_resp
             return se_resp
 
-        provider._client.get = AsyncMock(side_effect=get_side)
+        provider._client.get = AsyncMock(return_value=mock_dk_resp)
         provider._client.post = AsyncMock(side_effect=post_side)
 
-        # DE's inner _fetch_de_roadworks also calls gather (per-Autobahn-ID),
-        # so we expect >= 1 gather call; verify the first one has 3 args.
         original_gather = asyncio.gather
         gather_calls: list[Any] = []
 
@@ -445,11 +407,11 @@ class TestSharedDistanceThreshold:
 
     def test_threshold_constant_exists(self) -> None:
         """A shared threshold constant is defined and importable."""
-        assert _DE_ROADWORKS_MAX_DISTANCE_M > 0
+        assert matching.MAX_DISTANCE_M > 0
 
     def test_threshold_applied_in_dk_se_matching(self) -> None:
-        """DK/SE _match_zones_to_segment_ids uses STRtree + distance, not exact intersects."""
+        """DK/SE _match_zones_to_segment_ids uses shared STRtree distance matching."""
         source = inspect.getsource(ConstructionProviderImpl._match_zones_to_segment_ids)
-        assert "_match_geometry_to_segments" in source, (
-            "DK/SE matching should delegate to _match_geometry_to_segments (STRtree)"
+        assert "matching.match_zones_to_segment_ids" in source, (
+            "DK/SE matching should delegate to matching.match_zones_to_segment_ids (STRtree)"
         )

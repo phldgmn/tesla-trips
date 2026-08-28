@@ -671,7 +671,7 @@ def _log_step(
 # single marker (with multiple `events`) for map display, so the user isn't
 # shown near-duplicate pins for closely-spaced roadwork records on the same
 # stretch of road. Deliberately larger than
-# `construction.providers._DE_ROADWORKS_MAX_DISTANCE_M` (which answers "is
+# `construction.matching.MAX_DISTANCE_M` (which answers "is
 # this roadwork actually on the route at all") - this constant instead
 # answers "are two on-route roadworks close enough to show as one marker".
 _CONSTRUCTION_ZONE_MERGE_DISTANCE_M = 5000.0

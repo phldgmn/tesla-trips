@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<d2LogicalModel xmlns="http://datex2.eu/schema/2/2_0" modelBaseVersion="2">
+    <exchange>
+        <supplierIdentification>
+            <country>de</country>
+            <nationalIdentifier>NRW</nationalIdentifier>
+        </supplierIdentification>
+    </exchange>
+    <payloadPublication xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="SituationPublication" lang="DE">
+        <publicationTime>2026-08-28T02:01:11+02:00</publicationTime>
+        <publicationCreator>
+            <country>de</country>
+            <nationalIdentifier>NRW</nationalIdentifier>
+        </publicationCreator>
+        <situation id="DE-MIA#2024-054397#1" version="51">
+            <headerInformation>
+                <confidentiality>noRestriction</confidentiality>
+                <informationStatus>real</informationStatus>
+            </headerInformation>
+            <situationRecord xsi:type="MaintenanceWorks" id="7581671-7586310-7586311-7586316" version="0">
+                <situationRecordCreationTime>2024-11-11T12:06:49Z</situationRecordCreationTime>
+                <situationRecordVersionTime>2025-01-09T13:46:46Z</situationRecordVersionTime>
+                <probabilityOfOccurrence>certain</probabilityOfOccurrence>
+                <validity>
+                    <validityStatus>definedByValidityTimeSpec</validityStatus>
+                    <validityTimeSpecification>
+                        <overallStartTime>2024-11-18T07:00:00Z</overallStartTime>
+                        <overallEndTime>2024-11-26T15:00:00Z</overallEndTime>
+                    </validityTimeSpecification>
+                </validity>
+                <impact>
+                    <numberOfLanesRestricted>0</numberOfLanesRestricted>
+                    <originalNumberOfLanes>2</originalNumberOfLanes>
+                </impact>
+                <generalPublicComment>
+                    <comment>
+                        <values>
+                            <value>Vermessungsarbeiten Betonstrecke RiFa Goerlitz</value>
+                        </values>
+                    </comment>
+                </generalPublicComment>
+                <groupOfLocations xsi:type="Linear">
+                    <linearExtension>
+                        <linearExtended>
+                            <gmlLineString>
+                                <srsName>WGS84 EPSG 4326</srsName>
+                                <posList>51.210673 14.553138 51.210674 14.553149 51.211490 14.567740</posList>
+                            </gmlLineString>
+                        </linearExtended>
+                    </linearExtension>
+                </groupOfLocations>
+                <actionPlanIdentifier>U1</actionPlanIdentifier>
+                <roadworksDuration>shortTerm</roadworksDuration>
+            </situationRecord>
+        </situation>
+        <situation id="DE-MIA#2024-099999#1" version="3">
+            <situationRecord xsi:type="ConstructionWorks" id="9000000-9000001" version="0">
+                <situationRecordCreationTime>2025-01-01T09:00:00Z</situationRecordCreationTime>
+                <validity>
+                    <validityStatus>definedByValidityTimeSpec</validityStatus>
+                    <validityTimeSpecification>
+                        <overallStartTime>2025-02-01T05:00:00Z</overallStartTime>
+                        <overallEndTime>2025-02-10T18:00:00Z</overallEndTime>
+                    </validityTimeSpecification>
+                </validity>
+                <groupOfLocations xsi:type="Linear">
+                    <linearExtension>
+                        <linearExtended>
+                            <gmlLineString>
+                                <srsName>WGS84 EPSG 4326</srsName>
+                                <posList>48.357943 7.797467 48.357985 7.797550</posList>
+                            </gmlLineString>
+                        </linearExtended>
+                    </linearExtension>
+                </groupOfLocations>
+                <roadworksDuration>longTerm</roadworksDuration>
+            </situationRecord>
+        </situation>
+    </payloadPublication>
+</d2LogicalModel>

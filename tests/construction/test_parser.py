@@ -27,6 +27,12 @@ def denmark_xml() -> str:
     return (FIXTURES_DIR / "datexii_denmark_lane_closure.xml").read_text()
 
 
+@pytest.fixture
+def nrw_arbeitsstellen_xml() -> str:
+    """Lese NRW-Mobilitätsdaten-Arbeitsstellen-Fixture (posList unter groupOfLocations)."""
+    return (FIXTURES_DIR / "nrw_arbeitsstellen_autobahn_example.xml").read_text()
+
+
 def test_parse_datexii_germany(germany_xml: str) -> None:
     """Parse einer deutschen DATEX II Nachricht."""
     zones = parse_datexii_xml(germany_xml, Land.DE)
@@ -46,6 +52,35 @@ def test_parse_datexii_germany(germany_xml: str) -> None:
 
     assert len(zone.koordinaten) >= 2
     assert zone.tempolimit_kmh == 80
+
+
+def test_parse_datexii_nrw_arbeitsstellen(nrw_arbeitsstellen_xml: str) -> None:
+    """Parse NRW Mobilitätsdaten Arbeitsstellen: posList nested under groupOfLocations.
+
+    Unlike the generic `datexii_germany_roadworks_example.xml` fixture (which
+    uses `geographicPosition`/`latitude`+`longitude`), the real NRW feed
+    places its LineString geometry at
+    `groupOfLocations/linearExtension/linearExtended/gmlLineString/posList`
+    rather than under `locationReference` — this exercises the fallback
+    added for that schema variant.
+    """
+    zones = parse_datexii_xml(nrw_arbeitsstellen_xml, Land.DE)
+
+    assert len(zones) == 2
+
+    maintenance_zone = next(z for z in zones if z.sperrungstyp == "MaintenanceWorks")
+    assert maintenance_zone.koordinaten == [
+        (51.210673, 14.553138),
+        (51.210674, 14.553149),
+        (51.21149, 14.56774),
+    ]
+    assert maintenance_zone.gueltig_von.isoformat() == "2024-11-18T07:00:00+00:00"
+    assert maintenance_zone.gueltig_bis is not None
+    assert maintenance_zone.gueltig_bis.isoformat() == "2024-11-26T15:00:00+00:00"
+    assert maintenance_zone.tempolimit_kmh is None
+
+    construction_zone = next(z for z in zones if z.sperrungstyp == "ConstructionWorks")
+    assert len(construction_zone.koordinaten) == 2
 
 
 def test_parse_datexii_denmark(denmark_xml: str) -> None:
