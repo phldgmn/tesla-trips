@@ -113,10 +113,22 @@ class OptimizationConstraints(BaseModel):
             "bleibt unverändert verfügbar, siehe `_add_drive_edge`)."
         ),
     )
+    max_lade_soc_pct: float = Field(
+        default=100.0,
+        ge=0.0,
+        le=100.0,
+        description=(
+            "Global upper limit for the target SoC at regular charging stops "
+            "(Supercharger stations). 100.0 = disabled (behavior unchanged). "
+            "Applies ONLY to automatic charging stops - charging at waypoints "
+            "(Waypoint.ladeleistung_kw) and fixed charge durations "
+            "(ladedauer_vorgaben) are deliberately NOT capped."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_mindest_ladezeit_unter_max(self) -> OptimizationConstraints:
-        """Validiert, dass die Mindest- die Maximaldauer nicht überschreitet."""
+        """Validates that the minimum charge duration does not exceed the maximum."""
         if self.mindest_ladezeit_s > self.max_ladezeit_s:
             raise PydanticCustomError(
                 "mindest_ladezeit_zu_hoch",

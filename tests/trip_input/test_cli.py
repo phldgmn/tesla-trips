@@ -348,6 +348,54 @@ class TestCliCommand:
 
         assert result.exit_code != 0
 
+    def test_cli_invalid_max_lade_soc_pct(self) -> None:
+        """Test: Max. Lade-SoC außerhalb Bereich -> Exit Code != 0."""
+        result = runner.invoke(
+            app,
+            [
+                "trips",
+                "--start",
+                "52.5200,13.4050",
+                "--destination",
+                "53.5511,9.9937",
+                "--departure-time",
+                "2026-08-15T08:00:00",
+                "--max-lade-soc-pct",
+                "150.0",  # > 100
+            ],
+        )
+
+        assert result.exit_code != 0
+
+    def test_cli_max_lade_soc_pct_wird_weitergereicht(self, mock_trip_result: MagicMock) -> None:
+        """Test: `--max-lade-soc-pct` wird an `create_trip_simulation`
+        durchgereicht."""
+        with patch(
+            "tripplanner.trip_input.cli.create_trip_simulation",
+            new_callable=AsyncMock,
+            return_value=mock_trip_result,
+        ) as mock_sim:
+            result = runner.invoke(
+                app,
+                [
+                    "trips",
+                    "--start",
+                    "52.5200,13.4050",
+                    "--destination",
+                    "53.5511,9.9937",
+                    "--departure-time",
+                    "2026-08-15T08:00:00",
+                    "--offline",
+                    "--max-lade-soc-pct",
+                    "75.0",
+                ],
+            )
+
+            assert result.exit_code == 0, (
+                f"Unerwarteter Exit Code: {result.exit_code}, stderr: {result.stderr}"
+            )
+            assert mock_sim.call_args.kwargs["max_lade_soc_pct"] == 75.0
+
     def test_cli_missing_required_args(self) -> None:
         """Test: Fehlende Pflichtargumente -> Exit Code != 0 (Typer usage error)."""
         result = runner.invoke(

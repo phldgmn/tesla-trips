@@ -101,6 +101,14 @@ def trips(  # noqa: PLR0913, PLR0917
             help="Minimale Dauer eines Ladevorgangs in Sekunden, wenn geladen wird",
         ),
     ] = 600,
+    max_lade_soc_pct: Annotated[
+        float,
+        typer.Option(
+            min=0.0,
+            max=100.0,
+            help="Maximaler Ladeziel-SoC an regulären Ladehalten in Prozent (100 = deaktiviert)",
+        ),
+    ] = 100.0,
     vehicle_profile: Annotated[
         str,
         typer.Option(help="Fahrzeugprofilname currently unused"),
@@ -178,6 +186,7 @@ def trips(  # noqa: PLR0913, PLR0917
                     destination_soc_pct=destination_soc_pct,
                     mindest_ankunfts_soc_pct=mindest_ankunfts_soc_pct,
                     mindest_ladezeit_s=mindest_ladezeit_s,
+                    max_lade_soc_pct=max_lade_soc_pct,
                     weather_detail=weather_detail,
                 )
             providers = await build_production_providers()
@@ -192,6 +201,7 @@ def trips(  # noqa: PLR0913, PLR0917
                 destination_soc_pct=destination_soc_pct,
                 mindest_ankunfts_soc_pct=mindest_ankunfts_soc_pct,
                 mindest_ladezeit_s=mindest_ladezeit_s,
+                max_lade_soc_pct=max_lade_soc_pct,
                 weather_detail=weather_detail,
             )
 

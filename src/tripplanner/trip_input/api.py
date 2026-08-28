@@ -400,6 +400,7 @@ async def _step_8_optimize_charging_plan(  # noqa: PLR0913, PLR0917
     ladedauer_vorgaben: dict[str, int] | None = None,
     faehr_zeitfenster: dict[int, tuple[int, datetime, datetime]] | None = None,
     mindest_ankunfts_soc_pct: float = 5.0,
+    max_lade_soc_pct: float = 100.0,
     mindest_ladezeit_s: int = 600,
 ) -> ChargingPlan:
     """Step 8: Determine the optimal charging plan.
@@ -412,12 +413,12 @@ async def _step_8_optimize_charging_plan(  # noqa: PLR0913, PLR0917
     across every weather/ETA-convergence iteration.
     """
     optimizer = create_networkx_optimizer()
-
     constraints = OptimizationConstraints(
         ziel_soc_pct=ziel_soc_pct,
         max_ladezeit_s=3600,
         mindest_ankunfts_soc_pct=mindest_ankunfts_soc_pct,
         mindest_ladezeit_s=mindest_ladezeit_s,
+        max_lade_soc_pct=max_lade_soc_pct,
     )
 
     waypoints = list(zwischenstopps) if zwischenstopps else []
@@ -760,6 +761,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
     destination_soc_pct: float = 20.0,
     mindest_ankunfts_soc_pct: float = 5.0,
     mindest_ladezeit_s: int = 600,
+    max_lade_soc_pct: float = 100.0,
     max_iterations: int = 3,
     convergence_threshold_minutes: float = 30.0,
     route_observer: Callable[[Route], None] | None = None,
@@ -785,6 +787,9 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
         mindest_ladezeit_s: Minimum duration of a charging stop, if any
             charging happens there at all (Default: 600s / 10 min). See
             `OptimizationConstraints.mindest_ladezeit_s`.
+        max_lade_soc_pct: Upper limit for the target SoC at regular charging
+            stops (Supercharger stations), in percent. 100.0 = disabled. See
+            `OptimizationConstraints.max_lade_soc_pct`.
         max_iterations: Max iterations for iterative ETA/weather convergence.
             Default: 3.
         convergence_threshold_minutes: Convergence threshold in minutes for early
@@ -965,6 +970,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
                 faehr_zeitfenster=ferry_pins,
                 mindest_ankunfts_soc_pct=mindest_ankunfts_soc_pct,
                 mindest_ladezeit_s=mindest_ladezeit_s,
+                max_lade_soc_pct=max_lade_soc_pct,
             )
 
         # Update ETA with charging plan
@@ -1456,6 +1462,15 @@ class TripRequestAPI(BaseModel):
             "Ladehalt an sich zu erzwingen)"
         ),
     )
+    max_lade_soc_pct: float = Field(
+        100.0,
+        ge=0.0,
+        le=100.0,
+        description=(
+            "Upper limit for the target SoC at regular charging stops "
+            "(Supercharger stations) in percent. 100.0 = disabled."
+        ),
+    )
     praeferenzen: dict[str, object] = Field(default_factory=dict, description="Nutzerpräferenzen")
     alle_faehren_vermeiden: bool = Field(
         default=False, description="Falls True, werden alle Fährverbindungen vermieden"
@@ -1848,6 +1863,7 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
             destination_soc_pct=request.ziel_soc_pct,
             mindest_ankunfts_soc_pct=request.mindest_ankunfts_soc_pct,
             mindest_ladezeit_s=request.mindest_ladezeit_s,
+            max_lade_soc_pct=request.max_lade_soc_pct,
             ferry_observer=_faehren_erfassen,
             route_observer=_route_erfassen,
         )

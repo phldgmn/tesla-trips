@@ -625,6 +625,48 @@ async def test_create_trip_simulation_mindest_ladezeit_s_verhindert_kurze_ladeha
 
 
 @pytest.mark.asyncio
+async def test_create_trip_simulation_max_lade_soc_pct_begrenzt_ladeziele(
+    valid_trip_request: dict,
+    fake_routing_provider: FakeRoutingProvider,
+    fake_weather_provider: FakeWeatherProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
+) -> None:
+    """`max_lade_soc_pct` deckelt das Ziel-SoC an allen regelhaften Ladehalten
+    (siehe `OptimizationConstraints.max_lade_soc_pct`).
+
+    Praemisse: OHNE Cap (Default 100.0) erzeugt das Berlin -> Muenchen-
+    Szenario mindestens einen Ladehalt mit Ziel-SoC > 60%; MIT Cap 60.0
+    liegen alle Ziel-SoC-Werte <= 60.
+    """
+    ohne_cap = await create_trip_simulation(
+        valid_trip_request,
+        routing_provider=fake_routing_provider,
+        weather_provider=fake_weather_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
+        start_soc_pct=80.0,
+        destination_soc_pct=20.0,
+        mindest_ladezeit_s=0,
+    )
+    assert any(stop.ziel_soc_pct > 60.0 for stop in ohne_cap.charging_stops), (
+        "Testpraemisse nicht erfuellt: ohne Cap muss mindestens ein "
+        "Ladehalt ueber 60% aufladen, sonst testet dieser Test nichts."
+    )
+
+    mit_cap = await create_trip_simulation(
+        valid_trip_request,
+        routing_provider=fake_routing_provider,
+        weather_provider=fake_weather_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
+        start_soc_pct=80.0,
+        destination_soc_pct=20.0,
+        mindest_ladezeit_s=0,
+        max_lade_soc_pct=60.0,
+    )
+    assert len(mit_cap.charging_stops) > 0
+    assert all(stop.ziel_soc_pct <= 60.0 + 1e-6 for stop in mit_cap.charging_stops)
+
+
+@pytest.mark.asyncio
 async def test_create_trip_simulation_kurze_reise(
     fake_routing_provider: FakeRoutingProvider,
     fake_weather_provider: FakeWeatherProvider,
@@ -1804,6 +1846,50 @@ def test_fastapi_endpoint_mindest_ladezeit_s_out_of_range_rejected(
         "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
         "praeferenzen": {},
         "mindest_ladezeit_s": 5000,
+    }
+
+    response = client.post("/trips", json=api_request)
+
+    assert response.status_code == 422
+
+
+def test_fastapi_endpoint_custom_max_lade_soc_pct(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """Test: FastAPI-Endpunkt akzeptiert `max_lade_soc_pct` und deckelt damit
+    das Ziel-SoC aller regelhaften Ladehalte (siehe
+    `TripRequestAPI.max_lade_soc_pct`, Default 100.0)."""
+    api_request = {
+        "start": valid_trip_request["start"],
+        "ziel": valid_trip_request["ziel"],
+        "zwischenstopps": [],
+        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "praeferenzen": {},
+        "max_lade_soc_pct": 60.0,
+    }
+
+    response = client.post("/trips", json=api_request)
+
+    assert response.status_code == 201
+    charging_stops = response.json()["charging_stops"]
+    assert len(charging_stops) > 0
+    for stop in charging_stops:
+        assert stop["ziel_soc_pct"] <= 60.0 + 1e-6
+
+
+def test_fastapi_endpoint_max_lade_soc_pct_out_of_range_rejected(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """Test: `max_lade_soc_pct` außerhalb [0, 100] liefert 422."""
+    api_request = {
+        "start": valid_trip_request["start"],
+        "ziel": valid_trip_request["ziel"],
+        "zwischenstopps": [],
+        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "praeferenzen": {},
+        "max_lade_soc_pct": 150.0,
     }
 
     response = client.post("/trips", json=api_request)

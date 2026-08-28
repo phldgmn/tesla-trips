@@ -1030,6 +1030,7 @@ class NetworkXOptimizer(OptimizerInterface):
                 ladekurve=ladekurve,
                 batteriekapazitaet_kwh=vehicle_profile.batteriekapazitaet_kwh,
                 mindest_ladezeit_s=float(constraints.mindest_ladezeit_s),
+                max_lade_soc_pct=min(MAX_SOC_PCT, constraints.max_lade_soc_pct),
             )
             for Ziel_soc in Ziel_soc_values:
                 if Ziel_soc <= ankunft_soc_pct:
@@ -1111,7 +1112,8 @@ class NetworkXOptimizer(OptimizerInterface):
         Folgezustand "strahlt" so automatisch auf die Wahl am fruehreren
         Halt zurueck, weil dessen Gesamtkosten die Folgekosten einschliessen).
         """
-        kandidaten: set[float] = {MAX_SOC_PCT}
+        cap_soc_pct = min(MAX_SOC_PCT, constraints.max_lade_soc_pct)
+        kandidaten: set[float] = {cap_soc_pct}
         if constraints.ziel_soc_pct > ankunft_soc_pct:
             kandidaten.add(constraints.ziel_soc_pct)
 
@@ -1138,15 +1140,16 @@ class NetworkXOptimizer(OptimizerInterface):
             if punkt.soc_pct > ankunft_soc_pct:
                 kandidaten.add(punkt.soc_pct)
 
-        return sorted(v for v in kandidaten if ankunft_soc_pct < v <= MAX_SOC_PCT)
+        return sorted(v for v in kandidaten if ankunft_soc_pct < v <= cap_soc_pct)
 
-    def _kandidaten_mit_mindestladedauer(
+    def _kandidaten_mit_mindestladedauer(  # noqa: PLR0913, PLR0917 -- Mindestdauer-Streckung braucht Ladekurve, Kapazität, Mindestdauer und Cap
         self,
         kandidaten: list[float],
         ankunft_soc_pct: float,
         ladekurve: ChargingCurve,
         batteriekapazitaet_kwh: float,
         mindest_ladezeit_s: float,
+        max_lade_soc_pct: float = 100.0,
     ) -> list[float]:
         """Hebt Kandidaten, deren Ladezeit unter `mindest_ladezeit_s` läge, auf das SoC an.
 
@@ -1185,7 +1188,7 @@ class NetworkXOptimizer(OptimizerInterface):
                     batteriekapazitaet_kwh=batteriekapazitaet_kwh,
                 )
             if ziel_gestreckt > ankunft_soc_pct:
-                angepasst.add(min(ziel_gestreckt, MAX_SOC_PCT))
+                angepasst.add(min(ziel_gestreckt, max_lade_soc_pct))
 
         return sorted(angepasst)
 

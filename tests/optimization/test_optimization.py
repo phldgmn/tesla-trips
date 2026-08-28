@@ -32,6 +32,7 @@ from tripplanner.optimization.discretizer import (
     time_to_bucket,
 )
 from tripplanner.optimization.models import (
+    ChargingStop,
     DetourKosten,
     OptimizationConstraints,
 )
@@ -1889,3 +1890,192 @@ class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
         )
 
         assert zeit_s == pytest.approx(82.3, abs=0.5)
+
+
+class TestMaxChargeSocCapsRegularStops:
+    """Tests for `OptimizationConstraints.max_lade_soc_pct`: the global
+    cap on the target SoC of regular charging stops (Supercharger stations).
+    Default 100.0 = disabled (behavior unchanged).
+
+    Deliberately excluded:
+    - `ladedauer_vorgaben` (explicit user decision, analogous to the
+      unbounded `max_ladezeit_s`, see `_add_charging_edges`)
+    - charging at waypoints (`Waypoint.ladeleistung_kw`)
+    """
+
+    def _optimiere(self, max_lade_soc_pct: float | None) -> list[ChargingStop]:
+        """Runs the proven six-segment scenario with the given cap.
+
+        Scenario premise (verified against the uncapped run): the natural
+        plan charges at station-3 (arr=18.7, target=30.0), station-4
+        (arr=9.1, target=33.2) and station-5 (arr=5.0, target=43.3) - so a
+        cap of 30% must remove the uncapped plan while keeping a feasible,
+        cheaper alternative (charging earlier at station-2).
+        """
+        szenario = TestGraphKonstruktionFindetDijkstraOptimum()
+        route, gradients, energy_results, stations, vehicle_profile = (
+            szenario._sechs_segmente_szenario()
+        )
+        constraints_kwargs: dict[str, float | int] = {
+            "min_soc_pct": 10.0,
+            "ziel_soc_pct": 10.0,
+            "mindest_ladezeit_s": 0,
+        }
+        if max_lade_soc_pct is not None:
+            constraints_kwargs["max_lade_soc_pct"] = max_lade_soc_pct
+        optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=20)
+        plan = optimizer.optimize(
+            route=route,
+            segments=route.segments,
+            gradients=gradients,
+            energy_results=energy_results,
+            charging_stations=stations,
+            waypoints=[],
+            vehicle_profile=vehicle_profile,
+            constraints=OptimizationConstraints(**constraints_kwargs),
+            start_soc_pct=100.0,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+        )
+        return list(plan.ladehalte)
+
+    def test_without_cap_behavior_is_unchanged(self) -> None:
+        """Default (no cap): the natural plan from the scenario premise."""
+        halte = self._optimiere(None)
+        assert [(s.station.station_id, round(s.ziel_soc_pct, 1)) for s in halte] == [
+            ("station-3", 30.0),
+            ("station-4", 33.2),
+            ("station-5", 43.3),
+        ]
+
+    def test_cap_is_a_hard_constraint(self) -> None:
+        """The cap is hard: a cap below the physically required charging
+        target (station-5 must reach 43.3% to clear the final 33.3 kWh leg
+        with the 10% minimum) leaves no feasible plan, so the optimizer
+        reports the trip as undrivable."""
+        with pytest.raises(ValueError, match="Route nicht fahrbar"):
+            self._optimiere(40.0)
+
+    def test_cap_at_or_above_physical_minimum_leaves_plan_unchanged(self) -> None:
+        """A cap at/above the natural charging target does not alter the
+        plan (43.3% < 43.4% cap): the natural plan is already minimal."""
+        halte = self._optimiere(43.4)
+        assert [(s.station.station_id, round(s.ziel_soc_pct, 1)) for s in halte] == [
+            ("station-3", 30.0),
+            ("station-4", 33.2),
+            ("station-5", 43.3),
+        ]
+
+    def test_cap_does_not_affect_charging_at_waypoints(self) -> None:
+        """`max_lade_soc_pct` affects ONLY regular charging stops:
+        charging at a waypoint (`ladeleistung_kw` during a forced wait) is
+        unaffected - it keeps charging to its (uncapped) target SoC."""
+        szenario = TestZwischenstoppErzwingtWartezeit()
+        route, energy_results, vehicle_profile = szenario._basis_szenario()
+        constraints = OptimizationConstraints(
+            min_soc_pct=15.0,
+            ziel_soc_pct=35.0,
+            max_lade_soc_pct=30.0,
+            mindest_ladezeit_s=0,
+        )
+        optimizer = create_networkx_optimizer()
+        abfahrtszeit = datetime(2026, 8, 30, 6, 15, 0)
+        wp = Waypoint(
+            koordinate=(52.5, 12.5),
+            geplante_abfahrt=abfahrtszeit + timedelta(hours=2),
+            ladeleistung_kw=11.0,
+        )
+
+        plan = optimizer.optimize(
+            route=route,
+            segments=route.segments,
+            gradients=[],
+            energy_results=energy_results,
+            charging_stations=[],
+            waypoints=[wp],
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+            start_soc_pct=50.0,
+            abfahrtszeit=abfahrtszeit,
+        )
+
+        aufenthalte = plan.zwischenstopp_aufenthalte
+        assert len(aufenthalte) == 1
+        # 2h of wallbox charging raises the SoC to ~64% - well above the
+        # 30% cap that applies to regular stops only.
+        assert aufenthalte[0].ladeleistung_kw == 11.0
+        assert aufenthalte[0].ziel_soc_pct > 60.0
+
+    def test_fixed_charge_duration_override_is_not_capped(self) -> None:
+        """An explicitly fixed charge duration (`ladedauer_vorgaben`) is NOT
+        capped by `max_lade_soc_pct` - consistent with the existing
+        convention for `max_ladezeit_s` (see `_add_charging_edges`): an
+        explicit user decision beats the global limit.
+
+        With a 1h duration fixed on every station, the optimizer picks a
+        single stop at station-3 (arr=18.7, charges to 100%) - far above the
+        30% cap, which must therefore NOT apply here.
+        """
+        szenario = TestGraphKonstruktionFindetDijkstraOptimum()
+        route, gradients, energy_results, stations, vehicle_profile = (
+            szenario._sechs_segmente_szenario()
+        )
+        constraints = OptimizationConstraints(
+            min_soc_pct=10.0,
+            ziel_soc_pct=10.0,
+            max_lade_soc_pct=30.0,
+            mindest_ladezeit_s=0,
+        )
+        optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=20)
+        plan = optimizer.optimize(
+            route=route,
+            segments=route.segments,
+            gradients=gradients,
+            energy_results=energy_results,
+            charging_stations=stations,
+            waypoints=[],
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+            start_soc_pct=100.0,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            ladedauer_vorgaben={f"station-{i}": 3600 for i in range(1, 6)},
+        )
+
+        assert plan.ladehalte
+        assert all(s.ziel_soc_pct > 60.0 for s in plan.ladehalte)
+
+
+class TestMaxChargeSocStretchClamping:
+    """`_kandidaten_mit_mindestladedauer` stretches candidates whose charge
+    time would fall below the minimum duration - the result MUST stay
+    clamped to `max_lade_soc_pct` (the charge limit is hard, the minimum
+    duration only soft)."""
+
+    def test_stretched_target_is_clamped_to_cap(self) -> None:
+        optimizer = create_networkx_optimizer()
+        ladekurve = LadekurveReferenz.model_3_sr()
+        # 70% from 20% (60 kWh) takes well under 2400s, so the candidate is
+        # stretched to the SoC after 2400s (~100%) - with a 70% cap the
+        # clamped target must be exactly the cap.
+        ergebnis = optimizer._kandidaten_mit_mindestladedauer(
+            kandidaten=[70.0],
+            ankunft_soc_pct=20.0,
+            ladekurve=ladekurve,
+            batteriekapazitaet_kwh=60.0,
+            mindest_ladezeit_s=2400.0,
+            max_lade_soc_pct=70.0,
+        )
+        assert ergebnis == [70.0]
+
+    def test_without_cap_stretch_is_unchanged(self) -> None:
+        """Without a cap (default) the stretched target stays at ~100%
+        (regression: default behavior unchanged)."""
+        optimizer = create_networkx_optimizer()
+        ladekurve = LadekurveReferenz.model_3_sr()
+        ergebnis = optimizer._kandidaten_mit_mindestladedauer(
+            kandidaten=[70.0],
+            ankunft_soc_pct=20.0,
+            ladekurve=ladekurve,
+            batteriekapazitaet_kwh=60.0,
+            mindest_ladezeit_s=2400.0,
+        )
+        assert ergebnis == [100.0]
