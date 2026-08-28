@@ -591,22 +591,48 @@ class NodriverBrowserFetcher:
         return self._browser
 
     async def _fetch_async(self, url: str) -> tuple[int, str]:
-        """Fuehrt die eigentliche CDP-Navigation in der nodriver-Loop aus."""
-        import base64
+        """Fuehrt die eigentliche CDP-Navigation in der nodriver-Loop aus.
 
+        Der Statuscode stammt vom CDP ``Network.responseReceived``-Event der
+        Haupt-Dokument-Antwort. Der Rohtext wird per
+        ``Network.getResponseBody`` geholt; da Chrome den Body des
+        Hauptdokuments dort in der Regel nicht mehr vorhaelt ("No resource
+        with given identifier"), wird als Fallback je nach MIME-Typ das
+        gerenderte JSON-Text (``document.body.innerText`` - exakt fuer in
+        ``<pre>`` gerenderte JSON-Antworten) bzw. das rohe HTML
+        (``get_content()``, inkl. ``__NEXT_DATA__``-Script-Inhalten) genutzt.
+        """
         from nodriver import cdp
 
         browser = await self._ensure_browser()
         tab = browser.main_tab
 
-        # Status- und Request-ID der Haupt-Dokument-Antwort via Network-Events
-        # einsammeln, BEVOR navigiert wird (sonst verpassen wir die Response).
+        # Status-, MIME- und Request-ID der Haupt-Dokument-Antwort via
+        # Network-Events einsammeln, BEVOR navigiert wird (sonst verpassen
+        # wir die Response).
         captured: dict[str, Any] = {}
 
         def on_response(event: Any) -> None:
-            if getattr(event, "type_", None) == "Document":
-                captured["request_id"] = event.request_id
-                captured["status"] = event.response.status
+            """Capture the main-document response from CDP Network events."""
+            if "status" in captured:
+                return
+            try:
+                # type_ is a ResourceTypes enum (e.g. ResourceTypes.DOCUMENT),
+                # not a plain string, so compare via .value when available.
+                type_val = getattr(event, "type_", None)
+                if type_val is not None:
+                    type_str = getattr(type_val, "value", type_val)
+                    if type_str != "Document":
+                        return
+                req_id = getattr(event, "request_id", None)
+                resp = getattr(event, "response", None)
+                code = getattr(resp, "status", None) if resp is not None else None
+                if req_id is not None and code is not None:
+                    captured["request_id"] = req_id
+                    captured["status"] = int(code)
+                    captured["mime_type"] = str(getattr(resp, "mime_type", "") or "")
+            except Exception:
+                pass
 
         await tab.send(cdp.network.enable())
         tab.add_handler(cdp.network.ResponseReceived, on_response)
@@ -624,6 +650,28 @@ class NodriverBrowserFetcher:
 
         status: int = captured["status"]
         request_id = captured.get("request_id")
+        body = await self._extract_body(tab, captured, request_id)
+        return status, body
+
+    async def _extract_body(
+        self,
+        tab: Any,
+        captured: dict[str, Any],
+        request_id: Any,
+    ) -> str:
+        """Holt den Response-Body via CDP, mit MIME-abhaengigem Fallback.
+
+        Zunaechst ``Network.getResponseBody``; da Chrome den Body des
+        Hauptdokuments dort meist nicht mehr vorhaelt ("No resource with
+        given identifier"), wird je nach MIME-Typ der Rohtext aus dem
+        Dokument abgeleitet: JSON rendert Chrome in <pre>, dort ist
+        ``innerText`` der exakte JSON-Text; bei HTML liefert
+        ``get_content()`` das rohe HTML inkl. der Script-Inhalte
+        (``__NEXT_DATA__``), die ``innerText`` verlieren wuerde.
+        """
+        import base64
+
+        from nodriver import cdp
 
         body = ""
         if request_id is not None:
@@ -633,17 +681,21 @@ class NodriverBrowserFetcher:
                 )
                 if base64_encoded:
                     body = base64.b64decode(raw_body).decode("utf-8", errors="replace")
-                else:
+                elif raw_body:
                     body = raw_body
             except Exception:
-                # Fallback: gerenderten Text auslesen (z.B. JSON als <pre>).
+                body = ""
+        if not body:
+            mime = str(captured.get("mime_type", "")).lower()
+            if "json" in mime:
                 inner = await tab.evaluate(
                     "document.body ? document.body.innerText : ''",
                     return_by_value=True,
                 )
                 body = inner if isinstance(inner, str) else ""
-
-        return status, body
+            else:
+                body = await tab.get_content() or ""
+        return body
 
     def fetch(self, url: str) -> tuple[int, str]:
         """Holt eine URL und liefert (Statuscode, Rohtext) synchron.
