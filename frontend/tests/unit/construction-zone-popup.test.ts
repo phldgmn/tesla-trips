@@ -7,10 +7,14 @@ import {
 import type { ConstructionZone } from "@/types";
 
 /** Hilfsfunktion zum Bauen einer test-ConstructionZone. */
-function makeZone(events: ConstructionZone["events"]): ConstructionZone {
+function makeZone(
+  events: ConstructionZone["events"],
+  laenge_m: number | null = null,
+): ConstructionZone {
   return {
     position: [51.0, 7.0],
     events,
+    laenge_m,
   };
 }
 
@@ -195,18 +199,76 @@ describe("buildConstructionZonePopupHtml", () => {
       expect(html).toContain("</table>");
     });
   });
-});
 
-describe("marker element styles", () => {
-  it("construction zone marker has no inline position or z-index (prevents zoom-drift)", () => {
-    const el = buildConstructionZoneMarkerElement();
-    expect(el.style.position).toBe("");
-    expect(el.style.zIndex).toBe("");
+  describe("length field", () => {
+    it("renders the length when laenge_m is provided", () => {
+      const zone = makeZone(
+        [
+          {
+            sperrungstyp: "fullyClosed",
+            tempolimit_kmh: null,
+            umleitungshinweis: null,
+            land: "DE",
+            gueltig_von: "2026-08-01T00:00:00",
+            gueltig_bis: null,
+          },
+        ],
+        2500,
+      );
+      const html = buildConstructionZonePopupHtml(zone);
+      expect(html).toContain("Länge");
+      expect(html).toContain("2,5 km");
+    });
+
+    it("renders length in meters when laenge_m < 1000", () => {
+      const zone = makeZone(
+        [
+          {
+            sperrungstyp: "partiallyClosed",
+            tempolimit_kmh: null,
+            umleitungshinweis: null,
+            land: "DE",
+            gueltig_von: "2026-08-01T00:00:00",
+            gueltig_bis: null,
+          },
+        ],
+        450,
+      );
+      const html = buildConstructionZonePopupHtml(zone);
+      expect(html).toContain("Länge");
+      expect(html).toContain("450 m");
+    });
+
+    it("does not render length when laenge_m is null", () => {
+      const zone = makeZone(
+        [
+          {
+            sperrungstyp: "fullyClosed",
+            tempolimit_kmh: null,
+            umleitungshinweis: null,
+            land: "DE",
+            gueltig_von: "2026-08-01T00:00:00",
+            gueltig_bis: null,
+          },
+        ],
+        null,
+      );
+      const html = buildConstructionZonePopupHtml(zone);
+      expect(html).not.toContain("Länge");
+    });
   });
 
-  it("charging stop marker has no inline position or z-index", () => {
-    const el = buildChargingStopMarkerElement();
-    expect(el.style.position).toBe("");
-    expect(el.style.zIndex).toBe("");
+  describe("marker element styles", () => {
+    it("construction zone marker has no inline position or z-index (prevents zoom-drift)", () => {
+      const el = buildConstructionZoneMarkerElement();
+      expect(el.style.position).toBe("");
+      expect(el.style.zIndex).toBe("");
+    });
+
+    it("charging stop marker has no inline position or z-index", () => {
+      const el = buildChargingStopMarkerElement();
+      expect(el.style.position).toBe("");
+      expect(el.style.zIndex).toBe("");
+    });
   });
 });

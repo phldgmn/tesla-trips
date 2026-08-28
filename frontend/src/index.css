@@ -1,0 +1,21 @@
+/** Globale Stile fuer das Frontend.
+ *
+ * Hier landen Regel, die ueber Komponenten hinweg gelten — insbesondere
+ * Overrides fuer MapLibre GL JS, das ueber `new maplibregl.Popup()`
+ * inline-HTML in die DOM-Baum einbettet und dort kein CSS-Modul
+ * ansprechen kann. */
+
+/** Baustellen-/Ladehalt-Popups: max-height relativ zum Viewport,
+ *  intern scrollbar, damit lange Popups nicht ueber den Bildschirm
+ *  hinausragen.  Der Scrollbar bleibt sichtbar, das Map-Panning
+ *  wird durch `overscroll-behavior: contain` blockiert. */
+.maplibregl-popup-content {
+  max-height: min(70vh, 400px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/** Pfeil des Popups nicht beschneiden */
+.maplibregl-popup-tip {
+  max-width: 100%;
+}

@@ -435,6 +435,17 @@ export function formatChargingDuration(seconds: number): string {
   const minutes = totalMinutes % 60;
   return hours > 0 ? `${hours}h ${minutes}min` : `${minutes}min`;
 }
+/** Formatiert eine Laenge in Metern: ab 1000 m in km (eine Dezimalstelle),
+ *  darunter als ganze Meter. */
+function formatLaenge(m: number): string {
+  if (m >= 1000) {
+    return `${(m / 1000).toLocaleString("de-DE", {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    })} km`;
+  }
+  return `${m} m`;
+}
 
 /** Popup-HTML fuer einen Ladehalt: Name, Ankunfts-/Ziel-SoC samt Uhrzeit, Dauer, geladene Energie, Preis. */
 export function buildChargingStopPopupHtml(stop: ChargingStop): string {
@@ -621,8 +632,14 @@ export function buildConstructionZonePopupHtml(zone: ConstructionZone): string {
       );
     })
     .join("");
+
+  const lengthRow =
+    zone.laenge_m !== null
+      ? `<div style="margin-bottom:12px;"><strong style="font-size:14px;">Länge</strong><table style="width:100%;border-collapse:collapse;margin-top:4px;"><tr><td style="padding:2px 4px;color:#666;">Länge</td><td style="padding:2px 4px;text-align:right;">${formatLaenge(zone.laenge_m)}</td></tr></table></div>`
+      : "";
   return (
     `<div style="font-family:system-ui,sans-serif;font-size:13px;min-width:190px;">` +
+    `${lengthRow}` +
     `${sections}` +
     `</div>`
   );

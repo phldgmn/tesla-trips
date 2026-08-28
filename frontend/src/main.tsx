@@ -9,6 +9,7 @@
 
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import "./index.css";
 
 // DOM-Element holen und Root erzeugen
 const rootEl = document.getElementById("root");

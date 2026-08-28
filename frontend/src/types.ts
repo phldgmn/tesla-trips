@@ -88,6 +88,8 @@ export interface ConstructionZone {
   position: [number, number];
   /** Liste aller Baustellen-Ereignisse, die zu dieser Marker-Position gemergt wurden */
   events: ConstructionZoneEvent[];
+  /** Laenge der Baustelle in Metern (null wenn nicht bekannt) */
+  laenge_m: number | null;
 }
 
 /** Aggregated estimated charging cost in a single currency
