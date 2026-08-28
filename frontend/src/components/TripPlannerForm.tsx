@@ -152,6 +152,7 @@ export function validateForm(args: {
   startSoc: number;
   mindestAnkunftsSocPct: number;
   mindestLadezeitMin: number;
+  maxLadeSocPct?: number;
   zielSoc: number;
 }): string[] {
   const errors: string[] = [];
@@ -191,6 +192,15 @@ export function validateForm(args: {
     args.mindestAnkunftsSocPct > 100
   ) {
     errors.push("Min. SoC an Ladestationen muss zwischen 0 und 100 % liegen.");
+  }
+  if (
+    args.maxLadeSocPct !== undefined &&
+    (typeof args.maxLadeSocPct !== "number" ||
+      isNaN(args.maxLadeSocPct) ||
+      args.maxLadeSocPct < 0 ||
+      args.maxLadeSocPct > 100)
+  ) {
+    errors.push("Max. Lade-SoC muss zwischen 0 und 100 % liegen.");
   }
 
   return errors;
@@ -587,6 +597,10 @@ export function TripPlannerForm({
     "mindest-ladezeit-s",
     10,
   );
+  const [maxLadeSocPct, setMaxLadeSocPct] = usePersistentState(
+    "max-lade-soc",
+    100,
+  );
   const [alleFaehrenVermeiden, setAlleFaehrenVermeiden] = usePersistentState(
     "alle-faehren-vermeiden",
     false,
@@ -906,6 +920,7 @@ export function TripPlannerForm({
       zielSoc,
       mindestAnkunftsSocPct,
       mindestLadezeitMin,
+      maxLadeSocPct,
     });
 
     if (errors.length > 0) {
@@ -920,6 +935,7 @@ export function TripPlannerForm({
         zielSocPct: zielSoc,
         mindestLadezeitS: mindestLadezeitMin * 60,
         mindestAnkunftsSocPct,
+        maxLadeSocPct,
         praeferenzen: {},
         alleFaehrenVermeiden: alleFaehren,
         vermiedeneFaehren: vermiedene,
@@ -954,6 +970,7 @@ export function TripPlannerForm({
     zielSoc,
     mindestLadezeitMin,
     mindestAnkunftsSocPct,
+    maxLadeSocPct,
   });
 
   // --- Route-Liste: chronologisch sortierte Stopps, Ladehalte und
@@ -1267,6 +1284,35 @@ export function TripPlannerForm({
             >
               Verhindert unnötig kurze Ladehalte - ein Halt dauert entweder gar
               nicht oder mindestens so lange.
+            </small>
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={{ display: "block", marginBottom: "0.25rem" }}>
+              Max. Lade-SoC (%)
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              value={maxLadeSocPct}
+              onChange={(e) =>
+                setMaxLadeSocPct(parseInt(e.target.value, 10) || 0)
+              }
+              style={{ width: "100%", padding: "0.4rem" }}
+            />
+            <small
+              style={{
+                display: "block",
+                fontSize: "0.75rem",
+                color: "#6b7280",
+                marginTop: "0.25rem",
+                lineHeight: "1.3",
+              }}
+            >
+              Obergrenze für den Ladeziel-SoC an regulären Ladestopps - 100
+              deaktiviert die Begrenzung. Laden an Zwischenstopps ist nicht
+              betroffen.
             </small>
           </div>
         </div>

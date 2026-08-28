@@ -135,3 +135,28 @@ describe("buildTripRequestPayload wetter_detailgrad/baustellen_beruecksichtigen 
     expect(payload.wetter_detailgrad).toBe("medium");
   });
 });
+
+describe("buildTripRequestPayload max_lade_soc_pct field", () => {
+  it("defaults max_lade_soc_pct to 100 (uncapped)", () => {
+    const payload = buildTripRequestPayload({
+      stops: makeStops(),
+      fahrzeugprofil: vehicleProfile,
+      startSocPct: 80,
+      zielSocPct: 20,
+    });
+
+    expect(payload.max_lade_soc_pct).toBe(100);
+  });
+
+  it("passes through an explicit maxLadeSocPct value", () => {
+    const payload = buildTripRequestPayload({
+      stops: makeStops(),
+      fahrzeugprofil: vehicleProfile,
+      startSocPct: 80,
+      zielSocPct: 20,
+      maxLadeSocPct: 80,
+    });
+
+    expect(payload.max_lade_soc_pct).toBe(80);
+  });
+});

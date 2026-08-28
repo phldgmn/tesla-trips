@@ -134,6 +134,7 @@ export interface TripRequestPayload {
   ziel_soc_pct: number;
   mindest_ladezeit_s: number;
   mindest_ankunfts_soc_pct: number;
+  max_lade_soc_pct: number;
   alle_faehren_vermeiden: boolean;
   vermiedene_faehren: FerryExclusion[];
   faehr_zeitfenster: FaehrZeitfenster[];
@@ -169,6 +170,7 @@ export function buildTripRequestPayload(args: {
   ladedauerVorgaben?: LadedauerVorgabe[];
   wetterDetailgrad?: WeatherDetailLevel;
   mindestLadezeitS: number;
+  maxLadeSocPct?: number;
   baustellenBeruecksichtigen?: boolean;
 }): TripRequestPayload {
   const { stops } = args;
@@ -219,6 +221,7 @@ export function buildTripRequestPayload(args: {
     ladedauer_vorgaben: args.ladedauerVorgaben ?? [],
     wetter_detailgrad: args.wetterDetailgrad ?? "high",
     mindest_ladezeit_s: args.mindestLadezeitS,
+    max_lade_soc_pct: args.maxLadeSocPct ?? 100,
     baustellen_beruecksichtigen: args.baustellenBeruecksichtigen ?? true,
   };
 }

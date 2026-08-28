@@ -338,6 +338,62 @@ describe("TripPlannerForm pure helpers", () => {
       expect(errors).toContain("Start-SoC muss zwischen 0 und 100 % liegen.");
       expect(errors).toContain("Ziel-SoC muss zwischen 0 und 100 % liegen.");
     });
+
+    it("reports an error when maxLadeSocPct is below 0", () => {
+      const errors = validateForm({
+        stops: berlinToHamburg,
+        startSoc: 80,
+        zielSoc: 30,
+        mindestAnkunftsSocPct: 5,
+        mindestLadezeitMin: 10,
+        maxLadeSocPct: -1,
+      });
+      expect(errors).toContain(
+        "Max. Lade-SoC muss zwischen 0 und 100 % liegen.",
+      );
+    });
+
+    it("reports an error when maxLadeSocPct is above 100", () => {
+      const errors = validateForm({
+        stops: berlinToHamburg,
+        startSoc: 80,
+        zielSoc: 30,
+        mindestAnkunftsSocPct: 5,
+        mindestLadezeitMin: 10,
+        maxLadeSocPct: 150,
+      });
+      expect(errors).toContain(
+        "Max. Lade-SoC muss zwischen 0 und 100 % liegen.",
+      );
+    });
+
+    it("accepts maxLadeSocPct at the boundaries 0 and 100", () => {
+      for (const value of [0, 100]) {
+        const errors = validateForm({
+          stops: berlinToHamburg,
+          startSoc: 80,
+          zielSoc: 30,
+          mindestAnkunftsSocPct: 5,
+          mindestLadezeitMin: 10,
+          maxLadeSocPct: value,
+        });
+        expect(errors).toEqual([]);
+      }
+    });
+
+    it("reports an error when maxLadeSocPct is NaN", () => {
+      const errors = validateForm({
+        stops: berlinToHamburg,
+        startSoc: 80,
+        zielSoc: 30,
+        mindestAnkunftsSocPct: 5,
+        mindestLadezeitMin: 10,
+        maxLadeSocPct: Number.NaN,
+      });
+      expect(errors).toContain(
+        "Max. Lade-SoC muss zwischen 0 und 100 % liegen.",
+      );
+    });
   });
 
   // =========================================================================
