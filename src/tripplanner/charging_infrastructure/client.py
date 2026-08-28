@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextlib
 import importlib
 import json
 import threading
@@ -522,8 +523,8 @@ class NodriverBrowserFetcher:
     ``nodriver`` steuert einen echten Chromium-Browser via CDP und bringt eine
     eigene asyncio-Event-Loop mit, die nicht mit ``asyncio.run()`` oder der
     laufenden FastAPI-Loop kompatibel ist. Dieser Wrapper startet daher einen
-    starten und Anfragen aus dem aufrufenden Thread via
-    ``asyncio.run_coroutine_threadsafe`` hineingereicht.
+    Daemon-Thread mit eigener Event-Loop und reicht Anfragen aus dem
+    aufrufenden Thread via ``asyncio.run_coroutine_threadsafe`` hinein.
 
     Der Browser wird pro Fetcher-Instanz nur einmal gestartet und bei
     ``close()`` wieder beendet (vergleichbar mit der Session-Wiederverwendung
@@ -536,17 +537,23 @@ class NodriverBrowserFetcher:
         """Laesst die eigene Event-Loop des Daemon-Threads laufen."""
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
-        self._loop.run_forever()
-        # Beim Herunterfahren: Browser beenden und Loop schliessen.
-        if self._browser is not None and self._loop is not None:
-            try:
-                # Browser.aclose() ist async und benoetigt eine laufende Loop.
-                self._loop.run_until_complete(self._browser.aclose())
-                # Browser.stop() ist synchron, beendet den Subprozess.
-                self._browser.stop()
-            except Exception:
-                pass
-        self._loop.close()
+        try:
+            self._loop.run_forever()
+        finally:
+            # Sicherungsnetz: Falls _shutdown_browser() nicht (vollstaendig)
+            # laufen durfte, hier noch alle restlichen Tasks (v. a. der
+            # CDP-Listener) abbrechen, bevor die Loop geschlossen wird.
+            # Suspendierte Generatoren ueberlebender Tasks wuerden sonst
+            # beim Python-Interpreter-Abschluss zerrissen und den
+            # Prozess-Exit blockieren (Hang in gc_collect_main).
+            loop = self._loop
+            tasks = [t for t in asyncio.all_tasks(loop) if t is not asyncio.current_task()]
+            if tasks:
+                for task in tasks:
+                    task.cancel()
+                with contextlib.suppress(Exception):
+                    loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+            loop.close()
 
     def __init__(self, headless: bool = True) -> None:
         """Initialisiert den Fetcher (startet den Browser noch nicht).
@@ -711,6 +718,90 @@ class NodriverBrowserFetcher:
         except Exception as e:
             raise CurlError(f"nodriver request failed: {e}") from e
 
+    async def _shutdown_browser(self) -> None:
+        """Beendet den Browser auf der Loop-Thread.
+
+        Reihenfolge:
+
+        1. Chromium-Subprozess terminieren und deterministisch abwarten
+           (Sonst haengt ``aclose()`` beim ``wait_closed()`` einer
+           halboffenen CDP-Verbindung, weil der Peer nicht mehr
+           antwortet).
+        2. ``aclose()``: schliesst die CDP-Verbindung und beendet deren
+           Listener-Task.
+        3. Alle uebrigen Loop-Tasks abbrechen und abwarten. Damit
+           enthaelt die Loop beim ``loop.close()`` keine ausstehenden
+           Koroutinen mehr. Wichtig, weil sonst deren suspendierte
+           Generatoren spaeter beim Python-Interpreter-Abschluss
+           (``gc_collect_main``) zerrissen werden - das haengt den
+           Prozess-Exit (z. B. unter pytest) minutenlang auf.
+        """
+        browser = self._browser
+        self._browser = None
+        if browser is None:
+            return
+        process = getattr(browser, "_process", None)
+        await self._reap_chromium(process)
+        with contextlib.suppress(ImportError):
+            from nodriver.core import util as _nd_util
+
+            _nd_util.__registered__instances__.discard(browser)
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(browser.aclose(), timeout=5.0)
+        loop = asyncio.get_running_loop()
+        tasks = [t for t in asyncio.all_tasks(loop) if t is not asyncio.current_task()]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    @staticmethod
+    async def _reap_chromium(process: Any | None) -> None:
+        """Beendet einen Chromium-Subprozess und wartet auf seinen Tod.
+
+        ``browser._process`` ist ein ``asyncio.subprocess.Process``.
+        ``terminate()`` (SIGTERM) reicht nicht aus, wenn der Prozess
+        nicht auf das Signal reagiert - dann wird eskaliert. Ein
+        hängenbleibender Chromium-Prozess hält die CDP-Verbindung offen,
+        wodurch ``aclose()`` beim ``wait_closed()`` hängen könnte.
+        """
+        if process is None or getattr(process, "returncode", None) is not None:
+            return
+        try:
+            process.terminate()
+        except Exception:
+            return
+        try:
+            await asyncio.wait_for(process.wait(), timeout=5.0)
+        except Exception:
+            with contextlib.suppress(Exception):
+                process.kill()
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(process.wait(), timeout=2.0)
+
+    @staticmethod
+    def _kill_process(process: Any | None) -> None:
+        """Beendet einen (asyncio-)Subprozess synchron und deterministisch.
+
+        Fallback fuer den Fall, dass die Browser-Loop nicht mehr erreichbar
+        ist (z. B. Thread gestorben). Terminiert den Prozess mit SIGTERM,
+        wartet kurz und eskaliert auf SIGKILL.
+        """
+        if process is None:
+            return
+        try:
+            if getattr(process, "returncode", None) is None:
+                process.terminate()
+        except Exception:
+            return
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            if getattr(process, "returncode", None) is not None:
+                return
+            time.sleep(0.05)
+        with contextlib.suppress(Exception):
+            process.kill()
+
     def close(self) -> None:
         """Beendet den Browser und den Hintergrund-Thread."""
         if self._closed:
@@ -718,13 +809,27 @@ class NodriverBrowserFetcher:
         self._closed = True
         if self._browser is not None and self._loop is not None:
             try:
-                future = asyncio.run_coroutine_threadsafe(self._browser.stop(), self._loop)
+                future = asyncio.run_coroutine_threadsafe(self._shutdown_browser(), self._loop)
                 future.result(timeout=15.0)
             except Exception:
-                pass
-            self._browser = None
+                # Loop-Thread nicht erreichbar (gestorben/Loop zu) ->
+                # deterministisch den Subprozess beenden und aus der
+                # nodriver-atexit-Liste nehmen. Browser.stop() wuerde
+                # hier einen unkontrollierbaren aclose()-Task auf der
+                # toten Loop erzeugen (leakt).
+                process = getattr(self._browser, "_process", None)
+                self._kill_process(process)
+                try:
+                    from nodriver.core import util as _nd_util
+
+                    with contextlib.suppress(Exception):
+                        _nd_util.__registered__instances__.discard(self._browser)
+                except ImportError:
+                    pass
+                self._browser = None
         if self._loop is not None:
-            self._loop.call_soon_threadsafe(self._loop.stop)
+            with contextlib.suppress(RuntimeError):
+                self._loop.call_soon_threadsafe(self._loop.stop)
         if self._thread is not None:
             self._thread.join(timeout=5.0)
             self._thread = None

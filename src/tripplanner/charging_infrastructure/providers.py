@@ -545,64 +545,70 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         """
         if countries is None:
             countries = ["DE", "DK", "SE"]
+        created = tesla_client is None
         if tesla_client is None:
             tesla_client = create_tesla_client(debug_log=self._debug_log)
 
-        # --- Phase 1: Standortliste abrufen und Basis-Datensaetze speichern ---
-        all_records = await self._fetch_tesla_locations(countries, tesla_client)
-
-        if not all_records:
-            return 0
-
-        # Phase-1-Daten sofort in DB schreiben
-        self._db.replace_all_stations(all_records)
-        self._stations = None
-        total = len(all_records)
-
-        # --- Phase 2 (optional): Detaildaten anreichern ---
-        if not enrich_details:
-            return total
-
-        # Bestimme Start-Index fuer Resume
-        start_idx = 0
-        if resume_from_slug:
-            for i, r in enumerate(all_records):
-                if r.get("tesla_location_id") == resume_from_slug:
-                    start_idx = i + 1
-                    break
-
-        # Original-Locations nach slug indexieren (fuer inHkMoTw)
-        loc_by_slug: dict[str, dict[str, Any]] = {}
-        for country in countries:
-            locations = await tesla_client.fetch_locations(country)
-            for loc in locations:
-                s = loc.get("location_url_slug", "")
-                if s:
-                    loc_by_slug[s] = loc
-
-        enriched: list[dict[str, Any]] = list(all_records)
-
         try:
-            enriched = await self._enrich_stations(
-                enriched,
-                loc_by_slug,
-                tesla_client,
-                delay_s,
-                start_idx,
-                total,
-            )
-        except CurlError:
-            # Teilweise angereicherte Daten trotzdem speichern
+            # --- Phase 1: Standortliste abrufen und Basis-Datensaetze speichern ---
+            all_records = await self._fetch_tesla_locations(countries, tesla_client)
+
+            if not all_records:
+                return 0
+
+            # Phase-1-Daten sofort in DB schreiben
+            self._db.replace_all_stations(all_records)
+            self._stations = None
+            total = len(all_records)
+
+            # --- Phase 2 (optional): Detaildaten anreichern ---
+            if not enrich_details:
+                return total
+
+            # Bestimme Start-Index fuer Resume
+            start_idx = 0
+            if resume_from_slug:
+                for i, r in enumerate(all_records):
+                    if r.get("tesla_location_id") == resume_from_slug:
+                        start_idx = i + 1
+                        break
+
+            # Original-Locations nach slug indexieren (fuer inHkMoTw)
+            loc_by_slug: dict[str, dict[str, Any]] = {}
+            for country in countries:
+                locations = await tesla_client.fetch_locations(country)
+                for loc in locations:
+                    s = loc.get("location_url_slug", "")
+                    if s:
+                        loc_by_slug[s] = loc
+
+            enriched: list[dict[str, Any]] = list(all_records)
+
+            try:
+                enriched = await self._enrich_stations(
+                    enriched,
+                    loc_by_slug,
+                    tesla_client,
+                    delay_s,
+                    start_idx,
+                    total,
+                )
+            except CurlError:
+                # Teilweise angereicherte Daten trotzdem speichern
+                if enriched != all_records:
+                    self._db.replace_all_stations(enriched)
+                    self._stations = None
+                raise
+
             if enriched != all_records:
                 self._db.replace_all_stations(enriched)
                 self._stations = None
-            raise
 
-        if enriched != all_records:
-            self._db.replace_all_stations(enriched)
-            self._stations = None
-
-        return total
+            return total
+        finally:
+            # Eigenen Client (z. B. Chromium-Browser) deterministisch beenden.
+            if created:
+                await tesla_client.close()
 
     async def _fetch_tesla_locations(
         self,
@@ -995,41 +1001,48 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         Raises:
             CurlError: Bei 403 (WAF-Block)
         """
+        created = tesla_client is None
         if tesla_client is None:
             tesla_client = create_tesla_client(debug_log=self._debug_log)
 
-        # Bestehenden Eintrag laden: liefert Country-Fallback und die stabile
-        # supercharge_info_id. Diese MUSS erhalten bleiben, da sie ein
-        # unabhaengiger interner Schluessel ist (urspruenglich aus
-        # supercharge.info) und Teslas eigene trtId-Nummerierung einem
-        # komplett anderen ID-Raum entstammt - ein blindes Uebernehmen
-        # der trtId als supercharge_info_id kollidiert leicht mit der
-        # ID einer anderen, bereits existierenden Station (UNIQUE-Constraint).
-        existing = self._db.find_station_by_slug(slug)
-        if country is None:
-            if existing is None:
+        try:
+            # Bestehenden Eintrag laden: liefert Country-Fallback und die
+            # stabile supercharge_info_id. Diese MUSS erhalten bleiben, da
+            # sie ein unabhaengiger interner Schluessel ist (urspruenglich
+            # aus supercharge.info) und Teslas eigene trtId-Nummerierung
+            # einem komplett anderen ID-Raum entstammt - ein blindes
+            # Uebernehmen der trtId als supercharge_info_id kollidiert
+            # leicht mit der ID einer anderen, bereits existierenden
+            # Station (UNIQUE-Constraint).
+            existing = self._db.find_station_by_slug(slug)
+            if country is None:
+                if existing is None:
+                    return None
+                country = existing.get("country_code", "DE")
+
+            # Detaildaten abrufen
+            detail = await tesla_client.fetch_location_details(slug)
+            if not detail:
                 return None
-            country = existing.get("country_code", "DE")
 
-        # Detaildaten abrufen
-        detail = await tesla_client.fetch_location_details(slug)
-        if not detail:
-            return None
+            # In DB-Record umwandeln
+            detail["_slug"] = slug
+            detail["_uuid"] = detail.get("trtId", "0")
 
-        # In DB-Record umwandeln
-        detail["_slug"] = slug
-        detail["_uuid"] = detail.get("trtId", "0")
+            db_record = self._tesla_detail_to_db_record(detail, country)
+            if existing is not None:
+                db_record["supercharge_info_id"] = existing["supercharge_info_id"]
 
-        db_record = self._tesla_detail_to_db_record(detail, country)
-        if existing is not None:
-            db_record["supercharge_info_id"] = existing["supercharge_info_id"]
+            # In DB speichern
+            self._db.update_station(db_record)
+            self._stations = None  # Cache invalidieren
 
-        # In DB speichern
-        self._db.update_station(db_record)
-        self._stations = None  # Cache invalidieren
-
-        # Zurueck in ChargingStation konvertieren
-        return self._db_record_to_charging_station(db_record)
+            # Zurueck in ChargingStation konvertieren
+            return self._db_record_to_charging_station(db_record)
+        finally:
+            # Eigenen Client (z. B. Chromium-Browser) deterministisch beenden.
+            if created:
+                await tesla_client.close()
 
     def get_all_stations(self) -> list[ChargingStation]:
         """Liefert alle Stationen aus der lokalen DB.
@@ -1152,6 +1165,7 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         if supercharge_info_id is None:
             raise ValueError(f"Unbekannte Station: '{slug}'")
 
+        created = tesla_client is None
         if tesla_client is None:
             tesla_client = create_tesla_client(debug_log=self._debug_log)
 
@@ -1181,6 +1195,9 @@ class TeslaChargingStationProvider(ChargingStationProvider):
             self._db.upsert_pricing(supercharge_info_id, [t.model_dump() for t in tiers])
         finally:
             self._db.dequeue_pricing_refresh(supercharge_info_id)
+            # Eigenen Client (z. B. Chromium-Browser) deterministisch beenden.
+            if created:
+                await tesla_client.close()
 
         return tiers
 
@@ -1311,47 +1328,53 @@ class TeslaChargingStationProvider(ChargingStationProvider):
             `PricingQueueDrainResult` mit erfolgreich aktualisierten,
             uebersprungenen (bereits aktuellen) und fehlgeschlagenen Stationen.
         """
+        created = tesla_client is None
         if tesla_client is None:
             tesla_client = create_tesla_client(debug_log=self._debug_log)
 
-        entries = self.list_pricing_queue(limit=limit)
-        refreshed: list[str] = []
-        skipped_fresh: list[str] = []
-        failed: list[tuple[str, str]] = []
+        try:
+            entries = self.list_pricing_queue(limit=limit)
+            refreshed: list[str] = []
+            skipped_fresh: list[str] = []
+            failed: list[tuple[str, str]] = []
 
-        for entry in entries:
-            supercharge_info_id: int = entry["supercharge_info_id"]
-            slug: str | None = entry["tesla_location_id"]
-            if not slug:
-                # Station ohne Slug kann nicht ueber die Detailseite
-                # abgerufen werden (URL braucht den Slug) - dauerhaft
-                # unscrapebar, aus der Warteschlange entfernen statt bei
-                # jedem Lauf erneut zu scheitern.
-                self._db.dequeue_pricing_refresh(supercharge_info_id)
-                failed.append((str(supercharge_info_id), "Station hat keine tesla_location_id"))
-                continue
+            for entry in entries:
+                supercharge_info_id: int = entry["supercharge_info_id"]
+                slug: str | None = entry["tesla_location_id"]
+                if not slug:
+                    # Station ohne Slug kann nicht ueber die Detailseite
+                    # abgerufen werden (URL braucht den Slug) - dauerhaft
+                    # unscrapebar, aus der Warteschlange entfernen statt bei
+                    # jedem Lauf erneut zu scheitern.
+                    self._db.dequeue_pricing_refresh(supercharge_info_id)
+                    failed.append((str(supercharge_info_id), "Station hat keine tesla_location_id"))
+                    continue
 
-            recency = self._db.get_pricing_recency({supercharge_info_id})
-            if (
-                supercharge_info_id in recency
-                and (datetime.now(UTC) - recency[supercharge_info_id]) <= self.PRICING_MAX_AGE
-            ):
-                self._db.dequeue_pricing_refresh(supercharge_info_id)
-                skipped_fresh.append(slug)
-                continue
+                recency = self._db.get_pricing_recency({supercharge_info_id})
+                if (
+                    supercharge_info_id in recency
+                    and (datetime.now(UTC) - recency[supercharge_info_id]) <= self.PRICING_MAX_AGE
+                ):
+                    self._db.dequeue_pricing_refresh(supercharge_info_id)
+                    skipped_fresh.append(slug)
+                    continue
 
-            try:
-                await self.refresh_pricing(slug, tesla_client=tesla_client)
-                refreshed.append(slug)
-            except (CurlError, PricingParseError) as e:
-                failed.append((slug, str(e)))
+                try:
+                    await self.refresh_pricing(slug, tesla_client=tesla_client)
+                    refreshed.append(slug)
+                except (CurlError, PricingParseError) as e:
+                    failed.append((slug, str(e)))
 
-            if delay_s > 0 and entry is not entries[-1]:
-                await asyncio.sleep(delay_s)
+                if delay_s > 0 and entry is not entries[-1]:
+                    await asyncio.sleep(delay_s)
 
-        return PricingQueueDrainResult(
-            refreshed=refreshed, skipped_fresh=skipped_fresh, failed=failed
-        )
+            return PricingQueueDrainResult(
+                refreshed=refreshed, skipped_fresh=skipped_fresh, failed=failed
+            )
+        finally:
+            # Eigenen Client (z. B. Chromium-Browser) deterministisch beenden.
+            if created:
+                await tesla_client.close()
 
     @staticmethod
     def _db_record_to_charging_station(
