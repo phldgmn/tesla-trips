@@ -1332,13 +1332,14 @@ async def get_supercharger_detail(
 async def refresh_supercharger(slug: str) -> SuperchargerStationAPI:
     """Aktualisiert eine Supercharger-Station mit frischen Daten von der Tesla API.
 
-    Ruft die Tesla API server-seitig ueber System-curl auf (siehe
-    `TeslaLocationsClient`), der per SecureTransport-TLS-Fingerprint wie ein
-    echter Browser behandelt wird und so den Akamai-WAF-Block umgeht, dem
-    Python-HTTP-Clients (httpx) unterliegen. Ein direkter Cross-Origin-Fetch
-    aus dem Frontend-JS ist keine Alternative: die Tesla-API liefert keine
-    Access-Control-Allow-Origin-Header, wodurch der Browser das Lesen der
-    Antwort unabhaengig vom WAF-Status verweigert.
+    Ruft die Tesla API server-seitig ueber `TeslaClient` ab (Default-
+    Transport: `NodriverTeslaClient`, ein echter Chromium-Browser via CDP;
+    alternativ `TeslaLocationsClient` mit curl_cffi/TLS-Fingerprint). Der
+    Browser-Ansatz umgeht den Akamai-WAF-Block, dem einfache Python-HTTP-
+    Clients (httpx) und zum Teil auch curl_cffi unterliegen. Ein direkter
+    Cross-Origin-Fetch aus dem Frontend-JS ist keine Alternative: die
+    Tesla-API liefert keine Access-Control-Allow-Origin-Header, wodurch der
+    Browser das Lesen der Antwort unabhaengig vom WAF-Status verweigert.
 
     Args:
         slug: tesla_location_id (location_url_slug).

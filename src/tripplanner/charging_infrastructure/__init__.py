@@ -8,7 +8,8 @@ Exports:
   `TeslaChargingStationProvider`
 - HTTP-Clients: `SuperchargeInfoClient`, `TeslaLocationsClient`
   (curl_cffi), `NodriverTeslaClient` (nodriver / Chromium via CDP),
-  `create_tesla_client` (Factory, Default: nodriver)
+  `create_tesla_client` (Factory, Default: nodriver), `CurlError` (gemeinsamer
+  Fehlertyp beider Tesla-Transports)
 - Pricing: `parse_pricing_tiers`, `select_owner_rate_for_time`,
   `PricingParseError`, `CachedPricing`, `PricingQueueDrainResult`
 - Hilfsfunktionen: `init_charging_infrastructure`,
@@ -23,6 +24,7 @@ from .charging_infrastructure import (
     refresh_supercharger_station,
 )
 from .client import (
+    CurlError,
     NodriverTeslaClient,
     SuperchargeInfoClient,
     TeslaLocationsClient,
@@ -52,12 +54,12 @@ __all__ = [
     "ChargingStationProvider",
     "ChargingStationWithPricing",
     "ConnectorType",
+    "CurlError",
     "FakeChargingStationProvider",
     "LocalFileChargingStationProvider",
     "NodriverTeslaClient",
     "PricingParseError",
     "PricingQueueDrainResult",
-    "SQLiteDatabase",
     "StallType",
     "SuperchargeInfoClient",
     "TeslaChargingStationProvider",

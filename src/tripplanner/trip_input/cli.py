@@ -415,11 +415,13 @@ def scrape_pricing(
     """Arbeitet die Preis-Scrape-Warteschlange ab (siehe `charger pricing-queue`).
 
     Reihenfolge: Stationen ohne jegliche Preisdaten zuerst, danach die mit
-    den aeltesten gecachten Preisdaten. Jede Station wird per System-curl
-    gegen die oeffentliche Tesla-Standort-Detailseite abgerufen (siehe
-    `TeslaLocationsClient.fetch_pricing_html`) - derselbe WAF-Umgehungs-
-    Mechanismus wie `charger refresh tesla`, daher denselben Hinweisen zu
-    Rate-Limits/WAF-Bloecken unterworfen.
+    den aeltesten gecachten Preisdaten. Jede Station wird gegen die
+    oeffentliche Tesla-Standort-Detailseite abgerufen (siehe
+    `TeslaClient.fetch_pricing_html` - Default-Transport
+    `NodriverTeslaClient`, ein echter Chromium-Browser via CDP, der den
+    Akamai-WAF umgeht) - derselbe WAF-Umgehungs-Mechanismus wie
+    `charger refresh tesla`, daher denselben Hinweisen zu Rate-Limits/
+    WAF-Bloecken unterworfen.
 
     Beispiele:
         python -m tripplanner.trip_input.cli charger scrape-pricing
@@ -459,12 +461,12 @@ def scrape_pricing(
 
     if result.failed and not result.refreshed:
         typer.echo(
-            "Hinweis: Die Tesla-Standort-Detailseite (Preisquelle) liegt "
-            "hinter einer strengeren Akamai-Absicherung als die JSON-API "
-            "('charger refresh tesla') - moeglicherweise reicht der "
-            "curl-basierte Abruf hierfuer nicht aus und ein echter Browser "
-            "(Safari/Playwright) waere noetig. Bitte zuerst von einem "
-            "regulaeren macOS-Rechner aus erneut versuchen.",
+            "Hinweis: Alle Scrape-Versuche sind fehlgeschlagen - die "
+            "Tesla-Standort-Detailseite (Preisquelle) liegt hinter einer "
+            "Akamai-Absicherung (WAF/Rate-Limit), die gerade auch den "
+            "Browser-basierten Abruf blockiert. Bitte nach einer Pause "
+            "(mehrere Minuten) erneut versuchen oder den Scrape von einem "
+            "regulaeren macOS-Rechner aus starten.",
             err=True,
         )
         raise typer.Exit(code=1)

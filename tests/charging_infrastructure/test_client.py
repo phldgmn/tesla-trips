@@ -489,12 +489,6 @@ class TestNodriverTeslaClient:
         from tripplanner.charging_infrastructure.client import NodriverTeslaClient
 
         fetcher = _FakeFetcher()
-        fetcher.set_response(
-            "https://www.tesla.com/api/findus/get-locations?country=DE&view=map",
-            200,
-            _FakeFetcher.__module__  # placeholder, will be overridden below
-            or "null",
-        )
         locations_json = json.dumps(
             {
                 "data": {
