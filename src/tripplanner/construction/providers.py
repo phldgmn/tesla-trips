@@ -37,7 +37,7 @@ from tripplanner.construction.parser import (
     DATEXIIConstructionZoneInternal,
     parse_datexii_xml,
 )
-from tripplanner.geo import Coordinate, haversine_distance_m
+from tripplanner.geo import Coordinate, bearing_deg, geodesic_length_m, haversine_distance_m
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,20 @@ DATEXII_ENDPOINTS: dict[Land, str] = {
 # GET {AUTOBAHN_BASE_URL}/A1/services/roadworks returns current roadworks.
 AUTOBAHN_BASE_URL = "https://verkehr.autobahn.de/o/autobahn"
 
-# Maximum distance in metres for matching a zone/roadwork to a route segment.
+
+# Direction-aware matching constants.
+# The zone's own bearing (start->end of its geometry) is compared against
+# the matched route segment's `bearing_deg`; the raw absolute difference is
+# folded into the [0°, 180°] range (`angular_diff`), then a match is
+# excluded if `angular_diff` exceeds this threshold — i.e. the zone's
+# direction is roughly reversed relative to the route's direction of travel
+# (opposite carriageway on a divided highway). 100° leaves headroom for
+# normal route curvature (which causes smaller bearing drift) while still
+# catching true opposite-direction traffic.
+_DIRECTION_OPPOSITE_LOW = 100.0
+
+# SE AffectedDirectionValue that indicates both directions (no directional filter).
+_SE_BOTH_DIRECTIONS_VALUES = frozenset(("BothDirections", "Båda riktningarna"))
 # Shared across DE, DK, and SE matching paths.
 _MAX_DISTANCE_M = 500.0
 
@@ -193,6 +206,7 @@ def _parse_trafikverket_situations(
                         koordinaten=koordinaten,
                         umleitungshinweis=message or None,
                         tempolimit_kmh=None,
+                        affected_direction_value=deviation.get("AffectedDirectionValue"),
                     )
                 )
 
@@ -568,22 +582,38 @@ class ConstructionProviderImpl(ConstructionProvider):
             xml_content = response.text
             construction_zones = parse_datexii_xml(xml_content, land)
 
-        result = [
-            ConstructionZone(
-                betroffene_segmente=self._match_zones_to_segment_ids(zone, strtree, segment_geoms),
-                tempolimit_kmh=(
-                    zone.tempolimit_kmh
-                    if zone.tempolimit_kmh is not None
-                    else _DK_SE_ROADWORKS_DEFAULT_SPEED_LIMIT_KMH
-                ),
-                sperrungstyp=self._map_closure_type(zone.sperrungstyp),
-                umleitungshinweis=zone.umleitungshinweis,
-                land=land,
-                gueltig_von=zone.gueltig_von,
-                gueltig_bis=zone.gueltig_bis,
+        result = []
+        for zone in construction_zones:
+            segment_ids = self._match_zones_to_segment_ids(
+                zone,
+                strtree,
+                segment_geoms,
+                route.segments,
             )
-            for zone in construction_zones
-        ]
+            if len(zone.koordinaten) >= 2:
+                laenge_m: float | None = geodesic_length_m(zone.koordinaten)
+            elif segment_ids:
+                laenge_m = sum(
+                    route.segments[i].laenge_m for i in segment_ids if 0 <= i < len(route.segments)
+                )
+            else:
+                laenge_m = None
+            result.append(
+                ConstructionZone(
+                    betroffene_segmente=segment_ids,
+                    tempolimit_kmh=(
+                        zone.tempolimit_kmh
+                        if zone.tempolimit_kmh is not None
+                        else _DK_SE_ROADWORKS_DEFAULT_SPEED_LIMIT_KMH
+                    ),
+                    sperrungstyp=self._map_closure_type(zone.sperrungstyp),
+                    umleitungshinweis=zone.umleitungshinweis,
+                    land=land,
+                    gueltig_von=zone.gueltig_von,
+                    gueltig_bis=zone.gueltig_bis,
+                    laenge_m=laenge_m,
+                )
+            )
         self._cache.set(cache_key, [z.model_dump(mode="json") for z in result])
         return result
 
@@ -671,10 +701,8 @@ class ConstructionProviderImpl(ConstructionProvider):
         for segment in route.segments:
             for lat, lon in segment.geometrie:
                 coords.append((lat, lon))
-
         if not coords:
             return ""
-
         lats, lons = zip(*coords, strict=True)
         return f"{min(lats)},{min(lons)},{max(lats)},{max(lons)}"
 
@@ -683,24 +711,39 @@ class ConstructionProviderImpl(ConstructionProvider):
         zone: DATEXIIConstructionZoneInternal,
         strtree: STRtree,
         segment_geoms: list[LineString],
+        route_segments: list[routing_models.RouteSegment] | None = None,
     ) -> list[int]:
-        """Map a DATEX II zone to route segment IDs via distance threshold.
+        """Map a DATEX II zone to route segment IDs via distance and direction.
 
         Uses the pre-built STRtree for O(log n) candidate retrieval, then
-        filters with precise distance measurement.  This replaces the former
-        O(n) ``.intersects()`` scan that failed to match zones near (but not
-        exactly on) route segments.
+        filters with precise distance measurement.  For zones with LineString
+        geometry, additionally filters out segments on the opposite
+        carriageway (bearing diff greater than 100°, folded to the
+        [0°, 180°] range) unless the source explicitly states both directions.
 
         Args:
             zone: The DATEX II zone to match.
             strtree: Shared STRtree spatial index.
             segment_geoms: Shared list of route segment geometries.
+            route_segments: Optional route segments for bearing lookup
+                (required for direction filtering).
 
         Returns:
-            List of segment indices within ``_MAX_DISTANCE_M`` of the zone.
+            List of segment indices within ``_MAX_DISTANCE_M`` of the zone
+            and matching the zone's direction of travel.
         """
         zone_geom = self._zone_to_geometry(zone)
-        return self._match_geometry_to_segments(zone_geom, strtree, segment_geoms)
+        indices = self._match_geometry_to_segments(zone_geom, strtree, segment_geoms)
+
+        # Direction-aware filtering for zones with LineString geometry.
+        if len(zone.koordinaten) >= 2 and route_segments is not None and indices:
+            indices = self._filter_opposite_direction(
+                zone,
+                indices,
+                route_segments,
+            )
+
+        return indices
 
     def _zone_to_geometry(self, zone: DATEXIIConstructionZoneInternal) -> BaseGeometry:
         """Convert DATEX II coordinates to a Shapely geometry.
@@ -733,6 +776,65 @@ class ConstructionProviderImpl(ConstructionProvider):
             "MaintenanceWorks": Sperrungstyp.PARTIALLY_CLOSED,
         }
         return type_map.get(xsi_type, Sperrungstyp.PARTIALLY_CLOSED)
+
+    def _filter_opposite_direction(
+        self,
+        zone: DATEXIIConstructionZoneInternal,
+        segment_indices: list[int],
+        route_segments: list[routing_models.RouteSegment],
+    ) -> list[int]:
+        """Filter out segment matches that are on the opposite carriageway.
+
+        For zones with LineString geometry, computes the zone's bearing from
+        its first and last coordinates and compares it against each matched
+        route segment's ``bearing_deg``.  Segments whose bearing differs by
+        more than 100° (after folding the raw difference into the
+        [0°, 180°] range — i.e. roughly 180° apart, opposite direction on a
+        divided highway) are excluded.
+
+        For SE zones, if ``affected_direction_value`` is set to anything other
+        than a "both directions" value, the source direction is trusted and
+        the geometry-bearing heuristic is skipped.
+
+        Args:
+            zone: The DATEX II zone with coordinate and direction metadata.
+            segment_indices: Segment indices already matched by distance.
+            route_segments: Full route segments for bearing lookup.
+
+        Returns:
+            Filtered list of segment indices, excluding opposite-direction matches.
+        """
+        zone_coords = zone.koordinaten
+        zone_start, zone_end = zone_coords[0], zone_coords[-1]
+        zone_bearing = bearing_deg(zone_start, zone_end)
+
+        # SE-specific: if the source explicitly states a single direction,
+        # trust that over geometry-bearing heuristics.
+        affected_dir = zone.affected_direction_value
+        if affected_dir and affected_dir not in _SE_BOTH_DIRECTIONS_VALUES:
+            # Source states a specific direction — keep all distance matches.
+            return segment_indices
+
+        # Geometry-bearing heuristic: exclude opposite-direction segments.
+        filtered: list[int] = []
+        for idx in segment_indices:
+            if idx < 0 or idx >= len(route_segments):
+                continue
+            seg = route_segments[idx]
+            seg_bearing = seg.bearing_deg
+
+            # Compute minimum angular difference on a circle.
+            angular_diff = abs(zone_bearing - seg_bearing) % 360.0
+            if angular_diff > 180.0:
+                angular_diff = 360.0 - angular_diff
+
+            # Exclude if bearings are roughly opposite (>100° apart).
+            if angular_diff > _DIRECTION_OPPOSITE_LOW:
+                continue
+
+            filtered.append(idx)
+
+        return filtered
 
 
 # ---------------------------------------------------------------------------
@@ -869,6 +971,15 @@ def _parse_autobahn_roadwork(
         _parse_autobahn_timestamp(start_timestamp) if start_timestamp else datetime.now(UTC)
     )
 
+    # Direction-aware matching is NOT POSSIBLE for DE roadworks:
+    # the Autobahn GmbH API provides only a single Point coordinate
+    # (no LineString geometry, no direction/carriageway field).
+    # Proximity-only matching (500 m threshold) is the best available
+    # heuristic.  This is a known data-source limitation.
+    segment_length = (
+        route.segments[segment_index].laenge_m if 0 <= segment_index < len(route.segments) else None
+    )
+
     return ConstructionZone(
         betroffene_segmente=[segment_index],
         tempolimit_kmh=_DE_ROADWORKS_DEFAULT_SPEED_LIMIT_KMH,
@@ -877,6 +988,7 @@ def _parse_autobahn_roadwork(
         land=Land.DE,
         gueltig_von=gueltig_von,
         gueltig_bis=None,
+        laenge_m=segment_length,
     )
 
 

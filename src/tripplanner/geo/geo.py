@@ -10,6 +10,7 @@ Coordinate = tuple[float, float]
 """Eine WGS84-Koordinate als `(lat, lon)` in Dezimalgrad."""
 
 _EARTH_RADIUS_M = 6_371_000.0
+_MIN_SEGMENT_POINTS = 2
 
 
 def bearing_deg(start: Coordinate, end: Coordinate) -> float:
@@ -56,3 +57,23 @@ def haversine_distance_m(a: Coordinate, b: Coordinate) -> float:
     )
     c = 2 * math.atan2(math.sqrt(h), math.sqrt(1 - h))
     return _EARTH_RADIUS_M * c
+
+
+def geodesic_length_m(coords: list[Coordinate]) -> float:
+    """Berechnet die Gesamtlänge eines Koordinatenpfads (Großkreisdistanz).
+
+    Summiert die Großkreisdistanz zwischen aufeinanderfolgenden Punkten in
+    `coords`.
+
+    Args:
+        coords: Liste von `(lat, lon)`-WGS84-Koordinaten entlang des Pfads.
+
+    Returns:
+        Gesamtlänge in Metern. `0.0` bei Pfaden mit weniger als zwei Punkten.
+    """
+    if len(coords) < _MIN_SEGMENT_POINTS:
+        return 0.0
+    total = 0.0
+    for i in range(len(coords) - 1):
+        total += haversine_distance_m(coords[i], coords[i + 1])
+    return total

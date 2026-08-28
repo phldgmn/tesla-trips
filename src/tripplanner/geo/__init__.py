@@ -6,6 +6,6 @@ Bibliothek von jedem anderen `tripplanner`-Modul importierbar (siehe
 `(lat, lon)` in Dezimalgrad (WGS84).
 """
 
-from tripplanner.geo.geo import Coordinate, bearing_deg, haversine_distance_m
+from tripplanner.geo.geo import Coordinate, bearing_deg, geodesic_length_m, haversine_distance_m
 
-__all__ = ["Coordinate", "bearing_deg", "haversine_distance_m"]
+__all__ = ["Coordinate", "bearing_deg", "geodesic_length_m", "haversine_distance_m"]

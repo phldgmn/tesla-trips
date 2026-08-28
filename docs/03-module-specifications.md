@@ -66,9 +66,13 @@ Each module is a self-contained Python package under `src/tripplanner/<module_na
 
 **Inputs:** Route geometry, country filter (DE, DK, SE).
 
-**Outputs:** List of `ConstructionZone`s: affected road section, speed limit, closure type, diversion information (if available).
+**Outputs:** List of `ConstructionZone`s: affected road section (`betroffene_segmente`), affected-stretch length (`laenge_m`, derived — see below), speed limit, closure type, diversion information (if available).
 
-**Dependencies:** DATEX II feeds from the respective countries, using a shared parser (one parser for all countries because they use the same standard).
+**Dependencies:** DATEX II feeds from the respective countries, using a shared parser (one parser for all countries because they use the same standard). DE roadworks additionally use the Autobahn GmbH open API (point coordinates only, no DATEX II).
+
+**Direction-of-travel matching:** A zone/roadwork is only applied to a route segment if it is both spatially close (within 500 m) *and* applicable in the route's direction of travel — not merely on the same road. For DK/SE zones with LineString geometry, the zone's own bearing (start→end of its coordinates) is compared against the matched `RouteSegment.bearing_deg`; a match is excluded when the angular difference (folded into `[0°, 180°]`) exceeds 100°, i.e. the zone runs roughly opposite to the route (opposite carriageway on a divided highway). For SE zones, an explicit `AffectedDirectionValue` other than "both directions" is trusted over the geometry heuristic. **Known limitation:** DE roadworks (Autobahn GmbH API) expose only a single point coordinate — no LineString geometry and no direction/carriageway field — so direction-aware filtering is not possible for DE; DE matching remains proximity-only (documented in `_parse_autobahn_roadwork`).
+
+**Length derivation (`laenge_m`):** For DK/SE zones with LineString geometry, computed directly as the geodesic length of that geometry (`tripplanner.geo.geodesic_length_m`). For DE (point-only) zones, derived from the length of the matched route segment(s) (`RouteSegment.laenge_m`), since no length data exists in the source. `None` when neither is computable.
 
 **Testability:** Example DATEX II XML files as fixtures.
 

@@ -425,6 +425,26 @@ class ConstructionProviderImpl(ConstructionProvider):
 | `reducedLanes` | `reducedLanes` | `REDUCED_LANES` |
 | `detrourRequired` | `detrourRequired` | `DETROUR_REQUIRED` |
 
+**Richtungsabhängiges Matching (Fahrtrichtung):** Eine Baustelle/ein Ereignis wird einem
+Routen-Segment nur zugeordnet, wenn sie sowohl räumlich nah (innerhalb 500 m) ALS AUCH in
+Fahrtrichtung der Route tatsächlich anwendbar ist — nicht nur auf derselben Straße. Für
+DK/SE-Zonen mit LineString-Geometrie wird das eigene Bearing der Zone (Start→Ende ihrer
+Koordinaten) gegen `RouteSegment.bearing_deg` des zugeordneten Segments verglichen; ein Match
+wird ausgeschlossen, wenn die Winkeldifferenz (gefaltet auf `[0°, 180°]`) 100° überschreitet —
+d. h. die Zone verläuft grob entgegengesetzt zur Route (Gegenfahrbahn auf einer geteilten
+Straße). Für SE-Zonen wird ein explizites `AffectedDirectionValue` (sofern nicht "beide
+Richtungen") gegenüber der Geometrie-Heuristik bevorzugt (Quelle vertrauenswürdiger als
+Ableitung). **Bekannte Einschränkung:** DE-Baustellen (Autobahn GmbH API) liefern nur einen
+einzelnen Punkt-Koordinatenwert — keine LineString-Geometrie und kein Richtungs-/
+Fahrbahn-Feld — daher ist richtungsabhängiges Filtern für DE nicht möglich; das DE-Matching
+bleibt rein distanzbasiert (dokumentiert in `_parse_autobahn_roadwork`).
+
+**Längenableitung (`laenge_m`):** Für DK/SE-Zonen mit LineString-Geometrie wird die Länge
+direkt als geodätische Länge dieser Geometrie berechnet (`tripplanner.geo.geodesic_length_m`).
+Für DE-Zonen (nur Punkt-Koordinate) wird die Länge aus dem zugeordneten Routen-Segment
+abgeleitet (`RouteSegment.laenge_m`), da die Quelle keine Längenangabe liefert. `None`, wenn
+keines von beidem berechenbar ist.
+
 **Falls DATEX II-Fields fehlen (robuster Default):**
 
 - `gueltig_von`: Fallback auf `situationRecordCreationTime` (oder UTC now).
@@ -814,6 +834,19 @@ def _delay_band_to_speed(delay_band: str | None) -> int | None:
 - **Problem:** Die Feeds werden nur bei `fetch_construction_zones()` aktualisiert (kein WebSocket/AMQP).
 - **Lösung:** Akzeptiert; das Modul ist stateless. Bei späterem Bedarf kann `ConstructionProviderImpl` um `subscribe()` erweitert werden.
 - **Status:** Explizit als Nicht-Scope in Task 7 beschrieben.
+
+**7. Keine Fahrtrichtungsfilterung für DE-Baustellen (Medium Risk, akzeptiert):**
+
+- **Problem:** Die Autobahn GmbH API liefert für DE-Baustellen nur einen einzelnen
+  Punkt-Koordinatenwert (kein LineString, kein Richtungs-/Fahrbahn-Feld). Eine
+  Baustelle auf der Gegenfahrbahn kann daher fälschlich der Route zugeordnet werden,
+  wenn sie innerhalb des 500-m-Distanzschwellwerts liegt.
+- **Lösung:** Für DK/SE (mit LineString-Geometrie bzw. `AffectedDirectionValue`) ist
+  richtungsabhängiges Matching implementiert (siehe Abschnitt 5). Für DE bleibt es bei
+  reiner Distanz-Matching; dies ist eine dokumentierte Einschränkung der Datenquelle,
+  keine Lücke in der Implementierung. Sollte Autobahn GmbH künftig Richtungsdaten
+  liefern, kann dieselbe Bearing-Vergleichslogik übernommen werden.
+- **Status:** Akzeptiert und dokumentiert (`_parse_autobahn_roadwork`), kein offener Task.
 
 ---
 

@@ -44,6 +44,8 @@ class ConstructionZone(BaseModel):
         gueltig_von: Startzeitpunkt der Baustelle (ISO 8601).
         gueltig_bis: Endzeitpunkt der Baustelle (ISO 8601), None wenn
             unbestimmt.
+        laenge_m: Geschätzte Länge der betroffenen Straßenstrecke in Metern
+            (None wenn nicht berechenbar).
     """
 
     betroffene_segmente: list[int] = Field(
@@ -60,6 +62,9 @@ class ConstructionZone(BaseModel):
     gueltig_von: datetime = Field(description="Startzeitpunkt der Baustelle (ISO 8601).")
     gueltig_bis: Annotated[datetime | None, Field(default=None)] = Field(
         description="Endzeitpunkt der Baustelle (ISO 8601), None wenn unbestimmt."
+    )
+    laenge_m: Annotated[float | None, Field(ge=0, default=None)] = Field(
+        description="Geschätzte Länge der betroffenen Straßenstrecke in Metern."
     )
 
     @model_validator(mode="after")

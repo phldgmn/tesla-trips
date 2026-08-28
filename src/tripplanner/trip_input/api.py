@@ -739,6 +739,7 @@ def _build_construction_zones_api(
                         gueltig_bis=zone.gueltig_bis,
                     )
                 ],
+                laenge_m=zone.laenge_m,
             ),
         )
         last_position = zone_position
@@ -1690,6 +1691,13 @@ class ConstructionZoneAPI(BaseModel):
     )
     events: list[ConstructionZoneEventAPI] = Field(
         ..., description="Zusammengefasste Events (Länge > 1 = mehrere nahe Events gemerged)"
+    )
+    laenge_m: float | None = Field(
+        default=None,
+        description=(
+            "Geschätzte Länge der betroffenen Straßenstrecke in Metern "
+            "(None wenn nicht berechenbar)."
+        ),
     )
 
 

@@ -29,6 +29,7 @@ class DATEXIIConstructionZoneInternal(NamedTuple):
     koordinaten: list[tuple[float, float]]
     umleitungshinweis: str | None
     tempolimit_kmh: int | None
+    affected_direction_value: str | None = None
 
 
 NAMESPACES = {
@@ -255,6 +256,7 @@ def _parse_situation_record(sr: ET.Element, land: Land) -> DATEXIIConstructionZo
         koordinaten=koordinaten,
         umleitungshinweis=umleitungshinweis,
         tempolimit_kmh=tempolimit_kmh,
+        affected_direction_value=None,
     )
 
 

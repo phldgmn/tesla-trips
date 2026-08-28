@@ -1,10 +1,10 @@
-"""Unit-Tests für tripplanner.geo: bearing_deg und haversine_distance_m."""
+"""Unit-Tests für tripplanner.geo: bearing_deg, haversine_distance_m, geodesic_length_m."""
 
 import math
 
 import pytest
 
-from tripplanner.geo import Coordinate, bearing_deg, haversine_distance_m
+from tripplanner.geo import Coordinate, bearing_deg, geodesic_length_m, haversine_distance_m
 
 BERLIN: Coordinate = (52.5200, 13.4050)
 HAMBURG: Coordinate = (53.5511, 9.9937)
@@ -74,3 +74,26 @@ def test_haversine_distance_quarter_meridian_matches_earth_radius() -> None:
     north_pole: Coordinate = (90.0, 0.0)
     expected = math.pi / 2 * 6_371_000.0
     assert haversine_distance_m(equator, north_pole) == pytest.approx(expected, rel=1e-6)
+
+
+def test_geodesic_length_m_sums_consecutive_segments() -> None:
+    """Länge eines Pfads entspricht der Summe der Großkreisdistanzen aufeinanderfolgender Punkte."""
+    path: list[Coordinate] = [(50.0, 9.0), (50.0, 9.5), (50.5, 9.5)]
+    expected = haversine_distance_m(path[0], path[1]) + haversine_distance_m(path[1], path[2])
+    assert geodesic_length_m(path) == pytest.approx(expected)
+
+
+def test_geodesic_length_m_two_points_matches_haversine() -> None:
+    """Pfad aus zwei Punkten entspricht der einfachen Großkreisdistanz."""
+    expected = haversine_distance_m(BERLIN, HAMBURG)
+    assert geodesic_length_m([BERLIN, HAMBURG]) == pytest.approx(expected)
+
+
+def test_geodesic_length_m_empty_path_is_zero() -> None:
+    """Leerer Pfad hat Länge 0."""
+    assert geodesic_length_m([]) == 0.0
+
+
+def test_geodesic_length_m_single_point_is_zero() -> None:
+    """Pfad mit nur einem Punkt hat Länge 0 (keine Distanz definiert)."""
+    assert geodesic_length_m([BERLIN]) == 0.0
