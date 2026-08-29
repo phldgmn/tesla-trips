@@ -505,6 +505,17 @@ class StateGraphBuilder:
             # `TestLadehaltUeberlebtKnotenKollision` in test_optimization.py).
             G.nodes[next_node]["soc_pct"] = new_soc_pct
             self.schedule(heap, next_node, new_total_cost)
+        else:
+            logger.debug(
+                "Drive edge %d->%d SHADOWED by existing node %s: "
+                "new_total_cost=%.1fs >= existing total_cost=%.1fs (new_soc=%.2f%%)",
+                seg_idx,
+                target_seg_idx,
+                next_node,
+                new_total_cost,
+                G.nodes[next_node].get("total_cost", COST_INF),
+                new_soc_pct,
+            )
 
     def add_ferry_edge(
         self,
@@ -882,6 +893,24 @@ class StateGraphBuilder:
             G.nodes[next_node]["soc_pct"] = route_soc_pct
             G.nodes[next_node]["stop_arrival"] = stop_arrival
             self.schedule(heap, next_node, new_total_cost)
+        else:
+            # Diagnostik: diese Kante wurde BERECHNET, verliert aber gegen
+            # einen bereits existierenden guenstigeren Knoten am selben
+            # (segment_index, soc_bucket, time_bucket)-Schluessel - sie wird
+            # NIE Teil von G und kann daher auch nie auf dem gewaehlten Pfad
+            # landen, selbst wenn sie fuer sich genommen die bessere Option
+            # waere (siehe Nutzer-Report: Ladehalt-Auswahl bevorzugt eine
+            # weiter entfernte Station).
+            logger.debug(
+                "Charging edge %s (%s) at segment %d SHADOWED by existing node %s: "
+                "new_total_cost=%.1fs >= existing total_cost=%.1fs",
+                station.station_id,
+                station.name,
+                seg_idx,
+                next_node,
+                new_total_cost,
+                G.nodes[next_node].get("total_cost", COST_INF),
+            )
 
     def add_waypoint_wait_edge(  # noqa: PLR0913, PLR0917 -- Wartekanten-Konstruktion braucht den vollen Kantenkontext
         self,
