@@ -898,6 +898,25 @@ describe("MapVisualization utilities", () => {
       expect(text).toContain("Wind 14 km/h");
     });
 
+    it("should include the wind direction as a compass abbreviation", () => {
+      const text = buildRouteHoverText({
+        ...sample,
+        temperaturC: 8.2,
+        windgeschwindigkeitKmh: 14.4,
+        windrichtungDeg: 315,
+      });
+      expect(text).toContain("Wind NW 14 km/h");
+    });
+
+    it("should show wind direction even without a wind speed", () => {
+      const text = buildRouteHoverText({
+        ...sample,
+        temperaturC: 8.2,
+        windrichtungDeg: 0,
+      });
+      expect(text).toContain("Wind N");
+    });
+
     it("should include precipitation only when it is present", () => {
       const withRain = buildRouteHoverText({
         ...sample,
@@ -916,6 +935,25 @@ describe("MapVisualization utilities", () => {
 
     it("should omit weather entirely when temperature is not present", () => {
       expect(buildRouteHoverText(sample)).not.toContain("°C");
+    });
+
+    it("should render each piece of information on its own line", () => {
+      const text = buildRouteHoverText({
+        ...sample,
+        geschwindigkeitKmh: 119,
+        temperaturC: 8,
+        windgeschwindigkeitKmh: 14,
+        windrichtungDeg: 315,
+        niederschlagMm: 2.5,
+      });
+      expect(text.split("\n")).toEqual([
+        formatKurzZeitpunkt(sample.zeitpunkt ?? null),
+        "63% SoC",
+        "119 km/h",
+        "8°C",
+        "Wind NW 14 km/h",
+        "2.5 mm/h Regen",
+      ]);
     });
   });
 

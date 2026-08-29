@@ -30,6 +30,8 @@ export interface RouteSample {
    *  ein Ladehalt-Sprungpunkt ist. */
   temperaturC?: number;
   windgeschwindigkeitKmh?: number;
+  /** Windrichtung in Grad (0° = N, 90° = O), woher der Wind kommt. */
+  windrichtungDeg?: number;
   niederschlagMm?: number;
 }
 

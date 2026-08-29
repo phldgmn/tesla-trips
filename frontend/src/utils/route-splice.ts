@@ -189,6 +189,7 @@ export interface FrameSampleInput {
   geschwindigkeitKmh?: number;
   temperaturC?: number;
   windgeschwindigkeitKmh?: number;
+  windrichtungDeg?: number;
   niederschlagMm?: number;
 }
 
@@ -230,6 +231,7 @@ export function buildSplicedRoute(
       geschwindigkeitKmh: frame.geschwindigkeitKmh,
       temperaturC: frame.temperaturC,
       windgeschwindigkeitKmh: frame.windgeschwindigkeitKmh,
+      windrichtungDeg: frame.windrichtungDeg,
       niederschlagMm: frame.niederschlagMm,
     });
   };
@@ -397,6 +399,7 @@ export function buildSplicedRoute(
             geschwindigkeitKmh: frame.geschwindigkeitKmh,
             temperaturC: frame.temperaturC,
             windgeschwindigkeitKmh: frame.windgeschwindigkeitKmh,
+            windrichtungDeg: frame.windrichtungDeg,
             niederschlagMm: frame.niederschlagMm,
           });
           frameIdx++;
@@ -418,6 +421,7 @@ export function buildSplicedRoute(
             geschwindigkeitKmh: frame.geschwindigkeitKmh,
             temperaturC: frame.temperaturC,
             windgeschwindigkeitKmh: frame.windgeschwindigkeitKmh,
+            windrichtungDeg: frame.windrichtungDeg,
             niederschlagMm: frame.niederschlagMm,
           });
           frameIdx++;

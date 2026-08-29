@@ -848,6 +848,7 @@ class TestWetterWirdAnFramesAngehaengt:
         koordinate: Coordinate,
         temperatur_c: float,
         windgeschwindigkeit_ms: float = 3.0,
+        windrichtung_deg: float = 270.0,
         niederschlag_mm: float = 0.0,
     ) -> WeatherSample:
         return WeatherSample(
@@ -855,7 +856,7 @@ class TestWetterWirdAnFramesAngehaengt:
             zeitpunkt=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
             temperatur_c=temperatur_c,
             windgeschwindigkeit_ms=windgeschwindigkeit_ms,
-            windrichtung_deg=180.0,
+            windrichtung_deg=windrichtung_deg,
             niederschlag_mm=niederschlag_mm,
             schneefall_cm=0.0,
             luftdruck_hpa=1013.25,
@@ -894,12 +895,14 @@ class TestWetterWirdAnFramesAngehaengt:
         for frame in fahren_frames:
             assert frame.temperatur_c is not None
             assert frame.windgeschwindigkeit_ms is not None
+            assert frame.windrichtung_deg is not None
             assert frame.niederschlag_mm is not None
         # Erster Frame liegt auf Segment 0 -> dessen Wetter (5°C, 2mm Regen).
         assert fahren_frames[0].temperatur_c == pytest.approx(5.0)
         assert fahren_frames[0].niederschlag_mm == pytest.approx(2.0)
         # Letzter Frame liegt auf Segment 2 -> dessen Wetter (15°C).
         assert fahren_frames[-1].temperatur_c == pytest.approx(15.0)
+        assert fahren_frames[0].windrichtung_deg == pytest.approx(270.0)
 
     def test_ohne_weather_samples_bleiben_wetterfelder_none(
         self,
@@ -926,4 +929,5 @@ class TestWetterWirdAnFramesAngehaengt:
         for frame in result.frames:
             assert frame.temperatur_c is None
             assert frame.windgeschwindigkeit_ms is None
+            assert frame.windrichtung_deg is None
             assert frame.niederschlag_mm is None

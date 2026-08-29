@@ -565,6 +565,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
             geschwindigkeit_kmh=geschwindigkeit_kmh,
             temperatur_c=wetter.temperatur_c if wetter else None,
             windgeschwindigkeit_ms=wetter.windgeschwindigkeit_ms if wetter else None,
+            windrichtung_deg=wetter.windrichtung_deg if wetter else None,
             niederschlag_mm=wetter.niederschlag_mm if wetter else None,
         )
         frames.append(frame)

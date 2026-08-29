@@ -544,6 +544,7 @@ async def test_create_trip_simulation_weather_off_leaves_frame_weather_fields_no
     for frame in result.frames:
         assert frame.temperatur_c is None
         assert frame.windgeschwindigkeit_ms is None
+        assert frame.windrichtung_deg is None
         assert frame.niederschlag_mm is None
 
 
@@ -571,6 +572,7 @@ async def test_create_trip_simulation_weather_high_attaches_frame_weather_fields
     for frame in fahren_frames:
         assert frame.temperatur_c is not None
         assert frame.windgeschwindigkeit_ms is not None
+        assert frame.windrichtung_deg is not None
         assert frame.niederschlag_mm is not None
 
 
@@ -1565,6 +1567,7 @@ def test_fastapi_endpoint_wetter_detailgrad_off_skips_weather_provider(
         data = response.json()
         assert data["frames"]
         assert all(f["temperatur_c"] is None for f in data["frames"])
+        assert all(f["windrichtung_deg"] is None for f in data["frames"])
     finally:
         app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
 
@@ -1587,6 +1590,7 @@ def test_fastapi_endpoint_wetter_detailgrad_default_is_high(
         fahren_frames = [f for f in response.json()["frames"] if f["zustand"] == "FAHREN"]
         assert fahren_frames
         assert all(f["temperatur_c"] is not None for f in fahren_frames)
+        assert all(f["windrichtung_deg"] is not None for f in fahren_frames)
     finally:
         app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
 
@@ -1659,6 +1663,7 @@ def test_fastapi_endpoint_wetter_detailgrad_low_one_fetch(
         fahren_frames = [f for f in data["frames"] if f["zustand"] == "FAHREN"]
         assert fahren_frames
         assert all(f["temperatur_c"] is not None for f in fahren_frames)
+        assert all(f["windrichtung_deg"] is not None for f in fahren_frames)
     finally:
         app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
 
@@ -1684,6 +1689,7 @@ def test_fastapi_endpoint_wetter_detailgrad_medium_one_fetch(
         fahren_frames = [f for f in data["frames"] if f["zustand"] == "FAHREN"]
         assert fahren_frames
         assert all(f["temperatur_c"] is not None for f in fahren_frames)
+        assert all(f["windrichtung_deg"] is not None for f in fahren_frames)
     finally:
         app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
 

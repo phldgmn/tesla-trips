@@ -52,6 +52,13 @@ class SimulationFrame(BaseModel):
         description="Fuer diesen Streckenpunkt angenommene Windgeschwindigkeit in m/s "
         "(None wie temperatur_c).",
     )
+    windrichtung_deg: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=360.0,
+        description="Fuer diesen Streckenpunkt angenommene Windrichtung in Grad "
+        "(0° = N, 90° = O; None wie temperatur_c).",
+    )
     niederschlag_mm: float | None = Field(
         default=None,
         ge=0.0,

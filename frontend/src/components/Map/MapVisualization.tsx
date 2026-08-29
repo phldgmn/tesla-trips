@@ -464,6 +464,7 @@ export function MapVisualization({
             f.windgeschwindigkeit_ms !== null
               ? f.windgeschwindigkeit_ms * 3.6
               : undefined,
+          windrichtungDeg: f.windrichtung_deg ?? undefined,
           niederschlagMm: f.niederschlag_mm ?? undefined,
         })),
     );
@@ -981,7 +982,10 @@ export function MapVisualization({
         </div>
       )}
 
-      {/* Routen-Hover-Tooltip: Datum/Zeit + SoC am naechstgelegenen Streckenpunkt */}
+      {/* Routen-Hover-Tooltip: Datum/Zeit, SoC, Geschwindigkeit und (falls
+          beruecksichtigt) Wetter am naechstgelegenen Streckenpunkt - mehrzeilig
+          (siehe `buildRouteHoverText`), damit der Tooltip vertikal statt
+          horizontal waechst. */}
       {routeHoverInfo && (
         <div
           style={{
@@ -991,11 +995,12 @@ export function MapVisualization({
             zIndex: 10,
             padding: "4px 8px",
             fontSize: "12px",
+            lineHeight: 1.4,
             borderRadius: "4px",
             background: "rgba(0,0,0,0.75)",
             color: "#fff",
             pointerEvents: "none",
-            whiteSpace: "nowrap",
+            whiteSpace: "pre-line",
           }}
         >
           {buildRouteHoverText(routeHoverInfo.sample)}

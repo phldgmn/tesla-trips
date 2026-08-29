@@ -260,29 +260,71 @@ export function buildConstructionZonePopupHtml(zone: ConstructionZone): string {
   );
 }
 
-/** Tooltip-Text fuer den Routen-Hover: Datum/Zeit und SoC am naechstgelegenen
+/** Wandelt eine Windrichtung in Grad (0° = N, 90° = O) in eine knappe
+ *  16-Punkte-Himmelsrichtung um (z. B. "NW") - fuer den Routen-Hover-
+ *  Tooltip, kompakter als der rohe Gradwert. */
+function windrichtungZuHimmelsrichtung(deg: number): string {
+  const himmelsrichtungen = [
+    "N",
+    "NNO",
+    "NO",
+    "ONO",
+    "O",
+    "OSO",
+    "SO",
+    "SSO",
+    "S",
+    "SSW",
+    "SW",
+    "WSW",
+    "W",
+    "WNW",
+    "NW",
+    "NNW",
+  ];
+  const index = Math.round(deg / 22.5) % himmelsrichtungen.length;
+  return himmelsrichtungen[index];
+}
+
+/** Tooltip-Text fuer den Routen-Hover: Datum/Zeit, SoC, Geschwindigkeit und
+ * (falls beruecksichtigt) angenommenes Wetter am naechstgelegenen
  * Streckenpunkt. `sample` stammt aus `findNearestRouteSample()` ueber die
  * per `projectDistanceAlongLineM()` auf die gezeichnete (gesplicete) Linie
  * projizierte Mausposition - NICHT aus einer raeumlichen Naechster-Punkt-
  * Suche ueber `SimulationFrame.position`, die an Stellen, wo sich die Route
  * raeumlich (aber nicht streckenmaessig) annaehert, z. B. kurz nach einem
- * Ladehalt-Abstecher, den falschen (Vor-Lade-)Frame waehlen konnte. */
+ * Ladehalt-Abstecher, den falschen (Vor-Lade-)Frame waehlen konnte.
+ *
+ * Liefert mehrere `\n`-getrennte Zeilen statt einer einzigen langen Zeile,
+ * damit der Tooltip vertikal statt horizontal waechst (siehe `whiteSpace:
+ * "pre-line"` am Tooltip-Element in `MapVisualization.tsx`). */
 export function buildRouteHoverText(sample: RouteSample): string {
-  const teile = [
-    `${formatKurzZeitpunkt(sample.zeitpunkt ?? null)} · ${sample.socPct.toFixed(0)}% SoC`,
+  const zeilen = [
+    formatKurzZeitpunkt(sample.zeitpunkt ?? null),
+    `${sample.socPct.toFixed(0)}% SoC`,
   ];
   if (sample.geschwindigkeitKmh !== undefined) {
-    teile.push(`${sample.geschwindigkeitKmh.toFixed(0)} km/h`);
+    zeilen.push(`${sample.geschwindigkeitKmh.toFixed(0)} km/h`);
   }
   if (sample.temperaturC !== undefined) {
-    let wetter = `${sample.temperaturC.toFixed(0)}°C`;
-    if (sample.niederschlagMm !== undefined && sample.niederschlagMm > 0) {
-      wetter += `, ${sample.niederschlagMm.toFixed(1)} mm/h`;
-    }
-    if (sample.windgeschwindigkeitKmh !== undefined) {
-      wetter += `, Wind ${sample.windgeschwindigkeitKmh.toFixed(0)} km/h`;
-    }
-    teile.push(wetter);
+    zeilen.push(`${sample.temperaturC.toFixed(0)}°C`);
   }
-  return teile.join(" · ");
+  if (
+    sample.windgeschwindigkeitKmh !== undefined ||
+    sample.windrichtungDeg !== undefined
+  ) {
+    const richtung =
+      sample.windrichtungDeg !== undefined
+        ? `${windrichtungZuHimmelsrichtung(sample.windrichtungDeg)} `
+        : "";
+    const staerke =
+      sample.windgeschwindigkeitKmh !== undefined
+        ? `${sample.windgeschwindigkeitKmh.toFixed(0)} km/h`
+        : "";
+    zeilen.push(`Wind ${richtung}${staerke}`.trimEnd());
+  }
+  if (sample.niederschlagMm !== undefined && sample.niederschlagMm > 0) {
+    zeilen.push(`${sample.niederschlagMm.toFixed(1)} mm/h Regen`);
+  }
+  return zeilen.join("\n");
 }

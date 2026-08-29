@@ -31,6 +31,9 @@ export interface SimulationFrame {
   /** Fuer diesen Streckenpunkt angenommene Windgeschwindigkeit in m/s,
    *  `null` wie `temperatur_c`. */
   windgeschwindigkeit_ms: number | null;
+  /** Fuer diesen Streckenpunkt angenommene Windrichtung in Grad
+   *  (0° = N, 90° = O), `null` wie `temperatur_c`. */
+  windrichtung_deg: number | null;
   /** Fuer diesen Streckenpunkt angenommener Niederschlag in mm/h,
    *  `null` wie `temperatur_c`. */
   niederschlag_mm: number | null;
