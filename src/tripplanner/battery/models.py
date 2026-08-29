@@ -314,4 +314,4 @@ class ChargingStop(BaseModel):
     abfahrtszeit_s: float  # seit Reisebeginn
 
 
-from .reference_curves import LadekurveReferenz
+from .reference_curves import LadekurveReferenz as LadekurveReferenz  # noqa: E402, I001, PLC0414 -- deferred re-export avoids a circular import (reference_curves.py imports ChargingCurve/ChargingCurvePoint/InterpolationMethod from this module); explicit `as`-alias satisfies mypy's implicit_reexport=False.

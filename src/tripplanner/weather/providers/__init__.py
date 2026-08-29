@@ -40,9 +40,10 @@ from tripplanner.weather.providers.smhi import (
 )
 
 __all__ = [
-    "FakeWeatherProvider",
-    "DmiProvider",
     "HOURLY_PARAMS",
+    "_KMH_TO_MPS",
+    "DmiProvider",
+    "FakeWeatherProvider",
     "LoadBalancedWeatherProvider",
     "MetNorwayProvider",
     "OpenMeteoClient",
@@ -52,7 +53,6 @@ __all__ = [
     "SmhiProvider",
     "WeatherProvider",
     "WeatherProviderEntry",
-    "_KMH_TO_MPS",
     "_cache_deserialize",
     "_cache_key",
     "_cache_str_key",

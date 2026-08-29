@@ -1,0 +1,495 @@
+"""Implementierung des ChargingStationProvider mit SQLite-DB + supercharge.info-API."""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import timedelta
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from tqdm.asyncio import tqdm
+
+from tripplanner.geo import Coordinate, haversine_distance_m
+
+from ..client import CurlError, SuperchargeInfoClient, TeslaClient, create_tesla_client
+from ..database import SQLiteDatabase
+from ..models import (
+    ChargingStation,
+    ChargingStationProvider,
+)
+from .pricing_queue import PricingQueueMixin
+from .record_mapping import (
+    db_record_to_charging_station,
+    site_to_db_record,
+    tesla_detail_to_db_record,
+    tesla_location_to_db_record,
+)
+from .spatial import _build_lat_bands, _stations_in_radius
+
+if TYPE_CHECKING:
+    from typing import Literal
+
+# Default path for the SQLite database (project-root/data/tesla_superchargers.db)
+_DEFAULT_DB_PATH: Path = (
+    Path(__file__).resolve().parent.parent.parent.parent / "data" / "tesla_superchargers.db"
+)
+
+
+class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
+    """Supercharger-Daten aus SQLite-DB mit supercharge.info-API-Refresh.
+
+    Default: liest aus data/tesla_superchargers.db (erzeugt Datenbank bei
+    erstmaligem Zugriff automatisch und lädt initiale Daten).
+
+    Usage:
+        provider = TeslaChargingStationProvider()
+        stations = await provider.get_stations_in_radius((52.5, 13.4), 10)
+        await provider.refresh()
+    """
+
+    # Valid countries that the current ChargingStation model supports
+    _VALID_COUNTRIES: frozenset[str] = frozenset({"DE", "DK", "SE"})
+
+    # Default staleness threshold for cached pricing data before it is
+    # queued for re-scraping (mirrors the legacy tesla-pricing tool's
+    # MAX_AGE_DAYS_DEFAULT, see docs/Tesla-Supercharger-Detail-Scraping.md).
+    PRICING_MAX_AGE: timedelta = timedelta(days=14)
+
+    # Max distance (meters) for matching a station's stored coordinates to a
+    # Tesla directory entry when resolving a stale numeric `tesla_location_id`
+    # (see `_resolve_numeric_slug`). supercharge.info and Tesla's own
+    # coordinates for the same physical site normally agree within a few
+    # tens of meters; this margin tolerates minor drift without risking a
+    # false match against a nearby, unrelated Supercharger.
+    _SLUG_RESOLUTION_MAX_DISTANCE_M: float = 500.0
+
+    # --- Abwaertskompatible Aliase fuer die nach ``record_mapping``
+    # --- ausgelagerten Mapping-Static-Methoden (Tests importieren sie teils
+    # --- weiterhin ueber ``TeslaChargingStationProvider._<name>``).
+
+    @staticmethod
+    def _tesla_detail_to_db_record(
+        detail: dict[str, Any],
+        country: str,
+    ) -> dict[str, Any]:
+        """Delegiert an ``record_mapping.tesla_detail_to_db_record``."""
+        from .record_mapping import tesla_detail_to_db_record as _fn
+
+        return _fn(detail, country)
+
+    def __init__(
+        self,
+        db_path: Path | None = None,
+        client: SuperchargeInfoClient | None = None,
+        debug_log: Path | None = None,
+    ) -> None:
+        """Initialisiert den Provider.
+
+        Args:
+            db_path: Pfad zur SQLite-DB. Default: data/tesla_superchargers.db
+            client: Optionaler HTTP-Client (für Tests mit Mock). Sonst auto.
+            debug_log: Optionaler Dateipfad fuer Request/Response-Debug-Log.
+        """
+        if db_path is None:
+            db_path = _DEFAULT_DB_PATH
+        self._db = SQLiteDatabase(db_path)
+        self._db.initialize()
+        self._client = client
+        self._debug_log = debug_log
+        self._stations: list[ChargingStation] | None = None
+        # Räumlicher Index über `self._stations` (siehe `_build_lat_bands`).
+        # `_lat_bands_source` hält die Identität der Stationsliste, aus der
+        # `_lat_bands` gebaut wurde - ändert sich `self._stations` (Reload
+        # nach `refresh()`/`update_station()` o.ä., die den Cache auf `None`
+        # setzen), erkennt `get_stations_in_radius()` das automatisch über
+        # den Identitätsvergleich und baut den Index neu, ohne dass jede
+        # Cache-Invalidierungsstelle den Index separat zurücksetzen müsste.
+        self._lat_bands: dict[int, list[ChargingStation]] | None = None
+        self._lat_bands_source: list[ChargingStation] | None = None
+
+    def close(self) -> None:
+        """Schließt die zugrunde liegende SQLite-Verbindung.
+
+        Aufrufer (z. B. `trip_input.api._lifespan`), die den Provider
+        prozessweit wiederverwenden, MÜSSEN dies beim Shutdown aufrufen, um
+        die Datenbankverbindung sauber freizugeben.
+        """
+        self._db.close()
+
+    async def refresh(self) -> int:
+        """Holt aktuelle Daten von supercharge.info und schreibt sie in die DB.
+
+        1. Fetch all sites via API
+        2. Filtere auf Europe (address.region == "Europe")
+        3. Mappe jedes Site auf DB-Record-Format
+        4. Rufe SQLiteDatabase.replace_all_stations() auf
+
+        Returns:
+            Anzahl der gespeicherten Stationen
+        """
+        if self._client is None:
+            self._client = SuperchargeInfoClient(debug_log=self._debug_log)
+
+        raw_sites = await self._client.fetch_all_sites()
+
+        euro_sites = [s for s in raw_sites if s.get("address", {}).get("region") == "Europe"]
+
+        db_records = [site_to_db_record(s) for s in euro_sites]
+        self._db.replace_all_stations(db_records)
+        self._stations = None  # invalidate cache
+
+        return len(db_records)
+
+    async def refresh_from_tesla_api(  # noqa: PLR0912
+        self,
+        countries: list[str] | None = None,
+        tesla_client: TeslaClient | None = None,
+        enrich_details: bool = False,
+        resume_from_slug: str | None = None,
+        delay_s: float = 0.5,
+    ) -> int:
+        """Holt aktuelle Supercharger-Daten von der Tesla Locations-API.
+
+        Phase 1 (immer): Holt die Standortliste (get-locations), filtert auf
+        Supercharger, erzeugt Basis-Datensaetze (UUID, Slug, Koordinaten, Typ)
+        und speichert sie sofort in die SQLite-Datenbank.
+
+        Phase 2 (optional, enrich_details=True): Ruft fuer jeden Standort die
+        Detaildaten ab (get-location-details) und reichert die DB-Datensaetze
+        mit Stallzahlen, Ladeleistung, Oeffnungszeiten etc. an. Zeigt einen
+        tqdm-Progress-Bar an.
+
+        Bei 403 (WAF-Block) wird Phase 2 sofort abgebrochen, die bisher
+        angereicherten Daten bleiben erhalten, und ein CurlError mit dem
+        fehlgeschlagenen Slug wird ausgeloest (fuer Resume mit --resume-from).
+
+        Args:
+            countries: Liste der ISO-2-Laendercodes (default: DE, DK, SE)
+            tesla_client: Optionaler TeslaClient
+            enrich_details: Wenn True, werden Detaildaten abgerufen
+            resume_from_slug: Slug, ab dem in Phase 2 weitergemacht werden
+                soll (alle vorherigen werden uebersprungen)
+            delay_s: Verzoegerung zwischen erfolgreichen Detail-Requests
+
+        Returns:
+            Anzahl der gespeicherten Stationen
+
+        Raises:
+            CurlError: Bei 403 (WAF-Block) in Phase 2
+        """
+        if countries is None:
+            countries = ["DE", "DK", "SE"]
+        created = tesla_client is None
+        if tesla_client is None:
+            tesla_client = create_tesla_client(debug_log=self._debug_log)
+
+        try:
+            # --- Phase 1: Standortliste abrufen und Basis-Datensaetze speichern ---
+            all_records = await self._fetch_tesla_locations(countries, tesla_client)
+
+            if not all_records:
+                return 0
+
+            # Phase-1-Daten sofort in DB schreiben
+            self._db.replace_all_stations(all_records)
+            self._stations = None
+            total = len(all_records)
+
+            # --- Phase 2 (optional): Detaildaten anreichern ---
+            if not enrich_details:
+                return total
+
+            # Bestimme Start-Index fuer Resume
+            start_idx = 0
+            if resume_from_slug:
+                for i, r in enumerate(all_records):
+                    if r.get("tesla_location_id") == resume_from_slug:
+                        start_idx = i + 1
+                        break
+
+            # Original-Locations nach slug indexieren (fuer inHkMoTw)
+            loc_by_slug: dict[str, dict[str, Any]] = {}
+            for country in countries:
+                locations = await tesla_client.fetch_locations(country)
+                for loc in locations:
+                    s = loc.get("location_url_slug", "")
+                    if s:
+                        loc_by_slug[s] = loc
+
+            enriched: list[dict[str, Any]] = list(all_records)
+
+            try:
+                enriched = await self._enrich_stations(
+                    enriched,
+                    loc_by_slug,
+                    tesla_client,
+                    delay_s,
+                    start_idx,
+                    total,
+                )
+            except CurlError:
+                # Teilweise angereicherte Daten trotzdem speichern
+                if enriched != all_records:
+                    self._db.replace_all_stations(enriched)
+                    self._stations = None
+                raise
+
+            if enriched != all_records:
+                self._db.replace_all_stations(enriched)
+                self._stations = None
+
+            return total
+        finally:
+            # Eigenen Client (z. B. Chromium-Browser) deterministisch beenden.
+            if created:
+                await tesla_client.close()
+
+    async def _fetch_tesla_locations(
+        self,
+        countries: list[str],
+        tesla_client: TeslaClient,
+    ) -> list[dict[str, Any]]:
+        """Phase 1: Holt Standortliste und erzeugt Basis-Datensaetze.
+
+        Args:
+            countries: Liste der ISO-2-Laendercodes
+            tesla_client: TeslaClient
+
+        Returns:
+            Liste von DB-Record-Dicts (Dedupliziert nach slug)
+        """
+        all_records: list[dict[str, Any]] = []
+        seen_slugs: set[str] = set()
+        for country in countries:
+            locations = await tesla_client.fetch_locations(country)
+            superchargers = [
+                loc
+                for loc in locations
+                if "supercharger" in loc.get("location_type", []) and not loc.get("inCN", False)
+            ]
+            for loc in superchargers:
+                slug: str = loc.get("location_url_slug", "")
+                if not slug or slug in seen_slugs:
+                    continue
+                seen_slugs.add(slug)
+                record = tesla_location_to_db_record(loc, country)
+                all_records.append(record)
+        return all_records
+
+    async def _enrich_stations(  # noqa: PLR0913, PLR0917
+        self,
+        enriched: list[dict[str, Any]],
+        loc_by_slug: dict[str, dict[str, Any]],
+        tesla_client: TeslaClient,
+        delay_s: float,
+        start_idx: int,
+        total: int,
+    ) -> list[dict[str, Any]]:
+        """Holt Detaildaten fuer alle Stationen (Phase 2).
+
+        Args:
+            enriched: Liste der Basis-Datensaetze (wird inline modifiziert)
+            loc_by_slug: Mapping slug -> locations-Dict (fuer inHkMoTw)
+            tesla_client: TeslaClient
+            delay_s: Verzoegerung zwischen Requests
+            start_idx: Start-Index (fuer Resume)
+            total: Gesamtanzahl
+
+        Returns:
+            Angereicherte Liste (gleiche Referenz wie enriched)
+
+        Raises:
+            CurlError: Bei 403 (WAF-Block)
+        """
+        for idx in tqdm(
+            range(start_idx, total),
+            desc="Enrich details",
+            unit="station",
+            leave=True,
+        ):
+            slug = enriched[idx].get("tesla_location_id", "")
+            loc = loc_by_slug.get(slug, {})
+            try:
+                detail = await tesla_client.fetch_location_details(
+                    slug,
+                    in_hk_mo_tw=loc.get("inHkMoTw", False),
+                )
+                if detail:
+                    detail["_uuid"] = loc.get("uuid", "")
+                    detail["_slug"] = slug
+                    enriched_record = tesla_detail_to_db_record(
+                        detail,
+                        enriched[idx]["country_code"],
+                    )
+                    enriched[idx] = enriched_record
+                    tqdm.write(f"  ok  {slug}")
+                if delay_s > 0:
+                    await asyncio.sleep(delay_s)
+            except CurlError:
+                tqdm.write(f"  403 {slug} - WAF-Block, breche ab")
+                raise CurlError(
+                    f"WAF-Block bei Slug '{slug}'. Setze --resume-from {slug} fort."
+                ) from None
+            except Exception:
+                tqdm.write(f"  err {slug} - ueberspringe")
+                continue
+        return enriched
+
+    def _load_stations_from_db(self) -> list[ChargingStation]:
+        """Lädt Stationen aus der DB und wandelt sie in ChargingStation um.
+
+        Filtert auf Länder, die vom aktuellen ChargingStation-Modell
+        unterstützt werden (DE, DK, SE), sowie auf tatsächlich betriebsbereite
+        Stationen (`status == "OPEN"`). Stationen mit Status `CONSTRUCTION`
+        ("Coming Soon"), `PERMIT` oder `PLAN` existieren noch nicht physisch
+        (z. B. "Torsvik, Sweden", "Quickborn, Germany") bzw. sind reine
+        Lieferzentren im Bau (z. B. "Ringsted, Denmark") und dürfen daher
+        nicht als Ladestopp-Kandidat in Routing/Scraping auftauchen - siehe
+        `db_record_to_charging_station`'s `status_map` für die Werte, die
+        `CONSTRUCTION`/`PERMIT`/`PLAN` annehmen können.
+        """
+        records = self._db.load_stations(
+            country_filter=self._VALID_COUNTRIES  # type: ignore[arg-type]
+        )
+        operational = [r for r in records if str(r.get("status") or "OPEN").upper() == "OPEN"]
+        return [db_record_to_charging_station(r) for r in operational]
+
+    async def get_stations_in_radius(
+        self,
+        coordinate: Coordinate,
+        radius_km: float,
+        country_filter: Literal["DE", "DK", "SE"] | None = None,
+    ) -> list[ChargingStation]:
+        """Liefert alle Supercharger innerhalb des gegebenen Radius um die Koordinate.
+
+        Args:
+            coordinate: (lat, lon) als Tuple (WGS84)
+            radius_km: Suchradius in Kilometern (Flugdistanz)
+            country_filter: Optionaler Länderfilter (DE/DK/SE)
+
+        Returns:
+            Liste von ChargingStation, sortiert nach Distanz (aufsteigend)
+        """
+        if self._stations is None:
+            self._stations = self._load_stations_from_db()
+        # Breitengrad-Index neu aufbauen, falls `self._stations` seit dem
+        # letzten Aufbau neu geladen wurde (Identitätsvergleich statt
+        # Invalidierung an jeder `self._stations = None`-Stelle, siehe
+        # `__init__`).
+        if self._lat_bands is None or self._lat_bands_source is not self._stations:
+            self._lat_bands = _build_lat_bands(self._stations)
+            self._lat_bands_source = self._stations
+
+        candidates = _stations_in_radius(self._lat_bands, coordinate, radius_km)
+        if country_filter:
+            candidates = [s for s in candidates if s.country == country_filter]
+
+        # Sortieren nach Distanz (aufsteigend)
+        paired = [(haversine_distance_m(coordinate, s.coordinate) / 1000.0, s) for s in candidates]
+        paired.sort(key=lambda x: x[0])
+        return [station for _, station in paired]
+
+    async def get_stations_along_route(
+        self,
+        route: Any,
+        search_radius_km: float = 2.0,
+    ) -> dict[int, list[ChargingStation]]:
+        """Sucht Supercharger entlang der Route.
+
+        Args:
+            route: Die geplante Route (muss segments-Attribut haben)
+            search_radius_km: Radius um jeden Segment-Mittelpunkt
+
+        Returns:
+            Dict mapping segment_index -> liste von ChargingStation
+        """
+        result: dict[int, list[ChargingStation]] = {}
+        for i, segment in enumerate(route.segments):
+            coords: list[Coordinate] = segment.geometrie
+            if not coords:
+                continue
+
+            mid_idx = len(coords) // 2
+            mid_point = coords[mid_idx]
+
+            nearby = await self.get_stations_in_radius(mid_point, search_radius_km)
+            if nearby:
+                result[i] = nearby
+
+        return result
+
+    async def refresh_single_station(
+        self,
+        slug: str,
+        country: str | None = None,
+        tesla_client: TeslaClient | None = None,
+    ) -> ChargingStation | None:
+        """Ruft Detaildaten fuer eine einzelne Station von der Tesla API ab.
+
+        Holt frische Daten von get-location-details fuer den gegebenen
+        Slug, aktualisiert den DB-Eintrag und liefert das aktualisierte
+        ChargingStation-Modell zurueck.
+
+        Args:
+            slug: tesla_location_id (location_url_slug)
+            country: ISO-2 Laendercode (wird aus DB ermittelt wenn None)
+            tesla_client: Optionaler TeslaClient
+
+        Returns:
+            Aktualisierte ChargingStation oder None bei Fehler.
+
+        Raises:
+            CurlError: Bei 403 (WAF-Block)
+        """
+        created = tesla_client is None
+        if tesla_client is None:
+            tesla_client = create_tesla_client(debug_log=self._debug_log)
+
+        try:
+            # Bestehenden Eintrag laden: liefert Country-Fallback und die
+            # stabile supercharge_info_id. Diese MUSS erhalten bleiben, da
+            # sie ein unabhaengiger interner Schluessel ist (urspruenglich
+            # aus supercharge.info) und Teslas eigene trtId-Nummerierung
+            # einem komplett anderen ID-Raum entstammt - ein blindes
+            # Uebernehmen der trtId als supercharge_info_id kollidiert
+            # leicht mit der ID einer anderen, bereits existierenden
+            # Station (UNIQUE-Constraint).
+            existing = self._db.find_station_by_slug(slug)
+            if country is None:
+                if existing is None:
+                    return None
+                country = existing.get("country_code", "DE")
+
+            # Detaildaten abrufen
+            detail = await tesla_client.fetch_location_details(slug)
+            if not detail:
+                return None
+
+            # In DB-Record umwandeln
+            detail["_slug"] = slug
+            detail["_uuid"] = detail.get("trtId", "0")
+
+            db_record = tesla_detail_to_db_record(detail, country)
+            if existing is not None:
+                db_record["supercharge_info_id"] = existing["supercharge_info_id"]
+
+            # In DB speichern
+            self._db.update_station(db_record)
+            self._stations = None  # Cache invalidieren
+
+            # Zurueck in ChargingStation konvertieren
+            return db_record_to_charging_station(db_record)
+        finally:
+            # Eigenen Client (z. B. Chromium-Browser) deterministisch beenden.
+            if created:
+                await tesla_client.close()
+
+    def get_all_stations(self) -> list[ChargingStation]:
+        """Liefert alle Stationen aus der lokalen DB.
+
+        Returns:
+            Liste aller ChargingStation-Eintraege.
+        """
+        if self._stations is None:
+            self._stations = self._load_stations_from_db()
+        return list(self._stations)

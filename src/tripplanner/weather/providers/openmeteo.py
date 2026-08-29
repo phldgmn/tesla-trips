@@ -28,7 +28,6 @@ HOURLY_PARAMS = [
 ]
 
 
-
 _KMH_TO_MPS = 1000.0 / 3600.0
 
 
@@ -317,4 +316,3 @@ def _extract_sample_from_response(
         globalstrahlung_wm2=get_value("shortwave_radiation", 0.0),
         bewoelkung_pct=get_value("cloud_cover", 0.0),
     )
-

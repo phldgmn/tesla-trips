@@ -47,7 +47,6 @@ class WeatherProvider(Protocol):
         ...
 
 
-
 class FakeWeatherProvider:
     """Fake-Provider für Unit-Tests.
 

@@ -32,7 +32,6 @@ _DMI_PARAMETERS = (
 )
 
 
-
 class DmiProvider:
     """Weather provider using DMI's free, keyless HARMONIE DINI forecast API.
 

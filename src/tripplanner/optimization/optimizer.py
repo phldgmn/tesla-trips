@@ -55,6 +55,7 @@ COST_INF: float = 1e9  # Unendlich für unzulässige Kanten
 MAX_SOC_PCT: float = 100.0
 """Maximaler SoC in Prozent."""
 
+
 class NetworkXOptimizer(OptimizerInterface):
     """A*/Dijkstra-Optimierung mit NetworkX (Prototyp)."""
 
@@ -361,7 +362,6 @@ class NetworkXOptimizer(OptimizerInterface):
         the same mapping BEFORE `optimize()` runs).
         """
         return map_stations_to_segments(stations, segments)
-
 
     def _estimate_max_time_buckets(  # noqa: PLR0913, PLR0917 -- Zeitbudget braucht Fahrzeit-, Lade- UND Wartezeit-Kontext
         self,

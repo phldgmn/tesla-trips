@@ -4,6 +4,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable, Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
 
@@ -67,7 +68,6 @@ class WeatherProviderEntry(NamedTuple):
     """Country codes (`"DE"`/`"DK"`/`"SE"`) this provider is restricted to,
     or `None` for global coverage (eligible for every coordinate, including
     ones outside the three focus countries)."""
-
 
 
 class LoadBalancedWeatherProvider:

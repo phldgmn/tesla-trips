@@ -72,7 +72,6 @@ class SlidingWindowRateLimiter:
             await asyncio.sleep(max(wait_s, 0.0))
 
 
-
 class OpenWeatherProvider:
     """Weather provider using OpenWeather's free "5 day / 3 hour" forecast API.
 
@@ -149,7 +148,6 @@ class OpenWeatherProvider:
     async def close(self) -> None:
         """Closes the underlying HTTP client."""
         await self._client.aclose()
-
 
 
 def _openweather_entries_by_time(payload: dict[str, Any]) -> dict[datetime, dict[str, Any]]:

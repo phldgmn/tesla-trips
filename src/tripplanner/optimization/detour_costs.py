@@ -50,9 +50,7 @@ def detour_kosten(
     """
     if detour_kosten is not None and station_id in detour_kosten:
         kosten = detour_kosten[station_id]
-        soc_pct = calc_soc_verbrauch_pct(
-            kosten.energie_kwh, vehicle_profile.batteriekapazitaet_kwh
-        )
+        soc_pct = calc_soc_verbrauch_pct(kosten.energie_kwh, vehicle_profile.batteriekapazitaet_kwh)
         return kosten.zeit_s, soc_pct
 
     if offroute_distance_m <= 0.0:
