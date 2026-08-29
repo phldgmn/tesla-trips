@@ -630,7 +630,7 @@ class TestNodriverTeslaClient:
         """Prueft, dass fetch_pricing_html den Rohtext liefert (kein JSON-Parsing)."""
 
         html = '<html><script id="__NEXT_DATA__">{"a": 1}</script></html>'
-        url = "https://www.tesla.com/findus/location/supercharger/rhudensupercharger"
+        url = "https://www.tesla.com/de_de/findus/location/supercharger/rhudensupercharger"
         fetcher = _FakeFetcher()
         fetcher.set_response(url, 200, html)
 
@@ -650,7 +650,7 @@ class TestNodriverTeslaClient:
         import tripplanner.charging_infrastructure.clients.nodriver as nodriver_module
 
         monkeypatch.setattr(nodriver_module.asyncio, "sleep", AsyncMock())
-        url = "https://www.tesla.com/findus/location/supercharger/rhudensupercharger"
+        url = "https://www.tesla.com/de_de/findus/location/supercharger/rhudensupercharger"
         fetcher = _FakeFetcher()
         fetcher.set_response(url, 403, "<html>Access Denied</html>")
 

@@ -108,14 +108,21 @@ class TeslaJsonEndpointsMixin:
 
     BASE_URL: str = "https://www.tesla.com/api/findus"
 
-    PRICING_BASE_URL: str = "https://www.tesla.com/findus/location/supercharger"
+    PRICING_BASE_URL: str = "https://www.tesla.com/de_de/findus/location/supercharger"
     """Oeffentliche Standort-Detailseite (Next.js, kein JSON-API-Endpunkt wie
     `get-location-details`). Anders als `get-location-details` enthaelt nur
     diese Seite die kWh-Preise, eingebettet in einem
     `<script id="__NEXT_DATA__">`-JSON-Blob - siehe `pricing.parse_pricing_tiers`
     fuer das Parsing und `docs/Tesla-Supercharger-Detail-Scraping.md` fuer die
     Herkunft dieser Struktur (reverse-engineered vom Referenz-Tool `tesla-
-    pricing`)."""
+    pricing`). Der `de_de`-Locale-Praefix ist erforderlich: ohne Locale im
+    Pfad liefert Tesla fuer manche Standorte (z. B. schwedische Supercharger
+    wie Falkenberg) eine geo-/locale-abhaengige Zwischenseite ohne
+    `props.pageProps.formattedData` statt der eigentlichen Standortseite,
+    obwohl der Slug gueltig ist. Die konkrete Locale ist dabei irrelevant
+    fuer den Seiteninhalt (Preise/Struktur sind sprachunabhaengig identisch);
+    `de_de` spiegelt nur den bereits andernorts genutzten Default (siehe
+    `TeslaJsonEndpointsMixin.fetch_location_details`)."""
 
     _delay: float
     _debug_log: Path | None

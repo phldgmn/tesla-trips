@@ -406,8 +406,12 @@ class NodriverTeslaClient:
 
     BASE_URL: str = "https://www.tesla.com/api/findus"
 
-    PRICING_BASE_URL: str = "https://www.tesla.com/findus/location/supercharger"
-    """Oeffentliche Standort-Detailseite (einzige Seite mit kWh-Preisen)."""
+    PRICING_BASE_URL: str = "https://www.tesla.com/de_de/findus/location/supercharger"
+    """Oeffentliche Standort-Detailseite (einzige Seite mit kWh-Preisen). Der
+    `de_de`-Locale-Praefix ist erforderlich - siehe
+    `common.TeslaJsonEndpointsMixin.PRICING_BASE_URL` fuer die Begruendung
+    (ohne Locale liefert Tesla fuer manche Standorte eine geo-abhaengige
+    Zwischenseite ohne `formattedData`)."""
 
     CurlError = CurlError
     """Alias auf den modulweiten ``CurlError`` (siehe oben)."""

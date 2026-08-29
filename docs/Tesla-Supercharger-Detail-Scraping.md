@@ -102,12 +102,16 @@ The CLI command `trip estimate` and `trip update` both call `_load_directory()` 
 
 ---
 
-## 3. Per-Station Pricing: `tesla.com/findus/location/supercharger/<id>`
+## 3. Per-Station Pricing: `tesla.com/de_de/findus/location/supercharger/<id>`
 
 ### Source
 
-`https://www.tesla.com/findus/location/supercharger/{location_id}` — Tesla's Next.js-powered
-station detail page. Pricing tiers are embedded in a `<script id="__NEXT_DATA__">` JSON blob.
+`https://www.tesla.com/de_de/findus/location/supercharger/{location_id}` — Tesla's
+Next.js-powered station detail page. Pricing tiers are embedded in a
+`<script id="__NEXT_DATA__">` JSON blob. The `de_de` locale path segment is required:
+without it, Tesla serves a geo-/locale-dependent intermediate page lacking
+`formattedData` for some locations (e.g. Swedish superchargers), even though the slug
+itself is valid.
 
 ### How it's fetched
 

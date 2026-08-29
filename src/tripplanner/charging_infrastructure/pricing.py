@@ -4,10 +4,12 @@ Tesla's JSON `get-location-details` API (see `client.py`, `TeslaLocationsClient.
 fetch_location_details`) does not carry pricing information at all (verified
 against the documented response shape in `docs/Tesla-Supercharger-API.md`).
 Per-kWh pricing is only rendered on the public Next.js station detail page
-(`https://www.tesla.com/findus/location/supercharger/<slug>`, fetched via
-`TeslaLocationsClient.fetch_pricing_html`), embedded in a
+(`https://www.tesla.com/de_de/findus/location/supercharger/<slug>`, fetched
+via `TeslaLocationsClient.fetch_pricing_html`), embedded in a
 `<script id="__NEXT_DATA__">` JSON blob at
-`props.pageProps.formattedData.chargerPricing`.
+`props.pageProps.formattedData.chargerPricing`. A locale path segment is
+required: the bare (locale-less) URL serves a geo-/locale-dependent
+intermediate page without `formattedData` for some locations.
 
 [INFERENCE] Tesla does not publish a schema for `chargerPricing`, and this
 environment's outbound network access is blocked by Akamai's WAF (see
@@ -68,8 +70,8 @@ def parse_pricing_tiers(html: str) -> list[ChargingPricingTier]:
     """Parses `chargerPricing` tiers from a Tesla findus location detail page.
 
     Args:
-        html: Raw HTML of `https://www.tesla.com/findus/location/supercharger/
-            <slug>` (see `TeslaLocationsClient.fetch_pricing_html`).
+        html: Raw HTML of `https://www.tesla.com/de_de/findus/location/
+            supercharger/<slug>` (see `TeslaLocationsClient.fetch_pricing_html`).
 
     Returns:
         One `ChargingPricingTier` per (pricing tier, rate window) with a
