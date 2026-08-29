@@ -4,6 +4,7 @@ import {
   migrateWetterBeruecksichtigen,
 } from "../../utils/persistent-state";
 import { Modal } from "../Modal";
+import { Popover } from "../Popover";
 
 import type {
   Stop,
@@ -43,6 +44,10 @@ import {
   CloudSun,
   Construction,
   Route,
+  SignalZero,
+  SignalLow,
+  SignalMedium,
+  SignalHigh,
   X,
 } from "lucide-react";
 
@@ -893,100 +898,116 @@ export function TripPlannerForm({
           marginBottom: "1rem",
         }}
       >
-        <button
-          type="button"
-          onClick={() => {
-            const stufen: WeatherDetailLevel[] = [
-              "off",
-              "low",
-              "medium",
-              "high",
-            ];
-            const idx = stufen.indexOf(wetterDetailgrad);
-            setWetterDetailgrad(stufen[(idx + 1) % stufen.length]);
-          }}
-          disabled={isSubmitting}
-          aria-pressed={wetterDetailgrad !== "off"}
-          title={
-            wetterDetailgrad === "off"
-              ? "Wetterdaten werden ignoriert (klicken: Niedrig → Mittel → Hoch → Aus)"
-              : "Durchklicken: nächste Stufe (Niedrig → Mittel → Hoch → Aus)"
+        <Popover
+          content={
+            <>
+              <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>
+                Wetter: {wetterDetailgrad === "off" && "Aus"}
+                {wetterDetailgrad === "low" && "Niedrig"}
+                {wetterDetailgrad === "medium" && "Mittel"}
+                {wetterDetailgrad === "high" && "Hoch"}
+              </div>
+              {wetterDetailgrad === "off"
+                ? "Wetterdaten werden ignoriert (klicken: Niedrig → Mittel → Hoch → Aus)"
+                : "Durchklicken: nächste Stufe (Niedrig → Mittel → Hoch → Aus)"}
+            </>
           }
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.3rem",
-            padding: "0.35rem 0.65rem",
-            background: wetterDetailgrad !== "off" ? "#eff6ff" : "#f9fafb",
-            border: `1px solid ${
-              wetterDetailgrad !== "off" ? "#93c5fd" : "#e5e7eb"
-            }`,
-            borderRadius: "999px",
-            cursor: isSubmitting ? "not-allowed" : "pointer",
-            fontSize: "0.78rem",
-            color: wetterDetailgrad !== "off" ? "#1d4ed8" : "#6b7280",
-          }}
         >
-          <CloudSun size={13} />
-          {wetterDetailgrad === "off" && "Aus"}
-          {wetterDetailgrad === "low" && "Niedrig"}
-          {wetterDetailgrad === "medium" && "Mittel"}
-          {wetterDetailgrad === "high" && "Hoch"}
-        </button>
-        <button
-          type="button"
-          onClick={() =>
-            setBaustellenBeruecksichtigen(!baustellenBeruecksichtigen)
-          }
-          disabled={isSubmitting}
-          aria-pressed={baustellenBeruecksichtigen}
-          title={
+          <button
+            type="button"
+            onClick={() => {
+              const stufen: WeatherDetailLevel[] = [
+                "off",
+                "low",
+                "medium",
+                "high",
+              ];
+              const idx = stufen.indexOf(wetterDetailgrad);
+              setWetterDetailgrad(stufen[(idx + 1) % stufen.length]);
+            }}
+            disabled={isSubmitting}
+            aria-pressed={wetterDetailgrad !== "off"}
+            aria-label={`Wetterberücksichtigung: ${wetterDetailgrad}`}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.2rem",
+              padding: "0.35rem 0.55rem",
+              background: wetterDetailgrad !== "off" ? "#eff6ff" : "#f9fafb",
+              border: `1px solid ${
+                wetterDetailgrad !== "off" ? "#93c5fd" : "#e5e7eb"
+              }`,
+              borderRadius: "999px",
+              cursor: isSubmitting ? "not-allowed" : "pointer",
+              fontSize: "0.78rem",
+              color: wetterDetailgrad !== "off" ? "#1d4ed8" : "#6b7280",
+            }}
+          >
+            <CloudSun size={13} />
+            {wetterDetailgrad === "off" && <SignalZero size={13} />}
+            {wetterDetailgrad === "low" && <SignalLow size={13} />}
+            {wetterDetailgrad === "medium" && <SignalMedium size={13} />}
+            {wetterDetailgrad === "high" && <SignalHigh size={13} />}
+          </button>
+        </Popover>
+        <Popover
+          content={
             baustellenBeruecksichtigen
               ? "Baustellen werden bei der Berechnung berücksichtigt (klicken zum Deaktivieren)"
               : "Baustellen werden bei der Berechnung ignoriert (klicken zum Aktivieren)"
           }
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.3rem",
-            padding: "0.35rem 0.65rem",
-            background: baustellenBeruecksichtigen ? "#eff6ff" : "#f9fafb",
-            border: `1px solid ${baustellenBeruecksichtigen ? "#93c5fd" : "#e5e7eb"}`,
-            borderRadius: "999px",
-            cursor: isSubmitting ? "not-allowed" : "pointer",
-            fontSize: "0.78rem",
-            color: baustellenBeruecksichtigen ? "#1d4ed8" : "#6b7280",
-          }}
         >
-          <Construction size={13} />
-          Baustellen
-        </button>
-        <button
-          type="button"
-          onClick={() => setAutobahnBevorzugen(!autobahnBevorzugen)}
-          disabled={isSubmitting}
-          aria-pressed={autobahnBevorzugen}
-          title={
+          <button
+            type="button"
+            onClick={() =>
+              setBaustellenBeruecksichtigen(!baustellenBeruecksichtigen)
+            }
+            disabled={isSubmitting}
+            aria-pressed={baustellenBeruecksichtigen}
+            aria-label="Baustellen berücksichtigen"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              padding: "0.35rem 0.55rem",
+              background: baustellenBeruecksichtigen ? "#eff6ff" : "#f9fafb",
+              border: `1px solid ${baustellenBeruecksichtigen ? "#93c5fd" : "#e5e7eb"}`,
+              borderRadius: "999px",
+              cursor: isSubmitting ? "not-allowed" : "pointer",
+              fontSize: "0.78rem",
+              color: baustellenBeruecksichtigen ? "#1d4ed8" : "#6b7280",
+            }}
+          >
+            <Construction size={13} />
+          </button>
+        </Popover>
+        <Popover
+          content={
             autobahnBevorzugen
               ? "Autobahnen werden bei der Berechnung leicht bevorzugt (klicken zum Deaktivieren)"
               : "Autobahnen werden nicht bevorzugt behandelt (klicken zum Aktivieren)"
           }
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.3rem",
-            padding: "0.35rem 0.65rem",
-            background: autobahnBevorzugen ? "#eff6ff" : "#f9fafb",
-            border: `1px solid ${autobahnBevorzugen ? "#93c5fd" : "#e5e7eb"}`,
-            borderRadius: "999px",
-            cursor: isSubmitting ? "not-allowed" : "pointer",
-            fontSize: "0.78rem",
-            color: autobahnBevorzugen ? "#1d4ed8" : "#6b7280",
-          }}
         >
-          <Route size={13} />
-          Autobahn
-        </button>
+          <button
+            type="button"
+            onClick={() => setAutobahnBevorzugen(!autobahnBevorzugen)}
+            disabled={isSubmitting}
+            aria-pressed={autobahnBevorzugen}
+            aria-label="Autobahnen bevorzugen"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              padding: "0.35rem 0.55rem",
+              background: autobahnBevorzugen ? "#eff6ff" : "#f9fafb",
+              border: `1px solid ${autobahnBevorzugen ? "#93c5fd" : "#e5e7eb"}`,
+              borderRadius: "999px",
+              cursor: isSubmitting ? "not-allowed" : "pointer",
+              fontSize: "0.78rem",
+              color: autobahnBevorzugen ? "#1d4ed8" : "#6b7280",
+            }}
+          >
+            <Route size={13} />
+          </button>
+        </Popover>
         <div
           style={{
             display: "flex",
@@ -996,56 +1017,60 @@ export function TripPlannerForm({
             overflow: "hidden",
           }}
         >
-          <button
-            type="button"
-            onClick={() => setAlleFaehrenVermeiden(!alleFaehrenVermeiden)}
-            disabled={isSubmitting}
-            aria-pressed={!alleFaehrenVermeiden}
-            title={
+          <Popover
+            content={
               alleFaehrenVermeiden
                 ? "Fähren werden bei der Berechnung vermieden (klicken zum Erlauben)"
                 : "Fähren sind bei der Berechnung erlaubt (klicken zum Vermeiden)"
             }
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.3rem",
-              padding: "0.35rem 0.55rem 0.35rem 0.65rem",
-              background: !alleFaehrenVermeiden ? "#eff6ff" : "#f9fafb",
-              border: "none",
-              cursor: isSubmitting ? "not-allowed" : "pointer",
-              fontSize: "0.78rem",
-              color: !alleFaehrenVermeiden ? "#1d4ed8" : "#6b7280",
-            }}
           >
-            <Ship size={13} />
-            Fähren
-          </button>
+            <button
+              type="button"
+              onClick={() => setAlleFaehrenVermeiden(!alleFaehrenVermeiden)}
+              disabled={isSubmitting}
+              aria-pressed={!alleFaehrenVermeiden}
+              aria-label="Fähren erlauben"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                padding: "0.35rem 0.5rem 0.35rem 0.55rem",
+                background: !alleFaehrenVermeiden ? "#eff6ff" : "#f9fafb",
+                border: "none",
+                cursor: isSubmitting ? "not-allowed" : "pointer",
+                fontSize: "0.78rem",
+                color: !alleFaehrenVermeiden ? "#1d4ed8" : "#6b7280",
+              }}
+            >
+              <Ship size={13} />
+            </button>
+          </Popover>
           <div
             style={{
               width: "1px",
               background: !alleFaehrenVermeiden ? "#93c5fd" : "#e5e7eb",
             }}
           />
-          <button
-            type="button"
-            onClick={() => setIsIgnorierteFaehrenModalOpen(true)}
-            disabled={isSubmitting}
-            title="Ignorierte Fähren verwalten"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              padding: "0.35rem 0.6rem 0.35rem 0.5rem",
-              background: vermiedeneFaehren.length > 0 ? "#fffbeb" : "#f9fafb",
-              border: "none",
-              cursor: isSubmitting ? "not-allowed" : "pointer",
-              fontSize: "0.78rem",
-              fontWeight: vermiedeneFaehren.length > 0 ? 600 : 400,
-              color: vermiedeneFaehren.length > 0 ? "#b45309" : "#6b7280",
-            }}
-          >
-            {vermiedeneFaehren.length}
-          </button>
+          <Popover content="Ignorierte Fähren verwalten">
+            <button
+              type="button"
+              onClick={() => setIsIgnorierteFaehrenModalOpen(true)}
+              disabled={isSubmitting}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                padding: "0.35rem 0.6rem 0.35rem 0.5rem",
+                background:
+                  vermiedeneFaehren.length > 0 ? "#fffbeb" : "#f9fafb",
+                border: "none",
+                cursor: isSubmitting ? "not-allowed" : "pointer",
+                fontSize: "0.78rem",
+                fontWeight: vermiedeneFaehren.length > 0 ? 600 : 400,
+                color: vermiedeneFaehren.length > 0 ? "#b45309" : "#6b7280",
+              }}
+            >
+              {vermiedeneFaehren.length}
+            </button>
+          </Popover>
         </div>
       </div>
 
