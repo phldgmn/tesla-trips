@@ -236,7 +236,12 @@ export function MapVisualization({
     const zoom = map.getZoom();
     for (const { marker, laengeM } of constructionZoneMarkersRef.current) {
       const visible = isConstructionZoneVisibleAtZoom(laengeM, zoom);
-      marker.getElement().style.display = visible ? "" : "none";
+      // "flex" statt "" setzen: leerer String entfernt die inline
+      // `display:flex`-Deklaration aus `buildConstructionZoneMarkerElement`s
+      // `cssText` komplett (statt sie nur "freizugeben"), wodurch der Div auf
+      // `display:block` zurueckfaellt und das SVG-Icon linksbuendig statt
+      // zentriert dargestellt wird.
+      marker.getElement().style.display = visible ? "flex" : "none";
     }
   }
 
