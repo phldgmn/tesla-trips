@@ -50,7 +50,7 @@ function formatLaenge(m: number): string {
       maximumFractionDigits: 1,
     })} km`;
   }
-  return `${m} m`;
+  return `${Math.round(m)} m`;
 }
 
 /** Popup-HTML fuer einen Ladehalt: Name, Ankunfts-/Ziel-SoC samt Uhrzeit, Dauer, geladene Energie, Preis. */

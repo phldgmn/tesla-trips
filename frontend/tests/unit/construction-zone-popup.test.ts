@@ -239,6 +239,44 @@ describe("buildConstructionZonePopupHtml", () => {
       expect(html).toContain("450 m");
     });
 
+    it("rounds fractional meter lengths to whole meters", () => {
+      const zone = makeZone(
+        [
+          {
+            sperrungstyp: "partiallyClosed",
+            tempolimit_kmh: null,
+            umleitungshinweis: null,
+            land: "DE",
+            gueltig_von: "2026-08-01T00:00:00",
+            gueltig_bis: null,
+          },
+        ],
+        452.8734,
+      );
+      const html = buildConstructionZonePopupHtml(zone);
+      expect(html).toContain("453 m");
+      expect(html).not.toContain("452.8734");
+      expect(html).not.toContain("452,8734");
+    });
+
+    it("rounds fractional km lengths to one decimal", () => {
+      const zone = makeZone(
+        [
+          {
+            sperrungstyp: "fullyClosed",
+            tempolimit_kmh: null,
+            umleitungshinweis: null,
+            land: "DE",
+            gueltig_von: "2026-08-01T00:00:00",
+            gueltig_bis: null,
+          },
+        ],
+        2537.6,
+      );
+      const html = buildConstructionZonePopupHtml(zone);
+      expect(html).toContain("2,5 km");
+    });
+
     it("does not render length when laenge_m is null", () => {
       const zone = makeZone(
         [

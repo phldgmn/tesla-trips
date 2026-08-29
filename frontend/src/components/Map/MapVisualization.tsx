@@ -28,6 +28,7 @@ import {
 } from "../../api/chargingApi";
 import { basemapStyle } from "./basemap";
 import { buildSocGradientExpression } from "./soc-gradient";
+import { isConstructionZoneVisibleAtZoom } from "./construction-zone-visibility";
 import {
   buildMarkerElement,
   stopRole,
@@ -103,8 +104,12 @@ export function MapVisualization({
   // `simulationResult.charging_stops`), analog zu `markersRef` fuer Stopps.
   const chargingStopMarkersRef = useRef<Marker[]>([]);
   // Baustellen-Marker (ein Eintrag pro `simulationResult.construction_zones`),
-  // analog zu `chargingStopMarkersRef`.
-  const constructionZoneMarkersRef = useRef<Marker[]>([]);
+  // analog zu `chargingStopMarkersRef` - zusaetzlich `laengeM`, um Marker
+  // je nach Zoom-Level ein-/auszublenden (siehe
+  // `updateConstructionZoneVisibility`/`isConstructionZoneVisibleAtZoom`).
+  const constructionZoneMarkersRef = useRef<
+    { marker: Marker; laengeM: number | null }[]
+  >([]);
 
   // Supercharger-Overlay
   const [superchargerStations, setSuperchargerStations] = useState<
@@ -172,6 +177,12 @@ export function MapVisualization({
       const center = map.getCenter();
       setMapView({ center: [center.lng, center.lat], zoom: map.getZoom() });
     });
+    // Baustellen-Marker je nach Zoom-Level ein-/ausblenden (siehe
+    // `updateConstructionZoneVisibility`) - "zoom" statt "zoomend" fuer
+    // sofortiges Feedback waehrend des Zoomens statt Nachhinken.
+    mapRef.current.on("zoom", () => {
+      updateConstructionZoneVisibility();
+    });
 
     return () => {
       if (mapRef.current) {
@@ -209,10 +220,24 @@ export function MapVisualization({
     }
     chargingStopMarkersRef.current = [];
     // Baustellen
-    for (const marker of constructionZoneMarkersRef.current) {
+    for (const { marker } of constructionZoneMarkersRef.current) {
       marker.remove();
     }
     constructionZoneMarkersRef.current = [];
+  }
+
+  /** Blendet jeden Baustellen-Marker per CSS ein/aus, je nachdem ob seine
+   *  `laengeM` beim aktuellen Kartenzoom noch als sichtbar gilt (siehe
+   *  `isConstructionZoneVisibleAtZoom`) - Marker bleiben dabei im DOM
+   *  (kein `addTo`/`remove`), nur ihre Sichtbarkeit toggelt. */
+  function updateConstructionZoneVisibility() {
+    const map = mapRef.current;
+    if (!map) return;
+    const zoom = map.getZoom();
+    for (const { marker, laengeM } of constructionZoneMarkersRef.current) {
+      const visible = isConstructionZoneVisibleAtZoom(laengeM, zoom);
+      marker.getElement().style.display = visible ? "" : "none";
+    }
   }
 
   /** Verschiebt jedes Stopp-Marker-Element (siehe `markersRef`) ans Ende
@@ -538,8 +563,15 @@ export function MapVisualization({
           ),
         )
         .addTo(map);
-      constructionZoneMarkersRef.current.push(marker);
+      constructionZoneMarkersRef.current.push({
+        marker,
+        laengeM: zone.laenge_m,
+      });
     }
+    // Direkt nach dem Anlegen die Sichtbarkeit fuer den aktuellen Zoom
+    // setzen - der "zoom"-Listener (siehe Map-Init-Effect) feuert erst bei
+    // der naechsten tatsaechlichen Zoom-Aenderung, nicht beim Marker-Anlegen.
+    updateConstructionZoneVisibility();
 
     // Ladehalt-Marker hinzufügen: ein Marker pro tatsächlichem Ladehalt aus
     // `simulationResult.charging_stops` (nicht pro LADEN-Frame – ein Halt
