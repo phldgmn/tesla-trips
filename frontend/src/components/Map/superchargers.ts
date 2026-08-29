@@ -16,6 +16,24 @@ function formatTierPrice(tier: SuperchargerPricing["tiers"][number]): string {
   return `${tier.amount.toFixed(2)} ${tier.currency}/${tier.unit}`;
 }
 
+/** Wandelt ein 12h-Zeitfenster-Label (z. B. "12:00 AM - 4:00 PM", wie von
+ *  Tesla geliefert) in 24h-Notation um ("00:00 - 16:00"). Ersetzt jedes
+ *  `H:MM AM/PM`-Vorkommen im String einzeln, damit Trennzeichen/Layout des
+ *  Original-Labels unangetastet bleiben. Labels ohne AM/PM (bereits 24h
+ *  oder unerwartetes Format) werden unveraendert zurueckgegeben. */
+function formatTimeLabel24h(label: string): string {
+  return label.replace(
+    /(\d{1,2}):(\d{2})\s*(AM|PM)/gi,
+    (_match, hourStr: string, minuteStr: string, meridiem: string) => {
+      let hour = Number(hourStr) % 12;
+      if (meridiem.toUpperCase() === "PM") {
+        hour += 12;
+      }
+      return `${String(hour).padStart(2, "0")}:${minuteStr}`;
+    },
+  );
+}
+
 /** Gruppiert Preis-Tiers nach `tier_label`, Reihenfolge des ersten
  *  Auftretens bleibt erhalten (Backend liefert Tiers bereits gruppiert). */
 function groupTiersByLabel(
@@ -80,12 +98,18 @@ export function buildPricingSection(
       for (const [label, groupTiers] of groupTiersByLabel(
         loadedPricing.tiers,
       )) {
-        const group = document.createElement("div");
+        // Der "Other EV"-Tier interessiert Tesla-Fahrer meist nicht direkt
+        // (siehe `select_owner_rate_for_time` im Backend) - standardmaessig
+        // eingeklappt via natives <details>/<summary>, um im Popover Platz
+        // fuer die relevanteren Tiers zu sparen.
+        const isOtherEv = /other\s*evs?/i.test(label);
+        const group = document.createElement(isOtherEv ? "details" : "div");
         group.style.cssText = "margin-bottom:6px;";
 
-        const heading = document.createElement("div");
-        heading.style.cssText =
-          "font-weight:600;font-size:12px;color:#111827;margin-bottom:2px;";
+        const heading = document.createElement(isOtherEv ? "summary" : "div");
+        heading.style.cssText = isOtherEv
+          ? "font-weight:600;font-size:12px;color:#111827;cursor:pointer;"
+          : "font-weight:600;font-size:12px;color:#111827;margin-bottom:2px;";
         heading.textContent = label;
         group.appendChild(heading);
 
@@ -104,7 +128,9 @@ export function buildPricingSection(
             const tdTime = document.createElement("td");
             tdTime.style.cssText =
               "padding:1px 8px 1px 0;color:#666;white-space:nowrap;";
-            tdTime.textContent = tier.time_label ?? "Ganzt\u00e4gig";
+            tdTime.textContent = tier.time_label
+              ? formatTimeLabel24h(tier.time_label)
+              : "Ganzt\u00e4gig";
             tr.appendChild(tdTime);
             const tdPrice = document.createElement("td");
             tdPrice.style.cssText =

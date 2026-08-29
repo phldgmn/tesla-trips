@@ -633,6 +633,83 @@ describe("MapVisualization utilities", () => {
       expect(el.textContent).toContain("0.45 EUR/kWh");
     });
 
+    it("renders time-window labels in 24h format", () => {
+      const el = buildChargingStopPopupElement(
+        unpricedStop,
+        {
+          status: "loaded",
+          pricing: {
+            slug: "hamm-1",
+            tiers: [
+              {
+                tier_label: "Charging Fees for Tesla Owner",
+                time_label: "12:00 AM - 4:00 PM",
+                currency: "SEK",
+                amount: 3.9,
+                unit: "kWh",
+                idle_fee_text: null,
+              },
+              {
+                tier_label: "Charging Fees for Tesla Owner",
+                time_label: "4:00 PM - 8:00 PM",
+                currency: "SEK",
+                amount: 4.1,
+                unit: "kWh",
+                idle_fee_text: null,
+              },
+            ],
+            updated_utc: "2026-08-20T10:00:00Z",
+          },
+        },
+        () => {},
+      );
+      expect(el.textContent).toContain("00:00 - 16:00");
+      expect(el.textContent).toContain("16:00 - 20:00");
+      expect(el.textContent).not.toContain("AM");
+      expect(el.textContent).not.toContain("PM");
+    });
+
+    it("collapses the 'Other EV' pricing tier by default", () => {
+      const el = buildChargingStopPopupElement(
+        unpricedStop,
+        {
+          status: "loaded",
+          pricing: {
+            slug: "hamm-1",
+            tiers: [
+              {
+                tier_label: "Charging Fees for Tesla Owner",
+                time_label: null,
+                currency: "EUR",
+                amount: 0.45,
+                unit: "kWh",
+                idle_fee_text: null,
+              },
+              {
+                tier_label: "Charging Fees for Other EV",
+                time_label: null,
+                currency: "EUR",
+                amount: 0.55,
+                unit: "kWh",
+                idle_fee_text: null,
+              },
+            ],
+            updated_utc: "2026-08-20T10:00:00Z",
+          },
+        },
+        () => {},
+      );
+      const details = Array.from(el.querySelectorAll("details")).find((d) =>
+        d.textContent?.includes("Charging Fees for Other EV"),
+      );
+      expect(details).toBeDefined();
+      expect(details?.open).toBe(false);
+      const otherEvHeading = el.querySelector("details summary");
+      expect(otherEvHeading?.textContent).toBe("Charging Fees for Other EV");
+      // Der Tesla-Owner-Tier bleibt sofort sichtbar (kein <details>).
+      expect(el.textContent).toContain("Charging Fees for Tesla Owner");
+    });
+
     it("shows the error message returned by a failed refresh", () => {
       const el = buildChargingStopPopupElement(
         unpricedStop,
