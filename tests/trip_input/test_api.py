@@ -1544,7 +1544,11 @@ def test_fastapi_endpoint_accepts_autobahn_praeferenz_field(
 def test_fastapi_endpoint_wetter_detailgrad_off_skips_weather_provider(
     client: TestClient, valid_trip_request: dict
 ) -> None:
-    """wetter_detailgrad='off' skips the weather provider entirely."""
+    """wetter_detailgrad='off' skips the weather provider entirely AND leaves
+    the weather fields null in the HTTP response (regression: `FrameAPI` used
+    to omit them entirely, silently dropping them from the JSON payload even
+    though the internal `SimulationFrame` carried them - see
+    `buildRouteHoverText` in the frontend, which relies on their presence)."""
     spy = FakeWeatherProvider()
     app.dependency_overrides[get_weather_provider] = lambda: spy
     try:
@@ -1558,6 +1562,9 @@ def test_fastapi_endpoint_wetter_detailgrad_off_skips_weather_provider(
         assert response.status_code == 201
         assert spy.fetch_weather_calls == []
         assert spy.refetch_weather_calls == []
+        data = response.json()
+        assert data["frames"]
+        assert all(f["temperatur_c"] is None for f in data["frames"])
     finally:
         app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
 
@@ -1577,6 +1584,9 @@ def test_fastapi_endpoint_wetter_detailgrad_default_is_high(
         response = client.post("/trips", json=api_request)
         assert response.status_code == 201
         assert len(spy.fetch_weather_calls) > 0
+        fahren_frames = [f for f in response.json()["frames"] if f["zustand"] == "FAHREN"]
+        assert fahren_frames
+        assert all(f["temperatur_c"] is not None for f in fahren_frames)
     finally:
         app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
 
@@ -1646,6 +1656,9 @@ def test_fastapi_endpoint_wetter_detailgrad_low_one_fetch(
         assert len(spy.fetch_weather_calls) == 1
         data = response.json()
         assert len(data["frames"]) > 0
+        fahren_frames = [f for f in data["frames"] if f["zustand"] == "FAHREN"]
+        assert fahren_frames
+        assert all(f["temperatur_c"] is not None for f in fahren_frames)
     finally:
         app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
 
@@ -1668,6 +1681,9 @@ def test_fastapi_endpoint_wetter_detailgrad_medium_one_fetch(
         assert len(spy.fetch_weather_calls) == 1
         data = response.json()
         assert len(data["frames"]) > 0
+        fahren_frames = [f for f in data["frames"] if f["zustand"] == "FAHREN"]
+        assert fahren_frames
+        assert all(f["temperatur_c"] is not None for f in fahren_frames)
     finally:
         app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
 

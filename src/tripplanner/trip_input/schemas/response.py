@@ -118,6 +118,25 @@ class FrameAPI(BaseModel):
     soc_pct: float = Field(..., ge=0.0, le=100.0)
     zustand: str = Field(..., description="'FAHREN', 'LADEN' oder 'PAUSE'")
     geschwindigkeit_kmh: float = Field(..., ge=0.0)
+    temperatur_c: float | None = Field(
+        default=None,
+        description=(
+            "Fuer diesen Streckenpunkt angenommene Temperatur in Grad Celsius "
+            "(None wenn Wetter bei der Berechnung nicht beruecksichtigt wurde)."
+        ),
+    )
+    windgeschwindigkeit_ms: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="Fuer diesen Streckenpunkt angenommene Windgeschwindigkeit in m/s "
+        "(None wie temperatur_c).",
+    )
+    niederschlag_mm: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="Fuer diesen Streckenpunkt angenommener Niederschlag in mm/h "
+        "(None wie temperatur_c).",
+    )
 
 
 class ChargingStopAPI(BaseModel):

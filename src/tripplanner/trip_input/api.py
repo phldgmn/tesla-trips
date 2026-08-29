@@ -368,6 +368,9 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
                     soc_pct=f.soc_pct,
                     zustand=f.zustand.value,
                     geschwindigkeit_kmh=f.geschwindigkeit_kmh,
+                    temperatur_c=f.temperatur_c,
+                    windgeschwindigkeit_ms=f.windgeschwindigkeit_ms,
+                    niederschlag_mm=f.niederschlag_mm,
                 )
                 for f in ergebnis.frames
             ],
