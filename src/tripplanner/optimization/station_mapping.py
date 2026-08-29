@@ -108,11 +108,7 @@ def map_waypoints_to_segments(waypoints, segments, route) -> list[int]:
     return indices
 
 
-def waypoint_to_segment(
-    waypoint: "Waypoint",
-    segments: list[RouteSegment],
-    min_seg_idx: int = 0,
-) -> int:
+def waypoint_to_segment(waypoint, segments, min_seg_idx=0) -> int:
     """Ermittle das Segment, das einem Waypoint am nächsten liegt.
 
     Sucht nur ab `min_seg_idx` (Segmente vor dem vorherigen, in Fahrt-

@@ -19,16 +19,12 @@ export {
   faehrKey,
 } from "./ferry-helpers";
 
-export {
-  TimelineRow,
-  Zeitbadge,
-  Tagestrenner,
-  FahrsegmentZeile,
-} from "./timeline-rows";
+export { TimelineRow, Zeitbadge, Tagestrenner, FahrsegmentZeile } from "./timeline-rows";
 
-export {
+export type {
   TripPlannerFormProps,
   GeocodingState,
   GeocodeSuggestionDisplay,
-  TripPlannerForm,
 } from "./TripPlannerForm";
+
+export { TripPlannerForm } from "./TripPlannerForm";

@@ -24,14 +24,16 @@ import {
   DEFAULT_VEHICLE_PROFILE_PRESET_ID,
 } from "../../data/vehicleProfiles";
 import { ChargingStationPicker } from "../ChargingStationPicker";
-import { searchAddress, reverseGeocode } from "../../api/geocoding";
 import {
+  searchAddress,
+  reverseGeocode,
+} from "../../api/geocoding";
 import {
-  formatTagMonat,
-  istTageswechsel,
+  splitIsoToDateTime,
   formatTagMonat,
   istTageswechsel,
   combineDateTimeToIso,
+} from "../../utils/datetime-utils";
 import type { ChargingStop, FaehrSegment } from "../../types";
 import { buildRouteEintraege } from "@/utils/route-eintraege";
 import type { SimulationFrame } from "../../types";
@@ -62,12 +64,8 @@ import {
   setLadedauerVorgabeFuer,
   faehrKey,
 } from "./ferry-helpers";
-import {
-  TimelineRow,
-  Zeitbadge,
-  Tagestrenner,
-  FahrsegmentZeile,
-} from "./timeline-rows";
+import { TimelineRow, Zeitbadge, Tagestrenner, FahrsegmentZeile } from "./timeline-rows";
+
 
 export interface TripPlannerFormProps {
   stops: Stop[];
