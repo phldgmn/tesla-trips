@@ -323,17 +323,7 @@ class NetworkXOptimizer(OptimizerInterface):
         keine (oder eine unpassende Anzahl) `via_point_indices` liefert
         (z. B. ein zukuenftiger/alternativer Provider ohne diese Information).
         """
-        if len(route.via_point_indices) == len(waypoints):
-            max_idx = len(segments) - 1
-            return [min(idx, max_idx) for idx in route.via_point_indices]
-
-        indices: list[int] = []
-        next_search_start_idx = 0
-        for wp in waypoints:
-            seg_idx = self._waypoint_to_segment(wp, segments, next_search_start_idx)
-            next_search_start_idx = seg_idx
-            indices.append(seg_idx)
-        return indices
+        return station_mapping.map_waypoints_to_segments(waypoints, segments, route)
 
     def _waypoint_to_segment(
         self,
