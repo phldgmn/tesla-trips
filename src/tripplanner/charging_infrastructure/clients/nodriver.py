@@ -383,8 +383,6 @@ class NodriverTeslaClient:
 
     async def _log_request(self, method: str, url: str) -> None:
         """Loggt eine Anfrage fuer Debug-Zwecke."""
-        if self._debug_log is None:
-            return
         _debug_log(self._debug_log, f"{method} {url}", label="NODRIVER")
 
     async def _fetch(self, url: str) -> str:
@@ -405,12 +403,11 @@ class NodriverTeslaClient:
         await self._log_request("GET", url)
         status, body = await asyncio.to_thread(self._fetcher.fetch, url)
 
-        if self._debug_log is not None:
-            _debug_log(
-                self._debug_log,
-                f"NODRIVER GET {url} -> {status}\n  Body ({len(body)} bytes): {body[:2000]}",
-                label="NODRIVER",
-            )
+        _debug_log(
+            self._debug_log,
+            f"NODRIVER GET {url} -> {status}\n  Body ({len(body)} bytes): {body[:2000]}",
+            label="NODRIVER",
+        )
 
         if not body.strip():
             raise CurlError("empty response")

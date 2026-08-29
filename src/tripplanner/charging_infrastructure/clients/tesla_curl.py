@@ -104,14 +104,10 @@ class TeslaLocationsClient:
 
     async def _log_request(self, method: str, url: str) -> None:
         """Loggt eine Anfrage fuer Debug-Zwecke."""
-        if self._debug_log is None:
-            return
         _debug_log(self._debug_log, f"{method} {url}", label="HTTP")
 
     async def _log_response(self, response: Any, body_preview: str, label: str = "HTTP") -> None:
         """Loggt eine HTTP-Antwort fuer Debug-Zwecke."""
-        if self._debug_log is None:
-            return
         _debug_log(
             self._debug_log,
             f"{label} {response.request.method} "

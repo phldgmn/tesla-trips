@@ -44,8 +44,6 @@ class SuperchargeInfoClient:
 
     async def _log_response(self, response: httpx.Response, label: str) -> None:
         """Loggt eine HTTP-Antwort fuer Debug-Zwecke."""
-        if self._debug_log is None:
-            return
         body = response.text[:2000]
         _debug_log(
             self._debug_log,

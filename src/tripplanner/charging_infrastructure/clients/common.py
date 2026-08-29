@@ -3,19 +3,29 @@
 from __future__ import annotations
 
 import importlib
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
+_logger = logging.getLogger(__name__)
+
 
 def _debug_log(log_path: Path | None, msg: str, label: str = "DEBUG") -> None:
-    """Schreibt eine Debug-Zeile in die Logdatei (wenn konfiguriert).
+    """Emits a detailed scrape debug line via the standard logger and, optionally, a file.
+
+    Always logged at DEBUG level through the ``tripplanner`` logger namespace
+    (see `trip_input.app._configure_logging`, `TRIPPLANNER_LOG_LEVEL`), so
+    Tesla crawling/scraping triggered from the frontend (which never sets
+    `log_path`) is still fully visible whenever DEBUG logging is enabled -
+    not only when a CLI caller explicitly opts into a debug log file.
 
     Args:
-        log_path: Pfad zur Logdatei oder None (nichts tun)
+        log_path: Optional additional file path to append the line to.
         msg: Die Nachricht
         label: Label für die Zeile (z.B. "CURL", "HTTP", "JSON")
     """
+    _logger.debug("[%s] %s", label, msg)
     if log_path is None:
         return
     timestamp = datetime.now(UTC).isoformat(timespec="milliseconds")

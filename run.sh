@@ -295,6 +295,17 @@ start_backend() {
     err "BACKEND: GraphHopper nicht bereit — Backend-Start abgebrochen."
     return 1
   }
+  # Default to DEBUG application logging so Tesla charging-station
+  # crawling/scraping (get-locations, get-location-details, pricing HTML
+  # fetches - see charging_infrastructure/clients/common.py:_debug_log)
+  # logs verbosely by default, including when triggered from the frontend
+  # (e.g. the single-station refresh / pricing-refresh endpoints in
+  # trip_input/api.py, which never set an explicit debug-log file).
+  # Still overridable by exporting TRIPPLANNER_LOG_LEVEL before calling
+  # this script (e.g. to quiet things back down to INFO).
+  : "${TRIPPLANNER_LOG_LEVEL:=DEBUG}"
+  export TRIPPLANNER_LOG_LEVEL
+  info "BACKEND: log level $TRIPPLANNER_LOG_LEVEL"
   # Use exec -a so the process has a recognisable name.
   # `--reload-dir` restricts the reload watcher to the backend source tree.
   # Without watchfiles installed, uvicorn falls back to the StatReload
