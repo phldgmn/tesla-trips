@@ -57,27 +57,33 @@ export function App() {
     false,
   );
 
-  /** Einmaliger Kartenklick im Auswahlmodus: Koordinate speichern,
-   *  dann den Auswahlmodus verlassen. */
-  const handlePickPosition = useCallback(
+  /** Aktualisiert die Position eines einzelnen Stopps in der Stops-Liste. */
+  const applyStopPositionUpdate = useCallback(
     (stopId: string, position: [number, number]) => {
       setStops((prev) =>
         prev.map((s) => (s.id === stopId ? { ...s, position } : s)),
       );
-      setPickingStopId(null);
     },
     [setStops],
+  );
+
+  /** Einmaliger Kartenklick im Auswahlmodus: Koordinate speichern,
+   *  dann den Auswahlmodus verlassen. */
+  const handlePickPosition = useCallback(
+    (stopId: string, position: [number, number]) => {
+      applyStopPositionUpdate(stopId, position);
+      setPickingStopId(null);
+    },
+    [applyStopPositionUpdate],
   );
 
   /** Drag-and-Drop auf der Karte: Stopp-Position aktualisieren, aber den
    *  Auswahlmodus NICHT verlassen (unabhängige Interaktion). */
   const handleStopMove = useCallback(
     (stopId: string, position: [number, number]) => {
-      setStops((prev) =>
-        prev.map((s) => (s.id === stopId ? { ...s, position } : s)),
-      );
+      applyStopPositionUpdate(stopId, position);
     },
-    [setStops],
+    [applyStopPositionUpdate],
   );
 
   /** Reise berechnen lassen. */
