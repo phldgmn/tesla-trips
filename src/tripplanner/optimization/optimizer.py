@@ -20,8 +20,7 @@ from tripplanner.battery.models import ChargingCurve, LadekurveReferenz
 from tripplanner.charging_infrastructure.models import ChargingStation
 from tripplanner.elevation.models import SegmentGradient
 from tripplanner.energy.models import SegmentEnergyResult
-from tripplanner.geo import haversine_distance_m
-from tripplanner.optimization import charging_math, detour_costs
+from tripplanner.optimization import charging_math, detour_costs, station_mapping
 from tripplanner.optimization.discretizer import (
     SOC_STEP_PCT_DEFAULT,
     TIME_STEP_MIN_DEFAULT,
@@ -349,20 +348,7 @@ class NetworkXOptimizer(OptimizerInterface):
         Reihenfolge auftreten - ein monoton steigender Suchstart pro
         Waypoint erzwingt das.
         """
-        wp_coord = waypoint.koordinate
-
-        min_dist = float("inf")
-        closest_seg_idx = min_seg_idx
-
-        for idx in range(min_seg_idx, len(segments)):
-            # Benutze den Segment-Startpunkt als Referenz
-            seg_start = segments[idx].geometrie[0]
-            dist = haversine_distance_m(wp_coord, seg_start)
-            if dist < min_dist:
-                min_dist = dist
-                closest_seg_idx = idx
-
-        return closest_seg_idx
+        return station_mapping.waypoint_to_segment(waypoint, segments, min_seg_idx)
 
     def _map_stations_to_segments(
         self, stations: list[ChargingStation], segments: list[RouteSegment]
