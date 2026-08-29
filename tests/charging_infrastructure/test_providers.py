@@ -591,6 +591,87 @@ class TestTeslaChargingStationProvider:
         assert record["stalls_v3"] == 0
 
     @pytest.mark.asyncio
+    async def test_tesla_detail_mapping_missing_status_defaults_to_construction(
+        self, tmp_path: Path
+    ) -> None:
+        """Fehlt `key_data.status` komplett und liefern auch `project_status`/
+        `site_status` keinen erkannten Wert, wird die Station als
+        `CONSTRUCTION` statt faelschlich als `OPEN` markiert (siehe Ladbergen-
+        Bugreport: eine im Bau befindliche Station wurde durch den alten
+        Default 'Open' faelschlich als betriebsbereit uebernommen)."""
+        detail = {
+            "_uuid": "10335",
+            "_slug": "29721",
+            "marketing": {"display_name": "Ladbergen"},
+            "supercharger_function": {
+                "actual_latitude": "52.1469",
+                "actual_longitude": "7.7381",
+                "num_charger_stalls": "8",
+                "installed_full_power": "0",
+                "open_to_non_tesla": False,
+            },
+            "key_data": {"geo_point": {"lat": 52.1469, "lon": 7.7381}},
+            "functions": [],
+        }
+
+        record = TeslaChargingStationProvider._tesla_detail_to_db_record(detail, "DE")
+
+        assert record["status"] == "CONSTRUCTION"
+        assert record["power_kilowatt"] == 0
+
+    @pytest.mark.asyncio
+    async def test_tesla_detail_mapping_zero_power_forces_non_open(self, tmp_path: Path) -> None:
+        """Auch wenn ein Status-Feld explizit 'Open' meldet, wird eine Station
+        mit 0 kW installierter Leistung nicht als OPEN uebernommen - 0 kW
+        bedeutet, dass noch keine funktionsfaehige Ladehardware existiert."""
+        detail = {
+            "_uuid": "8393",
+            "_slug": "29798",
+            "marketing": {"display_name": "Wolfhagen (SVG)"},
+            "supercharger_function": {
+                "actual_latitude": "51.3",
+                "actual_longitude": "9.15",
+                "num_charger_stalls": "12",
+                "installed_full_power": "0",
+                "open_to_non_tesla": False,
+            },
+            "key_data": {
+                "status": {"name": "Open"},
+                "geo_point": {"lat": 51.3, "lon": 9.15},
+            },
+            "functions": [],
+        }
+
+        record = TeslaChargingStationProvider._tesla_detail_to_db_record(detail, "DE")
+
+        assert record["status"] == "CONSTRUCTION"
+
+    @pytest.mark.asyncio
+    async def test_tesla_detail_mapping_falls_back_to_project_status(self, tmp_path: Path) -> None:
+        """Fehlt `key_data.status.name`, wird `supercharger_function.
+        project_status` als naechster Kandidat herangezogen (beide Felder
+        tragen laut `docs/Tesla-Supercharger-API.md` dieselbe Vokabular)."""
+        detail = {
+            "_uuid": "4001",
+            "_slug": "planned-site",
+            "marketing": {"display_name": "Planned Site"},
+            "supercharger_function": {
+                "actual_latitude": "48.0",
+                "actual_longitude": "11.0",
+                "num_charger_stalls": "8",
+                "installed_full_power": "250",
+                "open_to_non_tesla": False,
+                "project_status": "Permit",
+            },
+            "key_data": {"geo_point": {"lat": 48.0, "lon": 11.0}},
+            "functions": [],
+        }
+
+        record = TeslaChargingStationProvider._tesla_detail_to_db_record(detail, "DE")
+
+        assert record["status"] == "PERMIT"
+
+    @pytest.mark.asyncio
     async def test_refresh_single_station_with_mock(self, tmp_path: Path) -> None:
         """Mock-Tesla-API: refresh_single_station aktualisiert DB-Eintrag."""
         provider = TeslaChargingStationProvider(db_path=tmp_path / "single_test.db")

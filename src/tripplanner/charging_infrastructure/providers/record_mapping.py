@@ -159,14 +159,37 @@ def tesla_detail_to_db_record(
     site_name: str = marketing.get("display_name", marketing.get("common_name", ""))
 
     # Status
+    #
+    # Tesla's detail payload carries the same lifecycle state redundantly in
+    # three places (see docs/Tesla-Supercharger-API.md): `key_data.status.name`
+    # (Title Case, e.g. "Open"), `supercharger_function.project_status` (same
+    # vocabulary), and `supercharger_function.site_status` (snake_case, e.g.
+    # "open"). Prefer them in that order and normalize case instead of
+    # trusting only `key_data.status.name` and defaulting to "Open" whenever
+    # it is absent - a site still being built may simply not populate that
+    # field yet, and silently assuming "Open" falsely marks it usable for
+    # route planning (`TeslaChargingStationProvider.get_all_stations` filters
+    # on `status == "OPEN"`). An unrecognized/missing status therefore falls
+    # back to "CONSTRUCTION" (not physically usable), never "OPEN".
     status_map: dict[str, str] = {
-        "Open": "OPEN",
-        "Closed": "TEMP_CLOSED",
-        "Coming Soon": "CONSTRUCTION",
-        "Permit": "PERMIT",
+        "open": "OPEN",
+        "closed": "TEMP_CLOSED",
+        "coming soon": "CONSTRUCTION",
+        "permit": "PERMIT",
     }
-    status_name = key_data.get("status", {}).get("name", "Open")
-    status: str = status_map.get(status_name, "OPEN")
+    raw_status = (
+        key_data.get("status", {}).get("name")
+        or sc.get("project_status")
+        or str(sc.get("site_status", "")).replace("_", " ")
+        or ""
+    )
+    status: str = status_map.get(raw_status.strip().lower(), "CONSTRUCTION")
+    # 0 kW installed power means no charging hardware is live yet, regardless
+    # of what the (undocumented, inconsistently populated) status fields
+    # claim - never report such a site as operational (observed for real:
+    # Ladbergen, Wolfhagen with power=0 but a status field saying "Open").
+    if power <= 0:
+        status = "CONSTRUCTION"
 
     # Stall type distribution: derive from power
     stalls_v2 = total_stalls if power <= _POWER_V2_MAX else 0
