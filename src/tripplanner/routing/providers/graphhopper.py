@@ -1,11 +1,7 @@
-"""Provider-Schicht für Routing-Anbieter.
-
-Protokolle und Implementierungen für Routing-Anbieter (GraphHopper, Fake für Tests).
-"""
+"""GraphHopper-Routing-Anbieter: Protokoll, Konstanten und konkrete Implementierung."""
 
 from __future__ import annotations
 
-from datetime import timedelta
 from typing import Protocol
 
 import httpx
@@ -19,7 +15,8 @@ from tripplanner.routing.models import (
     Route,
     RouteSegment,
 )
-from tripplanner.trip_input.models import FerryExclusion, TripRequest
+from tripplanner.routing.providers.custom_model import build_custom_model
+from tripplanner.trip_input.models import TripRequest
 
 # GraphHopper-Instruktions-`sign`-Wert fuer "reached via point" - siehe
 # `GraphHopperRoutingProvider._map_path_to_route`.
@@ -32,153 +29,6 @@ class RoutingProvider(Protocol):
     async def berechne_route(self, anfrage: TripRequest) -> Route:
         """Berechnet eine Route für die gegebene TripRequest."""
         ...
-
-
-class FakeRoutingProvider:
-    """Fake-Implementierung ohne laufenden GraphHopper-Server (Tests & lokaler Dev-Betrieb).
-
-    Diskretisiert jede Teilstrecke (Start -> Zwischenstopp -> ... -> Ziel) in
-    mehrere kleinere Segmente (~SEGMENT_LAENGE_ZIEL_M je Segment), damit Anzahl
-    und Granularität der Segmente mit `GraphHopperRoutingProvider` (ein Segment
-    pro Polyline-Punktpaar) vergleichbar sind. `NetworkXOptimizer` modelliert
-    Ladehalte und die "letztes Segment vor dem Ziel"-Heuristik pro Segment; mit
-    nur einem einzigen, riesigen Segment pro Teilstrecke waeren diese Modelle
-    unbrauchbar (Fahrzeit/Energiebedarf des Segments wuerden effektiv nicht
-    granular genug abgebildet).
-    """
-
-    SEGMENT_LAENGE_ZIEL_M: float = 5_000.0
-    """Zielgroesse pro Fake-Segment in Metern."""
-
-    async def berechne_route(self, anfrage: TripRequest) -> Route:
-        """Berechnet eine Route für eine TripRequest (inkl. Zwischenstopps) mit Fake-Daten."""
-        zwischenstopps = [(wp.koordinate, wp.aufenthaltsdauer) for wp in anfrage.zwischenstopps]
-        return await self.berechne_route_mit_waypoints(anfrage.start, anfrage.ziel, zwischenstopps)
-
-    async def berechne_route_mit_waypoints(
-        self,
-        start: Coordinate,
-        ziel: Coordinate,
-        zwischenstopps: list[tuple[Coordinate, timedelta | None]],
-    ) -> Route:
-        """Berechnet eine diskretisierte Route mit Zwischenstopps mit Fake-Daten."""
-        waypoints = [start] + [wp[0] for wp in zwischenstopps] + [ziel]
-
-        segments: list[RouteSegment] = []
-        total_distance = 0.0
-        full_geometrie = [start]
-        # Exakter Segment-Index jedes Zwischenstopps (siehe
-        # `Route.via_point_indices`-Docstring): hier trivial verfuegbar, da
-        # jede Teilstrecke separat konkateniert wird - der Zwischenstopp
-        # `waypoints[i]` liegt exakt an der Segment-Anzahl nach Abschluss der
-        # vorherigen Teilstrecke.
-        via_point_indices: list[int] = []
-
-        for i in range(len(waypoints) - 1):
-            for seg_start, seg_ende, laenge_m in self._diskretisiere_teilstrecke(
-                waypoints[i], waypoints[i + 1]
-            ):
-                segments.append(
-                    RouteSegment(
-                        segment_index=len(segments),
-                        geometrie=[seg_start, seg_ende],
-                        laenge_m=laenge_m,
-                        strassenklasse="PRIMARY",
-                        oberflaeche="asphalt",
-                        tempolimit_kmh=100,
-                        steigung_rohdaten=1.5,
-                        bearing_deg=bearing_deg(seg_start, seg_ende),
-                    )
-                )
-                total_distance += laenge_m
-                full_geometrie.append(seg_ende)
-            # waypoints[i + 1] ist ein Zwischenstopp, falls es nicht das Ziel
-            # (letztes Element) ist.
-            if i + 1 < len(waypoints) - 1:
-                via_point_indices.append(len(segments))
-        if not segments:
-            # Start und Ziel identisch: liefere minimale Route mit einem Segment
-            segments.append(
-                RouteSegment(
-                    segment_index=0,
-                    geometrie=[start, start],
-                    laenge_m=0.0,
-                    strassenklasse="OTHER",
-                    oberflaeche="asphalt",
-                    tempolimit_kmh=0,
-                    steigung_rohdaten=0.0,
-                    bearing_deg=0.0,
-                )
-            )
-            total_distance = 0.0
-            full_geometrie = [start, start]
-        return Route(
-            segments=segments,
-            gesamtlaenge_m=total_distance,
-            geometrie=full_geometrie,
-            bbox=(
-                min(wp[0] for wp in waypoints),
-                min(wp[1] for wp in waypoints),
-                max(wp[0] for wp in waypoints),
-                max(wp[1] for wp in waypoints),
-            ),
-            via_point_indices=via_point_indices,
-        )
-
-    def _diskretisiere_teilstrecke(
-        self, start: Coordinate, end: Coordinate
-    ) -> list[tuple[Coordinate, Coordinate, float]]:
-        """Zerlegt eine Teilstrecke in mehrere kuerzere Segmente (~SEGMENT_LAENGE_ZIEL_M).
-
-        Identische Start-/Endkoordinaten (Laenge 0) liefern eine leere Liste,
-        sodass der Aufrufer diese Teilstrecke automatisch überspringt.
-        """
-        gesamtlaenge_m = haversine_distance_m(start, end)
-        if gesamtlaenge_m <= 0:
-            return []
-
-        anzahl_segmente = max(1, round(gesamtlaenge_m / self.SEGMENT_LAENGE_ZIEL_M))
-        punkte: list[Coordinate] = [start]
-        for i in range(1, anzahl_segmente):
-            anteil = i / anzahl_segmente
-            punkte.append(
-                (
-                    start[0] + (end[0] - start[0]) * anteil,
-                    start[1] + (end[1] - start[1]) * anteil,
-                )
-            )
-        punkte.append(end)
-
-        ergebnis: list[tuple[Coordinate, Coordinate, float]] = []
-        for i in range(len(punkte) - 1):
-            seg_start, seg_ende = punkte[i], punkte[i + 1]
-            laenge_m = haversine_distance_m(seg_start, seg_ende)
-            if laenge_m > 0:
-                ergebnis.append((seg_start, seg_ende, laenge_m))
-        return ergebnis
-
-
-def ferry_exclusion_to_geojson_feature(ausschluss: FerryExclusion) -> dict[str, object]:
-    """Baut ein rechteckiges GeoJSON `Polygon`-Feature aus einer gepufferten Bounding Box.
-
-    GeoJSON-Koordinaten sind `[lon, lat]` (Umwandlung von der projektweiten
-    `(lat, lon)`-Konvention an dieser externen Serialisierungsgrenze - eine der
-    drei dokumentierten GeoJSON-Konversionsstellen des Projekts).
-    """
-    sw_lat, sw_lon = ausschluss.bbox_sw
-    no_lat, no_lon = ausschluss.bbox_no
-    ring = [
-        [sw_lon, sw_lat],
-        [no_lon, sw_lat],
-        [no_lon, no_lat],
-        [sw_lon, no_lat],
-        [sw_lon, sw_lat],
-    ]
-    return {
-        "type": "Feature",
-        "properties": {"name": ausschluss.name},
-        "geometry": {"type": "Polygon", "coordinates": [ring]},
-    }
 
 
 class GraphHopperRoutingProvider:
@@ -274,50 +124,8 @@ class GraphHopperRoutingProvider:
         return self._map_path_to_route(response.paths[0])
 
     def _build_custom_model(self, anfrage: TripRequest) -> dict[str, object] | None:
-        """Baut das optionale GraphHopper `custom_model` aus Tempolimit- und Fähr-Präferenzen.
-
-        Gibt `None` zurück, wenn weder `use_custom_model` (Tempolimit-Profil) noch
-        Fährvermeidung (`anfrage.alle_faehren_vermeiden`/`anfrage.vermiedene_faehren`)
-        angefordert wurde - identisch zum bisherigen Verhalten ohne benutzerdefiniertes
-        Modell (kein custom_model-Feld im GraphHopper-Request).
-        """
-        priority: list[dict[str, object]] = []
-        speed: list[dict[str, object]] | None = None
-        distance_influence: float | None = None
-
-        if self.use_custom_model:
-            speed = [
-                {"if": "road_class == MOTORWAY", "limit_to": 130},
-                {"if": "true", "limit_to": 100},
-            ]
-            priority.append({"if": "road_class == MOTORWAY", "multiply_by": 1.0})
-            distance_influence = 0.0
-
-        if anfrage.alle_faehren_vermeiden:
-            priority.append({"if": "road_environment == FERRY", "multiply_by": 0.0})
-
-        areas: dict[str, object] = {}
-        for index, ausschluss in enumerate(anfrage.vermiedene_faehren):
-            area_id = f"faehre_{index}"
-            areas[area_id] = ferry_exclusion_to_geojson_feature(ausschluss)
-            priority.append(
-                {"if": f"in_{area_id} && road_environment == FERRY", "multiply_by": 0.0}
-            )
-
-        if not priority and speed is None:
-            return None
-
-        custom_model: dict[str, object] = {}
-        if speed is not None:
-            custom_model["speed"] = speed
-        if priority:
-            custom_model["priority"] = priority
-        if areas:
-            custom_model["areas"] = areas
-        if distance_influence is not None:
-            custom_model["distance_influence"] = distance_influence
-
-        return custom_model
+        """Baut das optionale GraphHopper `custom_model` aus Tempolimit- und Fähr-Präferenzen."""
+        return build_custom_model(self.use_custom_model, anfrage)
 
     def _map_path_to_route(self, path: GraphHopperPath) -> Route:
         """Mapped GraphHopperPath zu Route mit RouteSegments."""
