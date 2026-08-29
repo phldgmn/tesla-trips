@@ -109,6 +109,7 @@ def _find_segment_for_time(
 
     return (segment_index, progress_in_segment)
 
+
 def _build_charging_stop_summaries(
     ladehalte_sortiert: list[ChargingStop],
     detouren: dict[int, LadehaltDetour],
