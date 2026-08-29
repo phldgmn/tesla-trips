@@ -42,6 +42,7 @@ import {
   Battery,
   CloudSun,
   Construction,
+  Route,
   X,
 } from "lucide-react";
 
@@ -157,6 +158,10 @@ export function TripPlannerForm({
   );
   const [alleFaehrenVermeiden, setAlleFaehrenVermeiden] = usePersistentState(
     "alle-faehren-vermeiden",
+    false,
+  );
+  const [autobahnBevorzugen, setAutobahnBevorzugen] = usePersistentState(
+    "autobahn-bevorzugen",
     false,
   );
   const [wetterDetailgrad, setWetterDetailgrad] =
@@ -492,6 +497,7 @@ export function TripPlannerForm({
         maxLadeSocPct,
         praeferenzen: {},
         alleFaehrenVermeiden: alleFaehren,
+        autobahnBevorzugen,
         vermiedeneFaehren: vermiedene,
         faehrZeitfenster: zeitfenster,
         ladedauerVorgaben: ladedauern,
@@ -954,6 +960,32 @@ export function TripPlannerForm({
         >
           <Construction size={13} />
           Baustellen
+        </button>
+        <button
+          type="button"
+          onClick={() => setAutobahnBevorzugen(!autobahnBevorzugen)}
+          disabled={isSubmitting}
+          aria-pressed={autobahnBevorzugen}
+          title={
+            autobahnBevorzugen
+              ? "Autobahnen werden bei der Berechnung leicht bevorzugt (klicken zum Deaktivieren)"
+              : "Autobahnen werden nicht bevorzugt behandelt (klicken zum Aktivieren)"
+          }
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.3rem",
+            padding: "0.35rem 0.65rem",
+            background: autobahnBevorzugen ? "#eff6ff" : "#f9fafb",
+            border: `1px solid ${autobahnBevorzugen ? "#93c5fd" : "#e5e7eb"}`,
+            borderRadius: "999px",
+            cursor: isSubmitting ? "not-allowed" : "pointer",
+            fontSize: "0.78rem",
+            color: autobahnBevorzugen ? "#1d4ed8" : "#6b7280",
+          }}
+        >
+          <Route size={13} />
+          Autobahn
         </button>
         <div
           style={{

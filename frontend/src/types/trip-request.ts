@@ -129,6 +129,9 @@ export interface TripRequestPayload {
   mindest_ankunfts_soc_pct: number;
   max_lade_soc_pct: number;
   alle_faehren_vermeiden: boolean;
+  /** Falls true, werden Autobahnen bei der Berechnung leicht bevorzugt
+   *  (Nudge, keine Erzwingung; Toggle "Autobahn bevorzugen"). */
+  autobahn_bevorzugen: boolean;
   vermiedene_faehren: FerryExclusion[];
   faehr_zeitfenster: FaehrZeitfenster[];
   ladedauer_vorgaben: LadedauerVorgabe[];

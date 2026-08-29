@@ -294,6 +294,7 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
         "fahrzeugprofil": request.fahrzeugprofil.model_dump(),
         "praeferenzen": request.praeferenzen,
         "alle_faehren_vermeiden": request.alle_faehren_vermeiden,
+        "autobahn_bevorzugen": request.autobahn_bevorzugen,
         "vermiedene_faehren": [
             {"name": f.name, "bbox_sw": f.bbox_sw, "bbox_no": f.bbox_no}
             for f in request.vermiedene_faehren

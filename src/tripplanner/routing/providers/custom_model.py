@@ -27,12 +27,13 @@ def ferry_exclusion_to_geojson_feature(ausschluss: FerryExclusion) -> dict[str, 
 
 
 def build_custom_model(use_custom_model: bool, anfrage: TripRequest) -> dict[str, object] | None:
-    """Baut das optionale GraphHopper `custom_model` aus Tempolimit- und Fähr-Präferenzen.
+    """Baut das optionale GraphHopper `custom_model` aus Tempolimit-, Fähr- und Autobahnpräferenz.
 
     Gibt `None` zurück, wenn weder `use_custom_model` (Tempolimit-Profil) noch
     Fährvermeidung (`anfrage.alle_faehren_vermeiden`/`anfrage.vermiedene_faehren`)
-    angefordert wurde - identisch zum bisherigen Verhalten ohne benutzerdefiniertes
-    Modell (kein custom_model-Feld im GraphHopper-Request).
+    noch Autobahnpräferenz (`anfrage.autobahn_bevorzugen`) angefordert wurde -
+    identisch zum bisherigen Verhalten ohne benutzerdefiniertes Modell (kein
+    custom_model-Feld im GraphHopper-Request).
     """
     priority: list[dict[str, object]] = []
     speed: list[dict[str, object]] | None = None
@@ -48,6 +49,9 @@ def build_custom_model(use_custom_model: bool, anfrage: TripRequest) -> dict[str
 
     if anfrage.alle_faehren_vermeiden:
         priority.append({"if": "road_environment == FERRY", "multiply_by": 0.0})
+
+    if anfrage.autobahn_bevorzugen:
+        priority.append({"if": "road_class == MOTORWAY", "multiply_by": 1.3})
 
     areas: dict[str, object] = {}
     for index, ausschluss in enumerate(anfrage.vermiedene_faehren):

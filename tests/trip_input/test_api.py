@@ -1465,6 +1465,25 @@ def test_fastapi_endpoint_accepts_ferry_avoidance_fields(
     assert response.status_code == 201
 
 
+def test_fastapi_endpoint_accepts_autobahn_bevorzugen_field(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """Endpunkt akzeptiert autobahn_bevorzugen fehlerfrei."""
+    api_request = {
+        "start": valid_trip_request["start"],
+        "ziel": valid_trip_request["ziel"],
+        "zwischenstopps": [],
+        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
+        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "praeferenzen": {},
+        "autobahn_bevorzugen": True,
+    }
+
+    response = client.post("/trips", json=api_request)
+
+    assert response.status_code == 201
+
+
 def test_fastapi_endpoint_wetter_detailgrad_off_skips_weather_provider(
     client: TestClient, valid_trip_request: dict
 ) -> None:

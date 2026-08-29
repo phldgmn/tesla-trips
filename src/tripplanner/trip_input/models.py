@@ -160,6 +160,15 @@ class TripRequest(BaseModel):
             "ausgeschlossen)."
         ),
     )
+    autobahn_bevorzugen: bool = Field(
+        default=False,
+        description=(
+            "Falls True, werden Autobahnen bei der Routenberechnung leicht "
+            "bevorzugt (GraphHopper custom_model: road_class == MOTORWAY erhält "
+            "eine erhöhte priority), ohne Nicht-Autobahn-Routen auszuschließen "
+            "(z. B. wenn ein Ladehalt abseits der Autobahn liegt)."
+        ),
+    )
     vermiedene_faehren: list[FerryExclusion] = Field(
         default_factory=list,
         description=(

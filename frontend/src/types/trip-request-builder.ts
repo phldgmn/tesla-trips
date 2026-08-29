@@ -32,6 +32,7 @@ export function buildTripRequestPayload(args: {
   zielSocPct: number;
   praeferenzen?: Record<string, unknown>;
   alleFaehrenVermeiden?: boolean;
+  autobahnBevorzugen?: boolean;
   vermiedeneFaehren?: FerryExclusion[];
   faehrZeitfenster?: FaehrZeitfenster[];
   ladedauerVorgaben?: LadedauerVorgabe[];
@@ -83,6 +84,7 @@ export function buildTripRequestPayload(args: {
     ziel_soc_pct: args.zielSocPct,
     mindest_ankunfts_soc_pct: args.mindestAnkunftsSocPct,
     alle_faehren_vermeiden: args.alleFaehrenVermeiden ?? false,
+    autobahn_bevorzugen: args.autobahnBevorzugen ?? false,
     vermiedene_faehren: args.vermiedeneFaehren ?? [],
     faehr_zeitfenster: args.faehrZeitfenster ?? [],
     ladedauer_vorgaben: args.ladedauerVorgaben ?? [],

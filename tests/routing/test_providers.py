@@ -297,3 +297,33 @@ class TestBuildCustomModel:
             "if": "in_faehre_1 && road_environment == FERRY",
             "multiply_by": 0.0,
         } in custom_model["priority"]
+
+    def test_prefer_motorways_adds_priority_boost(
+        self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
+    ) -> None:
+        """autobahn_bevorzugen=True fügt eine road_class==MOTORWAY Priority-Regel > 1.0 hinzu."""
+        anfrage = trip_request.model_copy(update={"autobahn_bevorzugen": True})
+
+        custom_model = gh_provider._build_custom_model(anfrage)
+
+        assert custom_model is not None
+        rule = next(r for r in custom_model["priority"] if r["if"] == "road_class == MOTORWAY")
+        assert rule["multiply_by"] > 1.0
+        assert "areas" not in custom_model
+
+    def test_prefer_motorways_and_avoid_ferries_combined(
+        self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
+    ) -> None:
+        """autobahn_bevorzugen und alle_faehren_vermeiden wirken gemeinsam, nicht exklusiv."""
+        anfrage = trip_request.model_copy(
+            update={"autobahn_bevorzugen": True, "alle_faehren_vermeiden": True}
+        )
+
+        custom_model = gh_provider._build_custom_model(anfrage)
+
+        assert custom_model is not None
+        assert {"if": "road_environment == FERRY", "multiply_by": 0.0} in custom_model["priority"]
+        assert any(
+            r["if"] == "road_class == MOTORWAY" and r["multiply_by"] > 1.0
+            for r in custom_model["priority"]
+        )

@@ -67,3 +67,28 @@ class TestTripRequestFaehrPraeferenzen:
         assert anfrage.alle_faehren_vermeiden is True
         assert len(anfrage.vermiedene_faehren) == 1
         assert anfrage.vermiedene_faehren[0].name == "Testfähre"
+
+
+class TestTripRequestAutobahnPraeferenz:
+    """Tests für das autobahn_bevorzugen-Feld von TripRequest."""
+
+    def test_prefer_motorways_defaults_false(self, vehicle_profile: VehicleProfile) -> None:
+        """autobahn_bevorzugen ist standardmäßig False."""
+        anfrage = TripRequest(
+            start=(52.52, 13.405),
+            ziel=(53.5511, 9.9937),
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0),
+            fahrzeugprofil=vehicle_profile,
+        )
+        assert anfrage.autobahn_bevorzugen is False
+
+    def test_prefer_motorways_accepts_true(self, vehicle_profile: VehicleProfile) -> None:
+        """autobahn_bevorzugen kann auf True gesetzt werden."""
+        anfrage = TripRequest(
+            start=(52.52, 13.405),
+            ziel=(53.5511, 9.9937),
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0),
+            fahrzeugprofil=vehicle_profile,
+            autobahn_bevorzugen=True,
+        )
+        assert anfrage.autobahn_bevorzugen is True
