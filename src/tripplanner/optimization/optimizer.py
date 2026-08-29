@@ -272,6 +272,12 @@ class NetworkXOptimizer(OptimizerInterface):
                 target_candidates,
                 key=lambda n: G.nodes[n].get("total_cost", COST_INF),
             )
+            logger.info(
+                "best_target=%s total_cost=%.1fs (astar will reconstruct the path from here)",
+                best_target,
+                G.nodes[best_target].get("total_cost", COST_INF),
+            )
+            self._log_parent_chain(G, best_target)
 
             path = nx.astar_path(
                 G,
@@ -330,6 +336,37 @@ class NetworkXOptimizer(OptimizerInterface):
             gesamtreisezeit_s=gesamtreisezeit,
             min_zwischenstopp_ankunftszeit=min_zwischenstopp_ankunftszeit,
             zwischenstopp_aufenthalte=zwischenstopp_aufenthalte,
+        )
+
+    def _log_parent_chain(self, G: DiGraph, best_target: tuple[int, int, int]) -> None:
+        """Logs the charging stations on the `parent`-reconstructed path.
+
+        Uses `parent` pointers set DIRECTLY by `generate_graph`'s own
+        Dijkstra bookkeeping - NOT via `nx.astar_path`'s independent
+        re-derivation in `optimize()`. If these two disagree on which
+        stations/costs are used, the discrepancy is isolated to the
+        `nx.astar_path` step; if they agree, the discrepancy (if any) is in
+        `generate_graph`'s cost accounting itself.
+        """
+        parent_chain_stations: list[str] = []
+        node: tuple[int, int, int] | None = best_target
+        visited_chain: set[tuple[int, int, int]] = set()
+        while node is not None and node not in visited_chain:
+            visited_chain.add(node)
+            parent = G.nodes[node].get("parent")
+            if parent is not None:
+                edge_data = G.get_edge_data(parent, node) or {}
+                station_id = edge_data.get("station_id")
+                if station_id is not None:
+                    parent_chain_stations.append(
+                        f"{station_id}@{node} edge_cost={edge_data.get('cost', -1):.1f}s "
+                        f"total_cost={G.nodes[node].get('total_cost', COST_INF):.1f}s"
+                    )
+            node = parent
+        logger.info(
+            "parent-chain reconstruction: %d charging stop(s): %s",
+            len(parent_chain_stations),
+            list(reversed(parent_chain_stations)),
         )
 
     def _map_waypoints_to_segments(
