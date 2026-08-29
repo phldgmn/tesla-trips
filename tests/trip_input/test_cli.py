@@ -906,7 +906,7 @@ class TestChargerScrapePricing:
         html = _pricing_html()
 
         with patch(
-            "tripplanner.charging_infrastructure.client.NodriverTeslaClient.fetch_pricing_html",
+            "tripplanner.charging_infrastructure.client.SafariTeslaClient.fetch_pricing_html",
             new_callable=AsyncMock,
             return_value=html,
         ):
@@ -934,7 +934,7 @@ class TestChargerScrapePricing:
         provider._db.close()
 
         with patch(
-            "tripplanner.charging_infrastructure.client.NodriverTeslaClient.fetch_pricing_html",
+            "tripplanner.charging_infrastructure.client.SafariTeslaClient.fetch_pricing_html",
             new_callable=AsyncMock,
             side_effect=TeslaLocationsClient.CurlError("403 Access Denied"),
         ):
@@ -962,7 +962,7 @@ class TestChargerScrapePricing:
         provider._db.close()
 
         with patch(
-            "tripplanner.charging_infrastructure.client.NodriverTeslaClient.fetch_pricing_html",
+            "tripplanner.charging_infrastructure.client.SafariTeslaClient.fetch_pricing_html",
             new_callable=AsyncMock,
             side_effect=TeslaLocationsClient.CurlError("403 Access Denied"),
         ):
@@ -1021,7 +1021,7 @@ class TestChargerScrapePricing:
         html = _pricing_html()
 
         with patch(
-            "tripplanner.charging_infrastructure.client.NodriverTeslaClient.fetch_pricing_html",
+            "tripplanner.charging_infrastructure.client.SafariTeslaClient.fetch_pricing_html",
             new_callable=AsyncMock,
             return_value=html,
         ):

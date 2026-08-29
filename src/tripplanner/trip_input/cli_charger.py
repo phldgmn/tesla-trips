@@ -211,10 +211,10 @@ def scrape_pricing(
     den aeltesten gecachten Preisdaten. Jede Station wird gegen die
     oeffentliche Tesla-Standort-Detailseite abgerufen (siehe
     `TeslaClient.fetch_pricing_html` - Default-Transport
-    `NodriverTeslaClient`, ein echter Chromium-Browser via CDP, der den
-    Akamai-WAF umgeht) - derselbe WAF-Umgehungs-Mechanismus wie
-    `charger refresh tesla`, daher denselben Hinweisen zu Rate-Limits/
-    WAF-Bloecken unterworfen.
+    `SafariTeslaClient`, steuert die laufende Safari-Instanz des Nutzers per
+    AppleScript und umgeht so den Akamai-WAF) - derselbe WAF-Umgehungs-
+    Mechanismus wie `charger refresh tesla`, daher denselben Hinweisen zu
+    Rate-Limits/WAF-Bloecken unterworfen.
 
     Beispiele:
         python -m tripplanner.trip_input.cli charger scrape-pricing

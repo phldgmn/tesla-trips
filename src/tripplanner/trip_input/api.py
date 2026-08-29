@@ -208,9 +208,10 @@ async def refresh_supercharger_pricing(slug: str) -> SuperchargerPricingAPI:
 
     Ruft dieselbe Tesla-Standort-Detailseite ueber `TeslaClient.fetch_
     pricing_html` ab wie `charger scrape-pricing` (Default-Transport
-    `NodriverTeslaClient`, ein echter Chromium-Browser via CDP, der den
-    Akamai-WAF umgeht - siehe `refresh_supercharger` fuer die Begruendung,
-    warum kein Cross-Origin-Fetch aus dem Frontend moeglich ist).
+    `SafariTeslaClient`, steuert die laufende Safari-Instanz des Nutzers per
+    AppleScript und umgeht so den Akamai-WAF ohne Fokus-Diebstahl - siehe
+    `refresh_supercharger` fuer die Begruendung, warum kein Cross-Origin-
+    Fetch aus dem Frontend moeglich ist).
 
     Args:
         slug: tesla_location_id (location_url_slug) der Station.

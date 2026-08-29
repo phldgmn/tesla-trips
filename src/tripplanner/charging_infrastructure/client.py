@@ -6,6 +6,7 @@ Dieses Modul ist ein re-export shim. Alle Symbole wurden in das
 - ``common``:  ``CurlError``, ``TeslaClient``, ``create_tesla_client``
 - ``supercharge_info``: ``SuperchargeInfoClient``
 - ``tesla_curl``:   ``TeslaLocationsClient``
+- ``safari``:       ``SafariTeslaClient``
 - ``nodriver``:     ``NodriverTeslaClient``, ``NodriverBrowserFetcher``
 - ``human_flow``:   ``NodriverHumanFlowTeslaClient``
 """
@@ -17,6 +18,7 @@ from .clients import (
     NodriverBrowserFetcher,
     NodriverHumanFlowTeslaClient,
     NodriverTeslaClient,
+    SafariTeslaClient,
     SuperchargeInfoClient,
     TeslaClient,
     TeslaLocationsClient,
@@ -28,6 +30,7 @@ __all__ = [
     "NodriverBrowserFetcher",
     "NodriverHumanFlowTeslaClient",
     "NodriverTeslaClient",
+    "SafariTeslaClient",
     "SuperchargeInfoClient",
     "TeslaClient",
     "TeslaLocationsClient",

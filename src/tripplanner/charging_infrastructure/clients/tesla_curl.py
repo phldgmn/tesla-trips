@@ -4,18 +4,23 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any, ClassVar
-from urllib.parse import quote
 
 from curl_cffi import AsyncSession
 
-from .common import WAF_RETRY_MAX_ATTEMPTS, CurlError, _debug_log, is_waf_block, waf_retry_delay_s
+from .common import (
+    WAF_RETRY_MAX_ATTEMPTS,
+    CurlError,
+    TeslaJsonEndpointsMixin,
+    _debug_log,
+    is_waf_block,
+    waf_retry_delay_s,
+)
 
 
-class TeslaLocationsClient:
+class TeslaLocationsClient(TeslaJsonEndpointsMixin):
     """HTTP-Client fuer die oeffentliche Tesla Locations-API via curl_cffi.
 
     Nutzt ``curl_cffi.AsyncSession`` mit JA3/TLS-Fingerprint-Impersonation
@@ -29,27 +34,16 @@ class TeslaLocationsClient:
     ueber alle Requests hinweg wiederverwendet, was Cookie-Jar-Tracking,
     TCP-Connection-Pooling und HTTP/2-Stream-Multiplexing aktiviert.
 
-    Zwei Endpunkte:
-    - fetch_locations            -> Liste aller Standorte (UUID, Slug, Typ, Koordinaten)
-    - fetch_location_details     -> Detaildaten zu einem Standort (Slug-basiert)
-    - fetch_pricing_html         -> Roh-HTML der oeffentlichen Standortseite
+    Die drei oeffentlichen Endpunkte (fetch_locations, fetch_location_details,
+    fetch_pricing_html) sowie deren Orchestrierung (fetch_all_supercharger_details)
+    sind in ``TeslaJsonEndpointsMixin`` geteilt; diese Klasse liefert nur den
+    curl_cffi-Transport (``_fetch``).
 
     Usage:
         client = TeslaLocationsClient()
         details = await client.fetch_all_supercharger_details("DE")
         await client.close()
     """
-
-    BASE_URL: str = "https://www.tesla.com/api/findus"
-
-    PRICING_BASE_URL: str = "https://www.tesla.com/findus/location/supercharger"
-    """Oeffentliche Standort-Detailseite (Next.js, kein JSON-API-Endpunkt wie
-    `BASE_URL`). Anders als `get-location-details` (siehe `Tesla-Supercharger-
-    API.md`) enthaelt nur diese Seite die kWh-Preise, eingebettet in einem
-    `<script id="__NEXT_DATA__">`-JSON-Blob - siehe `pricing.parse_pricing_tiers`
-    fuer das Parsing und `docs/Tesla-Supercharger-Detail-Scraping.md` fuer die
-    Herkunft dieser Struktur (reverse-engineered vom Referenz-Tool `tesla-
-    pricing`)."""
 
     _IMPERSONATE: str = "chrome150"
     """curl_cffi Browser-Fingerprint-Preset, das dem macOS-System-curl mit
@@ -186,160 +180,8 @@ class TeslaLocationsClient:
 
         raise last_error
 
-    async def _fetch_json(self, url: str) -> dict[str, Any]:
-        """Fuehrt GET aus und parst JSON-Antwort (siehe ``_fetch``).
-
-        Args:
-            url: Vollstaendige URL mit Query-Parametern
-
-        Returns:
-            Geparstes JSON-Dict
-
-        Raises:
-            CurlError: Bei HTTP-Fehlern, leeren Antworten oder ungültigem JSON
-        """
-        body = await self._fetch(url)
-        try:
-            parsed = json.loads(body)
-            _debug_log(
-                self._debug_log,
-                f"JSON parsed: {type(parsed).__name__}, "
-                f"top keys: {list(parsed.keys()) if isinstance(parsed, dict) else 'N/A'}",
-                label="JSON",
-            )
-            return parsed  # type: ignore[no-any-return]
-        except json.JSONDecodeError as e:
-            _debug_log(
-                self._debug_log,
-                f"JSON parse error: {e}\nbody preview: {body[:300]}",
-                label="ERROR",
-            )
-            raise self.CurlError(f"invalid JSON: {e}"[:200]) from e
-
     async def close(self) -> None:
         """Close the underlying curl_cffi session if owned by this instance."""
         if self._owns_client:
             await self._client.close()
             self._owns_client = False
-
-    async def fetch_locations(
-        self,
-        country: str = "DE",
-        view: str = "map",
-    ) -> list[dict[str, Any]]:
-        """Fetch all Tesla locations for a given country.
-
-        Args:
-            country: ISO-2 country code (DE, DK, SE, etc.)
-            view: Map view parameter (default "map")
-
-        Returns:
-            List of location dicts.
-
-        Raises:
-            CurlError: Bei curl-Fehlern oder WAF-Block
-        """
-        url = f"{self.BASE_URL}/get-locations?country={country}&view={view}"
-        data = await self._fetch_json(url)
-        return data.get("data", {}).get("data", [])  # type: ignore[no-any-return]
-
-    async def fetch_location_details(
-        self,
-        slug: str,
-        in_hk_mo_tw: bool = False,
-        locale: str = "de_DE",
-    ) -> dict[str, Any]:
-        """Fetch full details for a single Tesla location.
-
-        Args:
-            slug: The location_url_slug from fetch_locations().
-            in_hk_mo_tw: Pass through the inHkMoTw value from the list entry.
-            locale: Locale string (default "de_DE").
-
-        Returns:
-            Full detail dict (kann leer sein wenn der slug nicht aufloesbar ist).
-
-        Raises:
-            CurlError: Bei curl-Fehlern oder WAF-Block
-        """
-        encoded_slug = quote(slug, safe="")
-        url = (
-            f"{self.BASE_URL}/get-location-details"
-            f"?locationSlug={encoded_slug}&functionTypes=party"
-            f"&locale={locale}&isInHkMoTw={str(in_hk_mo_tw).lower()}"
-        )
-        try:
-            data = await self._fetch_json(url)
-            return data.get("data", {})  # type: ignore[no-any-return]
-        except (json.JSONDecodeError, self.CurlError):
-            return {}
-
-    async def fetch_all_supercharger_details(
-        self,
-        country: str = "DE",
-        delay_s: float | None = None,
-    ) -> list[dict[str, Any]]:
-        """Fetch details for all supercharger locations in a country.
-
-        Flow:
-        1. fetch_locations(country)
-        2. Filter to "supercharger" entries (exclude inCN)
-        3. fetch_location_details() for each, with rate limiting
-
-        Schlaege fehlgeschlagene Detail-Requests werden uebersprungen.
-
-        Args:
-            country: ISO-2 country code.
-            delay_s: Override the default rate limit delay.
-
-        Returns:
-            List of detail dicts for supercharger locations only.
-        """
-        locations = await self.fetch_locations(country)
-        superchargers = [
-            loc
-            for loc in locations
-            if "supercharger" in loc.get("location_type", []) and not loc.get("inCN", False)
-        ]
-
-        effective_delay = delay_s if delay_s is not None else self._delay
-        details: list[dict[str, Any]] = []
-        for loc in superchargers:
-            slug: str = loc.get("location_url_slug", "")
-            if not slug:
-                continue
-            try:
-                detail = await self.fetch_location_details(
-                    slug,
-                    in_hk_mo_tw=loc.get("inHkMoTw", False),
-                )
-                if not detail:
-                    continue  # empty response -> skip
-                detail["_uuid"] = loc.get("uuid", "")
-                detail["_slug"] = slug
-                details.append(detail)
-            except Exception:
-                continue  # skip failed detail requests
-            if effective_delay > 0:
-                await asyncio.sleep(effective_delay)
-
-        return details
-
-    async def fetch_pricing_html(self, slug: str) -> str:
-        """Fetches the raw HTML of a Supercharger's public detail page.
-
-        Args:
-            slug: Der location_url_slug aus fetch_locations() /
-                tesla_location_id aus der lokalen DB.
-
-        Returns:
-            Rohes HTML des Antwort-Bodys (siehe `pricing.parse_pricing_tiers`
-            fuer die Extraktion der `chargerPricing`-Daten daraus).
-
-        Raises:
-            CurlError: Bei curl-Fehlern, WAF-Block (403/429) oder anderen
-                Nicht-200-Antworten.
-        """
-        encoded_slug = quote(slug, safe="")
-        url = f"{self.PRICING_BASE_URL}/{encoded_slug}"
-        return await self._fetch(url)
