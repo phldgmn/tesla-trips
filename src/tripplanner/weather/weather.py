@@ -32,26 +32,28 @@ if TYPE_CHECKING:
 # *segment* therefore samples every N-th *point on the polyline*, so a long,
 # curvy route with a dense polyline produced far more queries than a short,
 # straight one covering the same distance -- on multi-hundred-km trips this
-# ballooned into thousands of queries for "medium" detail and triggered
-# weather-provider 429s. Spacing by along-route distance keeps the query
-# count proportional to trip length regardless of polyline density, and
-# lets "low" (previously a single point for the whole trip, see the
-# 2026-08-29 bug report) vary sensibly across long trips while staying cheap.
+# ballooned into thousands of queries (even for "high", which used to query
+# EVERY segment) and triggered weather-provider 429s. Spacing by along-route
+# distance keeps the query count proportional to trip length regardless of
+# polyline density, and lets "low"/"medium" (previously a single point for
+# the whole trip, or a segment-index stride, see the 2026-08-29 bug report)
+# vary sensibly across long trips while staying cheap. All three active
+# levels (`\"high\"`/`\"medium\"`/`\"low\"`) share the same one-shot,
+# never-refetching mechanism (`_fetch_sampled`) and only differ in spacing.
+HIGH_DETAIL_SAMPLE_SPACING_M: float = 60_000.0
+MEDIUM_DETAIL_SAMPLE_SPACING_M: float = 120_000.0
 LOW_DETAIL_SAMPLE_SPACING_M: float = 200_000.0
-MEDIUM_DETAIL_SAMPLE_SPACING_M: float = 40_000.0
 
 LONG_STOP_THRESHOLD: timedelta = timedelta(hours=4)
 """Duration above which a segment's `segment_eta_list` time is treated as a
-"long stop" for `\"low\"`/`\"medium\"` detail. That duration covers both a
-segment's own travel time and any charging/waypoint-wait time incurred while
-there (see `_step_9_update_eta` in `trip_input.pipeline`), so a duration past
-this threshold means the vehicle sat still for a while (e.g. an overnight
-wait at a mandatory `Waypoint`) -- long enough that conditions may have
-genuinely changed. `_long_stop_boundary_indices` forces a fresh sample right
-before and right after such a stop instead of interpolating pre-stop
-conditions across the whole stationary period. Not applied to `\"high\"`,
-which already samples every segment at its own accurate post-wait
-timestamp."""
+"long stop" for `\"low\"`/`\"medium\"`/`\"high\"` detail. That duration
+covers both a segment's own travel time and any charging/waypoint-wait time
+incurred while there (see `_step_9_update_eta` in `trip_input.pipeline`), so
+a duration past this threshold means the vehicle sat still for a while (e.g.
+an overnight wait at a mandatory `Waypoint`) -- long enough that conditions
+may have genuinely changed. `_long_stop_boundary_indices` forces a fresh
+sample right before and right after such a stop instead of interpolating
+stale pre-stop conditions across the whole stationary period."""
 
 
 def _cumulative_midpoint_distances_m(
@@ -279,8 +281,12 @@ async def fetch_weather_by_detail(
             of that segment.
         abfahrtszeit: Departure time of the trip (naive or timezone-aware
             ``datetime``).
-        detail: Target granularity level.  ``"off"`` is **not** handled here —
-            callers must guard against it before invoking this function.
+        detail: Target granularity level (``low``, ``medium``, or
+            ``high``, differing only in sample spacing -- see
+            `HIGH_DETAIL_SAMPLE_SPACING_M`/`MEDIUM_DETAIL_SAMPLE_SPACING_M`/
+            `LOW_DETAIL_SAMPLE_SPACING_M`). ``off`` is **not** handled
+            here — callers must guard against it before invoking this
+            function.
 
     Returns:
         A list of ``WeatherSample`` objects, one per segment in *segment_eta_list*.
@@ -329,17 +335,10 @@ async def _fetch_high(
     segment_eta_list: Sequence[tuple[RouteSegment, timedelta]],
     abfahrtszeit: datetime,
 ) -> list[WeatherSample]:
-    """High-detail: one query per segment, identical to today's per-segment loop."""
-    queries: list[WeatherQuery] = []
-    current_time = abfahrtszeit
-
-    for segment, duration in segment_eta_list:
-        geo = segment.geometrie
-        koordinate = geo[len(geo) // 2]
-        queries.append(WeatherQuery(koordinate=koordinate, zeitpunkt=current_time))
-        current_time += duration
-
-    return await provider.fetch_weather(queries)
+    """High-detail: samples every ``HIGH_DETAIL_SAMPLE_SPACING_M`` metres along the route."""
+    return await _fetch_sampled(
+        provider, segment_eta_list, abfahrtszeit, HIGH_DETAIL_SAMPLE_SPACING_M
+    )
 
 
 async def _fetch_sampled(
@@ -348,7 +347,7 @@ async def _fetch_sampled(
     abfahrtszeit: datetime,
     spacing_m: float,
 ) -> list[WeatherSample]:
-    """Shared "low"/"medium" implementation: spaced sampling with interpolation.
+    """Shared "low"/"medium"/"high" implementation: spaced sampling with interpolation.
 
     Queries one representative point roughly every *spacing_m* metres along
     the route (always including the first and last segment, plus a fresh

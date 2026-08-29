@@ -11,6 +11,7 @@ from tripplanner.routing.models import Route, RouteSegment
 from tripplanner.weather.models import WeatherSample
 from tripplanner.weather.providers import FakeWeatherProvider
 from tripplanner.weather.weather import (
+    HIGH_DETAIL_SAMPLE_SPACING_M,
     LONG_STOP_THRESHOLD,
     LOW_DETAIL_SAMPLE_SPACING_M,
     MEDIUM_DETAIL_SAMPLE_SPACING_M,
@@ -336,10 +337,105 @@ class TestInterpolateSamples:
 
 
 class TestFetchHigh:
-    """High-detail tests: one query per segment, identical to _step_5 today."""
+    """High-detail tests: distance-spaced sampling with interpolation between points."""
 
     @pytest.mark.asyncio
-    async def test_high_one_query_per_segment(self) -> None:
+    async def test_high_query_indices_match_spacing_computation(self) -> None:
+        for n_segments in [5, 10, 20, 50]:
+            _route, segments = _make_route(n_segments)
+            segment_eta = _make_segment_eta(segments)
+            provider = FakeWeatherProvider()
+
+            await fetch_weather_by_detail(
+                provider=provider,
+                segment_eta_list=segment_eta,
+                abfahrtszeit=ABFAHRTSZEIT,
+                detail="high",
+            )
+
+            expected_indices = _expected_sampled_indices(segment_eta, HIGH_DETAIL_SAMPLE_SPACING_M)
+            expected_coords = {
+                segment_eta[idx][0].geometrie[len(segment_eta[idx][0].geometrie) // 2]
+                for idx in expected_indices
+            }
+            actual_coords = {q.koordinate for q in provider.fetch_weather_calls[0]}
+            assert actual_coords == expected_coords
+
+    @pytest.mark.asyncio
+    async def test_high_query_count_independent_of_polyline_density(self) -> None:
+        """Regression (2026-08-29 bug report): a dense polyline (many short raw
+        routing-provider segments over a short real distance, as produced by
+        curvy roads) must not blow up the query count -- distance spacing, not
+        one-query-per-segment, bounds it. Previously "high" queried EVERY
+        segment, so a curvy 100km route with 500 tiny 200m segments queried
+        500 points instead of ~2 (100km/60km); this caused 429s from weather
+        providers on long routes.
+        """
+        dense_segments = [
+            _make_segment(
+                i, (52.0, 13.0 + i * 0.001), (52.0, 13.0 + (i + 1) * 0.001), laenge_m=200.0
+            )
+            for i in range(500)
+        ]
+        segment_eta = _make_segment_eta(dense_segments)
+        provider = FakeWeatherProvider()
+
+        await fetch_weather_by_detail(
+            provider=provider,
+            segment_eta_list=segment_eta,
+            abfahrtszeit=ABFAHRTSZEIT,
+            detail="high",
+        )
+
+        n_queries = len(provider.fetch_weather_calls[0])
+        total_distance_m = sum(s.laenge_m for s in dense_segments)
+        max_expected = total_distance_m / HIGH_DETAIL_SAMPLE_SPACING_M + 2
+        assert n_queries <= max_expected
+        assert n_queries < len(dense_segments)
+
+    @pytest.mark.asyncio
+    async def test_high_single_batched_provider_call(self) -> None:
+        """All queries go out in one `fetch_weather` invocation, however many points."""
+        _route, segments = _make_route(10)
+        segment_eta = _make_segment_eta(segments)
+        provider = FakeWeatherProvider()
+
+        result = await fetch_weather_by_detail(
+            provider=provider,
+            segment_eta_list=segment_eta,
+            abfahrtszeit=ABFAHRTSZEIT,
+            detail="high",
+        )
+
+        expected_indices = _expected_sampled_indices(segment_eta, HIGH_DETAIL_SAMPLE_SPACING_M)
+        assert len(result) == 10
+        assert len(provider.fetch_weather_calls) == 1
+        assert len(provider.fetch_weather_calls[0]) == len(expected_indices)
+
+    @pytest.mark.asyncio
+    async def test_high_first_last_always_sampled(self) -> None:
+        _route, segments = _make_route(12)
+        segment_eta = _make_segment_eta(segments)
+        provider = FakeWeatherProvider()
+
+        await fetch_weather_by_detail(
+            provider=provider,
+            segment_eta_list=segment_eta,
+            abfahrtszeit=ABFAHRTSZEIT,
+            detail="high",
+        )
+
+        queried_indices: set[int] = set()
+        for seg_idx, (seg, _) in enumerate(segment_eta):
+            for q in provider.fetch_weather_calls[0]:
+                if q.koordinate == seg.geometrie[len(seg.geometrie) // 2]:
+                    queried_indices.add(seg_idx)
+                    break
+        assert 0 in queried_indices
+        assert len(segment_eta) - 1 in queried_indices
+
+    @pytest.mark.asyncio
+    async def test_high_fanout_length_equals_segment_count(self) -> None:
         _route, segments = _make_route(5)
         segment_eta = _make_segment_eta(segments)
         provider = FakeWeatherProvider()
@@ -352,49 +448,24 @@ class TestFetchHigh:
         )
 
         assert len(result) == 5
-        assert len(provider.fetch_weather_calls) == 1
-        assert len(provider.fetch_weather_calls[0]) == 5
 
     @pytest.mark.asyncio
-    async def test_high_query_coordinates_are_midpoints(self) -> None:
-        _route, segments = _make_route(3)
-        segment_eta = _make_segment_eta(segments)
-        provider = FakeWeatherProvider()
-
-        await fetch_weather_by_detail(
-            provider=provider,
-            segment_eta_list=segment_eta,
-            abfahrtszeit=ABFAHRTSZEIT,
-            detail="high",
-        )
-
-        queries = provider.fetch_weather_calls[0]
-        for i, (seg, _) in enumerate(segment_eta):
-            expected_coord = seg.geometrie[len(seg.geometrie) // 2]
-            assert queries[i].koordinate == expected_coord
-
-    @pytest.mark.asyncio
-    async def test_high_query_timestamps_accumulate(self) -> None:
+    async def test_high_sample_has_segment_own_timestamp(self) -> None:
         _route, segments = _make_route(3)
         durations = [timedelta(hours=1), timedelta(hours=2), timedelta(hours=0.5)]
         eta_list = list(zip(segments, durations, strict=False))
         provider = FakeWeatherProvider()
 
-        await fetch_weather_by_detail(
+        result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=eta_list,
             abfahrtszeit=ABFAHRTSZEIT,
             detail="high",
         )
 
-        queries = provider.fetch_weather_calls[0]
-        expected_times = [
-            ABFAHRTSZEIT,
-            ABFAHRTSZEIT + timedelta(hours=1),
-            ABFAHRTSZEIT + timedelta(hours=3),
-        ]
-        for i, exp in enumerate(expected_times):
-            assert queries[i].zeitpunkt == exp
+        for i, sample in enumerate(result):
+            expected_time = _compute_segment_time(i, ABFAHRTSZEIT, eta_list)
+            assert sample.zeitpunkt == expected_time
 
 
 # ── fetch_weather_by_detail — low detail ─────────────────────────────────────

@@ -131,69 +131,49 @@ def _step_4_estimate_initial_eta(
     return segment_eta_list
 
 
-async def _step_5_fetch_weather(  # noqa: PLR0913, PLR0917
+async def _step_5_fetch_weather(
     provider: WeatherProvider | None,
-    route: Route,
     segment_eta_list: list[tuple[RouteSegment, timedelta]],
     abfahrtszeit: datetime,
-    previous_queries: list[WeatherQuery] | None = None,
     weather_detail: WeatherDetailLevel = "high",
-) -> tuple[list[WeatherSample], list[WeatherQuery]]:
+) -> list[WeatherSample]:
     """Step 5: Fetch weather data along the route at the current ETAs.
 
-    For ``high`` (the default), the existing per-segment loop with
-    refetch is preserved.  For ``low``/``medium``, ``fetch_weather_by_detail``
-    is used to fetch a coarser set of weather points with a single provider
-    call; the returned ``queries`` tuple element is ``[]`` because low/medium
-    never refetch (the convergence loop is capped to 1 iteration).
+    ``off`` fetches one placeholder query per segment from
+    `FakeWeatherProvider` (fast, stateless, no real HTTP -- the result is
+    discarded downstream, see `create_trip_simulation`). ``low``/``medium``/
+    ``high`` all delegate to `fetch_weather_by_detail`, which samples the
+    route at that level's distance spacing (see `weather.LOW_DETAIL_
+    SAMPLE_SPACING_M`/`MEDIUM_DETAIL_SAMPLE_SPACING_M`/
+    `HIGH_DETAIL_SAMPLE_SPACING_M`) and interpolates between points; none of
+    the three ever refetch within a run (the convergence loop is capped to a
+    single iteration for all of them, see `create_trip_simulation`).
 
     Args:
         provider: Weather provider. ``None`` falls back to
             ``FakeWeatherProvider``.
-        route: The computed route (provides segment geometries).
         segment_eta_list: Segments with estimated travel time from departure.
         abfahrtszeit: Departure time of the entire trip.
-        previous_queries: Queries from the previous iteration (same
-            coordinates, old timestamps).  Only used when
-            ``weather_detail == "high"`` and the provider supports
-            ``refetch_weather``.
-        weather_detail: Weather granularity level.  ``"high"`` uses the
-            per-segment loop with refetch as today.  ``"low"`` and
-            ``"medium"`` call :func:`fetch_weather_by_detail` once;
-            ``"off"`` is handled upstream by passing ``provider=None``.
+        weather_detail: Weather granularity level.
 
     Returns:
-        Tuple of ``WeatherSample`` list (one per segment) and
-        ``WeatherQuery`` list.  For ``"low"``/``"medium"`` the query
-        list is empty because no refetch is needed.
+        A `WeatherSample` list, one per segment in *segment_eta_list*.
     """
     if provider is None:
         provider = FakeWeatherProvider()
 
-    if weather_detail in ("low", "medium"):
-        samples = await fetch_weather_by_detail(
-            provider, segment_eta_list, abfahrtszeit, weather_detail
-        )
-        return samples, []
+    if weather_detail == "off":
+        queries: list[WeatherQuery] = []
+        current_time = abfahrtszeit
+        for segment, dauer in segment_eta_list:
+            mitte_idx = len(segment.geometrie) // 2
+            queries.append(
+                WeatherQuery(koordinate=segment.geometrie[mitte_idx], zeitpunkt=current_time)
+            )
+            current_time += dauer
+        return await provider.fetch_weather(queries)
 
-    # high: exact today's code path
-    queries: list[WeatherQuery] = []
-    current_time = abfahrtszeit
-
-    for segment, dauer in segment_eta_list:
-        # Mittelpunkt des Segments als Abfragepunkt
-        mitte_idx = len(segment.geometrie) // 2
-        koordinate = segment.geometrie[mitte_idx]
-        queries.append(WeatherQuery(koordinate=koordinate, zeitpunkt=current_time))
-        current_time += dauer
-
-    refetch_weather = getattr(provider, "refetch_weather", None)
-    if previous_queries is not None and refetch_weather is not None:
-        samples = await refetch_weather(previous_queries, queries)
-    else:
-        samples = await provider.fetch_weather(queries)
-
-    return samples, queries
+    return await fetch_weather_by_detail(provider, segment_eta_list, abfahrtszeit, weather_detail)
 
 
 async def _step_6_construction_sites(
@@ -706,11 +686,13 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
         ferry_observer: Optional callback called immediately after step 1 with the
             detected ferries enriched with `request.faehr_zeitfenster` - same list
             used for optimizer input (see `create_trip_endpoint`).
-        weather_detail: Weather granularity level.  ``"low"`` and ``"medium"``
-            fetch weather once and never refetch, so charging-plan
-            re-optimization against updated weather in later iterations would
-            have no effect — the convergence loop is capped to 1 iteration for
-            these levels.
+        weather_detail: Weather granularity level.  ``"low"``, ``"medium"``,
+            and ``"high"`` all fetch weather once and never refetch (only
+            their sample spacing differs, see `weather.WeatherDetailLevel`),
+            so charging-plan re-optimization against updated weather in
+            later iterations would have no effect — the convergence loop is
+            capped to 1 iteration for these levels. ``"off"`` keeps
+            `max_iterations` since its placeholder fetch is free.
 
     Returns:
         TripSimulationResult: Complete simulation result.
@@ -766,10 +748,9 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
     }
     charging_duration_map = {v.station_id: v.ladedauer_s for v in request.ladedauer_vorgaben}
 
-    loop_max_iterations = 1 if weather_detail in ("low", "medium") else max_iterations
+    loop_max_iterations = max_iterations if weather_detail == "off" else 1
     # 10. Iterative ETA/weather convergence loop
     prev_segment_eta_list: list[tuple[RouteSegment, timedelta]] | None = None
-    weather_queries: list[WeatherQuery] | None = None
 
     # 8a. Fetch candidate charging stations and precompute their real,
     # routed detour costs, and fetch construction zones, ONCE - all three
@@ -831,16 +812,14 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
         if iteration > 0:
             prev_segment_eta_list = [(seg, eta) for seg, eta in segment_eta_list]
 
-        # Fetch weather with updated ETA-based timestamps; from the 2nd
-        # iteration onward, reuse the provider's cache for unchanged points
-        # via refetch_weather (if supported) instead of a full refetch.
+        # Fetch weather with updated ETA-based timestamps. "low"/"medium"/
+        # "high" all fetch once and never refetch (see `_step_5_fetch_weather`),
+        # so this only iterates more than once for "off".
         with _log_step("fetch_weather", iteration):
-            weather_samples, weather_queries = await _step_5_fetch_weather(
+            weather_samples = await _step_5_fetch_weather(
                 weather_provider,
-                route,
                 segment_eta_list,
                 request.abfahrtszeit,
-                previous_queries=weather_queries,
                 weather_detail=weather_detail,
             )
 

@@ -17,19 +17,23 @@ from tripplanner.geo import Coordinate
 WeatherDetailLevel = Literal["off", "low", "medium", "high"]
 """Weather detail granularity level.
 
-- ``"off"``: No weather data (placeholder samples).
-- ``"low"``: Points every ~200km along the route (see
-  `tripplanner.weather.weather.LOW_DETAIL_SAMPLE_SPACING_M`), linearly
-  interpolated in between.
-- ``"medium"``: Points every ~40km along the route (see
-  `tripplanner.weather.weather.MEDIUM_DETAIL_SAMPLE_SPACING_M`), linearly
-  interpolated in between.
-- ``"high"``: One sample per segment (current full-resolution behavior).
+``"low"``/``"medium"``/``"high"`` all share the same one-shot, never-
+refetching mechanism and only differ in how far apart their sample points
+are along the route; every other segment's weather is linearly interpolated
+between the two along-route-nearest sampled points.
 
-``"low"``/``"medium"`` also force a fresh point right before and right
-after any stop longer than `tripplanner.weather.weather.LONG_STOP_THRESHOLD`
-(e.g. an overnight wait at a mandatory waypoint), instead of interpolating
-stale pre-stop conditions across the whole stationary period.
+- ``"off"``: No weather data (placeholder samples).
+- ``"low"``: Points every ~200km (see
+  `tripplanner.weather.weather.LOW_DETAIL_SAMPLE_SPACING_M`).
+- ``"medium"``: Points every ~120km (see
+  `tripplanner.weather.weather.MEDIUM_DETAIL_SAMPLE_SPACING_M`).
+- ``"high"``: Points every ~60km (see
+  `tripplanner.weather.weather.HIGH_DETAIL_SAMPLE_SPACING_M`).
+
+All three also force a fresh point right before and right after any stop
+longer than `tripplanner.weather.weather.LONG_STOP_THRESHOLD` (e.g. an
+overnight wait at a mandatory waypoint), instead of interpolating stale
+pre-stop conditions across the whole stationary period.
 """
 
 

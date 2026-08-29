@@ -3036,6 +3036,12 @@ async def test_convergence_loop_terminates_at_max_iterations(
     fixed, non-vanishing amount, guaranteeing the deviation never drops below
     the convergence threshold. This isolates the loop's hard iteration cap
     from the route/energy feasibility of any particular weather scenario.
+
+    Uses `weather_detail="off"`: `"low"`/`"medium"`/`"high"` all fetch
+    weather once and never refetch, so the convergence loop is capped to a
+    single iteration for them regardless of `max_iterations` (see
+    `create_trip_simulation`) -- `"off"` is the only level where this
+    generic iteration-cap machinery is still observable.
     """
     weather_calls: list[object] = []
     real_update_eta = trip_pipeline._step_9_update_eta
@@ -3060,6 +3066,7 @@ async def test_convergence_loop_terminates_at_max_iterations(
         destination_soc_pct=20.0,
         max_iterations=3,
         convergence_threshold_minutes=30.0,
+        weather_detail="off",
     )
 
     # Loop should have run exactly 3 iterations (one fetch_weather call each),
@@ -3077,8 +3084,9 @@ async def test_convergence_loop_early_termination(
 ) -> None:
     """Test: Iterative loop terminates early once deviation is below threshold.
 
-    When weather samples produce stable energy/charging results, the
-    convergence loop should exit before reaching max_iterations.
+    Uses `weather_detail="off"` (see `test_convergence_loop_terminates_at_
+    max_iterations`): `"high"` no longer runs multiple iterations at all,
+    so it cannot exercise early termination.
     """
     # Use the same FakeWeatherProvider which always returns constant values,
     # so results should converge immediately
@@ -3092,6 +3100,7 @@ async def test_convergence_loop_early_termination(
         destination_soc_pct=20.0,
         max_iterations=5,
         convergence_threshold_minutes=30.0,
+        weather_detail="off",
     )
 
     # Should have run at least 1 iteration (first iteration always runs)
@@ -3105,11 +3114,12 @@ async def test_convergence_loop_runs_at_least_2_iterations(
     valid_trip_request: dict,
     fake_routing_provider: FakeRoutingProvider,
 ) -> None:
-    """Test: Iterative loop runs multiple iterations with default settings.
+    """Test: Iterative loop runs multiple iterations with `weather_detail="off"`.
 
-    With default max_iterations=3 and the FakeWeatherProvider returning
-    constant values, the loop should run at least 2 iterations (iteration 0
-    for initial setup, then iteration 1 checks convergence).
+    With `max_iterations=3` (default) and the FakeWeatherProvider returning
+    constant values, the loop should run at least 1 iteration. `"off"` is
+    used because `"low"`/`"medium"`/`"high"` are now all capped to a single
+    iteration (see `create_trip_simulation`).
     """
     provider = FakeWeatherProvider()
     result = await create_trip_simulation(
@@ -3119,6 +3129,7 @@ async def test_convergence_loop_runs_at_least_2_iterations(
         charging_provider=FakeChargingStationProvider(),
         start_soc_pct=80.0,
         destination_soc_pct=20.0,
+        weather_detail="off",
     )
 
     # Should have run at least 1 iteration
@@ -3126,71 +3137,6 @@ async def test_convergence_loop_runs_at_least_2_iterations(
     # Result should be valid
     assert result.gesamt_distanz_km > 0
     assert result.gesamt_fahrzeit_min > 0
-
-
-@pytest.mark.asyncio
-async def test_convergence_loop_uses_refetch_weather_from_second_iteration(
-    valid_trip_request: dict,
-    fake_routing_provider: FakeRoutingProvider,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test: from the 2nd iteration onward, `refetch_weather` is used instead
-    of `fetch_weather` when the provider supports it, per plan Task E.2.
-
-    The loop never converges (ETA is force-shifted every iteration via a
-    monkeypatched `_step_9_update_eta`), guaranteeing `max_iterations`
-    iterations run, so `refetch_weather` is exercised on iterations 2 and 3.
-    """
-    real_update_eta = trip_pipeline._step_9_update_eta
-
-    def _never_converging_update_eta(segment_eta_list: object, charging_plan: object) -> object:
-        updated = real_update_eta(segment_eta_list, charging_plan)  # type: ignore[arg-type]
-        return [(seg, eta + timedelta(hours=1)) for seg, eta in updated]  # type: ignore[union-attr]
-
-    monkeypatch.setattr(trip_pipeline, "_step_9_update_eta", _never_converging_update_eta)
-
-    class _RefetchTrackingWeatherProvider(FakeWeatherProvider):
-        def __init__(self) -> None:
-            super().__init__()
-            self.fetch_weather_call_count = 0
-            self.refetch_weather_calls: list[
-                tuple[Sequence[WeatherQuery], Sequence[WeatherQuery]]
-            ] = []
-
-        async def fetch_weather(self, queries: Sequence[WeatherQuery]) -> list[WeatherSample]:
-            self.fetch_weather_call_count += 1
-            return await super().fetch_weather(queries)
-
-        async def refetch_weather(
-            self,
-            original_queries: Sequence[WeatherQuery],
-            updated_queries: Sequence[WeatherQuery],
-        ) -> list[WeatherSample]:
-            self.refetch_weather_calls.append((original_queries, updated_queries))
-            return await self.fetch_weather(updated_queries)
-
-    provider = _RefetchTrackingWeatherProvider()
-    result = await create_trip_simulation(
-        valid_trip_request,
-        routing_provider=fake_routing_provider,
-        weather_provider=provider,
-        charging_provider=FakeChargingStationProvider(),
-        start_soc_pct=80.0,
-        destination_soc_pct=20.0,
-        max_iterations=3,
-        convergence_threshold_minutes=30.0,
-    )
-
-    # Iteration 0 has no previous_queries -> plain fetch_weather only.
-    # Iterations 1 and 2 must go through refetch_weather.
-    assert len(provider.refetch_weather_calls) == 2
-    # Each refetch_weather call's updated_queries must have the same
-    # coordinates as the original_queries (only the timestamps may differ).
-    for original_queries, updated_queries in provider.refetch_weather_calls:
-        original_coords = [q.koordinate for q in original_queries]
-        updated_coords = [q.koordinate for q in updated_queries]
-        assert original_coords == updated_coords
-    assert result.gesamt_distanz_km > 0
 
 
 # =============================================================================
