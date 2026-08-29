@@ -148,11 +148,17 @@ class PricingQueueMixin:
         Detailseite mit der numerischen ID abgerufen - Teslas URL-Schema
         akzeptiert numerische Standort-IDs oft genauso wie den
         menschenlesbaren Slug (z. B. `.../supercharger/405657`). Schlaegt
-        das fehl (HTTP 404 o. ae.), wird `slug` als stale
-        supercharge.info-`locationId` behandelt und ueber
-        `_resolve_numeric_slug` der echte Tesla-Slug aufgeloest; gelingt
-        das, wird die DB aktualisiert und der aufgeloeste Slug fuer den
-        (erneuten) Abruf verwendet.
+        das fehl (HTTP 404 o. ae.) *oder* liefert es keinerlei Preistiers,
+        wird `slug` zusaetzlich als stale supercharge.info-`locationId`
+        behandelt und ueber `_resolve_numeric_slug` gegen Teslas eigene
+        Standortliste geprueft: eine numerische ID ist ein dokumentiertes
+        Platzhalter-Risiko, daher ist selbst eine fehlerfreie, aber leere
+        Antwort nicht vertrauenswuerdig genug, um sie ungeprueft als "Station
+        hat keine veroeffentlichten Preise" zu akzeptieren (kann sonst eine
+        generische Soft-404-Seite sein statt der echten Standortseite).
+        Findet sich dabei ein abweichender echter Slug, wird die DB
+        aktualisiert und mit diesem Slug erneut abgerufen; andernfalls bleibt
+        das urspruengliche (ggf. leere) Ergebnis bestehen.
 
         Args:
             slug: tesla_location_id (location_url_slug) der Station.
@@ -185,9 +191,22 @@ class PricingQueueMixin:
                 # so try that first instead of assuming it is always a stale
                 # supercharge.info placeholder - resolving it away would
                 # otherwise fail on perfectly valid numeric Tesla slugs.
+                html: str | None = None
+                tiers: list[ChargingPricingTier] = []
                 try:
                     html = await tesla_client.fetch_pricing_html(fetch_slug)
+                    tiers = parse_pricing_tiers(html)
                 except CurlError:
+                    pass
+
+                # A numeric slug is a documented placeholder risk: unlike a
+                # confirmed human-readable slug, even a 200 response with no
+                # error may be a generic/soft-404 shell page instead of the
+                # real station page. Any empty result from a purely numeric
+                # URL is therefore cross-checked against Tesla's own
+                # nearest-neighbor slug before it is accepted as "station
+                # legitimately has no published pricing".
+                if not tiers:
                     record = self._db.find_station_by_supercharge_info_id(supercharge_info_id)
                     resolved = (
                         await self._resolve_numeric_slug(record, tesla_client)
@@ -195,22 +214,27 @@ class PricingQueueMixin:
                         else None
                     )
                     if resolved is None:
-                        raise CurlError(
-                            f"Slug '{slug}' ist ein numerischer supercharge.info-"
-                            "Platzhalter: weder als eigenstaendige Tesla-URL "
-                            "abrufbar, noch ein aufloesbarer Tesla-URL-Slug "
-                            "(kein Standort innerhalb von "
-                            f"{self._SLUG_RESOLUTION_MAX_DISTANCE_M:.0f}m gefunden)."
-                        ) from None
-                    if resolved != slug:
+                        if html is None:
+                            raise CurlError(
+                                f"Slug '{slug}' ist ein numerischer supercharge.info-"
+                                "Platzhalter: weder als eigenstaendige Tesla-URL "
+                                "abrufbar, noch ein aufloesbarer Tesla-URL-Slug "
+                                "(kein Standort innerhalb von "
+                                f"{self._SLUG_RESOLUTION_MAX_DISTANCE_M:.0f}m gefunden)."
+                            ) from None
+                        # Direct fetch succeeded but had no pricing, and no
+                        # better slug was found - accept as a legitimately
+                        # price-free station (see `parse_pricing_tiers`).
+                    elif resolved != slug:
                         self._db.update_tesla_location_id(supercharge_info_id, resolved)
                         self._stations = None
-                    fetch_slug = resolved
-                    html = await tesla_client.fetch_pricing_html(fetch_slug)
+                        fetch_slug = resolved
+                        html = await tesla_client.fetch_pricing_html(fetch_slug)
+                        tiers = parse_pricing_tiers(html)
             else:
                 html = await tesla_client.fetch_pricing_html(fetch_slug)
+                tiers = parse_pricing_tiers(html)
 
-            tiers = parse_pricing_tiers(html)
             self._db.upsert_pricing(supercharge_info_id, [t.model_dump() for t in tiers])
         finally:
             self._db.dequeue_pricing_refresh(supercharge_info_id)

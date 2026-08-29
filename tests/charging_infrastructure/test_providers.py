@@ -857,6 +857,118 @@ class TestTeslaChargingStationProviderPricing:
         assert provider.list_pricing_queue() == []
 
     @pytest.mark.asyncio
+    async def test_refresh_pricing_numeric_slug_empty_result_resolves_to_real_slug(
+        self, tmp_path: Path
+    ) -> None:
+        """Liefert der direkte Abruf mit der numerischen ID zwar HTTP 200,
+        aber keine Preistiers (z. B. Muenster/Bergkamen: generische
+        Soft-404-Seite statt der echten Standortseite), wird - anders als bei
+        einem harten Fehler - dennoch ueber Teslas Standortliste nach einem
+        echten Slug gesucht, bevor das leere Ergebnis akzeptiert wird."""
+        db_path = tmp_path / "numeric_slug_empty.db"
+        db = SQLiteDatabase(db_path)
+        db.initialize()
+        now = datetime.now(UTC).isoformat()
+        db.replace_all_stations(
+            [
+                {
+                    "supercharge_info_id": 30288,
+                    "tesla_location_id": "30288",
+                    "site_name": "Muenster, Germany",
+                    "latitude": 51.9607,
+                    "longitude": 7.6261,
+                    "country_code": "DE",
+                    "stalls_v2": 0,
+                    "stalls_v3": 8,
+                    "stalls_v3_ultra": 0,
+                    "stalls_v4": 0,
+                    "total_stalls": 8,
+                    "power_kilowatt": 250,
+                    "status": "OPEN",
+                    "connector_types": json.dumps(["ccs2"]),
+                    "ist_24_7": 1,
+                    "date_opened": None,
+                    "last_updated_utc": now,
+                },
+            ]
+        )
+        db.close()
+
+        provider = TeslaChargingStationProvider(db_path=db_path)
+        provider.enqueue_stations_for_pricing_refresh(["30288"])
+        mock_tesla = AsyncMock(spec=TeslaLocationsClient)
+        mock_tesla.fetch_locations.return_value = [
+            {
+                "location_type": ["supercharger"],
+                "location_url_slug": "muenstersupercharger",
+                "latitude": 51.9608,
+                "longitude": 7.6262,
+            },
+        ]
+        mock_tesla.fetch_pricing_html.side_effect = [
+            _pricing_html([]),  # direct numeric fetch: 200 but no pricing
+            _pricing_html(_FLAT_OWNER_TIER),  # resolved real slug: has pricing
+        ]
+
+        tiers = await provider.refresh_pricing("30288", tesla_client=mock_tesla)
+
+        assert len(tiers) == 1
+        assert mock_tesla.fetch_pricing_html.await_args_list == [
+            call("30288"),
+            call("muenstersupercharger"),
+        ]
+        assert provider._resolve_supercharge_info_id("muenstersupercharger") == 30288
+        assert provider.list_pricing_queue() == []
+
+    @pytest.mark.asyncio
+    async def test_refresh_pricing_numeric_slug_empty_result_no_better_slug_accepted(
+        self, tmp_path: Path
+    ) -> None:
+        """Liefert weder der direkte numerische Abruf noch die Standortsuche
+        eine bessere Alternative, bleibt das leere Ergebnis (legitim keine
+        veroeffentlichten Preise) ohne Fehler bestehen."""
+        db_path = tmp_path / "numeric_slug_empty_no_match.db"
+        db = SQLiteDatabase(db_path)
+        db.initialize()
+        now = datetime.now(UTC).isoformat()
+        db.replace_all_stations(
+            [
+                {
+                    "supercharge_info_id": 30420,
+                    "tesla_location_id": "30420",
+                    "site_name": "Bergkamen, Germany",
+                    "latitude": 51.6167,
+                    "longitude": 7.6167,
+                    "country_code": "DE",
+                    "stalls_v2": 0,
+                    "stalls_v3": 12,
+                    "stalls_v3_ultra": 0,
+                    "stalls_v4": 0,
+                    "total_stalls": 12,
+                    "power_kilowatt": 250,
+                    "status": "OPEN",
+                    "connector_types": json.dumps(["ccs2"]),
+                    "ist_24_7": 1,
+                    "date_opened": None,
+                    "last_updated_utc": now,
+                },
+            ]
+        )
+        db.close()
+
+        provider = TeslaChargingStationProvider(db_path=db_path)
+        provider.enqueue_stations_for_pricing_refresh(["30420"])
+        mock_tesla = AsyncMock(spec=TeslaLocationsClient)
+        mock_tesla.fetch_locations.return_value = []
+        mock_tesla.fetch_pricing_html.return_value = _pricing_html([])
+
+        tiers = await provider.refresh_pricing("30420", tesla_client=mock_tesla)
+
+        assert tiers == []
+        mock_tesla.fetch_pricing_html.assert_awaited_once_with("30420")
+        assert provider.list_pricing_queue() == []
+
+    @pytest.mark.asyncio
     async def test_refresh_pricing_resolves_numeric_slug(self, tmp_path: Path) -> None:
         """Schlaegt der direkte Abruf mit der rein numerischen `tesla_location_id`
         fehl (stale supercharge.info-`locationId`, z. B. "Rødekro East,
