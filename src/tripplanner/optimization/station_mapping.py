@@ -14,7 +14,8 @@ from __future__ import annotations
 
 from tripplanner.charging_infrastructure.models import ChargingStation
 from tripplanner.geo import haversine_distance_m
-from tripplanner.routing.models import RouteSegment
+from tripplanner.routing.models import Route, RouteSegment
+from tripplanner.trip_input.models import Waypoint
 
 
 def map_station_to_segment(
@@ -74,7 +75,11 @@ def map_stations_to_segments(
     return station_map
 
 
-def map_waypoints_to_segments(waypoints, segments, route) -> list[int]:
+def map_waypoints_to_segments(
+    waypoints: list[Waypoint],
+    segments: list[RouteSegment],
+    route: Route,
+) -> list[int]:
     """Ermittelt fuer jeden Waypoint den Segment-Index, an dem er liegt.
 
     Bevorzugt `route.via_point_indices` - vom Routing-Provider EXAKT
@@ -108,7 +113,11 @@ def map_waypoints_to_segments(waypoints, segments, route) -> list[int]:
     return indices
 
 
-def waypoint_to_segment(waypoint, segments, min_seg_idx=0) -> int:
+def waypoint_to_segment(
+    waypoint: Waypoint,
+    segments: list[RouteSegment],
+    min_seg_idx: int = 0,
+) -> int:
     """Ermittle das Segment, das einem Waypoint am nächsten liegt.
 
     Sucht nur ab `min_seg_idx` (Segmente vor dem vorherigen, in Fahrt-
