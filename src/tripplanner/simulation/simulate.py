@@ -10,7 +10,8 @@ from datetime import datetime, timedelta
 
 from tripplanner.construction.models import ConstructionZone
 from tripplanner.energy.models import SegmentEnergyResult
-from tripplanner.optimization.models import ChargingPlan
+from tripplanner.optimization.models import ChargingPlan, ChargingStop
+from tripplanner.optimization.models import ZwischenstoppAufenthalt as WaypointStop
 from tripplanner.routing.models import Route, RouteSegment
 from tripplanner.simulation.models import (
     ChargingStopSummary,
@@ -107,6 +108,139 @@ def _find_segment_for_time(
     progress_in_segment = time_in_segment / segment_time_s if segment_time_s > 0 else 0.0
 
     return (segment_index, progress_in_segment)
+
+def _build_charging_stop_summaries(
+    ladehalte_sortiert: list[ChargingStop],
+    detouren: dict[int, LadehaltDetour],
+    distanz_bei_ladehalt: dict[int, float],
+    cumulative_distances: list[float],
+    battery_capacity_kwh: float,
+) -> list[ChargingStopSummary]:
+    """Baue ChargingStopSummary-Liste aus den sortierten Ladehalten.
+
+    Args:
+        ladehalte_sortiert: Sortierte Liste der Ladehalte.
+        detouren: Detour-Geometrien pro Ladehalt.
+        distanz_bei_ladehalt: Erfasste Distanz beim Erreichen jedes Ladehalts.
+        cumulative_distances: Kumulierte Routendistanz je Segment.
+        battery_capacity_kwh: Nutzbare Batteriekapazitaet in kWh.
+
+    Returns:
+        Liste von ChargingStopSummary fuer jeden Ladehalt.
+    """
+    charging_stops: list[ChargingStopSummary] = []
+    for ladehalt in ladehalte_sortiert:
+        detour = detouren.get(id(ladehalt))
+        charging_stops.append(
+            ChargingStopSummary(
+                name=ladehalt.station.name,
+                station_id=ladehalt.station.station_id,
+                position=ladehalt.station.coordinate,
+                # Fallback (kein LADEN-Frame erfasst, z. B. sehr kurze
+                # Ladedauer unterhalb der Frame-Aufloesung
+                # `output_resolution_seconds`): Distanz am Beginn des
+                # Ladehalt-Segments.
+                distanz_m=distanz_bei_ladehalt.get(
+                    id(ladehalt),
+                    cumulative_distances[ladehalt.segment_index - 1]
+                    if ladehalt.segment_index > 0
+                    else 0.0,
+                ),
+                detour_geometrie=detour.geometrie if detour else [],
+                route_index_vor=detour.route_index_vor if detour else None,
+                route_index_nach=detour.route_index_nach if detour else None,
+                detour_station_index=detour.station_index if detour else None,
+                ankunfts_soc_pct=ladehalt.ankunfts_soc_pct,
+                ziel_soc_pct=ladehalt.ziel_soc_pct,
+                ladedauer_s=ladehalt.geschaetzte_ladedauer_s,
+                energie_geladen_kwh=max(
+                    0.0,
+                    (ladehalt.ziel_soc_pct - ladehalt.ankunfts_soc_pct)
+                    / 100.0
+                    * battery_capacity_kwh,
+                ),
+                ankunftszeit=ladehalt.ankunftszeit,
+                abfahrtszeit=ladehalt.abfahrtszeit,
+            )
+        )
+    return charging_stops
+
+
+def _build_waypoint_stop_summaries(
+    aufenthalte_sortiert: list[WaypointStop],
+    cumulative_distances: list[float],
+    battery_capacity_kwh: float,
+) -> list[WaypointStopSummary]:
+    """Baue WaypointStopSummary-Liste aus den sortierten Zwischenstopp-Aufenthalten.
+
+    Args:
+        aufenthalte_sortiert: Sortierte Liste der Zwischenstopp-Aufenthalte.
+        cumulative_distances: Kumulierte Routendistanz je Segment.
+        battery_capacity_kwh: Nutzbare Batteriekapazitaet in kWh.
+
+    Returns:
+        Liste von WaypointStopSummary fuer jeden Zwischenstopp-Aufenthalt.
+    """
+    waypoint_stops: list[WaypointStopSummary] = []
+    for aufenthalt in aufenthalte_sortiert:
+        waypoint_stops.append(
+            WaypointStopSummary(
+                position=aufenthalt.koordinate,
+                # Rein geometrisch aus dem (per GraphHopper-Via-Punkt exakt
+                # aufgeloesten, siehe `NetworkXOptimizer.
+                # _map_waypoints_to_segments`) `segment_index` abgeleitet -
+                # NICHT aus der zeitbasierten Positionsrekonstruktion (siehe
+                # Kommentar bei `distanz_bei_ladehalt` oben).
+                distanz_m=cumulative_distances[aufenthalt.segment_index - 1]
+                if aufenthalt.segment_index > 0
+                else 0.0,
+                ankunftszeit=aufenthalt.ankunftszeit,
+                abfahrtszeit=aufenthalt.abfahrtszeit,
+                ladeleistung_kw=aufenthalt.ladeleistung_kw,
+                ankunfts_soc_pct=aufenthalt.ankunfts_soc_pct,
+                ziel_soc_pct=aufenthalt.ziel_soc_pct,
+                energie_geladen_kwh=max(
+                    0.0,
+                    (aufenthalt.ziel_soc_pct - aufenthalt.ankunfts_soc_pct)
+                    / 100.0
+                    * battery_capacity_kwh,
+                ),
+            )
+        )
+    return waypoint_stops
+
+
+def _compute_total_times(
+    charging_plan: ChargingPlan,
+    end_time_s: float,
+) -> tuple[float, float, float]:
+    """Berechne Gesamt-Fahrzeit, -Ladezeit und -Wartezeit in Minuten.
+
+    Args:
+        charging_plan: Der optimierte Ladeplan.
+        end_time_s: Gesamtreisezeit in Sekunden.
+
+    Returns:
+        Tuple von (gesamt_ladezeit_min, gesamt_wartezeit_min, gesamt_fahrzeit_min).
+    """
+    gesamt_ladezeit_min = 0.0
+    for ladehalt in charging_plan.ladehalte:
+        ladezeit_s = (ladehalt.abfahrtszeit - ladehalt.ankunftszeit).total_seconds()
+        gesamt_ladezeit_min += ladezeit_s / 60.0
+
+    # Zwischenstopp-Aufenthalte zaehlen ausschliesslich als Wartezeit
+    # (`gesamt_wartezeit_min`) - auch wenn an ihnen geladen wird. Nur die
+    # tatsaechlichen Ladestopps (Supercharger, `ladehalte`; siehe
+    # `gesamt_ladezeit_min` oben) gehen in die Gesamtladezeit ein. Beide
+    # zusammen mit `gesamt_fahrzeit_min` ergeben die volle Gesamtreisezeit.
+    gesamt_wartezeit_min = 0.0
+    for aufenthalt in charging_plan.zwischenstopp_aufenthalte:
+        wartezeit_s = (aufenthalt.abfahrtszeit - aufenthalt.ankunftszeit).total_seconds()
+        gesamt_wartezeit_min += wartezeit_s / 60.0
+
+    gesamt_fahrzeit_min = max(0.0, (end_time_s / 60.0) - gesamt_ladezeit_min - gesamt_wartezeit_min)
+
+    return gesamt_ladezeit_min, gesamt_wartezeit_min, gesamt_fahrzeit_min
 
 
 def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
@@ -414,85 +548,21 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         current_time_s += output_resolution_seconds
 
     detouren = charging_stop_detours or {}
-    charging_stops: list[ChargingStopSummary] = []
-    for ladehalt in ladehalte_sortiert:
-        detour = detouren.get(id(ladehalt))
-        charging_stops.append(
-            ChargingStopSummary(
-                name=ladehalt.station.name,
-                station_id=ladehalt.station.station_id,
-                position=ladehalt.station.coordinate,
-                # Fallback (kein LADEN-Frame erfasst, z. B. sehr kurze
-                # Ladedauer unterhalb der Frame-Aufloesung
-                # `output_resolution_seconds`): Distanz am Beginn des
-                # Ladehalt-Segments.
-                distanz_m=distanz_bei_ladehalt.get(
-                    id(ladehalt),
-                    cumulative_distances[ladehalt.segment_index - 1]
-                    if ladehalt.segment_index > 0
-                    else 0.0,
-                ),
-                detour_geometrie=detour.geometrie if detour else [],
-                route_index_vor=detour.route_index_vor if detour else None,
-                route_index_nach=detour.route_index_nach if detour else None,
-                detour_station_index=detour.station_index if detour else None,
-                ankunfts_soc_pct=ladehalt.ankunfts_soc_pct,
-                ziel_soc_pct=ladehalt.ziel_soc_pct,
-                ladedauer_s=ladehalt.geschaetzte_ladedauer_s,
-                energie_geladen_kwh=max(
-                    0.0,
-                    (ladehalt.ziel_soc_pct - ladehalt.ankunfts_soc_pct)
-                    / 100.0
-                    * battery_capacity_kwh,
-                ),
-                ankunftszeit=ladehalt.ankunftszeit,
-                abfahrtszeit=ladehalt.abfahrtszeit,
-            )
-        )
-
-    waypoint_stops: list[WaypointStopSummary] = []
-    for aufenthalt in aufenthalte_sortiert:
-        waypoint_stops.append(
-            WaypointStopSummary(
-                position=aufenthalt.koordinate,
-                # Rein geometrisch aus dem (per GraphHopper-Via-Punkt exakt
-                # aufgeloesten, siehe `NetworkXOptimizer.
-                # _map_waypoints_to_segments`) `segment_index` abgeleitet -
-                # NICHT aus der zeitbasierten Positionsrekonstruktion (siehe
-                # Kommentar bei `distanz_bei_ladehalt` oben).
-                distanz_m=cumulative_distances[aufenthalt.segment_index - 1]
-                if aufenthalt.segment_index > 0
-                else 0.0,
-                ankunftszeit=aufenthalt.ankunftszeit,
-                abfahrtszeit=aufenthalt.abfahrtszeit,
-                ladeleistung_kw=aufenthalt.ladeleistung_kw,
-                ankunfts_soc_pct=aufenthalt.ankunfts_soc_pct,
-                ziel_soc_pct=aufenthalt.ziel_soc_pct,
-                energie_geladen_kwh=max(
-                    0.0,
-                    (aufenthalt.ziel_soc_pct - aufenthalt.ankunfts_soc_pct)
-                    / 100.0
-                    * battery_capacity_kwh,
-                ),
-            )
-        )
-
-    gesamt_ladezeit_min = 0.0
-    for ladehalt in charging_plan.ladehalte:
-        ladezeit_s = (ladehalt.abfahrtszeit - ladehalt.ankunftszeit).total_seconds()
-        gesamt_ladezeit_min += ladezeit_s / 60.0
-
-    # Zwischenstopp-Aufenthalte zaehlen ausschliesslich als Wartezeit
-    # (`gesamt_wartezeit_min`) - auch wenn an ihnen geladen wird. Nur die
-    # tatsaechlichen Ladestopps (Supercharger, `ladehalte`; siehe
-    # `gesamt_ladezeit_min` oben) gehen in die Gesamtladezeit ein. Beide
-    # zusammen mit `gesamt_fahrzeit_min` ergeben die volle Gesamtreisezeit.
-    gesamt_wartezeit_min = 0.0
-    for aufenthalt in charging_plan.zwischenstopp_aufenthalte:
-        wartezeit_s = (aufenthalt.abfahrtszeit - aufenthalt.ankunftszeit).total_seconds()
-        gesamt_wartezeit_min += wartezeit_s / 60.0
-
-    gesamt_fahrzeit_min = max(0.0, (end_time_s / 60.0) - gesamt_ladezeit_min - gesamt_wartezeit_min)
+    charging_stops = _build_charging_stop_summaries(
+        ladehalte_sortiert,
+        detouren,
+        distanz_bei_ladehalt,
+        cumulative_distances,
+        battery_capacity_kwh,
+    )
+    waypoint_stops = _build_waypoint_stop_summaries(
+        aufenthalte_sortiert,
+        cumulative_distances,
+        battery_capacity_kwh,
+    )
+    gesamt_ladezeit_min, gesamt_wartezeit_min, gesamt_fahrzeit_min = _compute_total_times(
+        charging_plan, end_time_s
+    )
 
     end_soc_pct = frames[-1].soc_pct if frames else start_soc_pct
 
