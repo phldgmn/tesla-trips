@@ -166,6 +166,30 @@ class StateGraphBuilder:
         # Ladestationen) der entscheidende Faktor (docs/plans/07-optimization.md).
         checkpoints: list[int] = sorted(set(waypoint_map) | set(station_segments) | set(ferry_pins))
 
+        # Segmente von Zwischenstopps, an denen TATSAECHLICH geladen werden
+        # kann (Ladeleistung gesetzt UND eine erzwungene Wartezeit vorliegt,
+        # siehe `add_waypoint_wait_edge`/`required_departure` - ohne
+        # Wartezeit findet dort kein Ladevorgang statt, siehe
+        # `Waypoint.ladeleistung_kw`). Fuer diese Segmente gilt beim Anfahren
+        # dieselbe abgesenkte Ankunfts-Untergrenze wie an einer Ladestation
+        # (`mindest_ankunfts_soc_pct` statt des allgemeinen
+        # `min_soc_pct`-Sicherheitsreserve fuer offene Strecke) - an einer
+        # Ladestation UND an einem ladefaehigen Zwischenstopp ist ein
+        # niedriger Ankunfts-SoC unbedenklich, weil garantiert nachgeladen
+        # wird (siehe Nutzer-Report: Ankunft an einem ladenden Zwischenstopp
+        # mit 21% statt der erwarteten ~5%, weil der Fahrt-Kante dorthin
+        # faelschlich das Offene-Strecke-Minimum auferlegt wurde).
+        waypoint_charge_segments: set[int] = {
+            seg_idx
+            for seg_idx, wps in waypoint_map.items()
+            if any(
+                wp.ladeleistung_kw is not None
+                and wp.ladeleistung_kw > 0.0
+                and (wp.aufenthaltsdauer is not None or wp.geplante_abfahrt is not None)
+                for wp in wps
+            )
+        }
+
         while heap:
             _, _, current = heapq.heappop(heap)
             if current in visited:
@@ -239,12 +263,15 @@ class StateGraphBuilder:
                         current=current,
                         seg_idx=seg_idx,
                         target_seg_idx=target_seg_idx,
+                        total_segments=len(segments),
+                        ziel_soc_target=ziel_soc_target,
                         cum_time_s=cum_time_s,
                         cum_energy_kwh=cum_energy_kwh,
                         max_time_buckets=max_time_buckets,
                         constraints=constraints,
                         vehicle_profile=vehicle_profile,
                         station_segments=station_segments,
+                        waypoint_charge_segments=waypoint_charge_segments,
                         heap=heap,
                     )
 
@@ -268,6 +295,7 @@ class StateGraphBuilder:
                     ladedauer_vorgaben=ladedauer_vorgaben,
                     checkpoints=checkpoints,
                     station_segments=station_segments,
+                    waypoint_charge_segments=waypoint_charge_segments,
                     cum_energy_kwh=cum_energy_kwh,
                     ziel_soc_target=ziel_soc_target,
                     detour_kosten=detour_kosten,
@@ -344,6 +372,9 @@ class StateGraphBuilder:
         constraints: OptimizationConstraints,
         vehicle_profile: VehicleProfile,
         station_segments: dict[int, list[tuple[ChargingStation, float]]],
+        waypoint_charge_segments: set[int],
+        total_segments: int,
+        ziel_soc_target: float,
         heap: list[tuple[float, int, tuple[int, int, int]]],
     ) -> None:
         """Füge eine aggregierte Fahrtkante von `seg_idx` bis `target_seg_idx` hinzu.
@@ -376,19 +407,29 @@ class StateGraphBuilder:
         new_soc_pct = current_soc_pct - verbrauch_pct
 
         # Reichweite reicht nicht (SoC unter 0%) - eine unzulaessige Kante wie
-        # jede andere Unterschreitung der geltenden Sicherheitsreserve. Fuehrt
-        # die Fahrtkante direkt zu einer Ladestation (`target_seg_idx in
-        # station_segments`), gilt dort bewusst NICHT das allgemeine
-        # `min_soc_pct` (Sicherheitsreserve fuer offene Strecke), sondern das
-        # niedrigere `mindest_ankunfts_soc_pct` - an einer Ladestation wird ja
-        # garantiert nachgeladen, ein frueheres/hoeheres Pflicht-Minimum wuerde
-        # dort nur unnoetig fruehes (und damit langsamere) Laden erzwingen
-        # (siehe `OptimizationConstraints.mindest_ankunfts_soc_pct`).
-        mindest_soc_pct = (
-            constraints.mindest_ankunfts_soc_pct
-            if target_seg_idx in station_segments
-            else constraints.min_soc_pct
-        )
+        # jede andere Unterschreitung der geltenden Sicherheitsreserve.
+        # Fuehrt die Fahrtkante zum eigentlichen FAHRTZIEL
+        # (`target_seg_idx == total_segments`), gilt dort `ziel_soc_target`
+        # (bereits um `sicherheitsreserve_pct` bereinigtes Ziel-SoC, siehe
+        # `optimize()`) statt des allgemeinen `min_soc_pct` - die Fahrt endet
+        # hier, ein zusaetzliches Offene-Strecke-Sicherheitsminimum ist nicht
+        # einschlaegig (sonst kann ein vom Nutzer bewusst niedrig gewaehltes
+        # Ziel-SoC, z. B. 5%, nie erreicht werden, siehe Nutzer-Report: Ziel-
+        # SoC 5% gesetzt, Ankunft trotzdem bei 27%). Fuehrt sie stattdessen zu
+        # einer Ladestation (`target_seg_idx in station_segments`) oder einem
+        # ladefaehigen Zwischenstopp (`target_seg_idx in
+        # waypoint_charge_segments`, siehe `generate_graph`), gilt dort
+        # ebenfalls NICHT das allgemeine `min_soc_pct`, sondern das
+        # niedrigere `mindest_ankunfts_soc_pct` - dort wird ja garantiert
+        # nachgeladen, ein frueheres/hoeheres Pflicht-Minimum wuerde nur
+        # unnoetig fruehes (und damit langsameres) Laden erzwingen (siehe
+        # `OptimizationConstraints.mindest_ankunfts_soc_pct`).
+        if target_seg_idx == total_segments:
+            mindest_soc_pct = ziel_soc_target
+        elif target_seg_idx in station_segments or target_seg_idx in waypoint_charge_segments:
+            mindest_soc_pct = constraints.mindest_ankunfts_soc_pct
+        else:
+            mindest_soc_pct = constraints.min_soc_pct
         if new_soc_pct < 0.0 or new_soc_pct < mindest_soc_pct:
             return  # Unzulässig
         new_soc_bucket = soc_to_bucket(new_soc_pct, self.soc_step_pct)
@@ -526,6 +567,7 @@ class StateGraphBuilder:
         ladedauer_vorgaben: dict[str, int],
         checkpoints: list[int],
         station_segments: dict[int, list[tuple[ChargingStation, float]]],
+        waypoint_charge_segments: set[int],
         cum_energy_kwh: list[float],
         ziel_soc_target: float,
         detour_kosten: dict[str, DetourKosten] | None = None,
@@ -607,6 +649,7 @@ class StateGraphBuilder:
                 seg_idx=seg_idx,
                 checkpoints=checkpoints,
                 station_segments=station_segments,
+                waypoint_charge_segments=waypoint_charge_segments,
                 cum_energy_kwh=cum_energy_kwh,
                 total_segments=len(segments),
                 vehicle_profile=vehicle_profile,

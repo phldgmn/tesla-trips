@@ -167,6 +167,7 @@ def lade_ziel_kandidaten(  # noqa: PLR0913, PLR0917 -- Kandidatenermittlung brau
     seg_idx: int,
     checkpoints: list[int],
     station_segments: dict[int, list[tuple[ChargingStation, float]]],
+    waypoint_charge_segments: set[int],
     cum_energy_kwh: list[float],
     total_segments: int,
     vehicle_profile: VehicleProfile,
@@ -229,7 +230,7 @@ def lade_ziel_kandidaten(  # noqa: PLR0913, PLR0917 -- Kandidatenermittlung brau
         )
         if ziel_seg_idx == total_segments:
             puffer_pct = ziel_soc_target
-        elif ziel_seg_idx in station_segments:
+        elif ziel_seg_idx in station_segments or ziel_seg_idx in waypoint_charge_segments:
             puffer_pct = constraints.mindest_ankunfts_soc_pct
         else:
             puffer_pct = constraints.min_soc_pct

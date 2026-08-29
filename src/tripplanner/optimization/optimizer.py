@@ -129,10 +129,19 @@ class NetworkXOptimizer(OptimizerInterface):
         # Erstelle gerichteten Graphen
         G: DiGraph = nx.DiGraph()
 
-        # Zielknoten: letztes Segment, Ziel-SoC (inkl. Sicherheitsreserve)
-        ziel_soc_target = max(
-            constraints.ziel_soc_pct - constraints.sicherheitsreserve_pct, constraints.min_soc_pct
-        )
+        # Zielknoten: letztes Segment, Ziel-SoC (inkl. Sicherheitsreserve).
+        # Am Ziel endet die Fahrt - das allgemeine `min_soc_pct` (Reserve fuer
+        # WEITERFAHRT auf offener Strecke, siehe `OptimizationConstraints`)
+        # ist hier nicht einschlaegig (analog zu `mindest_ankunfts_soc_pct`
+        # an einer Ladestation: dort droht ebenfalls kein Liegenbleiben MEHR,
+        # weil ohnehin nicht weitergefahren wird, bevor geladen wurde). Ein
+        # vom Nutzer bewusst niedrig gewaehltes `ziel_soc_pct` (z. B. 5%) darf
+        # daher nicht durch den default-15%-Sicherheitsreserve-Floor
+        # ueberschrieben werden (siehe Nutzer-Report: Ziel-SoC 5% gesetzt,
+        # Optimierung plante dennoch auf 15% - inkl. Folgefehler bei
+        # nachgelagerten Ladehalt-Kandidaten, die sich an `ziel_soc_target`
+        # orientieren).
+        ziel_soc_target = max(constraints.ziel_soc_pct - constraints.sicherheitsreserve_pct, 0.0)
         ziel_soc_bucket = soc_to_bucket(ziel_soc_target, self.soc_step_pct)
 
         # Erstelle Startknoten (segment_index=0, soc=start_soc, zeit=abfahrtszeit)

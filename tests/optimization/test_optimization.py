@@ -1640,7 +1640,7 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
 
     def test_optimierer_findet_das_globale_zeitoptimum_ueber_ladehalte_hinweg(self) -> None:
         """End-to-end: die Gesamtreisezeit MUSS dem echten globalen Zeit-
-        optimum ueber ALLE Ladehalte hinweg entsprechen (21890s bei dieser
+        optimum ueber ALLE Ladehalte hinweg entsprechen (21744s bei dieser
         bewusst groben Diskretisierung), nicht einer schlechteren Naeherung.
 
         Zwei Mechanismen tragen dazu bei und werden hier gemeinsam verifiziert:
@@ -1654,14 +1654,18 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
            der LETZTEN Station bis auf 5% herunterfahren (statt vorzeitig an
            einer FRUEHEREN Station mehr zu laden als noetig) und dort die
            besonders schnelle Ladeleistung im unteren SoC-Bereich der
-           Ladekurve ausnutzen.
+           Ladekurve ausnutzen. Das eigentliche Fahrtziel (kein weiterer
+           Entscheidungspunkt nach station-5) verlangt selbst nur noch
+           `ziel_soc_target` (hier 5.0%, siehe `optimize()`) statt des
+           allgemeinen `min_soc_pct` - die Fahrt endet dort, ein zusaetzliches
+           Offene-Strecke-Sicherheitsminimum ist nicht einschlaegig.
 
-        Die erwartete Gesamtzeit (21890s) und die Ankunfts-SoC-Werte wurden
+        Die erwartete Gesamtzeit (21744s) und die Ankunfts-SoC-Werte wurden
         fuer die produktiv genutzte `model_3_sr`-Ladekurve (siehe Commit
         "use the actual model_3_sr charging curve") neu ermittelt: ein Lauf
         mit deutlich feinerer Diskretisierung (`soc_step_pct=1.0,
-        time_step_min=5`) liefert 21869s - nur 21s weniger, was bestaetigt,
-        dass 21890s bei DIESER bewusst groben Test-Diskretisierung bereits
+        time_step_min=5`) liefert 21723s - nur 21s weniger, was bestaetigt,
+        dass 21744s bei DIESER bewusst groben Test-Diskretisierung bereits
         nahe am echten Optimum liegt, statt einer zufaelligen schlechteren
         Naeherung zu entsprechen.
         """
@@ -1712,7 +1716,7 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
         # Ankunfts-SoC leicht - mit feinerer Aufloesung (`soc_step_pct=1.0`)
         # sinkt er ebenfalls auf 5.0% (siehe Docstring oben).
         assert [round(s.ankunfts_soc_pct, 1) for s in plan.ladehalte][-2:] == [9.1, 5.0]
-        assert plan.gesamtreisezeit_s == 21890
+        assert plan.gesamtreisezeit_s == 21744
 
 
 class TestMindestLadedauerVerhindertKurzeLadehalte:
@@ -1913,7 +1917,7 @@ class TestMaxChargeSocCapsRegularStops:
 
         Scenario premise (verified against the uncapped run): the natural
         plan charges at station-3 (arr=18.7, target=30.0), station-4
-        (arr=9.1, target=33.2) and station-5 (arr=5.0, target=43.3) - so a
+        (arr=9.1, target=33.2) and station-5 (arr=5.0, target=38.3) - so a
         cap of 30% must remove the uncapped plan while keeping a feasible,
         cheaper alternative (charging earlier at station-2).
         """
@@ -1949,25 +1953,25 @@ class TestMaxChargeSocCapsRegularStops:
         assert [(s.station.station_id, round(s.ziel_soc_pct, 1)) for s in halte] == [
             ("station-3", 30.0),
             ("station-4", 33.2),
-            ("station-5", 43.3),
+            ("station-5", 38.3),
         ]
 
     def test_cap_is_a_hard_constraint(self) -> None:
         """The cap is hard: a cap below the physically required charging
-        target (station-5 must reach 43.3% to clear the final 33.3 kWh leg
-        with the 10% minimum) leaves no feasible plan, so the optimizer
+        target (station-5 must reach 38.3% to clear the final leg with the
+        5% destination floor) leaves no feasible plan, so the optimizer
         reports the trip as undrivable."""
         with pytest.raises(ValueError, match="Route nicht fahrbar"):
-            self._optimiere(40.0)
+            self._optimiere(35.0)
 
     def test_cap_at_or_above_physical_minimum_leaves_plan_unchanged(self) -> None:
         """A cap at/above the natural charging target does not alter the
-        plan (43.3% < 43.4% cap): the natural plan is already minimal."""
-        halte = self._optimiere(43.4)
+        plan (38.3% < 38.4% cap): the natural plan is already minimal."""
+        halte = self._optimiere(38.4)
         assert [(s.station.station_id, round(s.ziel_soc_pct, 1)) for s in halte] == [
             ("station-3", 30.0),
             ("station-4", 33.2),
-            ("station-5", 43.3),
+            ("station-5", 38.3),
         ]
 
     def test_cap_does_not_affect_charging_at_waypoints(self) -> None:
@@ -2082,3 +2086,126 @@ class TestMaxChargeSocStretchClamping:
             mindest_ladezeit_s=2400.0,
         )
         assert ergebnis == [100.0]
+
+
+class TestZielUndZwischenstoppFloorNutztAnkunftsMinimum:
+    """Regressionstest: Bug - ein niedriges, vom Nutzer gesetztes Ziel-SoC
+    (z. B. 5%) wurde von `min_soc_pct` (Sicherheitsreserve fuer offene
+    Strecke, nie vom Frontend/API gesetzt, Default 15%) ueberschrieben, UND
+    die Fahrtkante zu einem ladefaehigen Zwischenstopp (`Waypoint.
+    ladeleistung_kw` + erzwungene Wartezeit) verlangte faelschlich densel-
+    ben Sicherheitsreserve-Floor statt des niedrigeren
+    `mindest_ankunfts_soc_pct` (siehe Nutzer-Report: Route Gummersbach ->
+    Taberg (ladender Zwischenstopp) -> Hagfors, Ziel-SoC 5% gesetzt, aber
+    Ankunft am Zwischenstopp mit 21% statt ~5% und am Ziel mit 27% statt
+    ~5% - beides Symptome desselben Floor-Bugs). Beide Konstellationen
+    machten die Route zuvor sogar komplett unfahrbar, sobald die
+    kontinuierliche Ankunfts-SoC zwischen `mindest_ankunfts_soc_pct` (5%)
+    und `min_soc_pct` (15%) lag.
+    """
+
+    def _szenario(
+        self,
+    ) -> tuple[Route, list[SegmentEnergyResult], VehicleProfile]:
+        berlin = (52.5, 13.4)
+        wegpunkt = (52.5, 12.5)
+        hamburg = (53.55, 9.99)
+        route = Route(
+            segments=[
+                RouteSegment(
+                    segment_index=0,
+                    geometrie=[berlin, wegpunkt],
+                    laenge_m=50_000,
+                    strassenklasse="MOTORWAY",
+                    tempolimit_kmh=130,
+                    steigung_rohdaten=0.0,
+                    bearing_deg=310.0,
+                ),
+                RouteSegment(
+                    segment_index=1,
+                    geometrie=[wegpunkt, hamburg],
+                    laenge_m=50_000,
+                    strassenklasse="MOTORWAY",
+                    tempolimit_kmh=130,
+                    steigung_rohdaten=0.0,
+                    bearing_deg=290.0,
+                ),
+            ],
+            gesamtlaenge_m=100_000,
+            geometrie=[berlin, wegpunkt, hamburg],
+        )
+        # Batteriekapazitaet 60 kWh: Segment 0 verbraucht 53 kWh (88.3% ->
+        # Ankunfts-SoC 11.7% am Zwischenstopp, ZWISCHEN `mindest_ankunfts_
+        # soc_pct`=5% und `min_soc_pct`=15%), Segment 1 (nach vollem
+        # Nachladen am Zwischenstopp) verbraucht 57 kWh (95% -> Ankunft am
+        # Ziel exakt bei 5%, dem gesetzten `ziel_soc_pct`).
+        energy_results = [
+            SegmentEnergyResult(
+                segment_index=0,
+                energiebedarf_kwh=53.0,
+                rekuperation_kwh=0.0,
+                energiebedarf_brutto_kwh=53.0,
+                geschwindigkeit_m_s=30.0,
+                fahrzeit_s=1667,
+                streckenlaenge_m=50_000,
+            ),
+            SegmentEnergyResult(
+                segment_index=1,
+                energiebedarf_kwh=57.0,
+                rekuperation_kwh=0.0,
+                energiebedarf_brutto_kwh=57.0,
+                geschwindigkeit_m_s=30.0,
+                fahrzeit_s=1667,
+                streckenlaenge_m=50_000,
+            ),
+        ]
+        vehicle_profile = VehicleProfile(
+            masse_kg=1706.0,
+            cw_wert=0.23,
+            stirnflaeche_m2=2.22,
+            rollwiderstandsbeiwert=0.011,
+            batteriekapazitaet_kwh=60.0,
+        )
+        return route, energy_results, vehicle_profile
+
+    def test_niedriges_ankunfts_und_ziel_soc_macht_route_nicht_unfahrbar(self) -> None:
+        """`min_soc_pct` bleibt auf Produktions-Default (15%, wird von
+        Frontend/API nie gesetzt) - die Route MUSS trotzdem planbar sein,
+        weil sowohl der ladefaehige Zwischenstopp als auch das (bewusst
+        niedrig gesetzte) Fahrtziel `mindest_ankunfts_soc_pct`/`ziel_soc_
+        target` statt des allgemeinen Sicherheitsreserve-Floors nutzen
+        muessen."""
+        route, energy_results, vehicle_profile = self._szenario()
+        constraints = OptimizationConstraints(
+            ziel_soc_pct=5.0, sicherheitsreserve_pct=0.0, mindest_ladezeit_s=0
+        )
+        optimizer = create_networkx_optimizer()
+        abfahrtszeit = datetime(2026, 8, 30, 6, 30, 0, tzinfo=UTC)
+        geplante_abfahrt = datetime(2026, 8, 31, 6, 30, 0, tzinfo=UTC)
+        wp = Waypoint(
+            koordinate=(52.5, 12.5), geplante_abfahrt=geplante_abfahrt, ladeleistung_kw=11.0
+        )
+
+        plan = optimizer.optimize(
+            route=route,
+            segments=route.segments,
+            gradients=[],
+            energy_results=energy_results,
+            charging_stations=[],
+            waypoints=[wp],
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+            start_soc_pct=100.0,
+            abfahrtszeit=abfahrtszeit,
+        )
+
+        assert len(plan.zwischenstopp_aufenthalte) == 1
+        aufenthalt = plan.zwischenstopp_aufenthalte[0]
+        # Ankunft am Zwischenstopp bei ~11.7% - NICHT durch das allgemeine
+        # `min_soc_pct` (15%) auf einen unerreichbaren Floor angehoben bzw.
+        # als unzulaessige Kante verworfen.
+        assert aufenthalt.ankunfts_soc_pct == pytest.approx(11.7, abs=0.1)
+        # Volles Nachladen am Zwischenstopp bleibt uneingeschraenkt (analog
+        # zu `TestMaxChargeSocCapsRegularStops.test_cap_does_not_affect_
+        # charging_at_waypoints`).
+        assert aufenthalt.ziel_soc_pct == pytest.approx(100.0, abs=0.1)
