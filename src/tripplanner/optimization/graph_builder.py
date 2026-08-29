@@ -21,6 +21,7 @@ from __future__ import annotations
 import bisect
 import heapq
 import itertools
+import logging
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -28,6 +29,8 @@ from networkx import DiGraph
 
 from tripplanner.optimization import charging_math, detour_costs
 from tripplanner.optimization.discretizer import soc_to_bucket, time_to_bucket
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from tripplanner.battery.models import ChargingCurve
@@ -643,7 +646,38 @@ class StateGraphBuilder:
             # Hinweg aber langem Rueckweg faelschlich unter die
             # Sicherheitsreserve druecken.
             if ankunft_soc_pct < constraints.mindest_ankunfts_soc_pct:
+                logger.debug(
+                    "Charging candidate %s (%s) rejected at segment %d: arrival SoC %.2f%% "
+                    "(on-route %.2f%% - hinweg %.2f%%) < mindest_ankunfts_soc_pct %.2f%% "
+                    "(hinweg=%.1fs/%.2f%%, rueckweg=%.1fs/%.2f%%, offroute=%.0fm)",
+                    station.station_id,
+                    station.name,
+                    seg_idx,
+                    ankunft_soc_pct,
+                    current_soc_pct,
+                    hinweg_soc_pct,
+                    constraints.mindest_ankunfts_soc_pct,
+                    hinweg_zeit_s,
+                    hinweg_soc_pct,
+                    rueckweg_zeit_s,
+                    rueckweg_soc_pct,
+                    offroute_distance_m,
+                )
                 continue  # Reichweite reicht nicht bis zur Station UEBER der Sicherheitsreserve
+
+            logger.debug(
+                "Charging candidate %s (%s) considered at segment %d: arrival SoC %.2f%% "
+                "(hinweg=%.1fs/%.2f%%, rueckweg=%.1fs/%.2f%%, offroute=%.0fm)",
+                station.station_id,
+                station.name,
+                seg_idx,
+                ankunft_soc_pct,
+                hinweg_zeit_s,
+                hinweg_soc_pct,
+                rueckweg_zeit_s,
+                rueckweg_soc_pct,
+                offroute_distance_m,
+            )
 
             vorgabe_s = ladedauer_vorgaben.get(station.station_id)
             if vorgabe_s is not None:
@@ -783,6 +817,19 @@ class StateGraphBuilder:
             + hinweg_zeit_s
             + rueckweg_zeit_s
             + LADE_TIEBREAK_S_PRO_PROZENTPUNKT * (ziel_soc_pct - ankunfts_soc_pct)
+        )
+        logger.debug(
+            "Charging edge %s (%s) at segment %d: %.2f%% -> %.2f%% in %.1fs "
+            "(hinweg=%.1fs, rueckweg=%.1fs, total kosten=%.1fs)",
+            station.station_id,
+            station.name,
+            seg_idx,
+            ankunfts_soc_pct,
+            ziel_soc_pct,
+            ladezeit_s,
+            hinweg_zeit_s,
+            rueckweg_zeit_s,
+            kosten,
         )
         next_node = (seg_idx, new_soc_bucket, new_time_bucket)
 
