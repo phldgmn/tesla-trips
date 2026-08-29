@@ -144,11 +144,15 @@ class PricingQueueMixin:
         Station ohne veroeffentlichte Preise bleibt sonst dauerhaft in der
         Warteschlange haengen).
 
-        Ist `slug` rein numerisch (stale supercharge.info-`locationId`, siehe
-        `_resolve_numeric_slug`), wird zuerst versucht, den echten
-        Tesla-Slug aufzuloesen; gelingt das, wird die DB aktualisiert und der
-        aufgeloeste Slug fuer den Abruf verwendet - so wird eine garantiert
-        404-liefernde Anfrage gegen die numerische ID vermieden.
+        Ist `slug` rein numerisch, wird zuerst direkt gegen Teslas
+        Detailseite mit der numerischen ID abgerufen - Teslas URL-Schema
+        akzeptiert numerische Standort-IDs oft genauso wie den
+        menschenlesbaren Slug (z. B. `.../supercharger/405657`). Schlaegt
+        das fehl (HTTP 404 o. ae.), wird `slug` als stale
+        supercharge.info-`locationId` behandelt und ueber
+        `_resolve_numeric_slug` der echte Tesla-Slug aufgeloest; gelingt
+        das, wird die DB aktualisiert und der aufgeloeste Slug fuer den
+        (erneuten) Abruf verwendet.
 
         Args:
             slug: tesla_location_id (location_url_slug) der Station.
@@ -176,25 +180,36 @@ class PricingQueueMixin:
         try:
             fetch_slug = slug
             if slug.isdigit():
-                record = self._db.find_station_by_supercharge_info_id(supercharge_info_id)
-                resolved = (
-                    await self._resolve_numeric_slug(record, tesla_client)
-                    if record is not None
-                    else None
-                )
-                if resolved is None:
-                    raise CurlError(
-                        f"Slug '{slug}' ist ein numerischer supercharge.info-"
-                        "Platzhalter ohne aufloesbaren Tesla-URL-Slug (kein "
-                        "Standort innerhalb von "
-                        f"{self._SLUG_RESOLUTION_MAX_DISTANCE_M:.0f}m gefunden)."
+                # Tesla's own URL scheme accepts purely numeric location IDs
+                # directly (e.g. tesla.com/findus/location/supercharger/405657),
+                # so try that first instead of assuming it is always a stale
+                # supercharge.info placeholder - resolving it away would
+                # otherwise fail on perfectly valid numeric Tesla slugs.
+                try:
+                    html = await tesla_client.fetch_pricing_html(fetch_slug)
+                except CurlError:
+                    record = self._db.find_station_by_supercharge_info_id(supercharge_info_id)
+                    resolved = (
+                        await self._resolve_numeric_slug(record, tesla_client)
+                        if record is not None
+                        else None
                     )
-                if resolved != slug:
-                    self._db.update_tesla_location_id(supercharge_info_id, resolved)
-                    self._stations = None
-                fetch_slug = resolved
+                    if resolved is None:
+                        raise CurlError(
+                            f"Slug '{slug}' ist ein numerischer supercharge.info-"
+                            "Platzhalter: weder als eigenstaendige Tesla-URL "
+                            "abrufbar, noch ein aufloesbarer Tesla-URL-Slug "
+                            "(kein Standort innerhalb von "
+                            f"{self._SLUG_RESOLUTION_MAX_DISTANCE_M:.0f}m gefunden)."
+                        ) from None
+                    if resolved != slug:
+                        self._db.update_tesla_location_id(supercharge_info_id, resolved)
+                        self._stations = None
+                    fetch_slug = resolved
+                    html = await tesla_client.fetch_pricing_html(fetch_slug)
+            else:
+                html = await tesla_client.fetch_pricing_html(fetch_slug)
 
-            html = await tesla_client.fetch_pricing_html(fetch_slug)
             tiers = parse_pricing_tiers(html)
             self._db.upsert_pricing(supercharge_info_id, [t.model_dump() for t in tiers])
         finally:

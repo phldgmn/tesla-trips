@@ -6,7 +6,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, call
 
 import pytest
 
@@ -728,12 +728,60 @@ class TestTeslaChargingStationProviderPricing:
         assert tesla_provider_seeded.list_pricing_queue() == []
 
     @pytest.mark.asyncio
+    async def test_refresh_pricing_numeric_slug_used_directly(self, tmp_path: Path) -> None:
+        """Eine rein numerische `tesla_location_id` ist oft selbst eine
+        gueltige Tesla-URL (z. B. Malmoe "Toftanaes" als
+        `tesla.com/findus/location/supercharger/405657`), daher wird sie
+        zuerst direkt abgerufen, bevor irgendeine Aufloesung ueber Teslas
+        Standortliste versucht wird."""
+        db_path = tmp_path / "numeric_slug_direct.db"
+        db = SQLiteDatabase(db_path)
+        db.initialize()
+        now = datetime.now(UTC).isoformat()
+        db.replace_all_stations(
+            [
+                {
+                    "supercharge_info_id": 405657,
+                    "tesla_location_id": "405657",
+                    "site_name": "Malmoe, Toftanaes, Sweden",
+                    "latitude": 55.5931,
+                    "longitude": 13.0645,
+                    "country_code": "SE",
+                    "stalls_v2": 0,
+                    "stalls_v3": 8,
+                    "stalls_v3_ultra": 0,
+                    "stalls_v4": 0,
+                    "total_stalls": 8,
+                    "power_kilowatt": 250,
+                    "status": "OPEN",
+                    "connector_types": json.dumps(["ccs2"]),
+                    "ist_24_7": 1,
+                    "date_opened": None,
+                    "last_updated_utc": now,
+                },
+            ]
+        )
+        db.close()
+
+        provider = TeslaChargingStationProvider(db_path=db_path)
+        provider.enqueue_stations_for_pricing_refresh(["405657"])
+        mock_tesla = AsyncMock(spec=TeslaLocationsClient)
+        mock_tesla.fetch_pricing_html.return_value = _pricing_html(_FLAT_OWNER_TIER)
+
+        tiers = await provider.refresh_pricing("405657", tesla_client=mock_tesla)
+
+        assert len(tiers) == 1
+        mock_tesla.fetch_pricing_html.assert_awaited_once_with("405657")
+        mock_tesla.fetch_locations.assert_not_awaited()
+        assert provider.list_pricing_queue() == []
+
+    @pytest.mark.asyncio
     async def test_refresh_pricing_resolves_numeric_slug(self, tmp_path: Path) -> None:
-        """Eine rein numerische `tesla_location_id` (stale supercharge.info-
-        `locationId`, z. B. "Rødekro East, Denmark" als "28500") wird vor dem
-        Abruf ueber Teslas eigene Standortliste in den echten Slug
-        ("rodekrosupercharger") aufgeloest, statt eine garantiert
-        404-liefernde Anfrage gegen die numerische ID zu senden."""
+        """Schlaegt der direkte Abruf mit der rein numerischen `tesla_location_id`
+        fehl (stale supercharge.info-`locationId`, z. B. "Rødekro East,
+        Denmark" als "28500"), wird ueber Teslas eigene Standortliste in den
+        echten Slug ("rodekrosupercharger") aufgeloest und damit erneut
+        versucht."""
         db_path = tmp_path / "numeric_slug.db"
         db = SQLiteDatabase(db_path)
         db.initialize()
@@ -780,22 +828,28 @@ class TestTeslaChargingStationProviderPricing:
                 "longitude": 9.5,
             },
         ]
-        mock_tesla.fetch_pricing_html.return_value = _pricing_html(_FLAT_OWNER_TIER)
+        mock_tesla.fetch_pricing_html.side_effect = [
+            TeslaLocationsClient.CurlError("Tesla API: HTTP 404"),
+            _pricing_html(_FLAT_OWNER_TIER),
+        ]
 
         tiers = await provider.refresh_pricing("28500", tesla_client=mock_tesla)
 
         assert len(tiers) == 1
-        mock_tesla.fetch_pricing_html.assert_awaited_once_with("rodekrosupercharger")
+        assert mock_tesla.fetch_pricing_html.await_args_list == [
+            call("28500"),
+            call("rodekrosupercharger"),
+        ]
         assert provider.list_pricing_queue() == []
         # The corrected slug is persisted for future refreshes.
         assert provider._resolve_supercharge_info_id("rodekrosupercharger") == 28500
 
     @pytest.mark.asyncio
     async def test_refresh_pricing_numeric_slug_no_match_raises(self, tmp_path: Path) -> None:
-        """Findet sich in Teslas Standortliste kein nahegelegener Treffer fuer
-        eine numerische ID, wird kein Request gegen die (bekannt 404-liefernde)
-        numerische ID gestellt - stattdessen ein CurlError geworfen und die
-        Station dennoch aus der Warteschlange entfernt."""
+        """Schlaegt sowohl der direkte Abruf mit der numerischen ID als auch
+        die Suche nach einem nahegelegenen Treffer in Teslas Standortliste
+        fehl, wird ein CurlError geworfen und die Station dennoch aus der
+        Warteschlange entfernt."""
         db_path = tmp_path / "numeric_slug_unresolved.db"
         db = SQLiteDatabase(db_path)
         db.initialize()
@@ -836,11 +890,14 @@ class TestTeslaChargingStationProviderPricing:
                 "longitude": 20.0,
             },
         ]
+        mock_tesla.fetch_pricing_html.side_effect = TeslaLocationsClient.CurlError(
+            "Tesla API: HTTP 404"
+        )
 
         with pytest.raises(TeslaLocationsClient.CurlError):
             await provider.refresh_pricing("99999", tesla_client=mock_tesla)
 
-        mock_tesla.fetch_pricing_html.assert_not_awaited()
+        mock_tesla.fetch_pricing_html.assert_awaited_once_with("99999")
         assert provider.list_pricing_queue() == []
 
     @pytest.mark.asyncio
