@@ -51,6 +51,11 @@ export type ReifenTyp =
 /** Wetter-Detailgrad – siehe `tripplanner.weather.models.WeatherDetailLevel`. */
 export type WeatherDetailLevel = "off" | "low" | "medium" | "high";
 
+/** Autobahnpräferenz-Stufe – siehe `tripplanner.trip_input.models.TripRequest.autobahn_praeferenz`.
+ *  'off' = keine Präferenz, 'low'/'medium'/'high' = priority-Boost *1.1/*1.2/*1.3
+ *  für road_class == MOTORWAY (Nudge, keine Erzwingung). */
+export type AutobahnPreferenceLevel = "off" | "low" | "medium" | "high";
+
 /** Fahrzeugprofil-Payload (`VehicleProfile`). */
 export interface VehicleProfileInput {
   masse_kg: number;
@@ -129,9 +134,9 @@ export interface TripRequestPayload {
   mindest_ankunfts_soc_pct: number;
   max_lade_soc_pct: number;
   alle_faehren_vermeiden: boolean;
-  /** Falls true, werden Autobahnen bei der Berechnung leicht bevorzugt
-   *  (Nudge, keine Erzwingung; Toggle "Autobahn bevorzugen"). */
-  autobahn_bevorzugen: boolean;
+  /** Grad der Autobahnpräferenz bei der Berechnung: 'off' (keine Präferenz),
+   *  'low'/'medium'/'high' (Nudge, keine Erzwingung; Toggle "Autobahn"). */
+  autobahn_praeferenz: AutobahnPreferenceLevel;
   vermiedene_faehren: FerryExclusion[];
   faehr_zeitfenster: FaehrZeitfenster[];
   ladedauer_vorgaben: LadedauerVorgabe[];

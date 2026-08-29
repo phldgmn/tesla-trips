@@ -70,25 +70,28 @@ class TestTripRequestFaehrPraeferenzen:
 
 
 class TestTripRequestAutobahnPraeferenz:
-    """Tests für das autobahn_bevorzugen-Feld von TripRequest."""
+    """Tests für das autobahn_praeferenz-Feld von TripRequest."""
 
-    def test_prefer_motorways_defaults_false(self, vehicle_profile: VehicleProfile) -> None:
-        """autobahn_bevorzugen ist standardmäßig False."""
+    def test_prefer_motorways_defaults_off(self, vehicle_profile: VehicleProfile) -> None:
+        """autobahn_praeferenz ist standardmäßig 'off'."""
         anfrage = TripRequest(
             start=(52.52, 13.405),
             ziel=(53.5511, 9.9937),
             abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0),
             fahrzeugprofil=vehicle_profile,
         )
-        assert anfrage.autobahn_bevorzugen is False
+        assert anfrage.autobahn_praeferenz == "off"
 
-    def test_prefer_motorways_accepts_true(self, vehicle_profile: VehicleProfile) -> None:
-        """autobahn_bevorzugen kann auf True gesetzt werden."""
+    @pytest.mark.parametrize("level", ["off", "low", "medium", "high"])
+    def test_prefer_motorways_accepts_all_levels(
+        self, vehicle_profile: VehicleProfile, level: str
+    ) -> None:
+        """autobahn_praeferenz akzeptiert 'off', 'low', 'medium' und 'high'."""
         anfrage = TripRequest(
             start=(52.52, 13.405),
             ziel=(53.5511, 9.9937),
             abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0),
             fahrzeugprofil=vehicle_profile,
-            autobahn_bevorzugen=True,
+            autobahn_praeferenz=level,
         )
-        assert anfrage.autobahn_bevorzugen is True
+        assert anfrage.autobahn_praeferenz == level

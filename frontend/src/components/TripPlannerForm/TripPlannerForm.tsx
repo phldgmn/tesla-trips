@@ -14,6 +14,7 @@ import type {
   FaehrZeitfenster,
   LadedauerVorgabe,
   WeatherDetailLevel,
+  AutobahnPreferenceLevel,
 } from "../../types/trip-request";
 import {
   buildTripRequestPayload,
@@ -165,10 +166,8 @@ export function TripPlannerForm({
     "alle-faehren-vermeiden",
     false,
   );
-  const [autobahnBevorzugen, setAutobahnBevorzugen] = usePersistentState(
-    "autobahn-bevorzugen",
-    false,
-  );
+  const [autobahnPraeferenz, setAutobahnPraeferenz] =
+    usePersistentState<AutobahnPreferenceLevel>("autobahn-praeferenz", "off");
   const [wetterDetailgrad, setWetterDetailgrad] =
     usePersistentState<WeatherDetailLevel>("wetter-detailgrad", () =>
       migrateWetterBeruecksichtigen(),
@@ -502,7 +501,7 @@ export function TripPlannerForm({
         maxLadeSocPct,
         praeferenzen: {},
         alleFaehrenVermeiden: alleFaehren,
-        autobahnBevorzugen,
+        autobahnPraeferenz,
         vermiedeneFaehren: vermiedene,
         faehrZeitfenster: zeitfenster,
         ladedauerVorgaben: ladedauern,
@@ -982,30 +981,54 @@ export function TripPlannerForm({
         </Popover>
         <Popover
           content={
-            autobahnBevorzugen
-              ? "Autobahnen werden bei der Berechnung leicht bevorzugt (klicken zum Deaktivieren)"
-              : "Autobahnen werden nicht bevorzugt behandelt (klicken zum Aktivieren)"
+            <>
+              <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>
+                Autobahn: {autobahnPraeferenz === "off" && "Aus"}
+                {autobahnPraeferenz === "low" && "Niedrig"}
+                {autobahnPraeferenz === "medium" && "Mittel"}
+                {autobahnPraeferenz === "high" && "Hoch"}
+              </div>
+              {autobahnPraeferenz === "off"
+                ? "Autobahnen werden nicht bevorzugt (klicken: Niedrig → Mittel → Hoch → Aus)"
+                : "Durchklicken: nächste Stufe (Niedrig → Mittel → Hoch → Aus)"}
+            </>
           }
         >
           <button
             type="button"
-            onClick={() => setAutobahnBevorzugen(!autobahnBevorzugen)}
+            onClick={() => {
+              const stufen: AutobahnPreferenceLevel[] = [
+                "off",
+                "low",
+                "medium",
+                "high",
+              ];
+              const idx = stufen.indexOf(autobahnPraeferenz);
+              setAutobahnPraeferenz(stufen[(idx + 1) % stufen.length]);
+            }}
             disabled={isSubmitting}
-            aria-pressed={autobahnBevorzugen}
-            aria-label="Autobahnen bevorzugen"
+            aria-pressed={autobahnPraeferenz !== "off"}
+            aria-label={`Autobahnpräferenz: ${autobahnPraeferenz}`}
             style={{
               display: "flex",
               alignItems: "center",
+              gap: "0.2rem",
               padding: "0.35rem 0.55rem",
-              background: autobahnBevorzugen ? "#eff6ff" : "#f9fafb",
-              border: `1px solid ${autobahnBevorzugen ? "#93c5fd" : "#e5e7eb"}`,
+              background: autobahnPraeferenz !== "off" ? "#eff6ff" : "#f9fafb",
+              border: `1px solid ${
+                autobahnPraeferenz !== "off" ? "#93c5fd" : "#e5e7eb"
+              }`,
               borderRadius: "999px",
               cursor: isSubmitting ? "not-allowed" : "pointer",
               fontSize: "0.78rem",
-              color: autobahnBevorzugen ? "#1d4ed8" : "#6b7280",
+              color: autobahnPraeferenz !== "off" ? "#1d4ed8" : "#6b7280",
             }}
           >
             <Route size={13} />
+            {autobahnPraeferenz === "off" && <SignalZero size={13} />}
+            {autobahnPraeferenz === "low" && <SignalLow size={13} />}
+            {autobahnPraeferenz === "medium" && <SignalMedium size={13} />}
+            {autobahnPraeferenz === "high" && <SignalHigh size={13} />}
           </button>
         </Popover>
         <div

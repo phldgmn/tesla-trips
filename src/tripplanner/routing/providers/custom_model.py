@@ -31,7 +31,7 @@ def build_custom_model(use_custom_model: bool, anfrage: TripRequest) -> dict[str
 
     Gibt `None` zurück, wenn weder `use_custom_model` (Tempolimit-Profil) noch
     Fährvermeidung (`anfrage.alle_faehren_vermeiden`/`anfrage.vermiedene_faehren`)
-    noch Autobahnpräferenz (`anfrage.autobahn_bevorzugen`) angefordert wurde -
+    noch Autobahnpräferenz (`anfrage.autobahn_praeferenz`) angefordert wurde -
     identisch zum bisherigen Verhalten ohne benutzerdefiniertes Modell (kein
     custom_model-Feld im GraphHopper-Request).
     """
@@ -50,8 +50,9 @@ def build_custom_model(use_custom_model: bool, anfrage: TripRequest) -> dict[str
     if anfrage.alle_faehren_vermeiden:
         priority.append({"if": "road_environment == FERRY", "multiply_by": 0.0})
 
-    if anfrage.autobahn_bevorzugen:
-        priority.append({"if": "road_class == MOTORWAY", "multiply_by": 1.3})
+    autobahn_multiplier = {"low": 1.1, "medium": 1.2, "high": 1.3}.get(anfrage.autobahn_praeferenz)
+    if autobahn_multiplier is not None:
+        priority.append({"if": "road_class == MOTORWAY", "multiply_by": autobahn_multiplier})
 
     areas: dict[str, object] = {}
     for index, ausschluss in enumerate(anfrage.vermiedene_faehren):

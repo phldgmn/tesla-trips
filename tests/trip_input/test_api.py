@@ -1465,10 +1465,10 @@ def test_fastapi_endpoint_accepts_ferry_avoidance_fields(
     assert response.status_code == 201
 
 
-def test_fastapi_endpoint_accepts_autobahn_bevorzugen_field(
+def test_fastapi_endpoint_accepts_autobahn_praeferenz_field(
     client: TestClient, valid_trip_request: dict
 ) -> None:
-    """Endpunkt akzeptiert autobahn_bevorzugen fehlerfrei."""
+    """Endpunkt akzeptiert autobahn_praeferenz fehlerfrei."""
     api_request = {
         "start": valid_trip_request["start"],
         "ziel": valid_trip_request["ziel"],
@@ -1476,7 +1476,7 @@ def test_fastapi_endpoint_accepts_autobahn_bevorzugen_field(
         "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
         "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
         "praeferenzen": {},
-        "autobahn_bevorzugen": True,
+        "autobahn_praeferenz": "high",
     }
 
     response = client.post("/trips", json=api_request)

@@ -298,25 +298,44 @@ class TestBuildCustomModel:
             "multiply_by": 0.0,
         } in custom_model["priority"]
 
-    def test_prefer_motorways_adds_priority_boost(
-        self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
+    @pytest.mark.parametrize(
+        ("level", "erwarteter_multiplikator"),
+        [("low", 1.1), ("medium", 1.2), ("high", 1.3)],
+    )
+    def test_prefer_motorways_adds_priority_boost_per_level(
+        self,
+        gh_provider: GraphHopperRoutingProvider,
+        trip_request: TripRequest,
+        level: str,
+        erwarteter_multiplikator: float,
     ) -> None:
-        """autobahn_bevorzugen=True fügt eine road_class==MOTORWAY Priority-Regel > 1.0 hinzu."""
-        anfrage = trip_request.model_copy(update={"autobahn_bevorzugen": True})
+        """autobahn_praeferenz in {low, medium, high} fügt die passende road_class==MOTORWAY
+        Priority-Regel (1.1/1.2/1.3) hinzu."""
+        anfrage = trip_request.model_copy(update={"autobahn_praeferenz": level})
 
         custom_model = gh_provider._build_custom_model(anfrage)
 
         assert custom_model is not None
         rule = next(r for r in custom_model["priority"] if r["if"] == "road_class == MOTORWAY")
-        assert rule["multiply_by"] > 1.0
+        assert rule["multiply_by"] == erwarteter_multiplikator
         assert "areas" not in custom_model
+
+    def test_prefer_motorways_off_adds_no_priority_rule(
+        self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
+    ) -> None:
+        """autobahn_praeferenz='off' (Standard) fügt keine MOTORWAY-Priority-Regel hinzu."""
+        anfrage = trip_request.model_copy(update={"autobahn_praeferenz": "off"})
+
+        custom_model = gh_provider._build_custom_model(anfrage)
+
+        assert custom_model is None
 
     def test_prefer_motorways_and_avoid_ferries_combined(
         self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
     ) -> None:
-        """autobahn_bevorzugen und alle_faehren_vermeiden wirken gemeinsam, nicht exklusiv."""
+        """autobahn_praeferenz und alle_faehren_vermeiden wirken gemeinsam, nicht exklusiv."""
         anfrage = trip_request.model_copy(
-            update={"autobahn_bevorzugen": True, "alle_faehren_vermeiden": True}
+            update={"autobahn_praeferenz": "high", "alle_faehren_vermeiden": True}
         )
 
         custom_model = gh_provider._build_custom_model(anfrage)

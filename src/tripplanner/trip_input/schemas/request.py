@@ -99,11 +99,12 @@ class TripRequestAPI(BaseModel):
     alle_faehren_vermeiden: bool = Field(
         default=False, description="Falls True, werden alle Fährverbindungen vermieden"
     )
-    autobahn_bevorzugen: bool = Field(
-        default=False,
+    autobahn_praeferenz: Literal["off", "low", "medium", "high"] = Field(
+        default="off",
         description=(
-            "Falls True, werden Autobahnen leicht bevorzugt (GraphHopper priority-Boost "
-            "für road_class == MOTORWAY), ohne Nicht-Autobahn-Routen auszuschließen."
+            "Autobahnpräferenz-Stufe: 'off' (keine Präferenz), 'low' (priority-Boost "
+            "*1.1), 'medium' (*1.2), 'high' (*1.3) für road_class == MOTORWAY, "
+            "ohne Nicht-Autobahn-Routen auszuschließen."
         ),
     )
     vermiedene_faehren: list[FaehrAusschlussAPI] = Field(
