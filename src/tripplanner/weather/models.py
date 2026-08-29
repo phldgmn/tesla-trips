@@ -18,9 +18,18 @@ WeatherDetailLevel = Literal["off", "low", "medium", "high"]
 """Weather detail granularity level.
 
 - ``"off"``: No weather data (placeholder samples).
-- ``"low"``: Single representative point (trip midpoint).
-- ``"medium"``: Samples every N-th segment (N=5).
+- ``"low"``: Points every ~200km along the route (see
+  `tripplanner.weather.weather.LOW_DETAIL_SAMPLE_SPACING_M`), linearly
+  interpolated in between.
+- ``"medium"``: Points every ~40km along the route (see
+  `tripplanner.weather.weather.MEDIUM_DETAIL_SAMPLE_SPACING_M`), linearly
+  interpolated in between.
 - ``"high"``: One sample per segment (current full-resolution behavior).
+
+``"low"``/``"medium"`` also force a fresh point right before and right
+after any stop longer than `tripplanner.weather.weather.LONG_STOP_THRESHOLD`
+(e.g. an overnight wait at a mandatory waypoint), instead of interpolating
+stale pre-stop conditions across the whole stationary period.
 """
 
 

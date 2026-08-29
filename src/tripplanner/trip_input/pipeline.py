@@ -415,12 +415,21 @@ def _step_9_update_eta(
     segment_eta_list: list[tuple[RouteSegment, timedelta]],
     charging_plan: ChargingPlan,
 ) -> list[tuple[RouteSegment, timedelta]]:
-    """Schritt 9: ETA je Segment mit tatsächlicher Fahr-/Ladezeit aktualisieren.
+    """Schritt 9: ETA je Segment mit tatsächlicher Fahr-/Lade-/Wartezeit aktualisieren.
 
     Fester Iterationsschritt genügt für diese Orchestrierungsebene;
     echte Iterationsschleife ist bereits konzeptionell in optimization/weather vorgesehen.
+
+    Berücksichtigt sowohl reguläre Ladehalte (`charging_plan.ladehalte`) als
+    auch erzwungene Zwischenstopp-Wartezeiten (`charging_plan.
+    zwischenstopp_aufenthalte`, aus `Waypoint.aufenthaltsdauer`/
+    `geplante_abfahrt`) - ohne Letzteres würden alle Segmente NACH einem
+    Zwischenstopp mit Wartezeit (z. B. einer Übernachtung) mit einer ETA
+    berechnet, die die tatsächliche Wartedauer ignoriert; nachgelagerte
+    Wetterabfragen (`fetch_weather_by_detail`) würden dann für die Zeit VOR
+    der Wartezeit statt für die tatsächliche Abfahrtszeit danach abgefragt.
     """
-    # Einfacher Aktualisierungsschritt: Ladezeiten zu den ETA-Werten addieren
+    # Einfacher Aktualisierungsschritt: Lade-/Wartezeiten zu den ETA-Werten addieren
     neue_eta_liste: list[tuple[RouteSegment, timedelta]] = []
 
     ladezeiten_pro_segment: dict[int, timedelta] = {}
@@ -428,6 +437,13 @@ def _step_9_update_eta(
         segment_idx = stop.segment_index
         ladezeit = timedelta(seconds=stop.geschaetzte_ladedauer_s)
         ladezeiten_pro_segment[segment_idx] = ladezeit
+
+    wartezeiten_pro_segment: dict[int, timedelta] = {}
+    for aufenthalt in charging_plan.zwischenstopp_aufenthalte:
+        wartezeit = aufenthalt.abfahrtszeit - aufenthalt.ankunftszeit
+        wartezeiten_pro_segment[aufenthalt.segment_index] = (
+            wartezeiten_pro_segment.get(aufenthalt.segment_index, timedelta()) + wartezeit
+        )
 
     # `segment_idx` per `enumerate()` statt `route.segments.index(segment)`:
     # `segment_eta_list` wird in `_step_4_estimate_initial_eta()` durch
@@ -441,7 +457,8 @@ def _step_9_update_eta(
     # zudem komplett unnötiger Kostenfaktor.
     for segment_idx, (segment, urspruengliche_dauer) in enumerate(segment_eta_list):
         ladezeit = ladezeiten_pro_segment.get(segment_idx, timedelta())
-        new_duration = urspruengliche_dauer + ladezeit
+        wartezeit = wartezeiten_pro_segment.get(segment_idx, timedelta())
+        new_duration = urspruengliche_dauer + ladezeit + wartezeit
         neue_eta_liste.append((segment, new_duration))
 
     return neue_eta_liste

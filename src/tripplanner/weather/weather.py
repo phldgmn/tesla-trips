@@ -7,11 +7,12 @@ Implementiert:
 
 from __future__ import annotations
 
+import bisect
+import math
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
-from tripplanner.geo import Coordinate
 from tripplanner.routing.models import RouteSegment
 from tripplanner.weather.models import (
     WeatherDetailLevel,
@@ -38,6 +39,19 @@ if TYPE_CHECKING:
 # 2026-08-29 bug report) vary sensibly across long trips while staying cheap.
 LOW_DETAIL_SAMPLE_SPACING_M: float = 200_000.0
 MEDIUM_DETAIL_SAMPLE_SPACING_M: float = 40_000.0
+
+LONG_STOP_THRESHOLD: timedelta = timedelta(hours=4)
+"""Duration above which a segment's `segment_eta_list` time is treated as a
+"long stop" for `\"low\"`/`\"medium\"` detail. That duration covers both a
+segment's own travel time and any charging/waypoint-wait time incurred while
+there (see `_step_9_update_eta` in `trip_input.pipeline`), so a duration past
+this threshold means the vehicle sat still for a while (e.g. an overnight
+wait at a mandatory `Waypoint`) -- long enough that conditions may have
+genuinely changed. `_long_stop_boundary_indices` forces a fresh sample right
+before and right after such a stop instead of interpolating pre-stop
+conditions across the whole stationary period. Not applied to `\"high\"`,
+which already samples every segment at its own accurate post-wait
+timestamp."""
 
 
 def _cumulative_midpoint_distances_m(
@@ -91,15 +105,47 @@ def _sample_indices_by_spacing(
     return sorted(sampled)
 
 
-def _nearest_sample_assignment(
+def _long_stop_boundary_indices(
+    segment_eta_list: Sequence[tuple[RouteSegment, timedelta]],
+    threshold: timedelta,
+) -> set[int]:
+    """Finds segment indices that must be freshly sampled around a long stop.
+
+    A segment's duration in *segment_eta_list* covers both its own travel
+    time and any charging/waypoint-wait time incurred while there (see
+    `_step_9_update_eta` in `trip_input.pipeline`), so a duration exceeding
+    *threshold* marks a long stationary stop. Both the segment at which the
+    stop happens (its own ETA timestamp is unaffected by the wait, i.e.
+    pre-stop/arrival conditions) and the immediately following segment
+    (whose ETA timestamp already includes the full wait via
+    `_compute_segment_time`, i.e. post-stop/departure conditions) are
+    returned, so the wait becomes a hard interpolation boundary instead of
+    being smoothed over by whatever samples happen to bracket it by
+    distance.
+
+    Args:
+        segment_eta_list: Pairs of ``(segment, elapsed_timedelta)`` where the
+            timedelta is time spent at/traversing that segment.
+        threshold: Minimum duration to classify a segment as a long stop.
+
+    Returns:
+        Segment indices to force into the sampled set.
+    """
+    last_index = len(segment_eta_list) - 1
+    indices: set[int] = set()
+    for idx, (_, duration) in enumerate(segment_eta_list):
+        if duration > threshold:
+            indices.add(idx)
+            if idx < last_index:
+                indices.add(idx + 1)
+    return indices
+
+
+def _interpolation_brackets(
     distances_m: Sequence[float],
     sampled_indices: Sequence[int],
-) -> list[int]:
-    """Returns the along-route-nearest sampled index for each segment.
-
-    For every segment *i* the function returns the element of
-    *sampled_indices* whose midpoint distance is closest to segment *i*'s
-    midpoint distance. Ties are broken by choosing the **lower** index.
+) -> list[tuple[int, int, float]]:
+    """Finds the two sampled indices to interpolate each segment between.
 
     Args:
         distances_m: Along-route distance to each segment's midpoint (see
@@ -108,26 +154,110 @@ def _nearest_sample_assignment(
         sampled_indices: Segment indices that were actually queried.
 
     Returns:
-        A list of length ``len(distances_m)`` where ``result[i]`` is the
-        sampled index assigned to segment *i*.
+        A list of length ``len(distances_m)``; entry *i* is
+        ``(left, right, t)`` where *left*/*right* are sampled indices
+        bracketing segment *i* by along-route distance and *t* in ``[0, 1]``
+        is segment *i*'s fractional position between them (``0`` at *left*,
+        ``1`` at *right*). Segments outside the sampled range, or exactly at
+        a sampled point, clamp to the nearest edge sample (``left == right``,
+        ``t = 0``).
 
     Examples:
-        >>> _nearest_sample_assignment([0.0, 1.0, 2.0, 3.0, 4.0], [0, 4])
-        [0, 0, 0, 4, 4]
-        >>> _nearest_sample_assignment([0.0], [0])
-        [0]
+        >>> _interpolation_brackets([0.0, 5.0, 10.0], [0, 2])
+        [(0, 2, 0.0), (0, 2, 0.5), (2, 2, 0.0)]
+        >>> _interpolation_brackets([0.0], [0])
+        [(0, 0, 0.0)]
     """
     if not sampled_indices:
-        return list(range(len(distances_m)))
+        return [(i, i, 0.0) for i in range(len(distances_m))]
 
-    result: list[int] = []
+    sampled = sorted(sampled_indices)
+    sampled_distances = [distances_m[i] for i in sampled]
+
+    result: list[tuple[int, int, float]] = []
     for distance in distances_m:
-        best = min(
-            sampled_indices,
-            key=lambda s: (abs(distances_m[s] - distance), s),
-        )
-        result.append(best)
+        pos = bisect.bisect_right(sampled_distances, distance)
+        if pos == 0:
+            result.append((sampled[0], sampled[0], 0.0))
+        elif pos == len(sampled):
+            result.append((sampled[-1], sampled[-1], 0.0))
+        else:
+            left, right = sampled[pos - 1], sampled[pos]
+            span = distances_m[right] - distances_m[left]
+            t = (distance - distances_m[left]) / span if span > 0 else 0.0
+            result.append((left, right, t))
     return result
+
+
+def _interpolate_angle_deg(a_deg: float, b_deg: float, t: float) -> float:
+    """Interpolates a circular angle (e.g. wind direction) between two values.
+
+    Plain linear interpolation breaks at the 0/360 wraparound (350
+    interpolated toward 10 would cross 180 the long way instead of 0);
+    averaging the (cos, sin) unit vectors instead always takes the short way
+    around.
+
+    Args:
+        a_deg: Angle at ``t=0``, degrees.
+        b_deg: Angle at ``t=1``, degrees.
+        t: Interpolation fraction in ``[0, 1]``.
+
+    Returns:
+        The interpolated angle in ``[0, 360]`` degrees (floating-point
+        rounding right at the wraparound boundary can yield exactly ``360.0``
+        instead of ``0.0`` -- callers comparing against ``0`` should treat
+        the two as equivalent). For near-exactly-opposite angles (e.g. 0 and
+        180 at ``t=0.5``) the direction is inherently undefined and the
+        result is sensitive to floating-point noise in `math.sin`/`math.cos`;
+        it never raises, but the exact value returned is not guaranteed.
+    """
+    a_rad, b_rad = math.radians(a_deg), math.radians(b_deg)
+    x = (1.0 - t) * math.cos(a_rad) + t * math.cos(b_rad)
+    y = (1.0 - t) * math.sin(a_rad) + t * math.sin(b_rad)
+    if x == 0.0 and y == 0.0:
+        return a_deg % 360.0
+    return math.degrees(math.atan2(y, x)) % 360.0
+
+
+def _interpolate_samples(left: WeatherSample, right: WeatherSample, t: float) -> WeatherSample:
+    """Linearly interpolates two `WeatherSample`s (circularly for wind direction).
+
+    Args:
+        left: Sample at ``t=0``.
+        right: Sample at ``t=1``.
+        t: Interpolation fraction; clamped to ``left``/``right`` verbatim at
+            the ``t <= 0``/``t >= 1`` edges.
+
+    Returns:
+        A new `WeatherSample` with every numeric field interpolated.
+        ``koordinate``/``zeitpunkt`` are copied from *left* and are expected
+        to be overwritten by the caller with the target segment's own
+        values.
+    """
+    if left is right or t <= 0.0:
+        return left
+    if t >= 1.0:
+        return right
+    return left.model_copy(
+        update={
+            "temperatur_c": left.temperatur_c + (right.temperatur_c - left.temperatur_c) * t,
+            "windgeschwindigkeit_ms": left.windgeschwindigkeit_ms
+            + (right.windgeschwindigkeit_ms - left.windgeschwindigkeit_ms) * t,
+            "windrichtung_deg": _interpolate_angle_deg(
+                left.windrichtung_deg, right.windrichtung_deg, t
+            ),
+            "niederschlag_mm": left.niederschlag_mm
+            + (right.niederschlag_mm - left.niederschlag_mm) * t,
+            "schneefall_cm": left.schneefall_cm + (right.schneefall_cm - left.schneefall_cm) * t,
+            "luftdruck_hpa": left.luftdruck_hpa + (right.luftdruck_hpa - left.luftdruck_hpa) * t,
+            "luftfeuchtigkeit_pct": left.luftfeuchtigkeit_pct
+            + (right.luftfeuchtigkeit_pct - left.luftfeuchtigkeit_pct) * t,
+            "globalstrahlung_wm2": left.globalstrahlung_wm2
+            + (right.globalstrahlung_wm2 - left.globalstrahlung_wm2) * t,
+            "bewoelkung_pct": left.bewoelkung_pct
+            + (right.bewoelkung_pct - left.bewoelkung_pct) * t,
+        }
+    )
 
 
 async def fetch_weather_by_detail(
@@ -218,11 +348,16 @@ async def _fetch_sampled(
     abfahrtszeit: datetime,
     spacing_m: float,
 ) -> list[WeatherSample]:
-    """Shared "low"/"medium" implementation: distance-spaced sampling with fan-out.
+    """Shared "low"/"medium" implementation: spaced sampling with interpolation.
 
     Queries one representative point roughly every *spacing_m* metres along
-    the route (always including the first and last segment), then assigns
-    every other segment the along-route-nearest sampled point's weather.
+    the route (always including the first and last segment, plus a fresh
+    arrival/departure pair around any stop longer than `LONG_STOP_THRESHOLD`,
+    see `_long_stop_boundary_indices`). Every other segment's weather is
+    then linearly interpolated between the two along-route-nearest sampled
+    points (circularly for wind direction, see `_interpolate_samples`)
+    rather than copied from whichever one is nearest, so weather varies
+    smoothly along the route instead of jumping at each sample boundary.
 
     Args:
         provider: Weather provider to use for fetching data.
@@ -232,7 +367,7 @@ async def _fetch_sampled(
         spacing_m: Target distance between consecutive sampled points.
 
     Returns:
-        A list of length ``len(segment_eta_list)`` with one fanned-out
+        A list of length ``len(segment_eta_list)`` with one interpolated
         `WeatherSample` per segment, each carrying that segment's own
         coordinate and timestamp.
 
@@ -241,7 +376,10 @@ async def _fetch_sampled(
             than queries (a provider dropped an entry).
     """
     distances = _cumulative_midpoint_distances_m(segment_eta_list)
-    sampled_indices = _sample_indices_by_spacing(distances, spacing_m)
+    sampled_indices = sorted(
+        set(_sample_indices_by_spacing(distances, spacing_m))
+        | _long_stop_boundary_indices(segment_eta_list, LONG_STOP_THRESHOLD)
+    )
 
     queries: list[WeatherQuery] = []
     for idx in sampled_indices:
@@ -259,27 +397,21 @@ async def _fetch_sampled(
             f"got {len(samples)} — provider dropped an entry"
         )
 
-    # Key samples by query coordinate+time for robust lookup
-    query_to_sample: dict[tuple[Coordinate, datetime], WeatherSample] = {}
-    for query, sample in zip(queries, samples, strict=False):
-        query_to_sample[(query.koordinate, query.zeitpunkt)] = sample
-
-    assignment = _nearest_sample_assignment(distances, sampled_indices)
+    sample_by_index = dict(zip(sampled_indices, samples, strict=True))
+    brackets = _interpolation_brackets(distances, sampled_indices)
 
     result: list[WeatherSample] = []
     for seg_idx in range(len(segment_eta_list)):
-        sampled_seg = assignment[seg_idx]
-        sampled_segment, _ = segment_eta_list[sampled_seg]
-        geo = sampled_segment.geometrie
-        src_coord = geo[len(geo) // 2]
-        src_time = _compute_segment_time(sampled_seg, abfahrtszeit, segment_eta_list)
-        src_sample = query_to_sample[(src_coord, src_time)]
+        left_idx, right_idx, t = brackets[seg_idx]
+        interpolated = _interpolate_samples(
+            sample_by_index[left_idx], sample_by_index[right_idx], t
+        )
         segment, _ = segment_eta_list[seg_idx]
         seg_geo = segment.geometrie
         seg_coord = seg_geo[len(seg_geo) // 2]
         seg_time = _compute_segment_time(seg_idx, abfahrtszeit, segment_eta_list)
         result.append(
-            src_sample.model_copy(
+            interpolated.model_copy(
                 update={"koordinate": seg_coord, "zeitpunkt": seg_time},
             )
         )
