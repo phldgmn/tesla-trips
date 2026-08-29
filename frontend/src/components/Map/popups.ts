@@ -208,7 +208,6 @@ export function buildConstructionZonePopupHtml(zone: ConstructionZone): string {
     if (event.umleitungshinweis !== null) {
       rows.push(["Umleitung", event.umleitungshinweis]);
     }
-    rows.push(["Land", event.land]);
     rows.push(["Gültig ab", formatZeitpunkt(event.gueltig_von)]);
     rows.push([
       "Gültig bis",
