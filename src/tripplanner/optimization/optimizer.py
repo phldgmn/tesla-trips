@@ -20,6 +20,8 @@ from tripplanner.battery.models import ChargingCurve, LadekurveReferenz
 from tripplanner.charging_infrastructure.models import ChargingStation
 from tripplanner.elevation.models import SegmentGradient
 from tripplanner.energy.models import SegmentEnergyResult
+from tripplanner.geo import haversine_distance_m
+from tripplanner.optimization import charging_math, detour_costs
 from tripplanner.optimization.discretizer import (
     SOC_STEP_PCT_DEFAULT,
     TIME_STEP_MIN_DEFAULT,
@@ -48,19 +50,6 @@ COST_INF: float = 1e9  # Unendlich für unzulässige Kanten
 
 MAX_SOC_PCT: float = 100.0
 """Maximaler SoC in Prozent."""
-
-DETOUR_ROUTENFAKTOR: float = 1.6
-"""Multiplikator, um aus der Luftlinien-Entfernung Station<->Route eine
-realistische Straßendistanz zu schätzen (echte Straßen sind selten
-geradlinig - kalibriert an den 1.2x-2x, die `_step_route_charging_detours`
-live gegen GraphHopper für Abstecher zu Ladestationen beobachtet, siehe
-`find_bracket_points`-Docstring in `tripplanner.routing.detour_geometry`)."""
-
-DETOUR_GESCHWINDIGKEIT_KMH: float = 70.0
-"""Angenommene Durchschnittsgeschwindigkeit auf dem Abstecher zur Ladestation
-(oft Landstraße/Zubringer, nicht die Haupttrasse - konservativ niedriger als
-ein Autobahn-Tempolimit)."""
-
 
 class NetworkXOptimizer(OptimizerInterface):
     """A*/Dijkstra-Optimierung mit NetworkX (Prototyp)."""
@@ -373,7 +362,7 @@ class NetworkXOptimizer(OptimizerInterface):
         for idx in range(min_seg_idx, len(segments)):
             # Benutze den Segment-Startpunkt als Referenz
             seg_start = segments[idx].geometrie[0]
-            dist = self._haversine_distance(wp_coord, seg_start)
+            dist = haversine_distance_m(wp_coord, seg_start)
             if dist < min_dist:
                 min_dist = dist
                 closest_seg_idx = idx
@@ -392,21 +381,6 @@ class NetworkXOptimizer(OptimizerInterface):
         """
         return map_stations_to_segments(stations, segments)
 
-    def _haversine_distance(self, a: tuple[float, float], b: tuple[float, float]) -> float:
-        """Berechne Haversine-Distanz zwischen zwei Koordinaten."""
-        lat1 = math.radians(a[0])
-        lat2 = math.radians(b[0])
-        delta_lat = math.radians(b[0] - a[0])
-        delta_lon = math.radians(b[1] - a[1])
-
-        h = (
-            math.sin(delta_lat / 2) ** 2
-            + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2) ** 2
-        )
-        c = 2 * math.atan2(math.sqrt(h), math.sqrt(1 - h))
-
-        EARTH_RADIUS_M = 6_371_000.0
-        return EARTH_RADIUS_M * c
 
     def _estimate_max_time_buckets(  # noqa: PLR0913, PLR0917 -- Zeitbudget braucht Fahrzeit-, Lade- UND Wartezeit-Kontext
         self,
@@ -1112,35 +1086,18 @@ class NetworkXOptimizer(OptimizerInterface):
         Folgezustand "strahlt" so automatisch auf die Wahl am fruehreren
         Halt zurueck, weil dessen Gesamtkosten die Folgekosten einschliessen).
         """
-        cap_soc_pct = min(MAX_SOC_PCT, constraints.max_lade_soc_pct)
-        kandidaten: set[float] = {cap_soc_pct}
-        if constraints.ziel_soc_pct > ankunft_soc_pct:
-            kandidaten.add(constraints.ziel_soc_pct)
-
-        idx = bisect.bisect_right(checkpoints, seg_idx)
-        nachfolger_seg_idx = [
-            checkpoints[i] if i < len(checkpoints) else total_segments for i in (idx, idx + 1)
-        ]
-        for ziel_seg_idx in nachfolger_seg_idx:
-            if ziel_seg_idx <= seg_idx:
-                continue
-            verbrauch_pct = self._calc_soc_verbrauch_pct(
-                energie_kwh=cum_energy_kwh[ziel_seg_idx] - cum_energy_kwh[seg_idx],
-                vehicle_profile=vehicle_profile,
-            )
-            if ziel_seg_idx == total_segments:
-                puffer_pct = ziel_soc_target
-            elif ziel_seg_idx in station_segments:
-                puffer_pct = constraints.mindest_ankunfts_soc_pct
-            else:
-                puffer_pct = constraints.min_soc_pct
-            kandidaten.add(verbrauch_pct + puffer_pct)
-
-        for punkt in ladekurve.points:
-            if punkt.soc_pct > ankunft_soc_pct:
-                kandidaten.add(punkt.soc_pct)
-
-        return sorted(v for v in kandidaten if ankunft_soc_pct < v <= cap_soc_pct)
+        return charging_math.lade_ziel_kandidaten(
+            ankunft_soc_pct,
+            seg_idx,
+            checkpoints,
+            station_segments,
+            cum_energy_kwh,
+            total_segments,
+            vehicle_profile,
+            constraints,
+            ladekurve,
+            ziel_soc_target,
+        )
 
     def _kandidaten_mit_mindestladedauer(  # noqa: PLR0913, PLR0917 -- Mindestdauer-Streckung braucht Ladekurve, Kapazität, Mindestdauer und Cap
         self,
@@ -1168,29 +1125,14 @@ class NetworkXOptimizer(OptimizerInterface):
         Ziel-SoC abgebildet werden - per `set` dedupliziert, damit nicht
         mehrfach identische Ladekanten erzeugt werden.
         """
-        if mindest_ladezeit_s <= 0.0:
-            return kandidaten
-
-        angepasst: set[float] = set()
-        for ziel in kandidaten:
-            ladezeit_s = self._calc_ladezeit_s(
-                start_soc_pct=ankunft_soc_pct,
-                end_soc_pct=ziel,
-                ladekurve=ladekurve,
-                batteriekapazitaet_kwh=batteriekapazitaet_kwh,
-            )
-            ziel_gestreckt = ziel
-            if 0.0 < ladezeit_s < mindest_ladezeit_s:
-                ziel_gestreckt = self._soc_nach_fester_ladezeit(
-                    start_soc_pct=ankunft_soc_pct,
-                    ladezeit_s=mindest_ladezeit_s,
-                    ladekurve=ladekurve,
-                    batteriekapazitaet_kwh=batteriekapazitaet_kwh,
-                )
-            if ziel_gestreckt > ankunft_soc_pct:
-                angepasst.add(min(ziel_gestreckt, max_lade_soc_pct))
-
-        return sorted(angepasst)
+        return charging_math.kandidaten_mit_mindestladedauer(
+            kandidaten,
+            ankunft_soc_pct,
+            ladekurve,
+            batteriekapazitaet_kwh,
+            mindest_ladezeit_s,
+            max_lade_soc_pct,
+        )
 
     def _detour_kosten(
         self,
@@ -1213,20 +1155,13 @@ class NetworkXOptimizer(OptimizerInterface):
         `station_mapping.map_station_to_segment`); it is only used by the
         fallback heuristic.
         """
-        if detour_kosten is not None and station_id in detour_kosten:
-            kosten = detour_kosten[station_id]
-            soc_pct = self._calc_soc_verbrauch_pct(kosten.energie_kwh, vehicle_profile)
-            return kosten.zeit_s, soc_pct
-
-        if offroute_distance_m <= 0.0:
-            return 0.0, 0.0
-
-        strecke_m = offroute_distance_m * DETOUR_ROUTENFAKTOR
-        detour_geschwindigkeit_m_s = DETOUR_GESCHWINDIGKEIT_KMH * 1000.0 / 3600.0
-        zeit_s = strecke_m / detour_geschwindigkeit_m_s
-        energie_kwh = strecke_m * self._avg_verbrauch_kwh_pro_m
-        soc_pct = self._calc_soc_verbrauch_pct(energie_kwh, vehicle_profile)
-        return zeit_s, soc_pct
+        return detour_costs.detour_kosten(
+            station_id,
+            offroute_distance_m,
+            vehicle_profile,
+            detour_kosten,
+            self._avg_verbrauch_kwh_pro_m,
+        )
 
     def _fuege_ladekante_hinzu(  # noqa: PLR0913, PLR0917 -- Ladekanten-Buchhaltung braucht den vollen Kantenkontext
         self,
@@ -1343,45 +1278,13 @@ class NetworkXOptimizer(OptimizerInterface):
         (basiert auf `ladekurve.ladeleistung_bei_soc`-Stichproben) - daher
         numerische Nullstellensuche statt einer geschlossenen Formel.
         """
-        max_delta = MAX_SOC_PCT - start_soc_pct
-        if ladezeit_s <= 0.0 or max_delta <= 0.0:
-            return start_soc_pct
-
-        ladezeit_bei_max = self._calc_ladezeit_s(
-            start_soc_pct=start_soc_pct,
-            end_soc_pct=MAX_SOC_PCT,
-            ladekurve=ladekurve,
-            batteriekapazitaet_kwh=batteriekapazitaet_kwh,
-            leistungsdeckel_kw=leistungsdeckel_kw,
+        return charging_math.soc_nach_fester_ladezeit(
+            start_soc_pct,
+            ladezeit_s,
+            ladekurve,
+            batteriekapazitaet_kwh,
+            leistungsdeckel_kw,
         )
-        if ladezeit_bei_max <= ladezeit_s:
-            return MAX_SOC_PCT  # Batterie ist vor Ablauf der Ladedauer voll
-
-        lo, hi = 0.0, max_delta
-        # 20 Iterationen: Praezision `max_delta / 2^20` <= 100 / ~1.05e6 ~= 1e-4
-        # %-Punkte - weit unter der SoC-Bucket-Granularitaet (`soc_step_pct`,
-        # Standard 1.0%, siehe `discretizer.soc_to_bucket`), auf die das
-        # Ergebnis ohnehin gerundet wird. Frueher 40 Iterationen (Praezision
-        # ~9e-11 %-Punkte) - bei Routen mit vielen Ladestationen UND vielen
-        # zu kurzen Kandidaten (siehe `_kandidaten_mit_mindestladedauer`)
-        # dominierte diese ungenutzte Ueberpraezision (je Iteration ein
-        # `_calc_ladezeit_s`-Aufruf mit 10 Stichproben, siehe
-        # `_mittlere_ladeleistung_kw`) einen Grossteil der Optimierungszeit
-        # (siehe Nutzer-Report: ~58s fuer `optimize_charging_plan`).
-        for _ in range(20):
-            mid = (lo + hi) / 2.0
-            dauer = self._calc_ladezeit_s(
-                start_soc_pct=start_soc_pct,
-                end_soc_pct=start_soc_pct + mid,
-                ladekurve=ladekurve,
-                batteriekapazitaet_kwh=batteriekapazitaet_kwh,
-                leistungsdeckel_kw=leistungsdeckel_kw,
-            )
-            if dauer < ladezeit_s:
-                lo = mid
-            else:
-                hi = mid
-        return start_soc_pct + (lo + hi) / 2.0
 
     def _add_waypoint_wait_edge(  # noqa: PLR0913, PLR0917 -- Wartekanten-Konstruktion braucht den vollen Kantenkontext
         self,
@@ -1484,7 +1387,9 @@ class NetworkXOptimizer(OptimizerInterface):
                 (siehe `_add_drive_edge`).
             vehicle_profile: Fahrzeugprofil (liefert die Batteriekapazität).
         """
-        return (energie_kwh / vehicle_profile.batteriekapazitaet_kwh) * MAX_SOC_PCT
+        return charging_math.calc_soc_verbrauch_pct(
+            energie_kwh, vehicle_profile.batteriekapazitaet_kwh
+        )
 
     def _calc_ladezeit_s(
         self,
@@ -1512,25 +1417,13 @@ class NetworkXOptimizer(OptimizerInterface):
         statt der eingestellten Sicherheitsreserve, sowie Volladungen auf
         100% statt der gewünschten 60-80%).
         """
-        if end_soc_pct <= start_soc_pct:
-            return 0.0
-
-        mittlere_leistung_kw = self._mittlere_ladeleistung_kw(
-            start_soc_pct=start_soc_pct,
-            end_soc_pct=end_soc_pct,
-            ladekurve=ladekurve,
-            leistungsdeckel_kw=leistungsdeckel_kw,
+        return charging_math.calc_ladezeit_s(
+            start_soc_pct,
+            end_soc_pct,
+            ladekurve,
+            batteriekapazitaet_kwh,
+            leistungsdeckel_kw,
         )
-
-        if mittlere_leistung_kw <= 0:
-            return COST_INF  # Unendlich (nicht ladbar)
-
-        # Energiebedarf in kWh
-        delta_soc_pct = end_soc_pct - start_soc_pct
-        energie_kwh = (delta_soc_pct / MAX_SOC_PCT) * batteriekapazitaet_kwh
-
-        # Zeit in Sekunden
-        return energie_kwh / mittlere_leistung_kw * 3600.0
 
     def _mittlere_ladeleistung_kw(
         self,
@@ -1540,22 +1433,12 @@ class NetworkXOptimizer(OptimizerInterface):
         leistungsdeckel_kw: float | None = None,
     ) -> float:
         """Berechne mittlere Ladeleistung über einen SoC-Bereich."""
-        if start_soc_pct >= end_soc_pct:
-            return 0.0
-
-        # Stichproben entlang der Kurve - EIN Batch-Aufruf statt `sample_points`
-        # einzelner `ladeleistung_bei_soc`-Aufrufe (siehe `ChargingCurve.
-        # ladeleistung_bei_soc_batch`-Docstring: amortisiert den Pydantic-
-        # `PrivateAttr`-Zugriff über alle Stichproben statt pro Punkt - bei
-        # Millionen Aufrufen pro Optimierung der dominante Restanteil).
-        sample_points = 10
-        delta = end_soc_pct - start_soc_pct
-        socs = [start_soc_pct + delta * i / sample_points for i in range(sample_points)]
-        leistungen = ladekurve.ladeleistung_bei_soc_batch(socs)
-        if leistungsdeckel_kw is not None:
-            leistungen = [min(p, leistungsdeckel_kw) for p in leistungen]
-
-        return sum(leistungen) / sample_points
+        return charging_math.mittlere_ladeleistung_kw(
+            start_soc_pct,
+            end_soc_pct,
+            ladekurve,
+            leistungsdeckel_kw,
+        )
 
     def _heuristik(
         self,
