@@ -25,9 +25,18 @@ from fastapi import params as fastapi_params
 from fastapi.testclient import TestClient
 
 import tripplanner.trip_input.pipeline as trip_pipeline
-from tripplanner.charging_infrastructure import FakeChargingStationProvider
+from tripplanner.charging_infrastructure import (
+    CachedPricing,
+    FakeChargingStationProvider,
+    PricingParseError,
+)
 from tripplanner.charging_infrastructure.client import TeslaLocationsClient
-from tripplanner.charging_infrastructure.models import ChargingStation, ConnectorType, StallType
+from tripplanner.charging_infrastructure.models import (
+    ChargingPricingTier,
+    ChargingStation,
+    ConnectorType,
+    StallType,
+)
 from tripplanner.charging_infrastructure.providers import (
     LocalFileChargingStationProvider,
     TeslaChargingStationProvider,
@@ -2637,6 +2646,172 @@ def test_refresh_supercharger_endpoint_unmappable_response(
     )
 
     response = client.post("/superchargers/ukstation/refresh")
+
+    assert response.status_code == 502
+
+
+# =============================================================================
+# Testfälle für GET /superchargers/{slug}/pricing und
+# POST /superchargers/{slug}/refresh-pricing
+# =============================================================================
+
+
+def _make_test_pricing_tier() -> ChargingPricingTier:
+    """Erzeugt einen ChargingPricingTier fuer Mock-Rueckgaben in Pricing-Tests."""
+    return ChargingPricingTier(
+        tier_label="Charging Fees for Tesla Owner",
+        time_label=None,
+        currency="EUR",
+        amount=0.42,
+        unit="kWh",
+        idle_fee_text=None,
+    )
+
+
+def test_get_supercharger_pricing_endpoint_missing(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nie gescrapte Station liefert leere Tiers und `updated_utc=None`."""
+
+    def fake_get_cached_pricing(
+        self: TeslaChargingStationProvider, station_id: str
+    ) -> CachedPricing:
+        assert station_id == "muenchensupercharger"
+        return CachedPricing(tiers=[], updated_utc=None)
+
+    monkeypatch.setattr(
+        TeslaChargingStationProvider,
+        "get_cached_pricing",
+        fake_get_cached_pricing,
+    )
+
+    response = client.get("/superchargers/muenchensupercharger/pricing")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["slug"] == "muenchensupercharger"
+    assert data["tiers"] == []
+    assert data["updated_utc"] is None
+
+
+def test_get_supercharger_pricing_endpoint_cached(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Gecachte Preisdaten werden ohne erneuten Scrape zurueckgegeben."""
+    updated = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def fake_get_cached_pricing(
+        self: TeslaChargingStationProvider, station_id: str
+    ) -> CachedPricing:
+        return CachedPricing(tiers=[_make_test_pricing_tier()], updated_utc=updated)
+
+    monkeypatch.setattr(
+        TeslaChargingStationProvider,
+        "get_cached_pricing",
+        fake_get_cached_pricing,
+    )
+
+    response = client.get("/superchargers/muenchensupercharger/pricing")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["tiers"] == [
+        {
+            "tier_label": "Charging Fees for Tesla Owner",
+            "time_label": None,
+            "currency": "EUR",
+            "amount": 0.42,
+            "unit": "kWh",
+            "idle_fee_text": None,
+        }
+    ]
+    assert data["updated_utc"] == updated.isoformat()
+
+
+def test_refresh_supercharger_pricing_endpoint_success(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Erfolgreicher Pricing-Refresh liefert 200 mit frisch gescrapten Preisen."""
+    updated = datetime(2026, 2, 1, tzinfo=UTC)
+
+    async def fake_refresh_pricing(
+        self: TeslaChargingStationProvider,
+        slug: str,
+        tesla_client: object | None = None,
+    ) -> list[ChargingPricingTier]:
+        assert slug == "muenchensupercharger"
+        return [_make_test_pricing_tier()]
+
+    def fake_get_cached_pricing(
+        self: TeslaChargingStationProvider, station_id: str
+    ) -> CachedPricing:
+        return CachedPricing(tiers=[_make_test_pricing_tier()], updated_utc=updated)
+
+    monkeypatch.setattr(TeslaChargingStationProvider, "refresh_pricing", fake_refresh_pricing)
+    monkeypatch.setattr(TeslaChargingStationProvider, "get_cached_pricing", fake_get_cached_pricing)
+
+    response = client.post("/superchargers/muenchensupercharger/refresh-pricing")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["slug"] == "muenchensupercharger"
+    assert len(data["tiers"]) == 1
+    assert data["updated_utc"] == updated.isoformat()
+
+
+def test_refresh_supercharger_pricing_endpoint_not_found(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unbekannter Slug liefert 404."""
+
+    async def fake_refresh_pricing(
+        self: TeslaChargingStationProvider,
+        slug: str,
+        tesla_client: object | None = None,
+    ) -> list[ChargingPricingTier]:
+        raise ValueError(f"Unbekannte Station: '{slug}'")
+
+    monkeypatch.setattr(TeslaChargingStationProvider, "refresh_pricing", fake_refresh_pricing)
+
+    response = client.post("/superchargers/unknown-slug/refresh-pricing")
+
+    assert response.status_code == 404
+
+
+def test_refresh_supercharger_pricing_endpoint_waf_block(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WAF-Block/Netzwerkfehler (CurlError) wird als 502 durchgereicht."""
+
+    async def fake_refresh_pricing(
+        self: TeslaChargingStationProvider,
+        slug: str,
+        tesla_client: object | None = None,
+    ) -> list[ChargingPricingTier]:
+        raise TeslaLocationsClient.CurlError("403 Access Denied")
+
+    monkeypatch.setattr(TeslaChargingStationProvider, "refresh_pricing", fake_refresh_pricing)
+
+    response = client.post("/superchargers/muenchensupercharger/refresh-pricing")
+
+    assert response.status_code == 502
+
+
+def test_refresh_supercharger_pricing_endpoint_parse_error(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nicht auswertbare Tesla-Antwort (PricingParseError) wird als 502 durchgereicht."""
+
+    async def fake_refresh_pricing(
+        self: TeslaChargingStationProvider,
+        slug: str,
+        tesla_client: object | None = None,
+    ) -> list[ChargingPricingTier]:
+        raise PricingParseError("formattedData has no chargerPricing key")
+
+    monkeypatch.setattr(TeslaChargingStationProvider, "refresh_pricing", fake_refresh_pricing)
+
+    response = client.post("/superchargers/muenchensupercharger/refresh-pricing")
 
     assert response.status_code == 502
 

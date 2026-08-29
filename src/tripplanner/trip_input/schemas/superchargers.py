@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from tripplanner.charging_infrastructure import ChargingStation, StallType
+from tripplanner.charging_infrastructure import ChargingPricingTier, ChargingStation, StallType
 
 
 class SuperchargerStationAPI(BaseModel):
@@ -33,6 +33,23 @@ class SuperchargerStationDetailAPI(SuperchargerStationAPI):
     last_updated_utc: str = Field(..., description="Letzte Aktualisierung ISO-8601")
     access_type: str | None = Field(default=None)
     open_to_non_tesla: bool = Field(default=False)
+
+
+class SuperchargerPricingAPI(BaseModel):
+    """API-Response-Modell fuer gecachte Preisdaten einer Supercharger-Station."""
+
+    slug: str = Field(..., description="tesla_location_id (location_url_slug)")
+    tiers: list[ChargingPricingTier] = Field(
+        default_factory=list,
+        description=(
+            "Gecachte Preistiers, leer wenn nie gescraped oder Station ohne "
+            "veroeffentlichte Preise."
+        ),
+    )
+    updated_utc: str | None = Field(
+        default=None,
+        description="ISO-8601 Zeitpunkt der letzten Preisaktualisierung, None wenn nie gescraped.",
+    )
 
 
 def _station_to_api(station: ChargingStation) -> SuperchargerStationAPI:

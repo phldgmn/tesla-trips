@@ -18,6 +18,7 @@ from tripplanner.trip_input.schemas.response import (
     WaypointStopAPI,
 )
 from tripplanner.trip_input.schemas.superchargers import (
+    SuperchargerPricingAPI,
     SuperchargerStationAPI,
     SuperchargerStationDetailAPI,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "FaehrZeitfensterAPI",
     "FrameAPI",
     "LadedauerVorgabeAPI",
+    "SuperchargerPricingAPI",
     "SuperchargerStationAPI",
     "SuperchargerStationDetailAPI",
     "TripRequestAPI",

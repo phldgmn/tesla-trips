@@ -17,11 +17,13 @@ import {
   type RouteSample,
 } from "../../utils/route-line";
 import { usePersistentState } from "../../utils/persistent-state";
-import type { TripSimulationResult } from "../../types";
+import type { ChargingStop, TripSimulationResult } from "../../types";
 import type { Stop } from "../../types/trip-request";
 import {
   fetchSuperchargers,
+  fetchSuperchargerPricing,
   refreshSupercharger,
+  refreshSuperchargerPricing,
   type SuperchargerStation,
 } from "../../api/chargingApi";
 import { basemapStyle } from "./basemap";
@@ -33,7 +35,7 @@ import {
   buildConstructionZoneMarkerElement,
 } from "./markers";
 import {
-  buildChargingStopPopupHtml,
+  buildChargingStopPopupElement,
   buildStopPopupHtml,
   buildConstructionZonePopupHtml,
   buildRouteHoverText,
@@ -43,6 +45,7 @@ import {
   buildSuperchargerPopoverElement,
   buildSuperchargerGeoJson,
   SUPERCHARGER_LAYER_IDS,
+  type PricingRefreshState,
 } from "./superchargers";
 import {
   DEFAULT_MAP_VIEW,
@@ -114,6 +117,12 @@ export function MapVisualization({
   const [refreshingSlug, setRefreshingSlug] = useState<string | null>(null);
   const superchargerStationsRef = useRef<SuperchargerStation[]>([]);
   const activePopoverRef = useRef<Popup | null>(null);
+  // Zwischengespeicherter Preis-Refresh-Zustand je Station-Slug fuer das
+  // Supercharger-Popover (siehe `handleSuperchargerPricingRefresh`) -
+  // ueberlebt Popover-Oeffnen/Schliessen, wird aber nicht persistiert.
+  const superchargerPricingRef = useRef<Record<string, PricingRefreshState>>(
+    {},
+  );
   // Routen-Hover: zeigt Datum/Zeit + SoC des naechstgelegenen Streckenpunkts
   // (per Distanz-entlang-der-Linie, nicht raeumlich) in einem kleinen
   // Tooltip neben dem Cursor an.
@@ -223,6 +232,128 @@ export function MapVisualization({
     for (const marker of Object.values(markersRef.current)) {
       const el = marker.getElement();
       el.parentNode?.appendChild(el);
+    }
+  }
+
+  /** Helfer: Preisdaten eines Ladehalts (Route) von Tesla nachtriggern und
+   *  das Popup mit dem Ergebnis neu bauen. Aktualisiert nur die Anzeige in
+   *  diesem Popup, nicht die Gesamtroute/-kosten - dafuer muss die Route
+   *  neu berechnet werden (siehe `buildChargingStopPopupElement`). */
+  async function handleChargingStopPricingRefresh(
+    stop: ChargingStop,
+    render: (state: PricingRefreshState) => void,
+  ) {
+    render({ status: "loading" });
+    try {
+      const pricing = await refreshSuperchargerPricing(stop.station_id);
+      render({ status: "loaded", pricing });
+    } catch (err: unknown) {
+      render({
+        status: "error",
+        message: err instanceof Error ? err.message : "Fehler",
+      });
+    }
+  }
+
+  /** Helfer: gecachte Preisdaten fuer ein Supercharger-Popover lazy laden
+   *  (ohne Scrape) und das Popover mit dem Ergebnis neu bauen. */
+  async function loadSuperchargerPricing(
+    station: SuperchargerStation,
+    popup: Popup,
+  ) {
+    const previous = superchargerPricingRef.current[station.slug];
+    superchargerPricingRef.current[station.slug] = { status: "loading" };
+    rerenderSuperchargerPopover(station, popup);
+    try {
+      const pricing = await fetchSuperchargerPricing(station.slug);
+      superchargerPricingRef.current[station.slug] = {
+        status: "loaded",
+        pricing,
+      };
+    } catch (err: unknown) {
+      superchargerPricingRef.current[station.slug] = {
+        status: "error",
+        message: err instanceof Error ? err.message : "Fehler",
+        pricing: previous?.status === "loaded" ? previous.pricing : undefined,
+      };
+    }
+    rerenderSuperchargerPopover(station, popup);
+  }
+
+  /** Helfer: Preisdaten eines Supercharger-Popovers von Tesla scrapen und
+   *  neu speichern (im Gegensatz zu `loadSuperchargerPricing`, das nur
+   *  gecachte Daten liest). */
+  async function handleSuperchargerPricingRefresh(
+    station: SuperchargerStation,
+    popup: Popup,
+  ) {
+    const previous = superchargerPricingRef.current[station.slug];
+    superchargerPricingRef.current[station.slug] = { status: "loading" };
+    rerenderSuperchargerPopover(station, popup);
+    try {
+      const pricing = await refreshSuperchargerPricing(station.slug);
+      superchargerPricingRef.current[station.slug] = {
+        status: "loaded",
+        pricing,
+      };
+    } catch (err: unknown) {
+      superchargerPricingRef.current[station.slug] = {
+        status: "error",
+        message: err instanceof Error ? err.message : "Fehler",
+        pricing: previous?.status === "loaded" ? previous.pricing : undefined,
+      };
+    }
+    rerenderSuperchargerPopover(station, popup);
+  }
+
+  /** Baut das Supercharger-Popover mit dem aktuellen Metadaten- und
+   *  Preis-Refresh-Zustand neu (gemeinsamer Helfer fuer alle drei
+   *  Refresh-/Load-Pfade, damit Metadaten- und Preisanzeige nie
+   *  gegenseitig ueberschrieben werden). */
+  function rerenderSuperchargerPopover(
+    station: SuperchargerStation,
+    popup: Popup,
+  ) {
+    const pricing = superchargerPricingRef.current[station.slug] ?? {
+      status: "idle",
+    };
+    const popupEl = buildSuperchargerPopoverElement(
+      station,
+      refreshingSlug === station.slug,
+      () => handleSuperchargerRefresh(station, popup),
+      pricing,
+      () => handleSuperchargerPricingRefresh(station, popup),
+    );
+    popup.setDOMContent(popupEl);
+  }
+
+  /** Helfer: Supercharger von Tesla aktualisieren und Popover neu bauen. */
+  async function handleSuperchargerRefresh(
+    station: SuperchargerStation,
+    popup: Popup,
+  ) {
+    const slug = station.slug;
+    setRefreshingSlug(slug);
+
+    try {
+      const updated = await refreshSupercharger(slug);
+
+      // Station in der Liste aktualisieren
+      setSuperchargerStations((prev) =>
+        prev.map((s) => (s.slug === slug ? updated : s)),
+      );
+      rerenderSuperchargerPopover(updated, popup);
+    } catch (err: unknown) {
+      // Fehler im Popover anzeigen, letzten bekannten Stand beibehalten
+      const msg = err instanceof Error ? err.message : "Fehler";
+      rerenderSuperchargerPopover(station, popup);
+      const errorBanner = document.createElement("div");
+      errorBanner.style.cssText =
+        "color:#ef4444;font-size:12px;margin-top:4px;";
+      errorBanner.textContent = `Fehler: ${msg}`;
+      popup.getElement()?.querySelector("div")?.appendChild(errorBanner);
+    } finally {
+      setRefreshingSlug(null);
     }
   }
 
@@ -414,13 +545,23 @@ export function MapVisualization({
     // `simulationResult.charging_stops` (nicht pro LADEN-Frame – ein Halt
     // kann mehrere Frames erzeugen, siehe `buildChargingStopMarkerElement`),
     // exakt auf der Position der Ladestation, mit Klick-Popup für Details.
+    // Fehlt die Preis-Info fuer diesen Halt (`price_per_kwh === null`),
+    // zeigt das Popup zusaetzlich einen Preis-Refresh-Button (siehe
+    // `buildChargingStopPopupElement`/`handleChargingStopPricingRefresh`).
     for (const stop of simulationResult.charging_stops) {
       const element = buildChargingStopMarkerElement();
+      const popup = new Popup({ offset: 14 });
+      const renderChargingStopPopup = (state: PricingRefreshState) => {
+        popup.setDOMContent(
+          buildChargingStopPopupElement(stop, state, () =>
+            handleChargingStopPricingRefresh(stop, renderChargingStopPopup),
+          ),
+        );
+      };
+      renderChargingStopPopup({ status: "idle" });
       const marker = new Marker({ element })
         .setLngLat(toLngLat(stop.position))
-        .setPopup(
-          new Popup({ offset: 14 }).setHTML(buildChargingStopPopupHtml(stop)),
-        )
+        .setPopup(popup)
         .addTo(map);
       chargingStopMarkersRef.current.push(marker);
     }
@@ -536,44 +677,6 @@ export function MapVisualization({
     };
   }, [pickingStopId, isMapLoaded, onPickPosition]);
 
-  /** Helfer: Supercharger von Tesla aktualisieren und Popover neu bauen. */
-  async function handleSuperchargerRefresh(
-    station: SuperchargerStation,
-    popup: Popup,
-  ) {
-    const slug = station.slug;
-    setRefreshingSlug(slug);
-
-    try {
-      const updated = await refreshSupercharger(slug);
-
-      // Station in der Liste aktualisieren
-      setSuperchargerStations((prev) =>
-        prev.map((s) => (s.slug === slug ? updated : s)),
-      );
-
-      // Popover-Inhalt mit aktualisierten Daten neu bauen
-      const popupEl = buildSuperchargerPopoverElement(updated, false, () =>
-        handleSuperchargerRefresh(updated, popup),
-      );
-      popup.setDOMContent(popupEl);
-    } catch (err: unknown) {
-      // Fehler im Popover anzeigen, letzten bekannten Stand beibehalten
-      const msg = err instanceof Error ? err.message : "Fehler";
-      const popupEl = buildSuperchargerPopoverElement(station, false, () =>
-        handleSuperchargerRefresh(station, popup),
-      );
-      const errorBanner = document.createElement("div");
-      errorBanner.style.cssText =
-        "color:#ef4444;font-size:12px;margin-top:4px;";
-      errorBanner.textContent = `Fehler: ${msg}`;
-      popupEl.appendChild(errorBanner);
-      popup.setDOMContent(popupEl);
-    } finally {
-      setRefreshingSlug(null);
-    }
-  }
-
   /** Fügt die (dauerhaft vorhandene, zunächst ausgeblendete) Source und
    * die Cluster-/Punkt-Layer für das Supercharger-Overlay hinzu und
    * registriert die Klick-/Hover-Handler einmalig. Sichtbarkeit wird
@@ -666,15 +769,13 @@ export function MapVisualization({
 
       activePopoverRef.current?.remove();
       const popup = new Popup({ offset: 14, closeButton: true });
-      const popupEl = buildSuperchargerPopoverElement(
-        station,
-        refreshingSlug === station.slug,
-        () => handleSuperchargerRefresh(station, popup),
-      );
-      popup.setDOMContent(popupEl);
+      rerenderSuperchargerPopover(station, popup);
       popup.setLngLat([station.longitude, station.latitude]);
       popup.addTo(map);
       activePopoverRef.current = popup;
+      if (!superchargerPricingRef.current[station.slug]) {
+        void loadSuperchargerPricing(station, popup);
+      }
     });
 
     for (const layerId of [

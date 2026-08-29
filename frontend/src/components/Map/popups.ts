@@ -2,6 +2,7 @@ import { haversineDistanceM } from "../../utils/geo-utils";
 import { formatZeitpunkt } from "../../utils/datetime-utils";
 import { formatCostOrDash } from "../../utils/currency-utils";
 import { roleToLabel, type StopRole } from "./markers";
+import { buildPricingSection, type PricingRefreshState } from "./superchargers";
 import type {
   ChargingStop,
   ConstructionZone,
@@ -72,6 +73,33 @@ export function buildChargingStopPopupHtml(stop: ChargingStop): string {
     `<table style="width:100%;border-collapse:collapse;margin-top:4px;">${rowsHtml}</table>` +
     `</div>`
   );
+}
+
+/** Baut ein DOM-Element fuer einen Ladehalt-Popup: identischer Inhalt wie
+ *  `buildChargingStopPopupHtml`, ergaenzt um eine Preis-Refresh-Aktion
+ *  (`buildPricingSection`, siehe `superchargers.ts`), wenn fuer diesen Halt
+ *  noch keine Preisdaten gecacht sind (`stop.price_per_kwh === null`).
+ *  Gecachte Preise werden bereits serverseitig im `estimated_cost`/`Preis`-
+ *  Feld angezeigt - hier geht es nur um das manuelle Nachtriggern des
+ *  Scrapes fuer Stationen ohne Preisdaten, nicht um eine Live-Neuberechnung
+ *  der Reisekosten (dafuer muss die Route neu berechnet werden).
+ */
+export function buildChargingStopPopupElement(
+  stop: ChargingStop,
+  pricing: PricingRefreshState,
+  onRefreshPricing: () => void,
+): HTMLElement {
+  const container = document.createElement("div");
+  container.innerHTML = buildChargingStopPopupHtml(stop);
+  if (stop.price_per_kwh === null) {
+    container.firstElementChild?.appendChild(
+      buildPricingSection(pricing, onRefreshPricing, {
+        refreshLabel: "\u{1F504} Preis von Tesla abrufen",
+        emptyLabel: "Keine Preisdaten fuer diese Station vorhanden.",
+      }),
+    );
+  }
+  return container;
 }
 
 /** Popup-HTML fuer einen Stopp-Marker: Adresse/Rolle als Titel, ergaenzt um

@@ -17,6 +17,21 @@ export interface SuperchargerStation {
   date_opened: string | null;
 }
 
+export interface SuperchargerPricingTier {
+  tier_label: string;
+  time_label: string | null;
+  currency: string;
+  amount: number;
+  unit: "kWh" | "min";
+  idle_fee_text: string | null;
+}
+
+export interface SuperchargerPricing {
+  slug: string;
+  tiers: SuperchargerPricingTier[];
+  updated_utc: string | null;
+}
+
 class ChargingApiError extends Error {
   constructor(
     message: string,
@@ -84,4 +99,42 @@ export async function refreshSupercharger(
     );
   }
   return response.json() as Promise<SuperchargerStation>;
+}
+
+/** Liest zwischengespeicherte Preisdaten einer Station, ohne sie neu abzurufen. */
+export async function fetchSuperchargerPricing(
+  slug: string,
+): Promise<SuperchargerPricing> {
+  const response = await fetch(
+    `/api/superchargers/${encodeURIComponent(slug)}/pricing`,
+  );
+  if (!response.ok) {
+    throw new ChargingApiError(
+      `Fehler beim Abruf der Preisdaten (${response.status})`,
+      response.status,
+    );
+  }
+  return response.json() as Promise<SuperchargerPricing>;
+}
+
+/** Scraped aktuelle Preisdaten einer Station von Tesla und speichert sie.
+ *
+ *  Wie `refreshSupercharger` server-seitig via `TeslaClient`, um den
+ *  Akamai-WAF-Block und fehlende CORS-Header der Tesla-API zu umgehen.
+ */
+export async function refreshSuperchargerPricing(
+  slug: string,
+): Promise<SuperchargerPricing> {
+  const response = await fetch(
+    `/api/superchargers/${encodeURIComponent(slug)}/refresh-pricing`,
+    { method: "POST" },
+  );
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new ChargingApiError(
+      detail || `Fehler bei der Preisaktualisierung (${response.status})`,
+      response.status,
+    );
+  }
+  return response.json() as Promise<SuperchargerPricing>;
 }

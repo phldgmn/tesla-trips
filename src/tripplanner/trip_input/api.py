@@ -15,7 +15,9 @@ from fastapi import Depends, HTTPException
 from pydantic import ValidationError
 
 from tripplanner.charging_infrastructure import (
+    CachedPricing,
     ChargingStationProvider,
+    PricingParseError,
     get_all_charging_stations,
 )
 from tripplanner.charging_infrastructure.client import TeslaLocationsClient
@@ -43,6 +45,7 @@ from .schemas import (
     ChargingStopAPI,
     FaehrSegmentAPI,
     FrameAPI,
+    SuperchargerPricingAPI,
     SuperchargerStationAPI,
     TripRequestAPI,
     TripSimulationResultAPI,
@@ -169,6 +172,77 @@ async def refresh_supercharger(slug: str) -> SuperchargerStationAPI:
             detail="Station nicht gefunden oder Tesla-API lieferte keine Daten",
         )
     return _station_to_api(station)
+
+
+def _cached_pricing_to_api(slug: str, cached: CachedPricing) -> SuperchargerPricingAPI:
+    """Wandelt `CachedPricing` in das API-Response-Modell um."""
+    return SuperchargerPricingAPI(
+        slug=slug,
+        tiers=cached.tiers,
+        updated_utc=cached.updated_utc.isoformat() if cached.updated_utc else None,
+    )
+
+
+@app.get("/superchargers/{slug}/pricing")
+async def get_supercharger_pricing(slug: str) -> SuperchargerPricingAPI:
+    """Liest zwischengespeicherte Preisdaten einer Station, ohne sie neu abzurufen.
+
+    Args:
+        slug: tesla_location_id (location_url_slug).
+
+    Returns:
+        SuperchargerPricingAPI mit leeren `tiers` und `updated_utc=None`, wenn
+        die Station unbekannt ist oder ihre Preise nie gescraped wurden.
+    """
+    provider = TeslaChargingStationProvider()
+    try:
+        cached = provider.get_cached_pricing(slug)
+    finally:
+        provider._db.close()
+    return _cached_pricing_to_api(slug, cached)
+
+
+@app.post("/superchargers/{slug}/refresh-pricing")
+async def refresh_supercharger_pricing(slug: str) -> SuperchargerPricingAPI:
+    """Scraped aktuelle Preisdaten einer Station von Tesla und speichert sie.
+
+    Ruft dieselbe Tesla-Standort-Detailseite ueber `TeslaClient.fetch_
+    pricing_html` ab wie `charger scrape-pricing` (Default-Transport
+    `NodriverTeslaClient`, ein echter Chromium-Browser via CDP, der den
+    Akamai-WAF umgeht - siehe `refresh_supercharger` fuer die Begruendung,
+    warum kein Cross-Origin-Fetch aus dem Frontend moeglich ist).
+
+    Args:
+        slug: tesla_location_id (location_url_slug) der Station.
+
+    Returns:
+        SuperchargerPricingAPI mit den frisch gespeicherten Preisdaten
+        (`tiers` kann leer sein, wenn die Station keine veroeffentlichten
+        Preise hat).
+
+    Raises:
+        HTTPException: 404 wenn `slug` unbekannt ist, 502 bei WAF-Block,
+            Netzwerkfehlern oder wenn die Tesla-Antwort nicht auswertbar war.
+    """
+    provider = TeslaChargingStationProvider()
+    try:
+        await provider.refresh_pricing(slug)
+        cached = provider.get_cached_pricing(slug)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except TeslaLocationsClient.CurlError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Tesla API nicht erreichbar: {e}",
+        ) from e
+    except PricingParseError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Preisdaten konnten nicht verarbeitet werden: {e}",
+        ) from e
+    finally:
+        provider._db.close()
+    return _cached_pricing_to_api(slug, cached)
 
 
 # ── Trips API ──────────────────────────────────────────────────────────────

@@ -14,6 +14,7 @@ import {
   buildStopPopupHtml,
   buildChargingStopMarkerElement,
   buildChargingStopPopupHtml,
+  buildChargingStopPopupElement,
   formatChargingDuration,
   buildRouteHoverText,
   isValidMapViewState,
@@ -546,6 +547,99 @@ describe("MapVisualization utilities", () => {
       expect(rows).toContain(
         '<td style="padding:2px 4px;text-align:right;">–</td>',
       );
+    });
+  });
+
+  describe("buildChargingStopPopupElement", () => {
+    const pricedStop: ChargingStop = {
+      name: "Tesla Supercharger Hamm",
+      station_id: "hamm-1",
+      position: [51.6806, 7.8206],
+      ankunfts_soc_pct: 22,
+      ziel_soc_pct: 80,
+      ladedauer_s: 1800,
+      energie_geladen_kwh: 33.5,
+      ankunftszeit: "2026-08-15T14:05:00",
+      abfahrtszeit: "2026-08-15T14:35:00",
+      price_per_kwh: 0.4,
+      currency: "EUR",
+      estimated_cost: 13.4,
+      pricing_updated_utc: "2026-08-01T00:00:00",
+    };
+    const unpricedStop: ChargingStop = {
+      ...pricedStop,
+      price_per_kwh: null,
+      currency: null,
+      estimated_cost: null,
+      pricing_updated_utc: null,
+    };
+
+    it("omits the pricing-refresh action when pricing is already cached", () => {
+      const el = buildChargingStopPopupElement(
+        pricedStop,
+        { status: "idle" },
+        () => {},
+      );
+      expect(el.textContent).not.toContain("Preis von Tesla abrufen");
+    });
+
+    it("shows a pricing-refresh button when the stop has no cached pricing", () => {
+      const el = buildChargingStopPopupElement(
+        unpricedStop,
+        { status: "idle" },
+        () => {},
+      );
+      expect(el.textContent).toContain("Preis von Tesla abrufen");
+    });
+
+    it("invokes the refresh callback when the pricing button is clicked", () => {
+      let called = false;
+      const el = buildChargingStopPopupElement(
+        unpricedStop,
+        { status: "idle" },
+        () => {
+          called = true;
+        },
+      );
+      const btn = Array.from(el.querySelectorAll("button")).find((b) =>
+        b.textContent?.includes("Preis von Tesla abrufen"),
+      );
+      btn?.click();
+      expect(called).toBe(true);
+    });
+
+    it("renders fetched pricing tiers once loaded", () => {
+      const el = buildChargingStopPopupElement(
+        unpricedStop,
+        {
+          status: "loaded",
+          pricing: {
+            slug: "hamm-1",
+            tiers: [
+              {
+                tier_label: "Charging Fees for Tesla Owner",
+                time_label: null,
+                currency: "EUR",
+                amount: 0.45,
+                unit: "kWh",
+                idle_fee_text: null,
+              },
+            ],
+            updated_utc: "2026-08-20T10:00:00Z",
+          },
+        },
+        () => {},
+      );
+      expect(el.textContent).toContain("0.45 EUR/kWh");
+    });
+
+    it("shows the error message returned by a failed refresh", () => {
+      const el = buildChargingStopPopupElement(
+        unpricedStop,
+        { status: "error", message: "Tesla API nicht erreichbar" },
+        () => {},
+      );
+      expect(el.textContent).toContain("Tesla API nicht erreichbar");
     });
   });
 
