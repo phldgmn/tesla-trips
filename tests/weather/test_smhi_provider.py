@@ -16,27 +16,22 @@ from tripplanner.weather.providers import SmhiProvider
 STOCKHOLM: Coordinate = (59.3293, 18.0686)
 
 
-def _smhi_param(name: str, value: float, unit: str = "") -> dict:
-    """Builds one SMHI `timeSeries[].parameters[]` entry."""
-    return {"name": name, "levelType": "hl", "level": 2, "unit": unit, "values": [value]}
-
-
-def _smhi_json(*, temp: float = 14.2, pcat: int = 0) -> dict:
-    """Builds a minimal SMHI `pmp3g` point-forecast response."""
+def _smhi_json(*, temp: float = 14.2, frozen_part_pct: float = -9.0) -> dict:
+    """Builds a minimal SMHI `snow1g` point-forecast response."""
     return {
         "timeSeries": [
             {
-                "validTime": "2026-08-17T14:00:00Z",
-                "parameters": [
-                    _smhi_param("t", temp, "Cel"),
-                    _smhi_param("ws", 5.5, "m/s"),
-                    _smhi_param("wd", 310.0, "degree"),
-                    _smhi_param("r", 58.0, "percent"),
-                    _smhi_param("msl", 1010.0, "hPa"),
-                    _smhi_param("tcc_mean", 4, "octas"),
-                    _smhi_param("pmedian", 1.2, "kg/m2/h"),
-                    _smhi_param("pcat", pcat, "category"),
-                ],
+                "time": "2026-08-17T14:00:00Z",
+                "data": {
+                    "air_temperature": temp,
+                    "wind_speed": 5.5,
+                    "wind_from_direction": 310.0,
+                    "relative_humidity": 58.0,
+                    "air_pressure_at_mean_sea_level": 1010.0,
+                    "cloud_area_fraction": 4,
+                    "precipitation_amount_median": 1.2,
+                    "precipitation_frozen_part": frozen_part_pct,
+                },
             }
         ]
     }
@@ -61,7 +56,8 @@ async def test_smhi_provider_fetch_weather_maps_fields() -> None:
     assert sample.windrichtung_deg == 310.0
     assert sample.luftfeuchtigkeit_pct == 58.0
     assert sample.luftdruck_hpa == 1010.0
-    assert sample.bewoelkung_pct == 50.0  # 4 octas * 12.5
+    assert sample.bewoelkung_pct == 50.0  # 4 oktas * 12.5
+    # frozen_part_pct = -9 (SMHI's "no precipitation" sentinel) -> 0% frozen.
     assert sample.niederschlag_mm == 1.2
     assert sample.schneefall_cm == 0.0
     assert sample.globalstrahlung_wm2 == 0.0
@@ -69,11 +65,11 @@ async def test_smhi_provider_fetch_weather_maps_fields() -> None:
 
 
 @pytest.mark.asyncio
-async def test_smhi_provider_snow_category_routes_to_schneefall() -> None:
-    """`pcat` category 1 (snow) routes precipitation into `schneefall_cm`."""
+async def test_smhi_provider_frozen_precipitation_routes_to_schneefall() -> None:
+    """`precipitation_frozen_part` = 100 routes all precipitation into `schneefall_cm`."""
 
     def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=_smhi_json(pcat=1))
+        return httpx.Response(200, json=_smhi_json(frozen_part_pct=100.0))
 
     provider = SmhiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
     query = WeatherQuery(koordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 14, 0))
@@ -82,6 +78,22 @@ async def test_smhi_provider_snow_category_routes_to_schneefall() -> None:
 
     assert results[0].niederschlag_mm == 0.0
     assert results[0].schneefall_cm == 0.12  # 1.2mm / 10
+
+
+@pytest.mark.asyncio
+async def test_smhi_provider_partial_frozen_precipitation_splits_proportionally() -> None:
+    """`precipitation_frozen_part` between 0 and 100 splits rain/snow proportionally."""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_smhi_json(frozen_part_pct=50.0))
+
+    provider = SmhiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    query = WeatherQuery(koordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+
+    results = await provider.fetch_weather([query])
+
+    assert results[0].niederschlag_mm == pytest.approx(0.6)  # 1.2mm * 50%
+    assert results[0].schneefall_cm == pytest.approx(0.06)  # 1.2mm * 50% / 10
 
 
 @pytest.mark.asyncio

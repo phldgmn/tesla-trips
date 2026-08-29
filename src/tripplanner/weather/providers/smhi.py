@@ -18,19 +18,21 @@ logger = logging.getLogger(__name__)
 
 _SMHI_BASE_URL_TEMPLATE = (
     "https://opendata-download-metfcst.smhi.se/api/category"
-    "/pmp3g/version/2/geotype/point/lon/{lon}/lat/{lat}/data.json"
+    "/snow1g/version/1/geotype/point/lon/{lon}/lat/{lat}/data.json"
 )
-# SMHI `pcat` (precipitation category) codes indicating frozen precipitation.
-_SMHI_SNOW_CATEGORIES = frozenset({1, 2})  # 1=snow, 2=snow and rain
 
 
 class SmhiProvider:
     """Weather provider using SMHI's free, keyless forecast API (Sweden only).
 
-    Uses the `pmp3g` "meteorological forecasts" point API. Sweden-only
-    coverage (per SMHI: "only locations close to Sweden can be added");
-    `LoadBalancedWeatherProvider` restricts this provider to coordinates
-    `detect_country` classifies as `"SE"`.
+    Uses the `snow1g` point-forecast API. SMHI deprecated the previous
+    `pmp3g` v2 API on 2026-03-31 (HTTP 404 on every request since); `snow1g`
+    v1 is its replacement, same domain/auth (keyless), but with a renamed
+    `time` field (was `validTime`), a flat `data` object (was a `parameters`
+    list of `{name, values}` entries), and renamed parameters (see
+    `_extract_smhi_sample`). Sweden-only coverage (per SMHI: "only locations
+    close to Sweden can be added"); `LoadBalancedWeatherProvider` restricts
+    this provider to coordinates `detect_country` classifies as `"SE"`.
     """
 
     TIMEOUT_S = 15.0
@@ -54,9 +56,7 @@ class SmhiProvider:
             url = _SMHI_BASE_URL_TEMPLATE.format(lon=lon, lat=lat)
             response = await self._client.get(url)
             response.raise_for_status()
-            by_time = {
-                entry.get("validTime"): entry for entry in response.json().get("timeSeries", [])
-            }
+            by_time = {entry.get("time"): entry for entry in response.json().get("timeSeries", [])}
             for idx, query in entries:
                 sample = _extract_smhi_sample(by_time, query)
                 if sample is not None:
@@ -79,25 +79,31 @@ class SmhiProvider:
 
 
 def _extract_smhi_sample(by_time: dict[Any, Any], query: WeatherQuery) -> WeatherSample | None:
-    """Extracts a `WeatherSample` from an SMHI `timeSeries` lookup."""
+    """Extracts a `WeatherSample` from an SMHI `snow1g` `timeSeries` lookup."""
     entry = by_time.get(_snap_to_hour_z(query.zeitpunkt))
     if entry is None:
         return None
 
-    params = {p["name"]: p["values"][0] for p in entry.get("parameters", []) if p.get("values")}
-    precipitation_mm = float(params.get("pmedian", 0.0))
-    is_snow = int(params.get("pcat", 0)) in _SMHI_SNOW_CATEGORIES
+    data = entry.get("data", {})
+    precipitation_mm = float(data.get("precipitation_amount_median", 0.0))
+    # `precipitation_frozen_part` is a percentage of the precipitation that's
+    # frozen (0-100); SMHI uses -9 as a sentinel for "no precipitation at
+    # all", which must not be treated as -900% frozen.
+    frozen_part_pct = float(data.get("precipitation_frozen_part", 0.0))
+    frozen_fraction = _clamp(frozen_part_pct, 0.0, 100.0) / 100.0 if frozen_part_pct >= 0 else 0.0
 
     return WeatherSample(
         koordinate=query.koordinate,
         zeitpunkt=query.zeitpunkt,
-        temperatur_c=float(params.get("t", 0.0)),
-        windgeschwindigkeit_ms=float(params.get("ws", 0.0)),
-        windrichtung_deg=_clamp(float(params.get("wd", 0.0)), 0.0, 360.0),
-        niederschlag_mm=0.0 if is_snow else precipitation_mm,
-        schneefall_cm=(precipitation_mm / 10.0) if is_snow else 0.0,
-        luftdruck_hpa=_clamp(float(params.get("msl", 1013.25)), 870.0, 1084.0),
-        luftfeuchtigkeit_pct=_clamp(float(params.get("r", 0.0)), 0.0, 100.0),
-        globalstrahlung_wm2=0.0,  # not exposed by the pmp3g point forecast
-        bewoelkung_pct=_clamp(float(params.get("tcc_mean", 0.0)) * 12.5, 0.0, 100.0),
+        temperatur_c=float(data.get("air_temperature", 0.0)),
+        windgeschwindigkeit_ms=float(data.get("wind_speed", 0.0)),
+        windrichtung_deg=_clamp(float(data.get("wind_from_direction", 0.0)), 0.0, 360.0),
+        niederschlag_mm=precipitation_mm * (1.0 - frozen_fraction),
+        schneefall_cm=(precipitation_mm * frozen_fraction) / 10.0,
+        luftdruck_hpa=_clamp(
+            float(data.get("air_pressure_at_mean_sea_level", 1013.25)), 870.0, 1084.0
+        ),
+        luftfeuchtigkeit_pct=_clamp(float(data.get("relative_humidity", 0.0)), 0.0, 100.0),
+        globalstrahlung_wm2=0.0,  # not exposed by the snow1g point forecast
+        bewoelkung_pct=_clamp(float(data.get("cloud_area_fraction", 0.0)) * 12.5, 0.0, 100.0),
     )
