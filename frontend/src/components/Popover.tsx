@@ -179,11 +179,17 @@ export function Popover({
     border: "1px solid #333",
     borderRadius: "6px",
     padding: "0.5rem 0.75rem",
+    fontFamily: "system-ui, -apple-system, sans-serif",
     fontSize: "0.8rem",
     lineHeight: "1.5",
     zIndex: 1000,
     boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-    whiteSpace: "nowrap",
+    // Text must wrap within `maxWidth` instead of overrunning the box -
+    // `nowrap` here previously let long strings (e.g. the Baustellen
+    // toggle hint) visually spill past the popover's edge since
+    // `max-width` only caps the box, not unbroken text inside it.
+    whiteSpace: "normal",
+    overflowWrap: "break-word",
     // Purely informational - never intercept pointer events. This also
     // guarantees the popover can never itself trigger the trigger's
     // mouseleave (which caused the open/close flicker before the
