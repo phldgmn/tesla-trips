@@ -30,9 +30,7 @@ if TYPE_CHECKING:
     from typing import Literal
 
 # Default path for the SQLite database (project-root/data/tesla_superchargers.db)
-_DEFAULT_DB_PATH: Path = (
-    Path(__file__).resolve().parent.parent.parent.parent / "data" / "tesla_superchargers.db"
-)
+_DEFAULT_DB_PATH: Path = Path(__file__).resolve().parents[4] / "data" / "tesla_superchargers.db"
 
 
 class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):

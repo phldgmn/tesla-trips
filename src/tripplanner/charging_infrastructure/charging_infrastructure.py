@@ -46,7 +46,11 @@ def init_charging_infrastructure(
         _DEFAULT_PROVIDER = TeslaChargingStationProvider(db_path=data_path)
     else:
         if data_path is None:
-            data_path = Path(__file__).parent.parent.parent / "data" / "supercharger_snapshot.json"
+            data_path = (
+                Path(__file__).resolve().parent.parent.parent.parent
+                / "data"
+                / "supercharger_snapshot.json"
+            )
         _DEFAULT_PROVIDER = LocalFileChargingStationProvider(data_path)
 
 

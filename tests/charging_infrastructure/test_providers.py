@@ -266,6 +266,25 @@ class TestProviderProtocol:
 class TestTeslaChargingStationProvider:
     """Tests für den TeslaChargingStationProvider."""
 
+    def test_default_db_path_resolves_to_repo_root_data_dir(self) -> None:
+        """`_DEFAULT_DB_PATH` MUST resolve to `<repo-root>/data/tesla_superchargers.db`.
+
+        Regression test: an earlier version of `_DEFAULT_DB_PATH` was off by
+        one `.parent` and resolved to `<repo-root>/src/data/...` instead -
+        a path with no pre-populated Supercharger data. `TeslaChargingStationProvider()`
+        (constructed with no explicit `db_path`, as `providers_factory.
+        build_production_providers` does in production) then silently loaded
+        ZERO charging stations, causing `NetworkXOptimizer.optimize` to reject
+        every trip with charging demand ("Kein erreichbarer Zielknoten
+        gefunden. Route nicht fahrbar.") instead of raising a clear
+        configuration error.
+        """
+        from tripplanner.charging_infrastructure.providers.tesla import _DEFAULT_DB_PATH
+
+        repo_root = Path(__file__).resolve().parents[2]
+        assert repo_root / "data" / "tesla_superchargers.db" == _DEFAULT_DB_PATH
+        assert _DEFAULT_DB_PATH.exists()
+
     @pytest.mark.asyncio
     async def test_get_stations_in_radius(
         self, tesla_provider_seeded: TeslaChargingStationProvider
