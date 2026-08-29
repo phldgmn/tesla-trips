@@ -40,6 +40,23 @@ if TYPE_CHECKING:
 # Konstanten für Kostenfunktion (identisch zu `optimizer.py`)
 COST_INF: float = 1e9  # Unendlich für unzulässige Kanten
 MAX_SOC_PCT: float = 100.0
+# Verschwindend kleiner Kosten-Tie-Breaker (Sekunden je geladenem Prozentpunkt)
+# für Ladekanten an REGULAERN Ladestationen (NICHT an Zwischenstopps, siehe
+# `add_waypoint_wait_edge`): faellt ein Ladehalt vor einer erzwungenen,
+# spaeten Abfahrtszeit (`Waypoint.geplante_abfahrt`/`aufenthaltsdauer`), ist
+# die zusaetzliche Ladezeit dort rechnerisch EXAKT kostenneutral - jede
+# Sekunde laenger geladen wird 1:1 durch eine Sekunde kuerzeres Warten am
+# Zwischenstopp kompensiert (`add_waypoint_wait_edge`, `kosten = wait_time_s`
+# ist affin in der Ankunftszeit). Ohne einen Tie-Breaker waehlt Dijkstra bei
+# dieser exakten Kostengleichheit ein beliebiges (oft unnoetig hohes)
+# Ladeziel statt des tatsaechlich benoetigten Minimums (siehe Nutzer-Report:
+# Ladestation kurz vor einem ueber Nacht ladenden Zwischenstopp laedt bis auf
+# den `max_lade_soc_pct`-Deckel, obwohl der Zwischenstopp selbst ohnehin
+# unbegrenzt bis 100% nachlaedt). Der Wert ist um Groessenordnungen kleiner
+# als jede real ins Gewicht fallende Zeitdifferenz (Sekunden bis Minuten je
+# Zeit-Bucket) und kann daher NIE eine echte Zeitoptimierung verfaelschen -
+# er entscheidet nur echte Gleichstaende zugunsten des sparsameren Ladeziels.
+LADE_TIEBREAK_S_PRO_PROZENTPUNKT: float = 1e-4
 
 
 class StateGraphBuilder:
@@ -741,8 +758,14 @@ class StateGraphBuilder:
             return  # Zeitlimit überschritten
 
         # Kosten: Ladezeit PLUS Hin-/Rückweg-Fahrzeit des Abstechers (0 für
-        # Stationen direkt auf der Route).
-        kosten = ladezeit_s + 2.0 * detour_zeit_s_je_richtung
+        # Stationen direkt auf der Route) PLUS verschwindend kleiner
+        # Tie-Breaker zugunsten des sparsameren Ladeziels (siehe
+        # `LADE_TIEBREAK_S_PRO_PROZENTPUNKT`).
+        kosten = (
+            ladezeit_s
+            + 2.0 * detour_zeit_s_je_richtung
+            + LADE_TIEBREAK_S_PRO_PROZENTPUNKT * (ziel_soc_pct - ankunfts_soc_pct)
+        )
         next_node = (seg_idx, new_soc_bucket, new_time_bucket)
 
         stop_arrival = G.nodes[current].get("stop_arrival", G.nodes[current]["zeitpunkt"])

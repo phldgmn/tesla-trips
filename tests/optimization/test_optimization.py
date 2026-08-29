@@ -2209,3 +2209,122 @@ class TestZielUndZwischenstoppFloorNutztAnkunftsMinimum:
         # zu `TestMaxChargeSocCapsRegularStops.test_cap_does_not_affect_
         # charging_at_waypoints`).
         assert aufenthalt.ziel_soc_pct == pytest.approx(100.0, abs=0.1)
+
+
+class TestLadeTiebreakVermeidetUnnoetigesLadenVorZwischenstopp:
+    """Regressionstest: Bug - eine Ladestation kurz vor einem ladefaehigen
+    Zwischenstopp mit langer erzwungener Wartezeit (`Waypoint.
+    geplante_abfahrt`/`aufenthaltsdauer` + `ladeleistung_kw`) lud bis zum
+    `max_lade_soc_pct`-Deckel (bzw. ohne Deckel bis 100%) statt auf das
+    tatsaechlich benoetigte Minimum, obwohl der Zwischenstopp selbst
+    ohnehin unbegrenzt bis 100% nachlaedt (siehe Nutzer-Report: Ankunft am
+    Zwischenstopp mit 26% statt der gesetzten ~5% trotz bereits behobenem
+    SoC-Floor-Bug).
+
+    Ursache: verlaengert eine Ladekante VOR einer erzwungenen, spaeten
+    Abfahrtszeit die Ladezeit, verkuerzt sich die anschliessende
+    Wartezeit am Zwischenstopp um EXAKT denselben Betrag (`add_
+    waypoint_wait_edge`: `kosten = wait_time_s = required_departure -
+    ankunftszeit`) - die Gesamtkosten (reine Fahrzeit-Optimierung) sind
+    fuer JEDES Ladeziel, das die Abfahrtszeit noch einhaelt, exakt
+    identisch. Ohne einen Tie-Breaker waehlt Dijkstra bei diesem echten
+    Gleichstand ein beliebiges (oft das laut Kandidatenliste zuletzt
+    erreichte, unnoetig hohe) Ladeziel statt des sparsameren Minimums.
+    """
+
+    def _szenario(
+        self,
+    ) -> tuple[Route, list[SegmentEnergyResult], list[ChargingStation], VehicleProfile, Waypoint]:
+        berlin = (52.0, 13.0)
+
+        def seg(i: int) -> RouteSegment:
+            lat0, lon0 = berlin[0] + i, berlin[1] + i
+            lat1, lon1 = berlin[0] + i + 1, berlin[1] + i + 1
+            return RouteSegment(
+                segment_index=i,
+                geometrie=[(lat0, lon0), ((lat0 + lat1) / 2, (lon0 + lon1) / 2), (lat1, lon1)],
+                laenge_m=50_000,
+                strassenklasse="MOTORWAY",
+                tempolimit_kmh=130,
+                steigung_rohdaten=0.0,
+                bearing_deg=45.0,
+            )
+
+        segments = [seg(0), seg(1), seg(2)]
+        route = Route(
+            segments=segments,
+            gesamtlaenge_m=150_000,
+            geometrie=[s.geometrie[0] for s in segments] + [segments[-1].geometrie[-1]],
+        )
+        # Kapazitaet 60 kWh: Segment 0 verbraucht 60% (Ankunft an der Station
+        # bei 40%), Segment 1 verbraucht 40% (informierter Reichweiten-
+        # Kandidat fuer die Station = 40% Verbrauch + 5% `mindest_ankunfts_
+        # soc_pct` = exakt 45% - klar unter jedem Kurven-Stuetzpunkt/Deckel).
+        capacity = 60.0
+        energy_results = [
+            SegmentEnergyResult(
+                segment_index=i,
+                energiebedarf_kwh=anteil * capacity,
+                rekuperation_kwh=0.0,
+                energiebedarf_brutto_kwh=anteil * capacity,
+                geschwindigkeit_m_s=30.0,
+                fahrzeit_s=1667,
+                streckenlaenge_m=50_000,
+            )
+            for i, anteil in enumerate([0.60, 0.40, 0.10])
+        ]
+        vehicle_profile = VehicleProfile(
+            masse_kg=1706.0,
+            cw_wert=0.23,
+            stirnflaeche_m2=2.22,
+            rollwiderstandsbeiwert=0.011,
+            batteriekapazitaet_kwh=capacity,
+        )
+        station = ChargingStation(
+            station_id="station-1",
+            name="Supercharger 1",
+            coordinate=segments[1].geometrie[1],
+            stalls={StallType.V3: 4},
+            max_ladeleistung_kw=250.0,
+            connector_types=[ConnectorType.CCS2],
+            country="DE",
+        )
+        abfahrtszeit = datetime(2026, 8, 30, 6, 30, 0, tzinfo=UTC)
+        wp = Waypoint(
+            koordinate=segments[2].geometrie[0],
+            geplante_abfahrt=abfahrtszeit + timedelta(hours=24),
+            ladeleistung_kw=11.0,
+        )
+        return route, energy_results, [station], vehicle_profile, wp
+
+    def test_station_laedt_nur_das_fuer_zwischenstopp_noetige_minimum(self) -> None:
+        route, energy_results, stations, vehicle_profile, wp = self._szenario()
+        constraints = OptimizationConstraints(ziel_soc_pct=20.0, mindest_ladezeit_s=0)
+        optimizer = create_networkx_optimizer()
+        abfahrtszeit = datetime(2026, 8, 30, 6, 30, 0, tzinfo=UTC)
+
+        plan = optimizer.optimize(
+            route=route,
+            segments=route.segments,
+            gradients=[],
+            energy_results=energy_results,
+            charging_stations=stations,
+            waypoints=[wp],
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+            start_soc_pct=100.0,
+            abfahrtszeit=abfahrtszeit,
+        )
+
+        assert len(plan.ladehalte) == 1
+        halt = plan.ladehalte[0]
+        # Das sparsame Minimum (40% Verbrauch + 5% Floor = 45%) MUSS
+        # gewaehlt werden, NICHT der (hier unbeschraenkte, also 100%)
+        # `max_lade_soc_pct`-Deckel.
+        assert halt.ankunfts_soc_pct == pytest.approx(40.0, abs=0.1)
+        assert halt.ziel_soc_pct == pytest.approx(45.0, abs=0.1)
+
+        assert len(plan.zwischenstopp_aufenthalte) == 1
+        aufenthalt = plan.zwischenstopp_aufenthalte[0]
+        assert aufenthalt.ankunfts_soc_pct == pytest.approx(5.0, abs=0.1)
+        assert aufenthalt.ziel_soc_pct == pytest.approx(100.0, abs=0.1)
