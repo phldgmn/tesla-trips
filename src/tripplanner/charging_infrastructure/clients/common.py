@@ -128,21 +128,26 @@ def create_tesla_client(
     Default ist ``nodriver`` (echter Chromium-Browser via CDP), da dieser den
     Akamai-WAF von tesla.com zuverlaessiger umgeht als curl_cffi. ``curl_cffi``
     bleibt als leichtgewichtigere Alternative verfuegbar (JA3/TLS-Fingerprint-
-    Impersonation). Bei nicht installiertem ``nodriver`` wird automatisch auf
-    curl_cffi zurueckgefallen.
+    Impersonation). ``nodriver_human`` bedient zusaetzlich die echte findus-
+    Kartenseite (Suche -> Ergebnisauswahl) statt die JSON-Endpunkte direkt
+    per GET anzufragen (siehe ``human_flow.py``) - teurer, aber naeher am
+    echten Nutzerverhalten. Bei nicht installiertem ``nodriver`` wird fuer
+    beide nodriver-basierten Transporte automatisch auf curl_cffi
+    zurueckgefallen.
 
     Args:
-        transport: ``"nodriver"`` (Default) oder ``"curl_cffi"``.
+        transport: ``"nodriver"`` (Default), ``"nodriver_human"`` oder
+            ``"curl_cffi"``.
         rate_limit_delay_s: Verzoegerung zwischen Detail-Requests.
         debug_log: Optionaler Dateipfad fuer Request/Response-Debug-Log.
 
     Returns:
-        Ein ``TeslaClient``-kompatibles Objekt (nodriver oder curl_cffi).
+        Ein ``TeslaClient``-kompatibles Objekt.
 
     Raises:
         ValueError: Bei unbekanntem ``transport``-Wert.
     """
-    if transport == "nodriver":
+    if transport in ("nodriver", "nodriver_human"):
         try:
             importlib.import_module("nodriver")
         except ImportError:
@@ -156,6 +161,13 @@ def create_tesla_client(
             rate_limit_delay_s=rate_limit_delay_s,
             debug_log=debug_log,
         )
+    if transport == "nodriver_human":
+        from .human_flow import NodriverHumanFlowTeslaClient
+
+        return NodriverHumanFlowTeslaClient(
+            rate_limit_delay_s=rate_limit_delay_s,
+            debug_log=debug_log,
+        )
     if transport == "curl_cffi":
         from .tesla_curl import TeslaLocationsClient
 
@@ -164,5 +176,6 @@ def create_tesla_client(
             debug_log=debug_log,
         )
     raise ValueError(
-        f"Unbekannter Tesla-Client-Transport '{transport}'. Erlaubt: 'nodriver', 'curl_cffi'."
+        f"Unbekannter Tesla-Client-Transport '{transport}'. "
+        "Erlaubt: 'nodriver', 'nodriver_human', 'curl_cffi'."
     )

@@ -449,7 +449,9 @@ class _FakeFetcher:
     Liefert eine konfigurierbare Antwort (Status + Body) pro URL und zeichnet
     alle Aufrufe auf, ohne einen echten Browser zu starten. ``set_sequence``
     erlaubt unterschiedliche Antworten ueber aufeinanderfolgende Aufrufe
-    derselben URL hinweg (fuer Retry-Tests).
+    derselben URL hinweg (fuer Retry-Tests). ``set_run_result``/
+    ``set_run_sequence`` konfigurieren ``run()`` (genutzt vom Human-Flow-
+    Client) unabhaengig von ``fetch()``.
     """
 
     def __init__(self) -> None:
@@ -459,6 +461,9 @@ class _FakeFetcher:
         self._default: tuple[int, str] = (200, "")
         self.closed = False
         self.restart_count = 0
+        self.run_calls = 0
+        self._run_result: Any = None
+        self._run_sequence: list[Any] | None = None
 
     def set_response(self, url: str, status: int, body: str) -> None:
         self._by_url[url] = (status, body)
@@ -479,6 +484,36 @@ class _FakeFetcher:
         if url in self._by_url:
             return self._by_url[url]
         return self._default
+
+    def set_run_result(self, result: Any) -> None:
+        """Jeder ``run()``-Aufruf liefert ``result`` (oder wirft es, falls
+        eine ``Exception``)."""
+        self._run_result = result
+
+    def set_run_sequence(self, results: list[Any]) -> None:
+        """Liefert bei aufeinanderfolgenden ``run()``-Aufrufen je einen
+        Eintrag aus ``results`` (Wert oder zu werfende ``Exception``); der
+        letzte Eintrag wiederholt sich."""
+        self._run_sequence = list(results)
+
+    def run(self, coro_factory: Any, timeout_s: float) -> Any:
+        """Simuliert ``NodriverBrowserFetcher.run`` ohne echten Browser.
+
+        Ruft ``coro_factory`` absichtlich NICHT auf (kein echtes ``Browser``-
+        Objekt vorhanden) - Human-Flow-Unit-Tests pruefen ausschliesslich die
+        Orchestrierung (Retry/Fallback/Parsing) des Clients, nicht die
+        CDP-Interaktion selbst (siehe ``test_human_flow_integration.py`` fuer
+        Letzteres)."""
+        self.run_calls += 1
+        if self._run_sequence:
+            result = (
+                self._run_sequence.pop(0) if len(self._run_sequence) > 1 else self._run_sequence[0]
+            )
+        else:
+            result = self._run_result
+        if isinstance(result, Exception):
+            raise result
+        return result
 
     def restart(self) -> None:
         self.restart_count += 1
@@ -839,3 +874,193 @@ class TestNodriverTeslaClient:
         assert len(details) == 1
         assert details[0]["_slug"] == "berlinsupercharger"
         assert details[0]["_uuid"] == "1001"
+
+
+class TestNodriverHumanFlowTeslaClient:
+    """Tests fuer ``NodriverHumanFlowTeslaClient`` (Karten-Suche-Detail-Flow).
+
+    Der injizierte ``_FakeFetcher.run()`` ruft die eigentliche
+    Human-Flow-Koroutine (CDP-Navigation/Tippen) absichtlich nicht auf -
+    getestet wird ausschliesslich die Orchestrierung des Clients (Retry,
+    WAF-Block-Erkennung, Fallback auf die Basisklasse, Merge der
+    Ladepunkt-Daten). Die echte CDP-Interaktion deckt
+    ``test_human_flow_integration.py`` gegen einen lokalen Browser ab.
+    """
+
+    @pytest.mark.asyncio
+    async def test_search_locations_parses_results(self) -> None:
+        """Ein erfolgreicher Human-Flow-Such-Body wird zu einer Liste geparst."""
+        from tripplanner.charging_infrastructure.client import NodriverHumanFlowTeslaClient
+
+        fetcher = _FakeFetcher()
+        fetcher.set_run_result(json.dumps({"data": [{"location_url_slug": "testsupercharger"}]}))
+
+        client = NodriverHumanFlowTeslaClient(fetcher=fetcher)
+        try:
+            results = await client.search_locations("Test City")
+        finally:
+            await client.close()
+
+        assert results == [{"location_url_slug": "testsupercharger"}]
+        assert fetcher.run_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_search_locations_retries_after_transient_waf_block(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ein einmaliger WAF-Block gefolgt von Erfolg liefert die Ergebnisse."""
+        import tripplanner.charging_infrastructure.clients.human_flow as human_flow_module
+        from tripplanner.charging_infrastructure.client import NodriverHumanFlowTeslaClient
+
+        monkeypatch.setattr(human_flow_module.asyncio, "sleep", AsyncMock())
+        fetcher = _FakeFetcher()
+        fetcher.set_run_sequence(
+            [
+                "<html><title>Access Denied</title></html>",
+                json.dumps({"data": [{"location_url_slug": "testsupercharger"}]}),
+            ]
+        )
+
+        client = NodriverHumanFlowTeslaClient(fetcher=fetcher)
+        try:
+            results = await client.search_locations("Test City")
+        finally:
+            await client.close()
+
+        assert results == [{"location_url_slug": "testsupercharger"}]
+        assert fetcher.run_calls == 2
+        assert fetcher.restart_count == 1
+
+    @pytest.mark.asyncio
+    async def test_search_locations_raises_after_exhausting_retries(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ein anhaltender WAF-Block loest nach allen Human-Flow-Versuchen CurlError aus."""
+        import tripplanner.charging_infrastructure.clients.human_flow as human_flow_module
+        from tripplanner.charging_infrastructure.client import NodriverHumanFlowTeslaClient
+
+        monkeypatch.setattr(human_flow_module.asyncio, "sleep", AsyncMock())
+        fetcher = _FakeFetcher()
+        fetcher.set_run_result("<html><title>Access Denied</title></html>")
+
+        client = NodriverHumanFlowTeslaClient(fetcher=fetcher)
+        try:
+            with pytest.raises(CurlError, match="WAF-Block"):
+                await client.search_locations("Test City")
+        finally:
+            await client.close()
+
+        assert fetcher.run_calls == 2
+        assert fetcher.restart_count == 1
+
+    @pytest.mark.asyncio
+    async def test_fetch_location_details_merges_charger_data(self) -> None:
+        """Erfolgreicher Human-Flow liefert Standortdaten angereichert um ``_charger_details``."""
+        from tripplanner.charging_infrastructure.client import NodriverHumanFlowTeslaClient
+
+        fetcher = _FakeFetcher()
+        fetcher.set_run_result(
+            {
+                "location-details": json.dumps(
+                    {"data": {"marketing": {"display_name": "Test SC"}}}
+                ),
+                "charger-details": json.dumps({"data": {"stall_count": 8}}),
+            }
+        )
+
+        client = NodriverHumanFlowTeslaClient(fetcher=fetcher)
+        try:
+            detail = await client.fetch_location_details("testsupercharger")
+        finally:
+            await client.close()
+
+        assert detail["marketing"]["display_name"] == "Test SC"
+        assert detail["_charger_details"] == {"stall_count": 8}
+        assert fetcher.run_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_fetch_location_details_falls_back_to_direct_api_on_persistent_block(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nach erschoepften Human-Flow-Versuchen faellt der Client auf den
+        direkten JSON-API-GET der Basisklasse zurueck."""
+        import tripplanner.charging_infrastructure.clients.human_flow as human_flow_module
+        from tripplanner.charging_infrastructure.client import NodriverHumanFlowTeslaClient
+
+        monkeypatch.setattr(human_flow_module.asyncio, "sleep", AsyncMock())
+        fetcher = _FakeFetcher()
+        fetcher.set_run_result(
+            {
+                "location-details": "<html><title>Access Denied</title></html>",
+                "charger-details": "<html><title>Access Denied</title></html>",
+            }
+        )
+        direct_api_url = (
+            "https://www.tesla.com/api/findus/get-location-details"
+            "?locationSlug=testsupercharger&functionTypes=party"
+            "&locale=de_DE&isInHkMoTw=false"
+        )
+        fetcher.set_response(
+            direct_api_url,
+            200,
+            json.dumps({"data": {"marketing": {"display_name": "Fallback SC"}}}),
+        )
+
+        client = NodriverHumanFlowTeslaClient(fetcher=fetcher)
+        try:
+            detail = await client.fetch_location_details("testsupercharger")
+        finally:
+            await client.close()
+
+        assert detail["marketing"]["display_name"] == "Fallback SC"
+        assert "_charger_details" not in detail
+        assert fetcher.run_calls == 2
+        assert fetcher.calls == [direct_api_url]
+
+    @pytest.mark.asyncio
+    async def test_fetch_location_details_falls_back_on_exception(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ein Human-Flow-Fehler (z.B. Such-Input nicht gefunden) faellt ebenfalls
+        auf den direkten JSON-API-GET zurueck."""
+        import tripplanner.charging_infrastructure.clients.human_flow as human_flow_module
+        from tripplanner.charging_infrastructure.client import NodriverHumanFlowTeslaClient
+
+        monkeypatch.setattr(human_flow_module.asyncio, "sleep", AsyncMock())
+        fetcher = _FakeFetcher()
+        fetcher.set_run_result(CurlError("Human-Flow: Such-Input nicht gefunden"))
+        direct_api_url = (
+            "https://www.tesla.com/api/findus/get-location-details"
+            "?locationSlug=testsupercharger&functionTypes=party"
+            "&locale=de_DE&isInHkMoTw=false"
+        )
+        fetcher.set_response(
+            direct_api_url,
+            200,
+            json.dumps({"data": {"marketing": {"display_name": "Fallback SC"}}}),
+        )
+
+        client = NodriverHumanFlowTeslaClient(fetcher=fetcher)
+        try:
+            detail = await client.fetch_location_details("testsupercharger")
+        finally:
+            await client.close()
+
+        assert detail["marketing"]["display_name"] == "Fallback SC"
+        assert fetcher.run_calls == 2
+
+    @pytest.mark.asyncio
+    async def test_search_locations_uses_custom_base_url(self) -> None:
+        """``base_url`` wird an die Human-Flow-Koroutine durchgereicht."""
+        from tripplanner.charging_infrastructure.client import NodriverHumanFlowTeslaClient
+
+        fetcher = _FakeFetcher()
+        fetcher.set_run_result(json.dumps({"data": []}))
+
+        client = NodriverHumanFlowTeslaClient(fetcher=fetcher, base_url="http://127.0.0.1:9")
+        try:
+            await client.search_locations("Test City")
+        finally:
+            await client.close()
+
+        assert client._base_url == "http://127.0.0.1:9"

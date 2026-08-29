@@ -8,12 +8,15 @@ import contextlib
 import json
 import threading
 import time
+from collections.abc import Awaitable, Callable
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 from urllib.parse import quote
 
 from .common import WAF_RETRY_MAX_ATTEMPTS, CurlError, _debug_log, is_waf_block, waf_retry_delay_s
+
+_T = TypeVar("_T")
 
 
 class NodriverBrowserFetcher:
@@ -347,6 +350,44 @@ class NodriverBrowserFetcher:
         with contextlib.suppress(Exception):
             future = asyncio.run_coroutine_threadsafe(self._shutdown_browser(), self._loop)
             future.result(timeout=15.0)
+
+    def run(
+        self,
+        coro_factory: Callable[[Any], Awaitable[_T]],
+        timeout_s: float,
+    ) -> _T:
+        """Fuehrt eine beliebige Koroutine mit Zugriff auf den Browser aus.
+
+        Anders als ``fetch()`` (reine GET-Navigation einer einzelnen URL)
+        erlaubt dies mehrstufige Interaktionen (Tippen, Klicken, mehrere
+        Netzwerk-Intercepts) auf derselben Browser-Instanz, ohne die Thread-/
+        Browser-Lifecycle-Logik dieser Klasse zu duplizieren - genutzt vom
+        Human-Flow-Client (siehe ``human_flow.py``).
+
+        Args:
+            coro_factory: Erhaelt das gestartete ``nodriver``-``Browser``-
+                Objekt und liefert eine Koroutine, deren Ergebnis
+                zurueckgegeben wird.
+            timeout_s: Maximale Wartezeit in Sekunden.
+
+        Returns:
+            Das Ergebnis der von ``coro_factory`` gelieferten Koroutine.
+
+        Raises:
+            CurlError: Bei Timeout, Browser-/Netzwerk-Fehlern, oder wenn der
+                Fetcher bereits geschlossen wurde.
+        """
+        if self._closed:
+            raise CurlError("nodriver-Fetcher wurde bereits geschlossen")
+        try:
+            future = self._submit(self._run_with_browser(coro_factory))
+            return future.result(timeout=timeout_s)  # type: ignore[no-any-return]
+        except Exception as e:
+            raise CurlError(f"nodriver human-flow failed: {e}") from e
+
+    async def _run_with_browser(self, coro_factory: Callable[[Any], Awaitable[_T]]) -> _T:
+        browser = await self._ensure_browser()
+        return await coro_factory(browser)
 
 
 class NodriverTeslaClient:

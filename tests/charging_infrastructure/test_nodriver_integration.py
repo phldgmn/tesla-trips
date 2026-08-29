@@ -161,7 +161,7 @@ async def test_non_200_statuses_raise_curl_error(client: NodriverTeslaClient) ->
     """403/429/404 loesen CurlError mit dem jeweiligen Statuscode aus."""
     fetcher: NodriverBrowserFetcher = client._fetcher  # type: ignore[assignment]
     origin = client.BASE_URL.rsplit("/api", 1)[0]
-    for path, expected in (("/blocked", "403"), ("/throttled", "429"), ("/nope", "HTTP 404")):
+    for path, expected in (("/blocked", "WAF-Block"), ("/throttled", "429"), ("/nope", "HTTP 404")):
         status, _body = fetcher.fetch(f"{origin}{path}")
         assert status in (403, 429, 404)
         with pytest.raises(CurlError, match=expected):
