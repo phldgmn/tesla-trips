@@ -6,6 +6,7 @@ ORToolsOptimizer: Platzhalter für zukünftige CP-SAT Implementierung.
 
 from __future__ import annotations
 
+import logging
 import math
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -41,6 +42,8 @@ from tripplanner.optimization.result_extraction import (
 from tripplanner.optimization.station_mapping import map_stations_to_segments
 from tripplanner.routing.models import Route, RouteSegment
 from tripplanner.trip_input.models import VehicleProfile, Waypoint
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     pass
@@ -292,6 +295,16 @@ class NetworkXOptimizer(OptimizerInterface):
             constraints=constraints,
         )
         zwischenstopp_aufenthalte = self._extract_waypoint_aufenthalte(G=G, path=path)
+        logger.info(
+            "Optimizer chose %d charging stop(s): %s",
+            len(ladehalte),
+            [
+                f"{s.station.station_id} ({s.station.name}) seg={s.segment_index} "
+                f"{s.ankunfts_soc_pct:.1f}%->{s.ziel_soc_pct:.1f}% "
+                f"{s.geschaetzte_ladedauer_s:.0f}s"
+                for s in ladehalte
+            ],
+        )
 
         # Berechne Gesamtreisezeit: der Zielknoten hat immer segment_index ==
         # len(segments) (alle Segmente vollstaendig abgefahren). `zeitpunkt`
