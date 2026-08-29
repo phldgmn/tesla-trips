@@ -20,6 +20,17 @@ export interface RouteSample {
   /** Ladehalt-Ankunft/-Abfahrt: wird beim Downsampling nie uebersprungen, damit
    *  der SoC-Sprung an der Ladestation sichtbar bleibt. */
   critical?: boolean;
+  /** Geschwindigkeit in km/h an diesem Stuetzpunkt - fuer den Routen-Hover-
+   *  Tooltip (`buildRouteHoverText`). Optional, da Ladehalt-Sprungpunkte
+   *  (siehe `emitChargeJump` in `route-splice.ts`) keine tragen. */
+  geschwindigkeitKmh?: number;
+  /** Angenommene Temperatur/Windgeschwindigkeit/Niederschlag an diesem
+   *  Stuetzpunkt, `undefined` wenn Wetter nicht beruecksichtigt wurde
+   *  (siehe `SimulationFrame.temperatur_c` im Backend) oder der Stuetzpunkt
+   *  ein Ladehalt-Sprungpunkt ist. */
+  temperaturC?: number;
+  windgeschwindigkeitKmh?: number;
+  niederschlagMm?: number;
 }
 
 /** Meter pro Breitengrad - konstant genug fuer die kurzen Segmentabstaende

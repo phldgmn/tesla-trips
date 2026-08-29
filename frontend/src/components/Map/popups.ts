@@ -1,5 +1,8 @@
 import { haversineDistanceM } from "../../utils/geo-utils";
-import { formatZeitpunkt } from "../../utils/datetime-utils";
+import {
+  formatZeitpunkt,
+  formatKurzZeitpunkt,
+} from "../../utils/datetime-utils";
 import { formatCostOrDash } from "../../utils/currency-utils";
 import { roleToLabel, type StopRole } from "./markers";
 import {
@@ -265,5 +268,21 @@ export function buildConstructionZonePopupHtml(zone: ConstructionZone): string {
  * raeumlich (aber nicht streckenmaessig) annaehert, z. B. kurz nach einem
  * Ladehalt-Abstecher, den falschen (Vor-Lade-)Frame waehlen konnte. */
 export function buildRouteHoverText(sample: RouteSample): string {
-  return `${formatZeitpunkt(sample.zeitpunkt ?? null)} · ${sample.socPct.toFixed(0)}% SoC`;
+  const teile = [
+    `${formatKurzZeitpunkt(sample.zeitpunkt ?? null)} · ${sample.socPct.toFixed(0)}% SoC`,
+  ];
+  if (sample.geschwindigkeitKmh !== undefined) {
+    teile.push(`${sample.geschwindigkeitKmh.toFixed(0)} km/h`);
+  }
+  if (sample.temperaturC !== undefined) {
+    let wetter = `${sample.temperaturC.toFixed(0)}°C`;
+    if (sample.niederschlagMm !== undefined && sample.niederschlagMm > 0) {
+      wetter += `, ${sample.niederschlagMm.toFixed(1)} mm/h`;
+    }
+    if (sample.windgeschwindigkeitKmh !== undefined) {
+      wetter += `, Wind ${sample.windgeschwindigkeitKmh.toFixed(0)} km/h`;
+    }
+    teile.push(wetter);
+  }
+  return teile.join(" · ");
 }

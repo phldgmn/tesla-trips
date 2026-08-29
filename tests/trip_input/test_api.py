@@ -518,6 +518,63 @@ async def test_create_trip_simulation_without_weather_provider(
 
 
 @pytest.mark.asyncio
+async def test_create_trip_simulation_weather_off_leaves_frame_weather_fields_none(
+    valid_trip_request: dict,
+    fake_routing_provider: FakeRoutingProvider,
+    fake_weather_provider: FakeWeatherProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
+) -> None:
+    """`weather_detail="off"` MUSS die Wetterfelder auf jedem Frame `None`
+    lassen (siehe `simulate_trip(weather_samples=...)`), obwohl intern
+    weiterhin neutrale `FakeWeatherProvider`-Platzhalterwerte fuer die
+    Energieberechnung verwendet werden - andernfalls wuerde der Routen-
+    Hover-Tooltip im Frontend (`buildRouteHoverText`) faelschlich ein
+    "angenommenes Wetter" anzeigen, obwohl der Nutzer es deaktiviert hat."""
+    result = await create_trip_simulation(
+        valid_trip_request,
+        routing_provider=fake_routing_provider,
+        weather_provider=fake_weather_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
+        start_soc_pct=80.0,
+        destination_soc_pct=20.0,
+        weather_detail="off",
+    )
+
+    assert result.frames
+    for frame in result.frames:
+        assert frame.temperatur_c is None
+        assert frame.windgeschwindigkeit_ms is None
+        assert frame.niederschlag_mm is None
+
+
+@pytest.mark.asyncio
+async def test_create_trip_simulation_weather_high_attaches_frame_weather_fields(
+    valid_trip_request: dict,
+    fake_routing_provider: FakeRoutingProvider,
+    fake_weather_provider: FakeWeatherProvider,
+    fake_charging_provider_berlin_munich: FakeChargingStationProvider,
+) -> None:
+    """Mit aktivierter Wetterberuecksichtigung (Default `weather_detail=
+    "high"`) tragen FAHREN-Frames die vom `WeatherProvider` gelieferte
+    Temperatur (siehe `SimulationFrame.temperatur_c`)."""
+    result = await create_trip_simulation(
+        valid_trip_request,
+        routing_provider=fake_routing_provider,
+        weather_provider=fake_weather_provider,
+        charging_provider=fake_charging_provider_berlin_munich,
+        start_soc_pct=80.0,
+        destination_soc_pct=20.0,
+    )
+
+    fahren_frames = [f for f in result.frames if f.zustand.value == "FAHREN"]
+    assert fahren_frames
+    for frame in fahren_frames:
+        assert frame.temperatur_c is not None
+        assert frame.windgeschwindigkeit_ms is not None
+        assert frame.niederschlag_mm is not None
+
+
+@pytest.mark.asyncio
 async def test_create_trip_simulation_start_soc_100(
     valid_trip_request: dict,
     fake_routing_provider: FakeRoutingProvider,

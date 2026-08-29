@@ -26,7 +26,7 @@ import type { ChargingStop, WaypointStop } from "@/types";
 import type { RouteSample } from "@/utils/route-line";
 import type { SuperchargerStation } from "@/api/chargingApi";
 import type { StyleSpecification } from "maplibre-gl";
-import { formatZeitpunkt } from "@/utils/datetime-utils";
+import { formatZeitpunkt, formatKurzZeitpunkt } from "@/utils/datetime-utils";
 
 describe("MapVisualization utilities", () => {
   describe("socToColor", () => {
@@ -856,8 +856,14 @@ describe("MapVisualization utilities", () => {
       socPct: 63.4,
     };
 
-    it("should include the formatted date/time", () => {
+    it("should include the short formatted date/time", () => {
       expect(buildRouteHoverText(sample)).toContain(
+        formatKurzZeitpunkt(sample.zeitpunkt ?? null),
+      );
+    });
+
+    it("should not include the long formatted date/time", () => {
+      expect(buildRouteHoverText(sample)).not.toContain(
         formatZeitpunkt(sample.zeitpunkt ?? null),
       );
     });
@@ -870,6 +876,46 @@ describe("MapVisualization utilities", () => {
       expect(buildRouteHoverText({ distanzM: 0, socPct: 50 })).toContain(
         "unbekannt",
       );
+    });
+
+    it("should include the assumed speed when present", () => {
+      expect(
+        buildRouteHoverText({ ...sample, geschwindigkeitKmh: 118.6 }),
+      ).toContain("119 km/h");
+    });
+
+    it("should omit speed when not present", () => {
+      expect(buildRouteHoverText(sample)).not.toContain("km/h");
+    });
+
+    it("should include temperature and wind when weather is assumed", () => {
+      const text = buildRouteHoverText({
+        ...sample,
+        temperaturC: 8.2,
+        windgeschwindigkeitKmh: 14.4,
+      });
+      expect(text).toContain("8°C");
+      expect(text).toContain("Wind 14 km/h");
+    });
+
+    it("should include precipitation only when it is present", () => {
+      const withRain = buildRouteHoverText({
+        ...sample,
+        temperaturC: 8.2,
+        niederschlagMm: 2.5,
+      });
+      expect(withRain).toContain("2.5 mm/h");
+
+      const withoutRain = buildRouteHoverText({
+        ...sample,
+        temperaturC: 8.2,
+        niederschlagMm: 0,
+      });
+      expect(withoutRain).not.toContain("mm/h");
+    });
+
+    it("should omit weather entirely when temperature is not present", () => {
+      expect(buildRouteHoverText(sample)).not.toContain("°C");
     });
   });
 

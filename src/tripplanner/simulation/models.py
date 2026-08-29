@@ -37,6 +37,27 @@ class SimulationFrame(BaseModel):
     soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ladestand in Prozent")
     zustand: TripState
     geschwindigkeit_kmh: float = Field(..., ge=0.0, description="Geschwindigkeit in km/h")
+    temperatur_c: float | None = Field(
+        default=None,
+        description=(
+            "Fuer diesen Streckenpunkt angenommene Temperatur in Grad Celsius "
+            "(None, wenn Wetter bei der Berechnung nicht beruecksichtigt wurde, "
+            "siehe `WeatherDetailLevel` 'off'). Fuer die Routen-Hover-Anzeige im "
+            "Frontend (siehe `buildRouteHoverText` in `popups.ts`)."
+        ),
+    )
+    windgeschwindigkeit_ms: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="Fuer diesen Streckenpunkt angenommene Windgeschwindigkeit in m/s "
+        "(None wie temperatur_c).",
+    )
+    niederschlag_mm: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="Fuer diesen Streckenpunkt angenommener Niederschlag in mm/h "
+        "(None wie temperatur_c).",
+    )
 
     @model_validator(mode="after")
     def validate_speed_state_consistency(self) -> SimulationFrame:

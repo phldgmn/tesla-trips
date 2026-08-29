@@ -93,6 +93,18 @@ export function formatTagMonat(iso: string): string {
   }
 }
 
+/** Formatiert einen ISO-Zeitstempel als knappes Datum+Uhrzeit (z. B.
+ *  "29.08. 17:15") - fuer den Routen-Hover-Tooltip (`buildRouteHoverText`
+ *  in `popups.ts`), der als knapper Cursor-Tooltip absichtlich kein volles
+ *  Datum (`formatZeitpunkt`) traegt. `null` (kein bekannter Zeitpunkt am
+ *  Streckenpunkt) ergibt "unbekannt", analog zu `formatUhrzeit`. */
+export function formatKurzZeitpunkt(iso: string | null): string {
+  if (iso === null) return "unbekannt";
+  const datum = formatTagMonat(iso);
+  const uhrzeit = formatUhrzeit(iso);
+  return datum ? `${datum} ${uhrzeit}` : uhrzeit;
+}
+
 /** Extrahiert den Kalendertag-Schlüssel (YYYY-MM-DD) aus einem naiven,
  *  zeitzonenlosen ISO-Zeitstempel. Reines String-Slicing statt
  *  `Date`-Parsing, um Zeitzonen-Verschiebungen bei der Tagesgrenze

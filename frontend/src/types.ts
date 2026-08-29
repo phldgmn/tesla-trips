@@ -24,6 +24,16 @@ export interface SimulationFrame {
   zustand: TripState;
   /** Geschwindigkeit in km/h */
   geschwindigkeit_kmh: number;
+  /** Fuer diesen Streckenpunkt angenommene Temperatur in Grad Celsius,
+   *  `null` wenn Wetter bei der Berechnung nicht beruecksichtigt wurde
+   *  (siehe `WeatherDetailLevel` "off"). */
+  temperatur_c: number | null;
+  /** Fuer diesen Streckenpunkt angenommene Windgeschwindigkeit in m/s,
+   *  `null` wie `temperatur_c`. */
+  windgeschwindigkeit_ms: number | null;
+  /** Fuer diesen Streckenpunkt angenommener Niederschlag in mm/h,
+   *  `null` wie `temperatur_c`. */
+  niederschlag_mm: number | null;
 }
 
 /** Vollständige Zeitreihe einer Reise. */

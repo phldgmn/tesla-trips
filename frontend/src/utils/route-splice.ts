@@ -182,10 +182,20 @@ function resolveDetours(
   });
 }
 
+export interface FrameSampleInput {
+  distanzM: number;
+  socPct: number;
+  zeitpunkt?: string;
+  geschwindigkeitKmh?: number;
+  temperaturC?: number;
+  windgeschwindigkeitKmh?: number;
+  niederschlagMm?: number;
+}
+
 export function buildSplicedRoute(
   routeGeometrie: [number, number][],
   chargingStops: ChargingDetourInput[],
-  frameSamples: { distanzM: number; socPct: number; zeitpunkt?: string }[],
+  frameSamples: FrameSampleInput[],
 ): SplicedRoute {
   if (routeGeometrie.length === 0) {
     return {
@@ -212,12 +222,16 @@ export function buildSplicedRoute(
   let offset = 0;
   let i = 0;
 
-  const emitPlainFrame = (
-    distanzM: number,
-    socPct: number,
-    zeitpunkt?: string,
-  ) => {
-    samples.push({ distanzM: distanzM + offset, socPct, zeitpunkt });
+  const emitPlainFrame = (frame: FrameSampleInput) => {
+    samples.push({
+      distanzM: frame.distanzM + offset,
+      socPct: frame.socPct,
+      zeitpunkt: frame.zeitpunkt,
+      geschwindigkeitKmh: frame.geschwindigkeitKmh,
+      temperaturC: frame.temperaturC,
+      windgeschwindigkeitKmh: frame.windgeschwindigkeitKmh,
+      niederschlagMm: frame.niederschlagMm,
+    });
   };
 
   while (i < routeGeometrie.length) {
@@ -363,7 +377,7 @@ export function buildSplicedRoute(
           if (isPostCharge || isAfterArrival) {
             frameIdx++;
           } else {
-            emitPlainFrame(frame.distanzM, frame.socPct, frame.zeitpunkt);
+            emitPlainFrame(frame);
             frameIdx++;
           }
         } else if (
@@ -380,6 +394,10 @@ export function buildSplicedRoute(
             distanzM: rangeStartOriginal + offset,
             socPct: frame.socPct,
             zeitpunkt: frame.zeitpunkt,
+            geschwindigkeitKmh: frame.geschwindigkeitKmh,
+            temperaturC: frame.temperaturC,
+            windgeschwindigkeitKmh: frame.windgeschwindigkeitKmh,
+            niederschlagMm: frame.niederschlagMm,
           });
           frameIdx++;
         } else if (isPostChargeNear) {
@@ -397,6 +415,10 @@ export function buildSplicedRoute(
               frac * (detourLen - stationDetourDistanzM),
             socPct: frame.socPct,
             zeitpunkt: frame.zeitpunkt,
+            geschwindigkeitKmh: frame.geschwindigkeitKmh,
+            temperaturC: frame.temperaturC,
+            windgeschwindigkeitKmh: frame.windgeschwindigkeitKmh,
+            niederschlagMm: frame.niederschlagMm,
           });
           frameIdx++;
         } else if (isPostCharge) {
@@ -408,7 +430,7 @@ export function buildSplicedRoute(
           const returnLegLen = detourLen - stationDetourDistanzM;
           if (returnLegLen < 100) {
             // Stopover ohne echten Rueckweg: Frame direkt emittieren
-            emitPlainFrame(frame.distanzM, frame.socPct, frame.zeitpunkt);
+            emitPlainFrame(frame);
             frameIdx++;
           } else {
             // echter Lade-Detour mit Rueckweg
@@ -465,11 +487,7 @@ export function buildSplicedRoute(
       frameIdx < sortedFrames.length &&
       sortedFrames[frameIdx].distanzM <= routeCum[i]
     ) {
-      emitPlainFrame(
-        sortedFrames[frameIdx].distanzM,
-        sortedFrames[frameIdx].socPct,
-        sortedFrames[frameIdx].zeitpunkt,
-      );
+      emitPlainFrame(sortedFrames[frameIdx]);
       frameIdx++;
     }
     i++;
@@ -478,11 +496,7 @@ export function buildSplicedRoute(
   // Sicherheitsnetz: Frames knapp jenseits des letzten Routenpunkts (z. B.
   // durch Rundung) noch aufnehmen statt zu verlieren.
   while (frameIdx < sortedFrames.length) {
-    emitPlainFrame(
-      sortedFrames[frameIdx].distanzM,
-      sortedFrames[frameIdx].socPct,
-      sortedFrames[frameIdx].zeitpunkt,
-    );
+    emitPlainFrame(sortedFrames[frameIdx]);
     frameIdx++;
   }
 

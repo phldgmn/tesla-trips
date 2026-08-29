@@ -458,6 +458,13 @@ export function MapVisualization({
           distanzM: f.distanz_m,
           socPct: f.soc_pct,
           zeitpunkt: f.zeitpunkt,
+          geschwindigkeitKmh: f.geschwindigkeit_kmh,
+          temperaturC: f.temperatur_c ?? undefined,
+          windgeschwindigkeitKmh:
+            f.windgeschwindigkeit_ms !== null
+              ? f.windgeschwindigkeit_ms * 3.6
+              : undefined,
+          niederschlagMm: f.niederschlag_mm ?? undefined,
         })),
     );
     const routeCoordinates = splicedRoute.coordinates;

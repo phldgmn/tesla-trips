@@ -20,6 +20,7 @@ from tripplanner.energy.models import SegmentEnergyResult
 from tripplanner.optimization.models import ChargingPlan, ChargingStop, ZwischenstoppAufenthalt
 from tripplanner.routing.models import Coordinate, Route, RouteSegment
 from tripplanner.simulation import TripState, simulate_trip
+from tripplanner.weather.models import WeatherSample
 
 # Fixe Koordinaten
 BERLIN_COORD: Coordinate = (52.5200, 13.4050)
@@ -835,3 +836,94 @@ class TestZwischenstoppAufenthalt:
         )
 
         assert result.waypoint_stops[0].distanz_m == pytest.approx(110_000.0)
+
+
+class TestWetterWirdAnFramesAngehaengt:
+    """`simulate_trip(weather_samples=...)` haengt Temperatur/Wind/Niederschlag
+    an jeden Frame an - fuer den Routen-Hover-Tooltip im Frontend (siehe
+    `SimulationFrame.temperatur_c` und `buildRouteHoverText` in `popups.ts`)."""
+
+    @staticmethod
+    def _make_weather_sample(
+        koordinate: Coordinate,
+        temperatur_c: float,
+        windgeschwindigkeit_ms: float = 3.0,
+        niederschlag_mm: float = 0.0,
+    ) -> WeatherSample:
+        return WeatherSample(
+            koordinate=koordinate,
+            zeitpunkt=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            temperatur_c=temperatur_c,
+            windgeschwindigkeit_ms=windgeschwindigkeit_ms,
+            windrichtung_deg=180.0,
+            niederschlag_mm=niederschlag_mm,
+            schneefall_cm=0.0,
+            luftdruck_hpa=1013.25,
+            luftfeuchtigkeit_pct=60.0,
+            globalstrahlung_wm2=400.0,
+            bewoelkung_pct=20.0,
+        )
+
+    def test_frames_tragen_segmentweise_wetterwerte(
+        self,
+        route_3_segments: Route,
+        energy_results_3_segments: list[SegmentEnergyResult],
+    ) -> None:
+        """Jeder Frame erhaelt Temperatur/Wind/Niederschlag des `WeatherSample`
+        seines aktuellen Segments (per Index, gleiche Reihenfolge wie
+        `route.segments`)."""
+        plan = ChargingPlan(ladehalte=[], gesamtreisezeit_s=4500)
+        weather_samples = [
+            self._make_weather_sample(BERLIN_COORD, temperatur_c=5.0, niederschlag_mm=2.0),
+            self._make_weather_sample(LEIPZIG_COORD, temperatur_c=10.0),
+            self._make_weather_sample(FRANKFURT_COORD, temperatur_c=15.0),
+        ]
+
+        result = simulate_trip(
+            route=route_3_segments,
+            charging_plan=plan,
+            segment_energy=energy_results_3_segments,
+            start_soc_pct=80.0,
+            output_resolution_seconds=60,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            weather_samples=weather_samples,
+        )
+
+        fahren_frames = [f for f in result.frames if f.zustand == TripState.FAHREN]
+        assert fahren_frames
+        for frame in fahren_frames:
+            assert frame.temperatur_c is not None
+            assert frame.windgeschwindigkeit_ms is not None
+            assert frame.niederschlag_mm is not None
+        # Erster Frame liegt auf Segment 0 -> dessen Wetter (5°C, 2mm Regen).
+        assert fahren_frames[0].temperatur_c == pytest.approx(5.0)
+        assert fahren_frames[0].niederschlag_mm == pytest.approx(2.0)
+        # Letzter Frame liegt auf Segment 2 -> dessen Wetter (15°C).
+        assert fahren_frames[-1].temperatur_c == pytest.approx(15.0)
+
+    def test_ohne_weather_samples_bleiben_wetterfelder_none(
+        self,
+        route_3_segments: Route,
+        energy_results_3_segments: list[SegmentEnergyResult],
+    ) -> None:
+        """Ohne `weather_samples` (Standard) bleiben die Wetterfelder `None`
+        statt irrefuehrende Platzhalterwerte zu tragen - z. B. wenn der
+        Nutzer die Wetterberuecksichtigung deaktiviert hat (siehe
+        `WeatherDetailLevel` 'off', verdrahtet in
+        `tripplanner.trip_input.pipeline.create_trip_simulation`)."""
+        plan = ChargingPlan(ladehalte=[], gesamtreisezeit_s=4500)
+
+        result = simulate_trip(
+            route=route_3_segments,
+            charging_plan=plan,
+            segment_energy=energy_results_3_segments,
+            start_soc_pct=80.0,
+            output_resolution_seconds=60,
+            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+        )
+
+        assert result.frames
+        for frame in result.frames:
+            assert frame.temperatur_c is None
+            assert frame.windgeschwindigkeit_ms is None
+            assert frame.niederschlag_mm is None

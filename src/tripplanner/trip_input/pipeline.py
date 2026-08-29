@@ -902,6 +902,13 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
             battery_capacity_kwh=request.fahrzeugprofil.batteriekapazitaet_kwh,
             charging_stop_detours=charging_stop_detours,
             construction_zones=construction_zones,
+            # Wetterwerte NICHT an die Frames anhängen, wenn der Nutzer Wetter
+            # explizit deaktiviert hat ("off") - `weather_samples` enthält in
+            # diesem Fall trotzdem `FakeWeatherProvider`-Platzhalterwerte
+            # (siehe `_step_5_fetch_weather`), die als "angenommenes Wetter"
+            # im Routen-Hover-Tooltip (`buildRouteHoverText`) irreführend
+            # wären.
+            weather_samples=weather_samples if weather_detail != "off" else None,
         )
 
     # 12. Step 11: Return result

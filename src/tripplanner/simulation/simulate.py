@@ -6,6 +6,7 @@ SegmentEnergyResult und WeatherSample.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 
 from tripplanner.construction.models import ConstructionZone
@@ -21,6 +22,7 @@ from tripplanner.simulation.models import (
     TripState,
     WaypointStopSummary,
 )
+from tripplanner.weather.models import WeatherSample
 
 # Konstanten fuer maximale Werte
 _MAX_SOC_PCT = 100.0
@@ -254,6 +256,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     battery_capacity_kwh: float = 62.5,
     charging_stop_detours: dict[int, LadehaltDetour] | None = None,
     construction_zones: list[ConstructionZone] | None = None,
+    weather_samples: Sequence[WeatherSample] | None = None,
 ) -> TripSimulationResult:
     """Simuliert die komplette Reise entlang der Route unter Beruecksichtigung des Ladeplans.
 
@@ -274,6 +277,14 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         construction_zones: Baustellen entlang der Route (optional), fuer die
             Kartendarstellung unveraendert in `TripSimulationResult.construction_zones`
             durchgereicht.
+        weather_samples: Eine `WeatherSample` je Route-Segment (gleiche
+            Reihenfolge wie `route.segments`, siehe
+            `tripplanner.trip_input.pipeline._step_5_fetch_weather`), fuer die
+            Routen-Hover-Anzeige im Frontend (`SimulationFrame.temperatur_c`
+            etc.). `None` (Standard, oder wenn Wetter bei der Berechnung nicht
+            beruecksichtigt wurde, siehe `WeatherDetailLevel` 'off') laesst
+            diese Felder auf jedem Frame leer statt irrefuehrende Platzhalter-
+            werte anzuzeigen.
 
     Returns:
         TripSimulationResult: Zeitreihe aus Frames (Zeit, Position, SoC, Zustand, Geschwindigkeit)
@@ -296,6 +307,14 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     for seg_idx in range(len(route.segments)):
         if seg_idx not in energy_map:
             raise ValueError(f"Kein Energy-Ergebnis fuer Segment {seg_idx}")
+
+    # Wetterdaten je Segment fuer die Routen-Hover-Anzeige im Frontend
+    # (`SimulationFrame.temperatur_c` etc., siehe `buildRouteHoverText` in
+    # `popups.ts`) - unabhaengig vom Fahrzeug-Zustand (FAHREN/LADEN/PAUSE)
+    # zugeordnet, da sie nur die Position beschreiben, nicht die Fahrt.
+    weather_by_segment: dict[int, WeatherSample] = (
+        dict(enumerate(weather_samples)) if weather_samples else {}
+    )
 
     cumulative_distances: list[float] = []
     total_distance_m = 0.0
@@ -448,6 +467,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         current_distance_m = (
             cumulative_distances[segment_idx - 1] if segment_idx > 0 else 0.0
         ) + progress_in_segment * segment.laenge_m
+        wetter = weather_by_segment.get(segment_idx)
 
         if aktueller_ladehalt is not None:
             zustand = TripState.LADEN
@@ -543,6 +563,9 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
             soc_pct=current_soc_pct,
             zustand=zustand,
             geschwindigkeit_kmh=geschwindigkeit_kmh,
+            temperatur_c=wetter.temperatur_c if wetter else None,
+            windgeschwindigkeit_ms=wetter.windgeschwindigkeit_ms if wetter else None,
+            niederschlag_mm=wetter.niederschlag_mm if wetter else None,
         )
         frames.append(frame)
 
