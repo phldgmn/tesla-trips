@@ -15,6 +15,7 @@ import {
   buildChargingStopMarkerElement,
   buildChargingStopPopupHtml,
   buildChargingStopPopupElement,
+  buildSuperchargerPopoverElement,
   formatChargingDuration,
   buildRouteHoverText,
   isValidMapViewState,
@@ -580,16 +581,20 @@ describe("MapVisualization utilities", () => {
         { status: "idle" },
         () => {},
       );
-      expect(el.textContent).not.toContain("Preis von Tesla abrufen");
+      expect(
+        el.querySelector('button[aria-label="Preis von Tesla abrufen"]'),
+      ).toBeNull();
     });
 
-    it("shows a pricing-refresh button when the stop has no cached pricing", () => {
+    it("shows a pricing-refresh icon button when the stop has no cached pricing", () => {
       const el = buildChargingStopPopupElement(
         unpricedStop,
         { status: "idle" },
         () => {},
       );
-      expect(el.textContent).toContain("Preis von Tesla abrufen");
+      expect(
+        el.querySelector('button[aria-label="Preis von Tesla abrufen"]'),
+      ).not.toBeNull();
     });
 
     it("invokes the refresh callback when the pricing button is clicked", () => {
@@ -601,8 +606,8 @@ describe("MapVisualization utilities", () => {
           called = true;
         },
       );
-      const btn = Array.from(el.querySelectorAll("button")).find((b) =>
-        b.textContent?.includes("Preis von Tesla abrufen"),
+      const btn = el.querySelector<HTMLButtonElement>(
+        'button[aria-label="Preis von Tesla abrufen"]',
       );
       btn?.click();
       expect(called).toBe(true);
@@ -717,6 +722,130 @@ describe("MapVisualization utilities", () => {
         () => {},
       );
       expect(el.textContent).toContain("Tesla API nicht erreichbar");
+    });
+  });
+
+  describe("buildSuperchargerPopoverElement", () => {
+    function station(
+      overrides: Partial<SuperchargerStation> = {},
+    ): SuperchargerStation {
+      return {
+        slug: "berlin-mitte",
+        name: "Berlin Mitte",
+        latitude: 52.52,
+        longitude: 13.405,
+        country: "DE",
+        total_stalls: 8,
+        power_kilowatt: 250,
+        status: "OPEN",
+        stalls_v2: 0,
+        stalls_v3: 8,
+        stalls_v3_ultra: 0,
+        stalls_v4: 0,
+        ist_24_7: true,
+        date_opened: "2020-01-01",
+        ...overrides,
+      };
+    }
+
+    it("renders three distinct icon-only action buttons when pricing is available", () => {
+      const el = buildSuperchargerPopoverElement(
+        station(),
+        false,
+        () => {},
+        { status: "idle" },
+        () => {},
+      );
+      const buttons = Array.from(el.querySelectorAll("button"));
+      expect(buttons).toHaveLength(3);
+      const labels = buttons.map((b) => b.getAttribute("aria-label"));
+      expect(labels).toEqual([
+        "Stationsdaten von Tesla aktualisieren",
+        "Preise von Tesla abrufen",
+        "Stationsdaten und Preise aktualisieren",
+      ]);
+      // Icon-only: keine sichtbaren Textlabels auf den Buttons selbst.
+      for (const btn of buttons) {
+        expect(btn.textContent?.trim()).toBe("");
+        expect(btn.querySelector("svg")).not.toBeNull();
+      }
+    });
+
+    it("renders a single info action button when no pricing callback is given", () => {
+      const el = buildSuperchargerPopoverElement(station(), false, () => {});
+      const buttons = Array.from(el.querySelectorAll("button"));
+      expect(buttons).toHaveLength(1);
+      expect(buttons[0].getAttribute("aria-label")).toBe(
+        "Stationsdaten von Tesla aktualisieren",
+      );
+    });
+
+    it("invokes both refresh callbacks from the combined action button", () => {
+      let infoRefreshed = false;
+      let pricingRefreshed = false;
+      const el = buildSuperchargerPopoverElement(
+        station(),
+        false,
+        () => {
+          infoRefreshed = true;
+        },
+        { status: "idle" },
+        () => {
+          pricingRefreshed = true;
+        },
+      );
+      const combinedBtn = el.querySelector<HTMLButtonElement>(
+        'button[aria-label="Stationsdaten und Preise aktualisieren"]',
+      );
+      combinedBtn?.click();
+      expect(infoRefreshed).toBe(true);
+      expect(pricingRefreshed).toBe(true);
+    });
+
+    it("disables the info and combined buttons while a station refresh is in progress", () => {
+      const el = buildSuperchargerPopoverElement(
+        station(),
+        true,
+        () => {},
+        { status: "idle" },
+        () => {},
+      );
+      expect(
+        el.querySelector<HTMLButtonElement>(
+          'button[aria-label="Stationsdaten von Tesla aktualisieren"]',
+        )?.disabled,
+      ).toBe(true);
+      expect(
+        el.querySelector<HTMLButtonElement>(
+          'button[aria-label="Stationsdaten und Preise aktualisieren"]',
+        )?.disabled,
+      ).toBe(true);
+      // Der Preis-Button bleibt unabhaengig aktiv.
+      expect(
+        el.querySelector<HTMLButtonElement>(
+          'button[aria-label="Preise von Tesla abrufen"]',
+        )?.disabled,
+      ).toBe(false);
+    });
+
+    it("disables the pricing and combined buttons while pricing is loading", () => {
+      const el = buildSuperchargerPopoverElement(
+        station(),
+        false,
+        () => {},
+        { status: "loading" },
+        () => {},
+      );
+      expect(
+        el.querySelector<HTMLButtonElement>(
+          'button[aria-label="Preise von Tesla abrufen"]',
+        )?.disabled,
+      ).toBe(true);
+      expect(
+        el.querySelector<HTMLButtonElement>(
+          'button[aria-label="Stationsdaten und Preise aktualisieren"]',
+        )?.disabled,
+      ).toBe(true);
     });
   });
 

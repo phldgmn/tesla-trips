@@ -10,6 +10,50 @@ export type PricingRefreshState =
   | { status: "loaded"; pricing: SuperchargerPricing }
   | { status: "error"; message: string; pricing?: SuperchargerPricing };
 
+/** Innere SVG-Pfade (Lucide-Icon-Set, stroke-basiert, 24x24-Viewbox) fuer
+ *  die minimalistischen Icon-Buttons unten im Popover - je einer fuer
+ *  Stationsdaten-, Preis- und Komplett-Refresh, damit die drei Aktionen auf
+ *  einen Blick unterscheidbar bleiben. */
+const ICON_INFO_PATHS =
+  '<circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path>';
+const ICON_TAG_PATHS =
+  '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"></path><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"></circle>';
+const ICON_REFRESH_PATHS =
+  '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path>';
+
+/** Baut einen minimalistischen, quadratischen Icon-only-Button (kein
+ *  sichtbarer Text - Zweck/Ziel wird ueber `title`/`aria-label` als Tooltip
+ *  bzw. fuer Screenreader vermittelt). `disabled` graut den Button aus und
+ *  unterbindet Klicks waehrend ein Refresh bereits laeuft. */
+function buildIconButton(
+  iconPaths: string,
+  title: string,
+  onClick: () => void,
+  disabled: boolean,
+): HTMLButtonElement {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.title = title;
+  btn.setAttribute("aria-label", title);
+  btn.disabled = disabled;
+  btn.style.cssText = `display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;background:#f9fafb;color:#4b5563;border:1px solid #e5e7eb;border-radius:8px;cursor:${disabled ? "default" : "pointer"};opacity:${disabled ? "0.5" : "1"};transition:background-color .15s,color .15s,border-color .15s;`;
+  btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconPaths}</svg>`;
+  if (!disabled) {
+    btn.onmouseenter = () => {
+      btn.style.background = "#eff6ff";
+      btn.style.color = "#2563eb";
+      btn.style.borderColor = "#bfdbfe";
+    };
+    btn.onmouseleave = () => {
+      btn.style.background = "#f9fafb";
+      btn.style.color = "#4b5563";
+      btn.style.borderColor = "#e5e7eb";
+    };
+    btn.onclick = onClick;
+  }
+  return btn;
+}
+
 /** Formatiert den Preis eines `SuperchargerPricingTier` ohne Zeitfenster,
  *  z. B. "0.42 EUR/kWh". */
 function formatTierPrice(tier: SuperchargerPricing["tiers"][number]): string {
@@ -51,19 +95,18 @@ function groupTiersByLabel(
   return groups;
 }
 
-/** Baut ein DOM-Element mit Preistabelle + Refresh-Aktion fuer eine Station,
- *  wiederverwendet sowohl im generischen Supercharger-Popover
- *  (`buildSuperchargerPopoverElement`) als auch im Ladehalt-Popup einer
- *  Route (`popups.ts::buildChargingStopPopupElement`). `refreshLabel` und
- *  `emptyLabel` erlauben kontextabhaengigen Text (Popover vs. Ladehalt).
+/** Baut ein DOM-Element mit der reinen Preistabelle fuer eine Station -
+ *  ohne Aktions-Buttons, die liegen bei allen Aufrufern (generisches
+ *  Supercharger-Popover `buildSuperchargerPopoverElement` sowie
+ *  Ladehalt-Popup `popups.ts::buildChargingStopPopupElement`) einheitlich
+ *  in einer gemeinsamen Icon-Button-Zeile am Popover-Ende, siehe
+ *  `buildIconButton`. `emptyLabel` erlaubt kontextabhaengigen Text
+ *  (Popover vs. Ladehalt).
  */
 export function buildPricingSection(
   state: PricingRefreshState,
-  onRefresh: () => void,
-  options?: { refreshLabel?: string; emptyLabel?: string },
+  options?: { emptyLabel?: string },
 ): HTMLElement {
-  const refreshLabel =
-    options?.refreshLabel ?? "\u{1F504} Preise von Tesla abrufen";
   const emptyLabel = options?.emptyLabel ?? "Keine Preisdaten vorhanden.";
 
   const section = document.createElement("div");
@@ -157,17 +200,27 @@ export function buildPricingSection(
     }
   }
 
-  const btn = document.createElement("button");
-  btn.style.cssText =
-    "padding:4px 12px;background:#2563eb;color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;";
-  btn.textContent = refreshLabel;
-  btn.onclick = onRefresh;
-  section.appendChild(btn);
-
   return section;
 }
 
-/** Baut ein DOM-Element fuer ein Supercharger-Popover mit Refresh-Button. */
+/** Baut den einzelnen Icon-Button "Preise aktualisieren", wiederverwendet
+ *  im Ladehalt-Popup (`popups.ts::buildChargingStopPopupElement`), das nur
+ *  ueber eine Preis-, aber keine Stationsdaten-Refresh-Aktion verfuegt. */
+export function buildPricingRefreshIconButton(
+  state: PricingRefreshState,
+  onRefresh: () => void,
+): HTMLButtonElement {
+  return buildIconButton(
+    ICON_TAG_PATHS,
+    "Preis von Tesla abrufen",
+    onRefresh,
+    state.status === "loading",
+  );
+}
+
+/** Baut ein DOM-Element fuer ein Supercharger-Popover mit minimalistischer,
+ *  icon-only Aktionsleiste am unteren Rand (Stationsdaten / Preise / beides
+ *  aktualisieren). */
 export function buildSuperchargerPopoverElement(
   station: SuperchargerStation,
   isRefreshing: boolean,
@@ -227,33 +280,52 @@ export function buildSuperchargerPopoverElement(
   }
   container.appendChild(table);
 
-  const btnRow = document.createElement("div");
-  btnRow.style.cssText = "margin-top:6px;";
   if (isRefreshing) {
-    const spinner = document.createElement("span");
-    spinner.style.cssText = "color:#666;font-style:italic;";
-    spinner.textContent = "Aktualisiere…";
-    btnRow.appendChild(spinner);
-  } else {
-    const btn = document.createElement("button");
-    btn.style.cssText =
-      "padding:4px 12px;background:#2563eb;color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;";
-    btn.textContent = "\u{1F504} Von Tesla aktualisieren";
-    btn.onclick = onRefresh;
-    btnRow.appendChild(btn);
+    const spinner = document.createElement("div");
+    spinner.style.cssText =
+      "margin-top:6px;color:#666;font-style:italic;font-size:12px;";
+    spinner.textContent = "Aktualisiere Stationsdaten\u2026";
+    container.appendChild(spinner);
   }
-  container.appendChild(btnRow);
 
   if (pricing && onRefreshPricing) {
-    container.appendChild(
-      buildPricingSection(pricing, onRefreshPricing, {
-        refreshLabel:
-          pricing.status === "loaded" && pricing.pricing.tiers.length > 0
-            ? "\u{1F504} Preise erneut abrufen"
-            : "\u{1F504} Preise von Tesla abrufen",
-      }),
+    container.appendChild(buildPricingSection(pricing));
+  }
+
+  const pricingLoading = pricing?.status === "loading";
+  const actions = document.createElement("div");
+  actions.style.cssText =
+    "display:flex;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid #e5e7eb;";
+  actions.appendChild(
+    buildIconButton(
+      ICON_INFO_PATHS,
+      "Stationsdaten von Tesla aktualisieren",
+      onRefresh,
+      isRefreshing,
+    ),
+  );
+  if (onRefreshPricing) {
+    actions.appendChild(
+      buildIconButton(
+        ICON_TAG_PATHS,
+        "Preise von Tesla abrufen",
+        onRefreshPricing,
+        pricingLoading,
+      ),
+    );
+    actions.appendChild(
+      buildIconButton(
+        ICON_REFRESH_PATHS,
+        "Stationsdaten und Preise aktualisieren",
+        () => {
+          onRefresh();
+          onRefreshPricing();
+        },
+        isRefreshing || pricingLoading,
+      ),
     );
   }
+  container.appendChild(actions);
 
   return container;
 }

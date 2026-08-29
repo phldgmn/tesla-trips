@@ -2,7 +2,11 @@ import { haversineDistanceM } from "../../utils/geo-utils";
 import { formatZeitpunkt } from "../../utils/datetime-utils";
 import { formatCostOrDash } from "../../utils/currency-utils";
 import { roleToLabel, type StopRole } from "./markers";
-import { buildPricingSection, type PricingRefreshState } from "./superchargers";
+import {
+  buildPricingSection,
+  buildPricingRefreshIconButton,
+  type PricingRefreshState,
+} from "./superchargers";
 import type {
   ChargingStop,
   ConstructionZone,
@@ -92,12 +96,19 @@ export function buildChargingStopPopupElement(
   const container = document.createElement("div");
   container.innerHTML = buildChargingStopPopupHtml(stop);
   if (stop.price_per_kwh === null) {
-    container.firstElementChild?.appendChild(
-      buildPricingSection(pricing, onRefreshPricing, {
-        refreshLabel: "\u{1F504} Preis von Tesla abrufen",
+    const content = container.firstElementChild;
+    content?.appendChild(
+      buildPricingSection(pricing, {
         emptyLabel: "Keine Preisdaten fuer diese Station vorhanden.",
       }),
     );
+    const actions = document.createElement("div");
+    actions.style.cssText =
+      "display:flex;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid #e5e7eb;";
+    actions.appendChild(
+      buildPricingRefreshIconButton(pricing, onRefreshPricing),
+    );
+    content?.appendChild(actions);
   }
   return container;
 }
