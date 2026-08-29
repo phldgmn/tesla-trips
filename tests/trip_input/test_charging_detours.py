@@ -15,8 +15,8 @@ from tripplanner.optimization.models import ChargingPlan, ChargingStop
 from tripplanner.routing import FakeRoutingProvider
 from tripplanner.routing.models import Route, RouteSegment
 from tripplanner.simulation.models import LadehaltDetour
-from tripplanner.trip_input.api import _step_route_charging_detours
 from tripplanner.trip_input.models import TripRequest, VehicleProfile
+from tripplanner.trip_input.pipeline import _step_route_charging_detours
 
 
 def _make_charging_station(

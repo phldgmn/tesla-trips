@@ -25,8 +25,8 @@ from tripplanner.energy.energy import (
 )
 from tripplanner.energy.models import VehicleEnergyParameters
 from tripplanner.routing.models import Route, RouteSegment
-from tripplanner.trip_input.api import _step_7_calculate_segment_energy
 from tripplanner.trip_input.models import VehicleProfile
+from tripplanner.trip_input.pipeline import _step_7_calculate_segment_energy
 from tripplanner.weather.models import WeatherSample
 from tripplanner.wind.models import WindComponents
 

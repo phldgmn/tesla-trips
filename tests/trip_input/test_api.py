@@ -24,7 +24,7 @@ import pytest
 from fastapi import params as fastapi_params
 from fastapi.testclient import TestClient
 
-import tripplanner.trip_input.api as trip_api
+import tripplanner.trip_input.pipeline as trip_pipeline
 from tripplanner.charging_infrastructure import FakeChargingStationProvider
 from tripplanner.charging_infrastructure.client import TeslaLocationsClient
 from tripplanner.charging_infrastructure.models import ChargingStation, ConnectorType, StallType
@@ -47,7 +47,6 @@ from tripplanner.simulation.models import (
 )
 from tripplanner.trip_input.api import (
     _build_construction_zones_api,
-    _log_step,
     app,
     create_trip_endpoint,
     create_trip_simulation,
@@ -65,6 +64,7 @@ from tripplanner.trip_input.models import (
     VehicleProfile,
     Waypoint,
 )
+from tripplanner.trip_input.pipeline import _log_step
 from tripplanner.weather.models import WeatherQuery, WeatherSample
 from tripplanner.weather.providers import (
     FakeWeatherProvider,
@@ -758,7 +758,7 @@ async def test_step_1_route_calculation_uses_calculate_route(
     provider = _RecordingProvider()
     anfrage = TripRequest.model_validate(valid_trip_request)
 
-    await trip_api._step_1_route_calculate(anfrage, provider)
+    await trip_pipeline._step_1_route_calculate(anfrage, provider)
 
     assert provider.berechne_route_called_with is anfrage
 
@@ -839,7 +839,7 @@ class TestElevationGradientAffectsEnergy:
             globalstrahlung_wm2=400.0,
             bewoelkung_pct=20.0,
         )
-        results = await trip_api._step_7_calculate_segment_energy(
+        results = await trip_pipeline._step_7_calculate_segment_energy(
             route,
             [segment],
             [(segment, timedelta(minutes=3))],
@@ -925,7 +925,7 @@ def test_match_ferry_time_window_expanded_when_same_name() -> None:
         ankunft=ankunft,
     )
 
-    ergebnis = trip_api._match_ferry_time_window([faehre], [zeitfenster])
+    ergebnis = trip_pipeline._match_ferry_time_window([faehre], [zeitfenster])
 
     assert len(ergebnis) == 1
     assert ergebnis[0].abfahrt == abfahrt
@@ -954,7 +954,7 @@ def test_match_ferry_time_window_ignore_not_matching_names() -> None:
         ankunft=datetime(2026, 8, 15, 11, 0, 0),
     )
 
-    ergebnis = trip_api._match_ferry_time_window([faehre], [zeitfenster])
+    ergebnis = trip_pipeline._match_ferry_time_window([faehre], [zeitfenster])
 
     assert len(ergebnis) == 1
     assert ergebnis[0].abfahrt is None
@@ -986,7 +986,7 @@ def test_match_ferry_time_window_select_next_bbox_for_multiple_matching_names() 
         ankunft=datetime(2026, 8, 15, 21, 0, 0),
     )
 
-    ergebnis = trip_api._match_ferry_time_window([faehre], [fern, nah])
+    ergebnis = trip_pipeline._match_ferry_time_window([faehre], [fern, nah])
 
     assert ergebnis[0].abfahrt == nah.abfahrt
 
@@ -2381,7 +2381,7 @@ def test_create_trip_endpoint_uses_open_meteo_provider_for_real_weather(
     `FakeWeatherProvider`'s constant 20.0°C/5.0 m/s - regression test for Plan
     10 Phase B (weather wiring)."""
     captured_weather_samples: list[list[WeatherSample]] = []
-    original_step_7 = trip_api._step_7_calculate_segment_energy
+    original_step_7 = trip_pipeline._step_7_calculate_segment_energy
 
     async def spy_step_7(
         route: Route,
@@ -2395,7 +2395,7 @@ def test_create_trip_endpoint_uses_open_meteo_provider_for_real_weather(
             route, route_segments, segment_eta_list, weather_samples, *rest
         )
 
-    monkeypatch.setattr(trip_api, "_step_7_calculate_segment_energy", spy_step_7)
+    monkeypatch.setattr(trip_pipeline, "_step_7_calculate_segment_energy", spy_step_7)
     monkeypatch.setattr(httpx.AsyncClient, "get", _async_open_meteo_mock_get)
 
     app.dependency_overrides[get_routing_provider] = FakeRoutingProvider
@@ -2456,7 +2456,7 @@ def test_fastapi_endpoint_weather_provider_failure_degrades_gracefully(
     monkeypatch.setattr(httpx.AsyncClient, "get", rate_limited_get)
 
     captured_weather_samples: list[list[WeatherSample]] = []
-    original_step_7 = trip_api._step_7_calculate_segment_energy
+    original_step_7 = trip_pipeline._step_7_calculate_segment_energy
 
     async def spy_step_7(
         route: Route,
@@ -2470,7 +2470,7 @@ def test_fastapi_endpoint_weather_provider_failure_degrades_gracefully(
             route, route_segments, segment_eta_list, weather_samples, *rest
         )
 
-    monkeypatch.setattr(trip_api, "_step_7_calculate_segment_energy", spy_step_7)
+    monkeypatch.setattr(trip_pipeline, "_step_7_calculate_segment_energy", spy_step_7)
 
     app.dependency_overrides[get_routing_provider] = FakeRoutingProvider
     app.dependency_overrides[get_charging_provider] = lambda: fake_charging_provider_berlin_munich
@@ -2765,13 +2765,13 @@ async def test_convergence_loop_terminates_at_max_iterations(
     from the route/energy feasibility of any particular weather scenario.
     """
     weather_calls: list[object] = []
-    real_update_eta = trip_api._step_9_update_eta
+    real_update_eta = trip_pipeline._step_9_update_eta
 
     def _never_converging_update_eta(segment_eta_list: object, charging_plan: object) -> object:
         updated = real_update_eta(segment_eta_list, charging_plan)
         return [(seg, eta + timedelta(hours=1)) for seg, eta in updated]
 
-    monkeypatch.setattr(trip_api, "_step_9_update_eta", _never_converging_update_eta)
+    monkeypatch.setattr(trip_pipeline, "_step_9_update_eta", _never_converging_update_eta)
 
     class _CountingWeatherProvider(FakeWeatherProvider):
         async def fetch_weather(self, queries: Sequence[WeatherQuery]) -> list[WeatherSample]:
@@ -2868,13 +2868,13 @@ async def test_convergence_loop_uses_refetch_weather_from_second_iteration(
     monkeypatched `_step_9_update_eta`), guaranteeing `max_iterations`
     iterations run, so `refetch_weather` is exercised on iterations 2 and 3.
     """
-    real_update_eta = trip_api._step_9_update_eta
+    real_update_eta = trip_pipeline._step_9_update_eta
 
     def _never_converging_update_eta(segment_eta_list: object, charging_plan: object) -> object:
         updated = real_update_eta(segment_eta_list, charging_plan)  # type: ignore[arg-type]
         return [(seg, eta + timedelta(hours=1)) for seg, eta in updated]  # type: ignore[union-attr]
 
-    monkeypatch.setattr(trip_api, "_step_9_update_eta", _never_converging_update_eta)
+    monkeypatch.setattr(trip_pipeline, "_step_9_update_eta", _never_converging_update_eta)
 
     class _RefetchTrackingWeatherProvider(FakeWeatherProvider):
         def __init__(self) -> None:
@@ -2989,7 +2989,7 @@ class TestAttachChargingPricing:
         provider = TeslaChargingStationProvider(db_path=tmp_path / "t.db")
         result = _make_simulation_result([])
 
-        attached = trip_api._attach_charging_pricing(result, provider)
+        attached = trip_pipeline._attach_charging_pricing(result, provider)
 
         assert attached is result
 
@@ -2997,7 +2997,7 @@ class TestAttachChargingPricing:
         """Ein Fake-/LocalFile-Provider unterstuetzt kein Pricing - No-Op."""
         result = _make_simulation_result([_make_charging_stop_summary()])
 
-        attached = trip_api._attach_charging_pricing(result, FakeChargingStationProvider())
+        attached = trip_pipeline._attach_charging_pricing(result, FakeChargingStationProvider())
 
         assert attached is result
 
@@ -3021,7 +3021,7 @@ class TestAttachChargingPricing:
         )
         result = _make_simulation_result([_make_charging_stop_summary(energie_geladen_kwh=25.0)])
 
-        attached = trip_api._attach_charging_pricing(result, provider)
+        attached = trip_pipeline._attach_charging_pricing(result, provider)
 
         stop = attached.charging_stops[0]
         assert stop.price_per_kwh == pytest.approx(0.40)
@@ -3039,7 +3039,7 @@ class TestAttachChargingPricing:
         provider._db.replace_all_stations([_station_record(3506, "rhudensupercharger", "DE")])
         result = _make_simulation_result([_make_charging_stop_summary()])
 
-        attached = trip_api._attach_charging_pricing(result, provider)
+        attached = trip_pipeline._attach_charging_pricing(result, provider)
 
         stop = attached.charging_stops[0]
         assert stop.price_per_kwh is None
@@ -3093,7 +3093,7 @@ class TestAttachChargingPricing:
             ]
         )
 
-        attached = trip_api._attach_charging_pricing(result, provider)
+        attached = trip_pipeline._attach_charging_pricing(result, provider)
 
         assert attached.total_charging_cost == [
             ChargingCostByCurrency(currency="DKK", amount=40.0),
@@ -3120,7 +3120,7 @@ class TestAttachChargingPricing:
         )
         result = _make_simulation_result([_make_charging_stop_summary()])
 
-        trip_api._attach_charging_pricing(result, provider)
+        trip_pipeline._attach_charging_pricing(result, provider)
 
         assert provider.list_pricing_queue() == []
 
@@ -3151,7 +3151,7 @@ class TestAttachChargingPricing:
         conn.commit()
         result = _make_simulation_result([_make_charging_stop_summary()])
 
-        attached = trip_api._attach_charging_pricing(result, provider)
+        attached = trip_pipeline._attach_charging_pricing(result, provider)
 
         assert attached.charging_stops[0].price_per_kwh == pytest.approx(0.40)
         queue = provider.list_pricing_queue()
@@ -3272,7 +3272,7 @@ def test_fastapi_endpoint_logs_valueerror_as_422_warning(
     async def _fake_step_1_raises(*args: object, **kwargs: object) -> Route:
         raise ValueError("Kein erreichbarer Zielknoten gefunden")
 
-    monkeypatch.setattr(trip_api, "_step_1_route_calculate", _fake_step_1_raises)
+    monkeypatch.setattr(trip_pipeline, "_step_1_route_calculate", _fake_step_1_raises)
 
     app.dependency_overrides[get_routing_provider] = FakeRoutingProvider
     try:
