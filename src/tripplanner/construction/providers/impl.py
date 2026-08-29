@@ -132,7 +132,7 @@ class ConstructionProviderImpl(ConstructionProvider):
 
     async def fetch_construction_zones(
         self,
-        route: "routing_models.Route",
+        route: routing_models.Route,
         laender: list[Land],
     ) -> list[ConstructionZone]:
         """Fetch roadworks along the route for the given countries.
@@ -198,7 +198,7 @@ class ConstructionProviderImpl(ConstructionProvider):
         return all_zones
 
     @staticmethod
-    def _build_landscape_cache_key(land: Land, route: "routing_models.Route") -> str:
+    def _build_landscape_cache_key(land: Land, route: routing_models.Route) -> str:
         """Build a coarse-grained cache key for DK/SE DATEX II queries.
 
         Rounds bounding-box coordinates to 0.5 degree grid so nearby or
@@ -225,7 +225,7 @@ class ConstructionProviderImpl(ConstructionProvider):
 
     async def _fetch_landscape_zones(
         self,
-        route: "routing_models.Route",
+        route: routing_models.Route,
         land: Land,
         strtree: STRtree,
         segment_geoms: list[LineString],
@@ -283,7 +283,7 @@ class ConstructionProviderImpl(ConstructionProvider):
             return []
 
         if land == Land.SE:
-            construction_zones = _parse_trafikverket_situations(response.json())  # type: ignore[arg-type]
+            construction_zones = _parse_trafikverket_situations(response.json())
         else:
             xml_content = response.text
             construction_zones = parse_datexii_xml(xml_content, land)
@@ -369,7 +369,7 @@ class ConstructionProviderImpl(ConstructionProvider):
         self._dk_token_expires_at = time.time() + expires_in
         return access_token
 
-    def _build_dk_params(self, route: "routing_models.Route") -> dict[str, str]:
+    def _build_dk_params(self, route: routing_models.Route) -> dict[str, str]:
         """Parameter für Dataudveksleren (Denmark) DATEX II API."""
         coords = self._route_to_bounding_box(route)
         return {
@@ -378,7 +378,7 @@ class ConstructionProviderImpl(ConstructionProvider):
             "format": "datex2",
         }
 
-    def _build_se_request_xml(self, route: "routing_models.Route") -> str:
+    def _build_se_request_xml(self, route: routing_models.Route) -> str:
         """Build the Trafikverket v2 ``data.json`` POST body for Situations.
 
         Args:
@@ -402,7 +402,7 @@ class ConstructionProviderImpl(ConstructionProvider):
             "</QUERY></REQUEST>"
         )
 
-    def _route_to_bounding_box(self, route: "routing_models.Route") -> str:
+    def _route_to_bounding_box(self, route: routing_models.Route) -> str:
         """Konvertiert Route zu Bounding Box für API-Abfrage."""
         coords: list[tuple[float, float]] = []
         for segment in route.segments:

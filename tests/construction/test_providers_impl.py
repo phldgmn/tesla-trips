@@ -19,6 +19,7 @@ import httpx
 import pytest
 
 from tripplanner.cache.store import TTLCache
+from tripplanner.construction import matching
 from tripplanner.construction.models import (
     ConstructionZone,
     Land,
@@ -102,7 +103,7 @@ def _make_provider(
 
 def _build_strtree(route: Route):
     """Helper: build STRtree and segment_geoms for a test route."""
-    return ConstructionProviderImpl._build_strtree(route.segments)
+    return matching.build_strtree(route.segments)
 
 
 class TestBuildDkParams:
@@ -199,7 +200,7 @@ class TestZoneToGeometry:
 
     def test_linestring_zone(self) -> None:
         """Eine Zone mit mehreren Koordinaten wird zu einem LineString konvertiert."""
-        provider = _make_provider()
+        _make_provider()
         zone = DATEXIIConstructionZoneInternal(
             sperrungstyp="partiallyClosed",
             gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
@@ -209,14 +210,14 @@ class TestZoneToGeometry:
             tempolimit_kmh=80,
         )
 
-        geom = provider._zone_to_geometry(zone)
+        geom = matching.zone_to_geometry(zone)
 
         assert geom.geom_type == "LineString"
         assert len(list(geom.coords)) == 2
 
     def test_point_zone(self) -> None:
         """Eine Zone mit genau einem Punkt wird zu einem Point konvertiert."""
-        provider = _make_provider()
+        _make_provider()
         zone = DATEXIIConstructionZoneInternal(
             sperrungstyp="partiallyClosed",
             gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
@@ -226,13 +227,13 @@ class TestZoneToGeometry:
             tempolimit_kmh=80,
         )
 
-        geom = provider._zone_to_geometry(zone)
+        geom = matching.zone_to_geometry(zone)
 
         assert geom.geom_type == "Point"
 
     def test_empty_zone(self) -> None:
         """Eine Zone ohne Koordinaten wird zu einer leeren LineString konvertiert."""
-        provider = _make_provider()
+        _make_provider()
         zone = DATEXIIConstructionZoneInternal(
             sperrungstyp="partiallyClosed",
             gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
@@ -242,7 +243,7 @@ class TestZoneToGeometry:
             tempolimit_kmh=80,
         )
 
-        geom = provider._zone_to_geometry(zone)
+        geom = matching.zone_to_geometry(zone)
 
         assert geom.is_empty
 
@@ -253,7 +254,7 @@ class TestMatchZonesToSegmentIds:
     @pytest.mark.asyncio
     async def test_matches_zone_to_segment_when_near(self) -> None:
         """Zone in der Nähe eines Route-Segments liefert Segment-ID."""
-        provider = _make_provider()
+        _make_provider()
         route = _make_route()
         strtree, seg_geoms = _build_strtree(route)
 
@@ -266,13 +267,13 @@ class TestMatchZonesToSegmentIds:
             tempolimit_kmh=80,
         )
 
-        ids = provider._match_zones_to_segment_ids(zone, strtree, seg_geoms)
+        ids = matching.match_zones_to_segment_ids(zone, strtree, seg_geoms)
         assert ids == [0]
 
     @pytest.mark.asyncio
     async def test_no_intersection_returns_empty_list(self) -> None:
         """Zone weit weg von der Route liefert leere Liste."""
-        provider = _make_provider()
+        _make_provider()
         route = _make_route()
         strtree, seg_geoms = _build_strtree(route)
 
@@ -285,13 +286,13 @@ class TestMatchZonesToSegmentIds:
             tempolimit_kmh=80,
         )
 
-        ids = provider._match_zones_to_segment_ids(zone, strtree, seg_geoms)
+        ids = matching.match_zones_to_segment_ids(zone, strtree, seg_geoms)
         assert ids == []
 
     @pytest.mark.asyncio
     async def test_single_point_zone_maps_to_segment(self) -> None:
         """A single-point zone (Point geometry) still maps to segment IDs via distance threshold."""
-        provider = _make_provider()
+        _make_provider()
         route = _make_route()
         strtree, seg_geoms = _build_strtree(route)
 
@@ -304,13 +305,13 @@ class TestMatchZonesToSegmentIds:
             tempolimit_kmh=80,
         )
 
-        ids = provider._match_zones_to_segment_ids(zone, strtree, seg_geoms)
+        ids = matching.match_zones_to_segment_ids(zone, strtree, seg_geoms)
         assert ids == [0]
 
     @pytest.mark.asyncio
     async def test_single_point_zone_no_intersection(self) -> None:
         """A single-point zone far from any segment yields empty list."""
-        provider = _make_provider()
+        _make_provider()
         route = _make_route()
         strtree, seg_geoms = _build_strtree(route)
 
@@ -323,7 +324,7 @@ class TestMatchZonesToSegmentIds:
             tempolimit_kmh=80,
         )
 
-        ids = provider._match_zones_to_segment_ids(zone, strtree, seg_geoms)
+        ids = matching.match_zones_to_segment_ids(zone, strtree, seg_geoms)
         assert ids == []
 
 
@@ -332,26 +333,26 @@ class TestMapClosureType:
 
     def test_maps_common_xsi_types(self) -> None:
         """Häufige DATEX II xsi:type-Werte werden korrekt gemappt."""
-        provider = _make_provider()
-        assert provider._map_closure_type("fullyClosed") == Sperrungstyp.FULLY_CLOSED
-        assert provider._map_closure_type("partiallyClosed") == Sperrungstyp.PARTIALLY_CLOSED
-        assert provider._map_closure_type("laneClosed") == Sperrungstyp.LANE_CLOSED
+        _make_provider()
+        assert matching.map_closure_type("fullyClosed") == Sperrungstyp.FULLY_CLOSED
+        assert matching.map_closure_type("partiallyClosed") == Sperrungstyp.PARTIALLY_CLOSED
+        assert matching.map_closure_type("laneClosed") == Sperrungstyp.LANE_CLOSED
         assert (
-            provider._map_closure_type("temporarySpeedLimit") == Sperrungstyp.TEMPORARY_SPEED_LIMIT
+            matching.map_closure_type("temporarySpeedLimit") == Sperrungstyp.TEMPORARY_SPEED_LIMIT
         )
-        assert provider._map_closure_type("detrourRequired") == Sperrungstyp.DETOUR_REQUIRED
+        assert matching.map_closure_type("detrourRequired") == Sperrungstyp.DETOUR_REQUIRED
 
     def test_unknown_xsi_type_defaults_to_partially_closed(self) -> None:
         """Unbekannte xsi:type-Werte fallen auf PARTIALLY_CLOSED zurück."""
-        provider = _make_provider()
+        _make_provider()
 
-        assert provider._map_closure_type("unknownType") == Sperrungstyp.PARTIALLY_CLOSED
+        assert matching.map_closure_type("unknownType") == Sperrungstyp.PARTIALLY_CLOSED
 
     def test_roadworks_maps_to_partially_closed(self) -> None:
         """'Roadworks' und 'MaintenanceWorks' werden als PARTIALLY_CLOSED gemappt."""
-        provider = _make_provider()
-        assert provider._map_closure_type("Roadworks") == Sperrungstyp.PARTIALLY_CLOSED
-        assert provider._map_closure_type("MaintenanceWorks") == Sperrungstyp.PARTIALLY_CLOSED
+        _make_provider()
+        assert matching.map_closure_type("Roadworks") == Sperrungstyp.PARTIALLY_CLOSED
+        assert matching.map_closure_type("MaintenanceWorks") == Sperrungstyp.PARTIALLY_CLOSED
 
 
 class TestHasCredentials:

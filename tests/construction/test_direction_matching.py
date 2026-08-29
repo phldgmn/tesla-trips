@@ -22,11 +22,13 @@ from datetime import UTC, datetime
 
 import httpx
 
+from tripplanner.construction import matching
 from tripplanner.construction.parser import DATEXIIConstructionZoneInternal
 from tripplanner.construction.providers import (
     ConstructionProviderConfig,
     ConstructionProviderImpl,
 )
+from tripplanner.construction.providers.impl import _SE_BOTH_DIRECTIONS_VALUES
 from tripplanner.geo import geodesic_length_m
 from tripplanner.routing.models import Route, RouteSegment
 
@@ -90,44 +92,64 @@ class TestDirectionAwareMatching:
     """DK/SE zones with LineString geometry are filtered by direction of travel."""
 
     def test_same_direction_zone_is_matched(self) -> None:
-        provider = _make_provider()
+        _make_provider()
         route = _make_route(bearing=45.0)
         zone = _make_zone(SAME_DIRECTION_COORDS)
 
-        strtree, seg_geoms = provider._build_strtree(route.segments)
-        ids = provider._match_zones_to_segment_ids(zone, strtree, seg_geoms, route.segments)
+        strtree, seg_geoms = matching.build_strtree(route.segments)
+        ids = matching.match_zones_to_segment_ids(
+            zone,
+            strtree,
+            seg_geoms,
+            route.segments,
+            both_directions_values=_SE_BOTH_DIRECTIONS_VALUES,
+        )
 
         assert ids == [0]
 
     def test_opposite_direction_zone_is_excluded(self) -> None:
-        provider = _make_provider()
+        _make_provider()
         route = _make_route(bearing=45.0)
         zone = _make_zone(OPPOSITE_DIRECTION_COORDS)
 
-        strtree, seg_geoms = provider._build_strtree(route.segments)
-        ids = provider._match_zones_to_segment_ids(zone, strtree, seg_geoms, route.segments)
+        strtree, seg_geoms = matching.build_strtree(route.segments)
+        ids = matching.match_zones_to_segment_ids(
+            zone,
+            strtree,
+            seg_geoms,
+            route.segments,
+            both_directions_values=_SE_BOTH_DIRECTIONS_VALUES,
+        )
 
         assert ids == []
 
     def test_without_route_segments_direction_filtering_is_skipped(self) -> None:
         """Backward compatibility: omitting route_segments matches by distance only."""
-        provider = _make_provider()
+        _make_provider()
         route = _make_route(bearing=45.0)
         zone = _make_zone(OPPOSITE_DIRECTION_COORDS)
 
-        strtree, seg_geoms = provider._build_strtree(route.segments)
-        ids = provider._match_zones_to_segment_ids(zone, strtree, seg_geoms)
+        strtree, seg_geoms = matching.build_strtree(route.segments)
+        ids = matching.match_zones_to_segment_ids(
+            zone, strtree, seg_geoms, both_directions_values=_SE_BOTH_DIRECTIONS_VALUES
+        )
 
         assert ids == [0]
 
     def test_point_only_zone_is_unaffected_by_direction_filtering(self) -> None:
         """A zone with a single coordinate has no bearing and skips the filter."""
-        provider = _make_provider()
+        _make_provider()
         route = _make_route(bearing=45.0)
         zone = _make_zone([(50.0005, 9.0005)])
 
-        strtree, seg_geoms = provider._build_strtree(route.segments)
-        ids = provider._match_zones_to_segment_ids(zone, strtree, seg_geoms, route.segments)
+        strtree, seg_geoms = matching.build_strtree(route.segments)
+        ids = matching.match_zones_to_segment_ids(
+            zone,
+            strtree,
+            seg_geoms,
+            route.segments,
+            both_directions_values=_SE_BOTH_DIRECTIONS_VALUES,
+        )
 
         assert ids == [0]
 
@@ -137,23 +159,35 @@ class TestSeAffectedDirectionValue:
 
     def test_specific_direction_value_keeps_geometrically_opposite_zone(self) -> None:
         """Source explicitly states a single bound -> trust it, skip geometry heuristic."""
-        provider = _make_provider()
+        _make_provider()
         route = _make_route(bearing=45.0)
         zone = _make_zone(OPPOSITE_DIRECTION_COORDS, affected_direction_value="Mot Stockholm")
 
-        strtree, seg_geoms = provider._build_strtree(route.segments)
-        ids = provider._match_zones_to_segment_ids(zone, strtree, seg_geoms, route.segments)
+        strtree, seg_geoms = matching.build_strtree(route.segments)
+        ids = matching.match_zones_to_segment_ids(
+            zone,
+            strtree,
+            seg_geoms,
+            route.segments,
+            both_directions_values=_SE_BOTH_DIRECTIONS_VALUES,
+        )
 
         assert ids == [0]
 
     def test_both_directions_value_falls_back_to_geometry_heuristic(self) -> None:
         """ "Both directions" is not a specific bound -> geometry heuristic still applies."""
-        provider = _make_provider()
+        _make_provider()
         route = _make_route(bearing=45.0)
         zone = _make_zone(OPPOSITE_DIRECTION_COORDS, affected_direction_value="BothDirections")
 
-        strtree, seg_geoms = provider._build_strtree(route.segments)
-        ids = provider._match_zones_to_segment_ids(zone, strtree, seg_geoms, route.segments)
+        strtree, seg_geoms = matching.build_strtree(route.segments)
+        ids = matching.match_zones_to_segment_ids(
+            zone,
+            strtree,
+            seg_geoms,
+            route.segments,
+            both_directions_values=_SE_BOTH_DIRECTIONS_VALUES,
+        )
 
         assert ids == []
 

@@ -241,32 +241,32 @@ class TestNearMatchDistanceThreshold:
 
     def test_dk_zone_near_segment_matches(self) -> None:
         """DK zone 50-200m from a segment endpoint should match."""
-        provider = _make_provider()
+        _make_provider()
         route = _make_n_segments(1, spacing_deg=0.01)
         zone = _make_linezone([(50.0, 9.001), (50.01, 9.011)])
 
-        strtree, seg_geoms = provider._build_strtree(route.segments)
-        ids = provider._match_zones_to_segment_ids(zone, strtree, seg_geoms)
+        strtree, seg_geoms = matching.build_strtree(route.segments)
+        ids = matching.match_zones_to_segment_ids(zone, strtree, seg_geoms)
         assert ids == [0]
 
     def test_se_zone_near_segment_matches(self) -> None:
         """SE zone 100m from segment endpoint should match."""
-        provider = _make_provider()
+        _make_provider()
         route = _make_n_segments(1, spacing_deg=0.01)
         zone = _make_linezone([(50.0015, 9.0)])
 
-        strtree, seg_geoms = provider._build_strtree(route.segments)
-        ids = provider._match_zones_to_segment_ids(zone, strtree, seg_geoms)
+        strtree, seg_geoms = matching.build_strtree(route.segments)
+        ids = matching.match_zones_to_segment_ids(zone, strtree, seg_geoms)
         assert ids == [0]
 
     def test_zone_far_from_segment_no_match(self) -> None:
         """Zone far from all segments returns empty list."""
-        provider = _make_provider()
+        _make_provider()
         route = _make_n_segments(1, spacing_deg=0.01)
         zone = _make_linezone([(53.55, 9.99), (53.56, 10.0)])
 
-        strtree, seg_geoms = provider._build_strtree(route.segments)
-        ids = provider._match_zones_to_segment_ids(zone, strtree, seg_geoms)
+        strtree, seg_geoms = matching.build_strtree(route.segments)
+        ids = matching.match_zones_to_segment_ids(zone, strtree, seg_geoms)
         assert ids == []
 
 
@@ -410,8 +410,8 @@ class TestSharedDistanceThreshold:
         assert matching.MAX_DISTANCE_M > 0
 
     def test_threshold_applied_in_dk_se_matching(self) -> None:
-        """DK/SE _match_zones_to_segment_ids uses shared STRtree distance matching."""
-        source = inspect.getsource(ConstructionProviderImpl._match_zones_to_segment_ids)
-        assert "matching.match_zones_to_segment_ids" in source, (
-            "DK/SE matching should delegate to matching.match_zones_to_segment_ids (STRtree)"
+        """DK/SE matching delegates to the shared STRtree segment matcher."""
+        source = inspect.getsource(matching.match_zones_to_segment_ids)
+        assert "match_geometry_to_segments" in source, (
+            "DK/SE matching should use the shared STRtree distance matcher"
         )
