@@ -5,7 +5,6 @@ Alle Tests sind deterministisch und verwenden kleine, synthetische Szenarien.
 
 from __future__ import annotations
 
-import itertools
 import random
 import time
 from datetime import UTC, datetime, timedelta
@@ -22,8 +21,10 @@ from tripplanner.charging_infrastructure.models import (
 from tripplanner.elevation.models import SegmentGradient
 from tripplanner.energy.models import SegmentEnergyResult
 from tripplanner.optimization import (
+    charging_math,
     create_networkx_optimizer,
     create_ortools_optimizer,
+    detour_costs,
 )
 from tripplanner.optimization.discretizer import (
     bucket_to_soc,
@@ -31,6 +32,7 @@ from tripplanner.optimization.discretizer import (
     soc_to_bucket,
     time_to_bucket,
 )
+from tripplanner.optimization.graph_builder import StateGraphBuilder
 from tripplanner.optimization.models import (
     ChargingStop,
     DetourKosten,
@@ -722,9 +724,14 @@ class TestLadehaltUeberlebtKnotenKollision:
             parent=None,
         )
 
-        optimizer._push_seq = itertools.count()
+        builder = StateGraphBuilder(
+            soc_step_pct=optimizer.soc_step_pct,
+            time_step_min=optimizer.time_step_min,
+            base_time=base_time,
+            avg_verbrauch_kwh_pro_m=0.0,
+        )
         heap: list[tuple[float, int, tuple[int, int, int]]] = []
-        optimizer._fuege_ladekante_hinzu(
+        builder.fuege_ladekante_hinzu(
             G=G,
             current=current,
             seg_idx=5,
@@ -1724,14 +1731,14 @@ class TestMindestLadedauerVerhindertKurzeLadehalte:
         Kandidat bleibt unverändert; mehrere zu kurze Kandidaten, die auf
         dasselbe gestreckte Ziel abgebildet werden, sind im Ergebnis nur
         einmal enthalten (Deduplizierung)."""
-        optimizer = create_networkx_optimizer()
+        create_networkx_optimizer()
         ladekurve = LadekurveReferenz.model_3_lr_v3()
         batteriekapazitaet_kwh = 75.0
 
         # 70% -> 71%/72% laden dauert bei dieser Kurve deutlich unter 600s
         # (siehe Kurvenpunkt 50-80% bei 150kW); 70% -> 95% dauert deutlich
         # laenger als 600s und bleibt daher unveraendert.
-        ergebnis = optimizer._kandidaten_mit_mindestladedauer(
+        ergebnis = charging_math.kandidaten_mit_mindestladedauer(
             kandidaten=[71.0, 72.0, 95.0],
             ankunft_soc_pct=70.0,
             ladekurve=ladekurve,
@@ -1741,7 +1748,7 @@ class TestMindestLadedauerVerhindertKurzeLadehalte:
 
         # Die beiden zu kurzen Kandidaten (71%/72%) wurden auf dasselbe,
         # per `_soc_nach_fester_ladezeit` bestimmte SoC gestreckt.
-        gestrecktes_soc = optimizer._soc_nach_fester_ladezeit(
+        gestrecktes_soc = charging_math.soc_nach_fester_ladezeit(
             start_soc_pct=70.0,
             ladezeit_s=600.0,
             ladekurve=ladekurve,
@@ -1750,7 +1757,7 @@ class TestMindestLadedauerVerhindertKurzeLadehalte:
         assert ergebnis == [pytest.approx(gestrecktes_soc), 95.0]
 
         # Das gestreckte Ziel dauert tatsaechlich (rund) die Mindestdauer.
-        gestreckte_ladezeit_s = optimizer._calc_ladezeit_s(
+        gestreckte_ladezeit_s = charging_math.calc_ladezeit_s(
             start_soc_pct=70.0,
             end_soc_pct=ergebnis[0],
             ladekurve=ladekurve,
@@ -1760,11 +1767,11 @@ class TestMindestLadedauerVerhindertKurzeLadehalte:
 
     def test_deaktivierte_mindestladedauer_laesst_kandidaten_unveraendert(self) -> None:
         """`mindest_ladezeit_s=0` (deaktiviert) darf Kandidaten nicht verändern."""
-        optimizer = create_networkx_optimizer()
+        create_networkx_optimizer()
         ladekurve = LadekurveReferenz.model_3_lr_v3()
         kandidaten = [71.0, 72.0, 95.0]
 
-        ergebnis = optimizer._kandidaten_mit_mindestladedauer(
+        ergebnis = charging_math.kandidaten_mit_mindestladedauer(
             kandidaten=kandidaten,
             ankunft_soc_pct=70.0,
             ladekurve=ladekurve,
@@ -1821,10 +1828,9 @@ class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
     `optimization.detour_routing`)."""
 
     def test_nutzt_reale_kosten_wenn_station_in_map(self) -> None:
-        optimizer = create_networkx_optimizer()
         real_kosten = DetourKosten(distanz_m=2000.0, zeit_s=180.0, energie_kwh=0.4)
 
-        zeit_s, _soc_pct = optimizer._detour_kosten(
+        zeit_s, _soc_pct = detour_costs.detour_kosten(
             station_id="real-station",
             offroute_distance_m=999_999.0,  # would give a wildly different heuristic result
             vehicle_profile=VehicleProfile(
@@ -1838,12 +1844,12 @@ class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
                 dachbox=False,
             ),
             detour_kosten={"real-station": real_kosten},
+            avg_verbrauch_kwh_pro_m=0.0,
         )
 
         assert zeit_s == 180.0
 
     def test_faellt_auf_heuristik_zurueck_wenn_station_fehlt(self) -> None:
-        optimizer = create_networkx_optimizer()
         vehicle_profile = VehicleProfile(
             masse_kg=1800.0,
             cw_wert=0.23,
@@ -1854,22 +1860,21 @@ class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
             reifentyp="standard",
             dachbox=False,
         )
-        optimizer._avg_verbrauch_kwh_pro_m = 0.0002  # set as optimize() normally would
 
-        zeit_s, _ = optimizer._detour_kosten(
+        zeit_s, _ = detour_costs.detour_kosten(
             station_id="missing-station",
             offroute_distance_m=1000.0,
             vehicle_profile=vehicle_profile,
             detour_kosten={
                 "other-station": DetourKosten(distanz_m=1.0, zeit_s=1.0, energie_kwh=0.0)
             },
+            avg_verbrauch_kwh_pro_m=0.0002,  # set as optimize() normally would
         )
 
         # Heuristic: 1000m * 1.6 / (70 km/h) = ~82.3s
         assert zeit_s == pytest.approx(82.3, abs=0.5)
 
     def test_faellt_auf_heuristik_zurueck_wenn_detour_kosten_none(self) -> None:
-        optimizer = create_networkx_optimizer()
         vehicle_profile = VehicleProfile(
             masse_kg=1800.0,
             cw_wert=0.23,
@@ -1880,13 +1885,13 @@ class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
             reifentyp="standard",
             dachbox=False,
         )
-        optimizer._avg_verbrauch_kwh_pro_m = 0.0002
 
-        zeit_s, _ = optimizer._detour_kosten(
+        zeit_s, _ = detour_costs.detour_kosten(
             station_id="any-station",
             offroute_distance_m=1000.0,
             vehicle_profile=vehicle_profile,
             detour_kosten=None,
+            avg_verbrauch_kwh_pro_m=0.0002,
         )
 
         assert zeit_s == pytest.approx(82.3, abs=0.5)
@@ -2051,12 +2056,11 @@ class TestMaxChargeSocStretchClamping:
     duration only soft)."""
 
     def test_stretched_target_is_clamped_to_cap(self) -> None:
-        optimizer = create_networkx_optimizer()
         ladekurve = LadekurveReferenz.model_3_sr()
         # 70% from 20% (60 kWh) takes well under 2400s, so the candidate is
         # stretched to the SoC after 2400s (~100%) - with a 70% cap the
         # clamped target must be exactly the cap.
-        ergebnis = optimizer._kandidaten_mit_mindestladedauer(
+        ergebnis = charging_math.kandidaten_mit_mindestladedauer(
             kandidaten=[70.0],
             ankunft_soc_pct=20.0,
             ladekurve=ladekurve,
@@ -2069,9 +2073,8 @@ class TestMaxChargeSocStretchClamping:
     def test_without_cap_stretch_is_unchanged(self) -> None:
         """Without a cap (default) the stretched target stays at ~100%
         (regression: default behavior unchanged)."""
-        optimizer = create_networkx_optimizer()
         ladekurve = LadekurveReferenz.model_3_sr()
-        ergebnis = optimizer._kandidaten_mit_mindestladedauer(
+        ergebnis = charging_math.kandidaten_mit_mindestladedauer(
             kandidaten=[70.0],
             ankunft_soc_pct=20.0,
             ladekurve=ladekurve,
