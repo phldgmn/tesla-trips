@@ -44,6 +44,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 1.1: Split `charging_infrastructure/client.py` → `clients/` package
 
 **Files:**
+
 - Create: `src/tripplanner/charging_infrastructure/clients/__init__.py`
 - Create: `src/tripplanner/charging_infrastructure/clients/common.py`
 - Create: `src/tripplanner/charging_infrastructure/clients/supercharge_info.py`
@@ -54,6 +55,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 - Test: existing `tests/charging_infrastructure/test_client.py`, `tests/charging_infrastructure/test_nodriver_integration.py` (unchanged, must still pass — they import `tripplanner.charging_infrastructure.client`)
 
 **Interfaces:**
+
 - Public symbols preserved exactly: `CurlError`, `TeslaClient` (Protocol), `create_tesla_client`, `SuperchargeInfoClient`, `TeslaLocationsClient`, `NodriverTeslaClient`, `NodriverBrowserFetcher`.
 - `tripplanner.charging_infrastructure.client` MUST remain a valid dotted path after the split (tests and `providers.py`/`trip_input/api.py`/`trip_input/cli.py` import from it directly) — achieved by keeping `client.py` as a **package** named `client/` (not `clients/`), OR by keeping a thin `client.py` shim. Use the shim approach for lowest risk: keep `src/tripplanner/charging_infrastructure/client.py` as a **13-line re-export shim** `from .clients.common import CurlError, TeslaClient; from .clients.supercharge_info import SuperchargeInfoClient; from .clients.tesla_curl import TeslaLocationsClient; from .clients.nodriver import NodriverBrowserFetcher, NodriverTeslaClient; from .clients.common import create_tesla_client` re-exported via `__all__`. Do NOT remove `client.py`; revise the "Files" list accordingly: **Modify** `client.py` into a shim rather than delete it.
 
@@ -70,6 +72,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 1.2: Split `charging_infrastructure/providers.py` → `providers/` package
 
 **Files:**
+
 - Create: `src/tripplanner/charging_infrastructure/providers/__init__.py`
 - Create: `src/tripplanner/charging_infrastructure/providers/spatial.py`
 - Create: `src/tripplanner/charging_infrastructure/providers/local_file.py`
@@ -81,6 +84,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 - Test: `tests/charging_infrastructure/test_providers.py`, `tests/charging_infrastructure/conftest.py` (unchanged)
 
 **Interfaces:**
+
 - Public symbols preserved: `CachedPricing`, `PricingQueueDrainResult`, `LocalFileChargingStationProvider`, `FakeChargingStationProvider`, `TeslaChargingStationProvider`.
 - `record_mapping.py` exposes module-level constants (hoisted from `TeslaChargingStationProvider._POWER_V2_MAX=150`, `_POWER_V3_MAX=250`, `_POWER_V3_ULTRA_MAX=350`) as `POWER_V2_MAX`, `POWER_V3_MAX`, `POWER_V3_ULTRA_MAX` (module-private naming `_POWER_*` is fine too — keep the underscore prefix since these were private class attributes, not public API) and free functions `site_to_db_record`, `tesla_location_to_db_record`, `tesla_detail_to_db_record`, `tesla_coords`, `parse_int`, `db_record_to_charging_station` (drop leading underscore since they become module-level implementation details of a new module — still not part of package `__all__`, so no public-API change).
 - Fix the duplicated stall-power thresholds: `LocalFileChargingStationProvider` in `local_file.py` MUST import the same constants from `record_mapping.py` instead of re-hardcoding `150/250/325/325`.
@@ -100,6 +104,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 1.3: Fix `__init__.py` docstring/export drift
 
 **Files:**
+
 - Modify: `src/tripplanner/charging_infrastructure/__init__.py`
 
 - [ ] **Step 1:** Read the module docstring; it claims `SQLiteDatabase` is exported but `__all__` omits it. Either add `SQLiteDatabase` to the explicit imports/`__all__` (if any caller would benefit — check via `grep -rn "charging_infrastructure import.*SQLiteDatabase"`) or correct the docstring to stop claiming it's exported. Since no external caller imports `SQLiteDatabase` from the package root (they use `tripplanner.charging_infrastructure.database.SQLiteDatabase`), correct the docstring — do not add a new export (avoid widening public API unasked).
@@ -113,12 +118,14 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 2.1: Extract charging-math and detour-cost pure functions from `optimizer.py`
 
 **Files:**
+
 - Create: `src/tripplanner/optimization/charging_math.py`
 - Create: `src/tripplanner/optimization/detour_costs.py`
 - Modify: `src/tripplanner/optimization/optimizer.py`
 - Test: `tests/optimization/test_optimization.py`
 
 **Interfaces:**
+
 - `charging_math.py` exposes free functions taking explicit parameters instead of `self`: `calc_soc_verbrauch_pct(energie_kwh, batteriekapazitaet_kwh)`, `calc_ladezeit_s(start_soc_pct, end_soc_pct, ladekurve, ladeleistung_kw, soc_step_pct)`, `mittlere_ladeleistung_kw(...)`, `soc_nach_fester_ladezeit(...)`, `lade_ziel_kandidaten(...)`, `kandidaten_mit_mindestladedauer(...)`. Signatures mirror the current method signatures minus `self`; inspect each method body first to enumerate its exact `self.<attr>` reads and add them as parameters.
 - `detour_costs.py` exposes `detour_kosten(station, segment_index, avg_verbrauch_kwh_pro_m, detour_kosten_map, ...)` mirroring `_detour_kosten`, plus module constants `DETOUR_ROUTENFAKTOR = 1.6`, `DETOUR_GESCHWINDIGKEIT_KMH = 70.0`.
 - `NetworkXOptimizer` keeps its full public method surface (`optimize`) unchanged; its private methods become thin one-line delegations to the new free functions, preserving `self._method(...)` call sites that other private methods in `optimizer.py` still use (do not update every call site's name — keep `self._calc_ladezeit_s(...)` etc. as thin wrappers calling `charging_math.calc_ladezeit_s(...)`, so the rest of `optimizer.py` needs zero further edits in this task).
@@ -136,11 +143,13 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 2.2: Extract result-extraction functions from `optimizer.py`
 
 **Files:**
+
 - Create: `src/tripplanner/optimization/result_extraction.py`
 - Modify: `src/tripplanner/optimization/optimizer.py`
 - Test: `tests/optimization/test_optimization.py`
 
 **Interfaces:**
+
 - `result_extraction.py` exposes `extract_charging_stops(graph, path, ...)`, `extract_waypoint_aufenthalte(graph, path, ...)`, `compute_waypoint_times(graph, path, ...)` mirroring `_extract_charging_stops`, `_extract_waypoint_aufenthalte`, `_compute_waypoint_times` (read exact current signatures/self-reads from `optimizer.py:1595-1752` before writing).
 
 - [ ] **Step 1:** Read `optimizer.py:1595-1752` for exact signatures.
@@ -153,6 +162,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 2.3: Extract segment/waypoint mapping into `station_mapping.py`
 
 **Files:**
+
 - Modify: `src/tripplanner/optimization/station_mapping.py`
 - Modify: `src/tripplanner/optimization/optimizer.py`
 - Test: `tests/optimization/test_station_mapping.py`, `tests/optimization/test_optimization.py`
@@ -167,11 +177,13 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 2.4: Extract state-graph construction into `graph_builder.py`
 
 **Files:**
+
 - Create: `src/tripplanner/optimization/graph_builder.py`
 - Modify: `src/tripplanner/optimization/optimizer.py`
 - Test: `tests/optimization/test_optimization.py`
 
 **Interfaces:**
+
 - `graph_builder.py` defines an internal class `StateGraphBuilder` (not exported from `optimization/__init__.py` — it is a private implementation detail of `NetworkXOptimizer`, so name it without leading underscore in its own module but do not add it to the package's public re-exports) carrying `soc_step_pct`, `time_step_min`, `base_time`, and a `push_seq` counter, with methods `generate_graph`, `schedule`, `add_drive_edge`, `add_ferry_edge`, `add_charging_edges`, `fuege_ladekante_hinzu`, `add_waypoint_wait_edge`, `required_departure` — same bodies as the current `_generate_graph` etc., ported to take the previously-`self`-only optimizer state via the builder's own `__init__` parameters (`soc_step_pct`, `time_step_min`, `battery/vehicle params`, `charging_math`/`detour_costs` module references already available via plain import).
 - `NetworkXOptimizer.optimize()` constructs one `StateGraphBuilder(...)` per call and calls `builder.generate_graph(...)`, replacing the eight `self._generate_graph`/`self._schedule`/etc. call sites with `builder.generate_graph`/`builder.schedule`/etc.
 
@@ -199,6 +211,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 3.1: Delete dead-duplicate `weather/client.py`
 
 **Files:**
+
 - Remove content of: `src/tripplanner/weather/client.py` (file itself may stay empty-shim or be deleted — see below)
 - Modify: `tests/weather/test_client.py`
 - Test: `tests/weather/test_client.py`
@@ -216,6 +229,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 3.2: Split `weather/providers.py` → per-provider modules
 
 **Files:**
+
 - Create: `src/tripplanner/weather/providers/__init__.py`
 - Create: `src/tripplanner/weather/providers/_shared.py`
 - Create: `src/tripplanner/weather/providers/caching.py`
@@ -230,6 +244,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 - Test: `tests/weather/test_providers.py`, `test_dmi.py`, `test_metno.py`, `test_openweather.py`, `test_smhi.py`, `test_load_balanced_provider.py`, `test_weather.py`, `test_weather_cache.py`, `test_weather_detail.py`, `tests/trip_input/test_api.py`, `test_cli.py`, `test_providers_factory.py`
 
 **Interfaces:**
+
 - Preserve exactly: `WeatherProvider` (Protocol), `FakeWeatherProvider`, `OpenMeteoClient`, `OpenMeteoProvider`, `MetNorwayProvider`, `SlidingWindowRateLimiter`, `OpenWeatherProvider`, `SmhiProvider`, `DmiProvider`, `WeatherProviderEntry`, `LoadBalancedWeatherProvider`, plus **private** symbols directly imported by tests: `_cache_key` (test_load_balanced_provider.py) and `_extract_sample_from_response` (test_weather.py) — these MUST resolve at `tripplanner.weather.providers._cache_key` / `._extract_sample_from_response` after the split (re-export them from the shim, even though they are private, because tests already depend on the exact dotted path).
 - `_shared.py`: `_group_queries_by_coordinate`, `_snap_to_hour_z`, `_clamp` (leaf, no internal deps, imported by every provider module).
 - `caching.py`: `_cache_key`, `_cache_str_key`, `_cache_deserialize`.
@@ -257,11 +272,13 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 3.3: Split `elevation/providers.py` — extract `TileCache` from `CopernicusDEMDataSource`
 
 **Files:**
+
 - Create: `src/tripplanner/elevation/tile_cache.py`
 - Modify: `src/tripplanner/elevation/providers.py`
 - Test: `tests/elevation/test_providers.py`
 
 **Interfaces:**
+
 - `tile_cache.py` defines `class TileCache` encapsulating the LRU dataset cache, per-tile locking, disk-cache read/write, and eviction logic currently inlined in `CopernicusDEMDataSource` (`_find_cached_tiles`, `_tile_name`, `_tile_uri`, `_schedule_cache_write`, `_write_band_to_cache`, `_get_tile_lock`, `_evict_over_cap`, `_dataset_for`, `_dataset_for_tile`) — read the exact method bodies first (`elevation/providers.py:222-761`) to determine the precise constructor parameters (cache dir, cap, etc.).
 - `CopernicusDEMDataSource` becomes a facade: `__init__` constructs a `TileCache(...)`, and `get_elevation`/`get_elevations_batch`/`get_tile_at`/`get_tiles_in_bbox`/`_read_tile_bulk` delegate tile acquisition to `self._tile_cache.dataset_for(...)` etc. `DEMDataSourceProtocol` and `FakeDataSource` stay in `providers.py` unchanged (they're small and don't need to move); `copernicus_tile_name` stays in `providers.py` too, imported by `tile_cache.py`.
 
@@ -279,6 +296,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 4.1: Consolidate the triplicated 80 km/h default-speed constant
 
 **Files:**
+
 - Modify: `src/tripplanner/construction/models.py`
 - Modify: `src/tripplanner/construction/providers.py`
 - Modify: `src/tripplanner/construction/providers_de_autobahn.py`
@@ -295,6 +313,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 4.2: Remove dead `_parse_with_xmlschema` passthrough in `construction/parser.py`
 
 **Files:**
+
 - Modify: `src/tripplanner/construction/parser.py`
 - Test: `tests/construction/test_parser.py`
 
@@ -307,6 +326,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 4.3: Split `construction/providers.py` by responsibility
 
 **Files:**
+
 - Create: `src/tripplanner/construction/providers/__init__.py`
 - Create: `src/tripplanner/construction/providers/config.py`
 - Create: `src/tripplanner/construction/providers/se_parser.py`
@@ -318,6 +338,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 - Test: `tests/construction/`, `tests/trip_input/test_api.py`, `test_cli.py`, `tests/integration/test_trip_end_to_end.py`
 
 **Interfaces:**
+
 - Preserve exactly: `ConstructionProviderConfig`, `ConstructionProviderImpl`, `FakeConstructionProvider`.
 - `wkt.py`: `_parse_wkt_point`, `_parse_wkt_line`.
 - `se_parser.py`: `_parse_trafikverket_situations` (imports `parser.DATEXIIConstructionZoneInternal`/`ROADWORKS_TYPES` as it does today).
@@ -343,6 +364,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 4.4: Split `routing/providers.py` by responsibility
 
 **Files:**
+
 - Create: `src/tripplanner/routing/providers/__init__.py`
 - Create: `src/tripplanner/routing/providers/fake.py`
 - Create: `src/tripplanner/routing/providers/custom_model.py`
@@ -351,6 +373,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 - Test: `tests/routing/test_providers.py`, `test_faehren_integration.py`, `tests/trip_input/test_cli.py`
 
 **Interfaces:**
+
 - Preserve exactly: `RoutingProvider` (Protocol), `FakeRoutingProvider`, `GraphHopperRoutingProvider`, `ferry_exclusion_to_geojson_feature`, `VIA_POINT_REACHED_SIGN`.
 - `fake.py`: `FakeRoutingProvider` (+ its private `_diskretisiere_teilstrecke` helper).
 - `custom_model.py`: `ferry_exclusion_to_geojson_feature` + the `_build_custom_model` logic factored as a free function `build_custom_model(...)` that `GraphHopperRoutingProvider._build_custom_model` delegates to (keep the method as a one-line wrapper, since it's called internally by `berechne_route`).
@@ -370,6 +393,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 4.5: De-duplicate segment-construction logic between `FakeRoutingProvider` and `GraphHopperRoutingProvider`
 
 **Files:**
+
 - Modify: `src/tripplanner/routing/models.py` (only if a shared constructor helper is warranted)
 - Modify: `src/tripplanner/routing/providers/fake.py`
 - Modify: `src/tripplanner/routing/providers/graphhopper.py`
@@ -388,6 +412,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 5.1: Split `simulation/simulate.py` internal helpers
 
 **Files:**
+
 - Modify: `src/tripplanner/simulation/simulate.py`
 - Test: `tests/simulation/test_simulate.py`
 
@@ -400,11 +425,13 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 5.2: Split `battery/models.py` — separate reference-curve data from hot-path machinery
 
 **Files:**
+
 - Create: `src/tripplanner/battery/reference_curves.py`
 - Modify: `src/tripplanner/battery/models.py`
 - Test: `tests/battery/`
 
 **Interfaces:**
+
 - Preserve exactly: `SoCState`, `ChargingCurvePoint`, `InterpolationMethod`, `ChargingCurve`, `VehicleBatteryParameters`, `ChargingStop`, `LadekurveReferenz`.
 - `reference_curves.py` receives `LadekurveReferenz` (community-measurement reference curves for Tesla models) — pure data, no hot-path dependency. `models.py` keeps `_ChargingCurveFastPath`, `_evaluate_fast_path`, `SoCState`, `ChargingCurvePoint`, `InterpolationMethod`, `ChargingCurve`, `VehicleBatteryParameters`, `ChargingStop` and imports `LadekurveReferenz` from `.reference_curves` for backward-compat re-export in `__init__.py`/`models.py` itself (keep `from .reference_curves import LadekurveReferenz` inside `models.py` so `tripplanner.battery.models.LadekurveReferenz` still resolves).
 
@@ -418,6 +445,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 5.3: Investigate and resolve `battery/battery.py` duplication with `optimizer.py`
 
 **Files:**
+
 - Modify: `src/tripplanner/optimization/charging_math.py` (created in Task 2.1)
 - Test: `tests/battery/`, `tests/optimization/`
 
@@ -429,6 +457,7 @@ Current: `providers.py` (1448 lines), `client.py` (1021 lines) are god-objects; 
 ### Task 5.4: Extract constants/helpers from `energy/energy.py`
 
 **Files:**
+
 - Modify: `src/tripplanner/energy/energy.py` (in-place cleanup only, per scout: "cohesive physics module with extractable constants/helpers" — low priority)
 - Test: `tests/energy/`
 
@@ -446,11 +475,13 @@ This is the highest-value, highest-risk phase: `api.py` (1979 lines) mixes five 
 ### Task 6.1: Extract the pipeline-step functions into `pipeline.py`
 
 **Files:**
+
 - Create: `src/tripplanner/trip_input/pipeline.py`
 - Modify: `src/tripplanner/trip_input/api.py`
 - Test: `tests/trip_input/test_api.py`
 
 **Interfaces:**
+
 - Preserve exactly: `create_trip_simulation` (the orchestration entry point) stays importable from `tripplanner.trip_input.api` (it is the module's most-imported symbol).
 - `pipeline.py` receives the eleven `_step_*` functions verbatim (`_step_1_route_calculate` through `_step_route_charging_detours`, i.e. lines 97-626 per the grep above), plus their shared helpers `_bbox_center`, `_match_ferry_time_window`, `_log_step`, `_logger` (the pipeline-step logger instance, distinct from the module-level `logger` used by the FastAPI app — read both definitions at lines 627 and 1125 to confirm they are indeed two separate logger instances before deciding whether to keep them separate or unify; if the codebase intentionally uses two names for the same underlying `logging.getLogger(__name__)` call, keep both as-is to avoid behavior change).
 - `create_trip_simulation` itself (lines 754-1030) moves to `pipeline.py` too, since it directly orchestrates the eleven steps and is the natural sibling.
@@ -467,11 +498,13 @@ This is the highest-value, highest-risk phase: `api.py` (1979 lines) mixes five 
 ### Task 6.2: Extract FastAPI app shell into `app.py`
 
 **Files:**
+
 - Create: `src/tripplanner/trip_input/app.py`
 - Modify: `src/tripplanner/trip_input/api.py`
 - Test: `tests/trip_input/test_api.py`
 
 **Interfaces:**
+
 - Preserve exactly: `app` (the `FastAPI` instance — `run.sh`/uvicorn target it via `tripplanner.trip_input.api:app`, so this exact dotted path MUST keep working after the split — verify by reading `run.sh` for the uvicorn invocation string before proceeding).
 - `app.py` receives: `_configure_logging`, `logger` (module-level FastAPI logger), `_lifespan`, `app = FastAPI(...)`, `get_routing_provider`, `get_charging_provider`, `get_elevation_provider`, `get_weather_provider`, `get_construction_provider`, `health_check`.
 - `api.py` re-imports `app` from `.app` (`from .app import app`) so `uvicorn tripplanner.trip_input.api:app` keeps resolving.
@@ -489,6 +522,7 @@ This is the highest-value, highest-risk phase: `api.py` (1979 lines) mixes five 
 ### Task 6.3: Extract API schema models into `schemas/` submodules
 
 **Files:**
+
 - Create: `src/tripplanner/trip_input/schemas/__init__.py`
 - Create: `src/tripplanner/trip_input/schemas/superchargers.py`
 - Create: `src/tripplanner/trip_input/schemas/request.py`
@@ -497,6 +531,7 @@ This is the highest-value, highest-risk phase: `api.py` (1979 lines) mixes five 
 - Test: `tests/trip_input/test_api.py`
 
 **Interfaces:**
+
 - Preserve exactly (all currently defined at module scope in `api.py`, must remain importable from `tripplanner.trip_input.api`): `SuperchargerStationAPI`, `SuperchargerStationDetailAPI`, `WaypointAPI`, `FaehrAusschlussAPI`, `FaehrZeitfensterAPI`, `LadedauerVorgabeAPI`, `TripRequestAPI`, `FrameAPI`, `ChargingStopAPI`, `FaehrSegmentAPI`, `ChargingCostByCurrencyAPI`, `ConstructionZoneEventAPI`, `ConstructionZoneAPI`, `WaypointStopAPI`, `TripSimulationResultAPI`.
 - `schemas/superchargers.py`: `SuperchargerStationAPI`, `SuperchargerStationDetailAPI`, `_station_to_api`.
 - `schemas/request.py`: `WaypointAPI`, `FaehrAusschlussAPI`, `FaehrZeitfensterAPI`, `LadedauerVorgabeAPI`, `TripRequestAPI`.
@@ -527,11 +562,13 @@ This is the highest-value, highest-risk phase: `api.py` (1979 lines) mixes five 
 ### Task 6.5: Split `cli.py` — separate trip-planning CLI from charger-data-management CLI
 
 **Files:**
+
 - Create: `src/tripplanner/trip_input/cli_charger.py`
 - Modify: `src/tripplanner/trip_input/cli.py`
 - Test: `tests/trip_input/test_cli.py`
 
 **Interfaces:**
+
 - Preserve exactly: `app` (the Typer app, `trips` command), `charger_app` (the Typer sub-app, `refresh`/`pricing-queue`/`scrape-pricing` commands) — both are registered via Typer's `add_typer` mechanism; confirm the exact registration call in `cli.py` before moving anything, since Typer sub-app wiring is order-sensitive.
 - `cli.py` keeps: `app`, `parse_coord`, `parse_waypoint`, `trips` command (lines 44-243).
 - `cli_charger.py` receives: `charger_app`, `refresh` (line 245), `pricing_queue` (line 364), `scrape_pricing` (line 403), plus their shared helpers/constants found by reading lines 244-486 in full.
@@ -560,12 +597,14 @@ This is the highest-value, highest-risk phase: `api.py` (1979 lines) mixes five 
 ### Task 7.1: Split `route-line.ts` into `route-splice.ts` + `route-legs.ts`, keep `route-line.ts` as barrel
 
 **Files:**
+
 - Create: `frontend/src/utils/route-splice.ts`
 - Create: `frontend/src/utils/route-legs.ts`
 - Modify: `frontend/src/utils/route-line.ts` (becomes barrel + owns `RouteSample`, `projectDistanceAlongLineM`, `findNearestRouteSample`, `METERS_PER_DEGREE_LAT`)
 - Test: `frontend/tests/unit/route-line.test.ts` (unchanged import paths), `frontend/tests/unit/map-utils.test.ts` (unchanged)
 
 **Interfaces:**
+
 - Preserve exactly, all still importable from `@/utils/route-line`: `CHARGE_JUMP_EPSILON_M`, `ChargingDetourInput`, `RouteSample`, `SplicedRoute`, `ResolvedDetour`, `buildSplicedRoute`, `RouteLeg`, `splitRouteIntoLegs`, `METERS_PER_DEGREE_LAT`, `projectDistanceAlongLineM`, `findNearestRouteSample`.
 - `route-splice.ts` exports: `CHARGE_JUMP_EPSILON_M`, `ChargingDetourInput`, `SplicedRoute`, `ResolvedDetour`, `buildSplicedRoute` (imports `RouteSample` type from `./route-line` — this creates `route-splice.ts` → `route-line.ts` → re-exports `route-splice.ts`; to avoid a circular import, `RouteSample` interface itself stays defined in `route-line.ts` directly, not re-exported from a submodule — `route-line.ts` is a genuine mixed barrel-plus-owner, not a pure re-export shim).
 - `route-legs.ts` exports: `RouteLeg`, `splitRouteIntoLegs` (imports `SplicedRoute`, `RouteSample` types from `./route-line`).
@@ -581,6 +620,7 @@ This is the highest-value, highest-risk phase: `api.py` (1979 lines) mixes five 
 ### Task 7.2: Split `Map.tsx` into `components/Map/` folder with barrel
 
 **Files:**
+
 - Create: `frontend/src/components/Map/index.ts`
 - Create: `frontend/src/components/Map/basemap.ts`
 - Create: `frontend/src/components/Map/soc-gradient.ts`
@@ -593,6 +633,7 @@ This is the highest-value, highest-risk phase: `api.py` (1979 lines) mixes five 
 - Test: `frontend/tests/unit/map-utils.test.ts`, `frontend/tests/unit/construction-zone-popup.test.ts`
 
 **Interfaces:**
+
 - Preserve exactly, all still importable from `@/components/Map` (the barrel): `MapVisualization` (default export in current file — check whether `App.tsx` imports it as `{ MapVisualization }` named or default; per the scout report it's a named import `import { MapVisualization } from ...` — the barrel must export it as a named export, matching current usage), `buildBasemapStyle`, `TILES_BASE_URL`, `basemapStyle`, `SOC_COLOR_STOPS`, `socToColor`, `buildSocGradientExpression`, `StopRole`, `stopRole`, `roleToMarkerColor`, `roleToLabel`, `roleToMarkerGlyph`, `buildMarkerElement`, `buildSuperchargerPopoverElement`, `SUPERCHARGER_LAYER_IDS`, `buildSuperchargerGeoJson`, `buildPopupText`, `buildChargingStopMarkerElement`, `formatChargingDuration`, `buildChargingStopPopupHtml`, `buildStopPopupHtml`, `WAYPOINT_STOP_MATCH_TOLERANCE_M`, `findWaypointStopAt`, `SPERRUNGSTYP_LABELS`, `buildConstructionZoneMarkerElement`, `buildConstructionZonePopupHtml`, `buildRouteHoverText`, `MapViewState`, `DEFAULT_MAP_VIEW`, `isValidMapViewState`, `MapProps`.
 - Since `App.tsx` currently imports from `"@/components/Map"` (resolving to `Map.tsx`), after this split the same specifier must resolve to `Map/index.ts` — this is automatic Node/Vite/TS module resolution behavior (a directory with `index.ts` resolves the same bare specifier), so **no import statement anywhere needs to change** as long as `Map.tsx` is deleted (not left alongside `Map/`, which would create an ambiguous/incorrect resolution — verify `tsconfig.json`/`vite.config.ts` moduleResolution settings resolve directory-with-index correctly before deleting the flat file, by testing the build after Step 8 below).
 - `basemap.ts`: `buildBasemapStyle`, `TILES_BASE_URL`, `basemapStyle`, plus the `setWorkerUrl(...)` call and `liberty-style.json` import (module-load side effects move here).
@@ -627,6 +668,7 @@ This is the highest-value, highest-risk phase: `api.py` (1979 lines) mixes five 
 ### Task 8.1: Split `TripPlannerForm.tsx` into a folder with barrel
 
 **Files:**
+
 - Create: `frontend/src/components/TripPlannerForm/index.ts`
 - Create: `frontend/src/components/TripPlannerForm/form-helpers.ts`
 - Create: `frontend/src/components/TripPlannerForm/ferry-helpers.ts`
@@ -636,6 +678,7 @@ This is the highest-value, highest-risk phase: `api.py` (1979 lines) mixes five 
 - Test: `frontend/tests/unit/trip-planner-form-utils.test.ts`
 
 **Interfaces:**
+
 - Preserve exactly, all still importable from `@/components/TripPlannerForm`: `TripPlannerFormProps`, `GeocodingState`, `GeocodeSuggestionDisplay`, `getStopRole`, `isRawCoordinateLabel`, `isUnresolvedAddress`, `swapStops`, `validateForm`, `sameFaehrAusschluss`, `toggleFaehrAusschluss`, `setFaehrZeitfensterFuer`, `setLadedauerVorgabeFuer`, `faehrKey`, `getStopTimelineIcon`, `unterscheidetSichAlsUhrzeit`, `formatLadestationName`, `formatFahrsegmentStrecke`, `formatFahrsegmentDauer`, `TripPlannerForm` (the component itself — confirm export style, named per grep at line 562: `export function TripPlannerForm({...`).
 - `form-helpers.ts`: `getStopRole`, `isRawCoordinateLabel`, `isUnresolvedAddress`, `swapStops`, `validateForm`, `getStopTimelineIcon`, `unterscheidetSichAlsUhrzeit`, `formatLadestationName`, `formatFahrsegmentStrecke`, `formatFahrsegmentDauer` (pure helpers, no ferry-specific logic).
 - `ferry-helpers.ts`: `sameFaehrAusschluss`, `toggleFaehrAusschluss`, `setFaehrZeitfensterFuer`, `setLadedauerVorgabeFuer`, `faehrKey`.
@@ -659,11 +702,13 @@ This is the highest-value, highest-risk phase: `api.py` (1979 lines) mixes five 
 ### Task 8.2: Separate `trip-request.ts` types from payload-builder/validation logic
 
 **Files:**
+
 - Create: `frontend/src/types/trip-request-builder.ts`
 - Modify: `frontend/src/types/trip-request.ts`
 - Test: any test importing `buildTripRequestPayload`/`validateStops`/`createEmptyStop`
 
 **Interfaces:**
+
 - Preserve exactly, all still importable from `@/types/trip-request`: every existing exported type/interface plus `buildTripRequestPayload`, `validateStops`, `createEmptyStop`.
 - `trip-request-builder.ts` receives `buildTripRequestPayload`, `validateStops`, `createEmptyStop` (the three logic functions), importing the request-contract types from `./trip-request`.
 - `trip-request.ts` keeps all pure types/interfaces and adds `export * from "./trip-request-builder"` at the bottom.
@@ -682,12 +727,14 @@ This is the highest-value, highest-risk phase: `api.py` (1979 lines) mixes five 
 ### Task 9.1: Split `TripSummary.tsx` — extract pure time-plan builder
 
 **Files:**
+
 - Create: `frontend/src/utils/time-plan.ts`
 - Modify: `frontend/src/components/TripSummary.tsx`
 - Modify: `frontend/tests/unit/trip-summary-zeitplan.test.ts` (update import path — see Interfaces)
 - Test: `frontend/tests/unit/trip-summary-zeitplan.test.ts`
 
 **Interfaces:**
+
 - `time-plan.ts` receives `buildTimePlan`, `TimePlanEntry`, `shortAddress`, `stopLabel` verbatim.
 - `TripSummary.tsx` imports these from `../utils/time-plan` and keeps the React component + styles.
 - Since `buildTimePlan`/`TimePlanEntry` are pure and test-covered from a **different** current import path (directly from `TripSummary.tsx` per the scout's note "Re-export buildTimePlan or update trip-summary-zeitplan.test.ts"), and this move changes their canonical location, update `trip-summary-zeitplan.test.ts`'s import statement to point at `../../src/utils/time-plan` (mechanical one-line change) rather than adding a re-export from the component file — cleaner long-term home for a pure-logic test.
@@ -704,11 +751,13 @@ This is the highest-value, highest-risk phase: `api.py` (1979 lines) mixes five 
 ### Task 9.2: Split `geocoding.ts` — separate parsing from HTTP transport
 
 **Files:**
+
 - Create: `frontend/src/api/geocoding-parser.ts`
 - Modify: `frontend/src/api/geocoding.ts`
 - Test: any existing geocoding test (grep for `geocoding` test files first)
 
 **Interfaces:**
+
 - Preserve exactly, importable from `@/api/geocoding`: every currently-exported function/type, including `GeocodeSuggestion`.
 - `geocoding-parser.ts` receives `readStringField`, `parseSuggestion`, `formatDisplayAddress`, `GeocodeSuggestion`.
 - `geocoding.ts` keeps the Nominatim HTTP client function(s), importing parsing helpers from `./geocoding-parser`, and re-exports `GeocodeSuggestion` (`export type { GeocodeSuggestion } from "./geocoding-parser"`).
@@ -723,11 +772,13 @@ This is the highest-value, highest-risk phase: `api.py` (1979 lines) mixes five 
 ### Task 9.3: Split `currency-conversion.ts` — separate Frankfurter API client from cache/conversion logic
 
 **Files:**
+
 - Create: `frontend/src/utils/frankfurter.ts`
 - Modify: `frontend/src/utils/currency-conversion.ts`
 - Test: `frontend/tests/unit/currency-conversion.test.ts` (per scout: imports all three of `convertToEUR`/`convertAllToEUR`/`clearRateCache` — confirm exact test import list before editing)
 
 **Interfaces:**
+
 - Preserve exactly, importable from `@/utils/currency-conversion`: `convertToEUR`, `convertAllToEUR`, `clearRateCache` (per the test's import list — confirm the complete public surface by reading the file, not assuming only these three).
 - `frankfurter.ts` receives `fetchLatestRates`, `getRates`, and the localStorage-cache constants/logic.
 - `currency-conversion.ts` keeps `convertToEUR`, `convertAllToEUR`, `clearRateCache` as the public facade, delegating rate lookups to `./frankfurter`.
@@ -742,6 +793,7 @@ This is the highest-value, highest-risk phase: `api.py` (1979 lines) mixes five 
 ### Task 9.4: De-duplicate `App.tsx` identical `setStops` handlers
 
 **Files:**
+
 - Modify: `frontend/src/App.tsx`
 - Test: none new (behavior-preserving, no test file targets this specifically — rely on typecheck + existing App-level test coverage if any, or manual smoke test)
 
