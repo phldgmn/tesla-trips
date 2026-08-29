@@ -81,8 +81,10 @@ async def test_precompute_returns_real_cost_per_station() -> None:
     )
 
     assert station.station_id in result
-    assert result[station.station_id].distanz_m > 0.0
-    assert result[station.station_id].zeit_s > 0.0
+    assert result[station.station_id].hinweg_distanz_m > 0.0
+    assert result[station.station_id].hinweg_zeit_s > 0.0
+    assert result[station.station_id].rueckweg_distanz_m > 0.0
+    assert result[station.station_id].rueckweg_zeit_s > 0.0
 
 
 @pytest.mark.asyncio

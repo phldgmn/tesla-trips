@@ -739,8 +739,9 @@ class TestLadehaltUeberlebtKnotenKollision:
             ankunfts_soc_pct=15.0,
             ziel_soc_pct=ziel_soc_pct,
             ladezeit_s=ladezeit_s,
-            detour_zeit_s_je_richtung=0.0,
-            detour_soc_pct_je_richtung=0.0,
+            hinweg_zeit_s=0.0,
+            rueckweg_zeit_s=0.0,
+            rueckweg_soc_pct=0.0,
             max_time_buckets=10_000,
             heap=heap,
         )
@@ -1828,30 +1829,88 @@ class TestMindestLadedauerVerhindertKurzeLadehalte:
 
 
 class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
-    """Tests for `_detour_kosten`'s real-vs-heuristic fallback logic (see
-    `optimization.detour_routing`)."""
+    """Tests for `detour_costs.detour_kosten`'s real-vs-heuristic fallback
+    logic (see `optimization.detour_routing`)."""
 
     def test_nutzt_reale_kosten_wenn_station_in_map(self) -> None:
-        real_kosten = DetourKosten(distanz_m=2000.0, zeit_s=180.0, energie_kwh=0.4)
-
-        zeit_s, _soc_pct = detour_costs.detour_kosten(
-            station_id="real-station",
-            offroute_distance_m=999_999.0,  # would give a wildly different heuristic result
-            vehicle_profile=VehicleProfile(
-                masse_kg=1800.0,
-                cw_wert=0.23,
-                stirnflaeche_m2=2.2,
-                rollwiderstandsbeiwert=0.01,
-                batteriekapazitaet_kwh=60.0,
-                nebenverbraucher_baseline_kw=0.34,
-                reifentyp="standard",
-                dachbox=False,
-            ),
-            detour_kosten={"real-station": real_kosten},
-            avg_verbrauch_kwh_pro_m=0.0,
+        real_kosten = DetourKosten(
+            hinweg_distanz_m=2000.0,
+            hinweg_zeit_s=180.0,
+            hinweg_energie_kwh=0.4,
+            rueckweg_distanz_m=2000.0,
+            rueckweg_zeit_s=180.0,
+            rueckweg_energie_kwh=0.4,
         )
 
-        assert zeit_s == 180.0
+        hinweg_zeit_s, _hinweg_soc_pct, rueckweg_zeit_s, _rueckweg_soc_pct = (
+            detour_costs.detour_kosten(
+                station_id="real-station",
+                offroute_distance_m=999_999.0,  # would give a wildly different heuristic result
+                vehicle_profile=VehicleProfile(
+                    masse_kg=1800.0,
+                    cw_wert=0.23,
+                    stirnflaeche_m2=2.2,
+                    rollwiderstandsbeiwert=0.01,
+                    batteriekapazitaet_kwh=60.0,
+                    nebenverbraucher_baseline_kw=0.34,
+                    reifentyp="standard",
+                    dachbox=False,
+                ),
+                detour_kosten={"real-station": real_kosten},
+                avg_verbrauch_kwh_pro_m=0.0,
+            )
+        )
+
+        assert hinweg_zeit_s == 180.0
+        assert rueckweg_zeit_s == 180.0
+
+    def test_hinweg_und_rueckweg_bleiben_getrennt_bei_asymmetrischem_detour(self) -> None:
+        """Regressionstest: Bug - ein reales Hin-/Rückweg-Kostenpaar wurde vor
+        dem Fix zu EINEM symmetrischen "je Richtung"-Wert gemittelt und dieser
+        fuer BEIDE Richtungen wiederverwendet. Bei einer real asymmetrischen
+        Station (kurzer Hinweg, langer Rückweg oder umgekehrt) verfaelschte
+        das genau die Richtung, deren TATSAECHLICHER Wert klein war - die
+        Ankunfts-SoC-Pruefung in `_add_charging_edges` sah dann eine
+        kuenstlich schlechtere Station, als sie real war (siehe Nutzer-
+        Report: Kristinehamn - naeher an der Route, real mit 43% SoC
+        erreichbar - wurde zugunsten des weiter entfernten Mariestad
+        verworfen). `detour_kosten` MUSS die beiden Richtungen unveraendert
+        durchreichen statt sie zu mitteln."""
+        vehicle_profile = VehicleProfile(
+            masse_kg=1800.0,
+            cw_wert=0.23,
+            stirnflaeche_m2=2.2,
+            rollwiderstandsbeiwert=0.01,
+            batteriekapazitaet_kwh=60.0,
+            nebenverbraucher_baseline_kw=0.34,
+            reifentyp="standard",
+            dachbox=False,
+        )
+        # Kurzer Hinweg (10s), sehr langer Rückweg (1000s) - eine Mittelung
+        # (505s je Richtung) wuerde weder den Hinweg noch den Rückweg korrekt
+        # widerspiegeln.
+        asymmetrische_kosten = DetourKosten(
+            hinweg_distanz_m=200.0,
+            hinweg_zeit_s=10.0,
+            hinweg_energie_kwh=0.02,
+            rueckweg_distanz_m=20_000.0,
+            rueckweg_zeit_s=1000.0,
+            rueckweg_energie_kwh=2.0,
+        )
+
+        hinweg_zeit_s, hinweg_soc_pct, rueckweg_zeit_s, rueckweg_soc_pct = (
+            detour_costs.detour_kosten(
+                station_id="asymmetrische-station",
+                offroute_distance_m=200.0,
+                vehicle_profile=vehicle_profile,
+                detour_kosten={"asymmetrische-station": asymmetrische_kosten},
+                avg_verbrauch_kwh_pro_m=0.0,
+            )
+        )
+
+        assert hinweg_zeit_s == 10.0
+        assert rueckweg_zeit_s == 1000.0
+        assert hinweg_soc_pct < rueckweg_soc_pct
 
     def test_faellt_auf_heuristik_zurueck_wenn_station_fehlt(self) -> None:
         vehicle_profile = VehicleProfile(
@@ -1865,18 +1924,27 @@ class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
             dachbox=False,
         )
 
-        zeit_s, _ = detour_costs.detour_kosten(
+        hinweg_zeit_s, _, rueckweg_zeit_s, _ = detour_costs.detour_kosten(
             station_id="missing-station",
             offroute_distance_m=1000.0,
             vehicle_profile=vehicle_profile,
             detour_kosten={
-                "other-station": DetourKosten(distanz_m=1.0, zeit_s=1.0, energie_kwh=0.0)
+                "other-station": DetourKosten(
+                    hinweg_distanz_m=1.0,
+                    hinweg_zeit_s=1.0,
+                    hinweg_energie_kwh=0.0,
+                    rueckweg_distanz_m=1.0,
+                    rueckweg_zeit_s=1.0,
+                    rueckweg_energie_kwh=0.0,
+                )
             },
             avg_verbrauch_kwh_pro_m=0.0002,  # set as optimize() normally would
         )
 
-        # Heuristic: 1000m * 1.6 / (70 km/h) = ~82.3s
-        assert zeit_s == pytest.approx(82.3, abs=0.5)
+        # Heuristic: 1000m * 1.6 / (70 km/h) = ~82.3s, identisch fuer beide
+        # Richtungen (die Heuristik kennt keine Asymmetrie).
+        assert hinweg_zeit_s == pytest.approx(82.3, abs=0.5)
+        assert rueckweg_zeit_s == pytest.approx(82.3, abs=0.5)
 
     def test_faellt_auf_heuristik_zurueck_wenn_detour_kosten_none(self) -> None:
         vehicle_profile = VehicleProfile(
@@ -1890,7 +1958,7 @@ class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
             dachbox=False,
         )
 
-        zeit_s, _ = detour_costs.detour_kosten(
+        hinweg_zeit_s, _, rueckweg_zeit_s, _ = detour_costs.detour_kosten(
             station_id="any-station",
             offroute_distance_m=1000.0,
             vehicle_profile=vehicle_profile,
@@ -1898,7 +1966,130 @@ class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
             avg_verbrauch_kwh_pro_m=0.0002,
         )
 
-        assert zeit_s == pytest.approx(82.3, abs=0.5)
+        assert hinweg_zeit_s == pytest.approx(82.3, abs=0.5)
+        assert rueckweg_zeit_s == pytest.approx(82.3, abs=0.5)
+
+
+class TestAsymmetrischerDetourWirdNichtFaelschlichVerworfen:
+    """Regressionstest (End-zu-Ende): Bug - `precompute_detour_costs` mittelte
+    Hin- und Rückweg-Kosten eines Ladehalt-Abstechers zu EINEM symmetrischen
+    Wert (siehe `DetourKosten`-Docstring). Bei einer real asymmetrischen
+    Station (kurzer Hinweg, langer Rückweg) verfaelschte das ausgerechnet die
+    Ankunfts-SoC-Pruefung in `_add_charging_edges` - eine Station, die real
+    ueber der Sicherheitsreserve erreichbar gewesen waere, wurde faelschlich
+    als unerreichbar verworfen (siehe Nutzer-Report: Kristinehamn - naeher an
+    der Route, real mit 43% SoC erreichbar - wurde zugunsten des weiter
+    entfernten Mariestad verworfen)."""
+
+    def test_station_mit_kurzem_hinweg_aber_langem_rueckweg_bleibt_nutzbar(self) -> None:
+        coords = [(58.0, 14.0), (58.25, 14.0), (58.5, 14.0)]
+        segments = [
+            RouteSegment(
+                segment_index=0,
+                geometrie=[coords[0], coords[1]],
+                laenge_m=100_000,
+                strassenklasse="MOTORWAY",
+                tempolimit_kmh=110,
+                steigung_rohdaten=0.0,
+                bearing_deg=0.0,
+            ),
+            RouteSegment(
+                segment_index=1,
+                geometrie=[coords[1], coords[2]],
+                laenge_m=100_000,
+                strassenklasse="MOTORWAY",
+                tempolimit_kmh=110,
+                steigung_rohdaten=0.0,
+                bearing_deg=0.0,
+            ),
+        ]
+        route = Route(segments=segments, gesamtlaenge_m=200_000, geometrie=coords)
+        gradients = [
+            SegmentGradient(
+                segment_index=i,
+                steigung_prozent=0.0,
+                hoehendifferenz_m=0.0,
+                horizontale_distanz_m=100_000,
+            )
+            for i in range(2)
+        ]
+        energy_results = [
+            SegmentEnergyResult(
+                segment_index=i,
+                energiebedarf_kwh=25.0,
+                rekuperation_kwh=0.0,
+                energiebedarf_brutto_kwh=25.0,
+                geschwindigkeit_m_s=27.0,
+                fahrzeit_s=3600,
+                streckenlaenge_m=100_000,
+            )
+            for i in range(2)
+        ]
+
+        vehicle_profile = VehicleProfile(
+            masse_kg=1706.0,
+            cw_wert=0.23,
+            stirnflaeche_m2=2.22,
+            rollwiderstandsbeiwert=0.011,
+            batteriekapazitaet_kwh=62.5,
+        )
+
+        # Station liegt klar in Segment 1 (naeher an coords[2] als an coords[1]).
+        station = ChargingStation(
+            station_id="asym",
+            name="Asym Station",
+            coordinate=(58.45, 14.02),
+            stalls={StallType.V3: 4},
+            max_ladeleistung_kw=250.0,
+            connector_types=[ConnectorType.CCS2],
+            country="SE",
+        )
+
+        # Kurzer Hinweg (0.2 kWh ~ 0.32% SoC), sehr viel laengerer Rueckweg
+        # (10 kWh ~ 16% SoC) - ein gemittelter "je Richtung"-Wert (8.16%)
+        # wuerde die Ankunfts-SoC-Pruefung unten faelschlich unter die
+        # Sicherheitsreserve druecken.
+        detour_kosten = {
+            "asym": DetourKosten(
+                hinweg_distanz_m=500.0,
+                hinweg_zeit_s=60.0,
+                hinweg_energie_kwh=0.2,
+                rueckweg_distanz_m=20_000.0,
+                rueckweg_zeit_s=1200.0,
+                rueckweg_energie_kwh=10.0,
+            )
+        }
+
+        # Auf-Route-SoC am Checkpoint (Segment 1) ist 60% (100% - 2x40%).
+        # Wahrer Hinweg-Ankunfts-SoC: 60% - 0.32% = 59.68% (> 55%-Reserve).
+        # Gemittelter (fehlerhafter) Ankunfts-SoC: 60% - 8.16% = 51.84%
+        # (< 55%-Reserve) - genau die Reserve, die dieser Test prueft.
+        constraints = OptimizationConstraints(
+            min_soc_pct=15.0,
+            ziel_soc_pct=40.0,
+            sicherheitsreserve_pct=5.0,
+            mindest_ankunfts_soc_pct=55.0,
+        )
+
+        optimizer = create_networkx_optimizer(soc_step_pct=1.0, time_step_min=5)
+
+        plan = optimizer.optimize(
+            route=route,
+            segments=segments,
+            gradients=gradients,
+            energy_results=energy_results,
+            charging_stations=[station],
+            waypoints=[],
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+            start_soc_pct=100.0,
+            abfahrtszeit=datetime(2026, 8, 30, 8, 0, 0, tzinfo=UTC),
+            detour_kosten=detour_kosten,
+        )
+
+        assert len(plan.ladehalte) == 1
+        assert plan.ladehalte[0].station.station_id == "asym"
+        assert plan.ladehalte[0].ankunfts_soc_pct == pytest.approx(59.68, abs=0.5)
 
 
 class TestMaxChargeSocCapsRegularStops:

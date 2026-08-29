@@ -218,9 +218,12 @@ async def precompute_detour_costs(  # noqa: PLR0913, PLR0917
             return None
 
         return station.station_id, DetourKosten(
-            distanz_m=(hinweg_distanz + rueckweg_distanz) / 2.0,
-            zeit_s=(hinweg_zeit + rueckweg_zeit) / 2.0,
-            energie_kwh=(hinweg_energie + rueckweg_energie) / 2.0,
+            hinweg_distanz_m=hinweg_distanz,
+            hinweg_zeit_s=hinweg_zeit,
+            hinweg_energie_kwh=hinweg_energie,
+            rueckweg_distanz_m=rueckweg_distanz,
+            rueckweg_zeit_s=rueckweg_zeit,
+            rueckweg_energie_kwh=rueckweg_energie,
         )
 
     tasks = [

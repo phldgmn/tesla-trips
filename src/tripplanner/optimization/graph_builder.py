@@ -617,14 +617,15 @@ class StateGraphBuilder:
         current_soc_pct = G.nodes[current]["soc_pct"]
 
         for station, offroute_distance_m in stations:
-            detour_zeit_s, detour_soc_pct = detour_costs.detour_kosten(
+            detour_ergebnis = detour_costs.detour_kosten(
                 station_id=station.station_id,
                 offroute_distance_m=offroute_distance_m,
                 vehicle_profile=vehicle_profile,
                 detour_kosten=detour_kosten,
                 avg_verbrauch_kwh_pro_m=self.avg_verbrauch_kwh_pro_m,
             )
-            ankunft_soc_pct = current_soc_pct - detour_soc_pct
+            hinweg_zeit_s, hinweg_soc_pct, rueckweg_zeit_s, rueckweg_soc_pct = detour_ergebnis
+            ankunft_soc_pct = current_soc_pct - hinweg_soc_pct
             # Untergrenze `mindest_ankunfts_soc_pct` gilt fuer den
             # TATSAECHLICHEN SoC AN der Station, nicht nur fuer den
             # On-Route-SoC am Checkpoint vor dem Abstecher: eine abseits der
@@ -635,6 +636,12 @@ class StateGraphBuilder:
             # unterlaufen und ein Ladehalt mit SoC UNTER der vom Nutzer
             # gesetzten Sicherheitsreserve entstehen (siehe Regressionstest
             # `test_create_trip_simulation_mindest_ankunfts_soc_pct_erlaubt_niedrigere_ladezeit`).
+            # Nutzt bewusst NUR den Hinweg-Anteil (nicht einen gemittelten
+            # Hin-/Rueckweg-Wert, siehe `DetourKosten`-Docstring): der
+            # Rueckweg ist fuer die Ankunft AN der Station irrelevant und ein
+            # gemitteltes "je Richtung"-SoC wuerde eine Station mit kurzem
+            # Hinweg aber langem Rueckweg faelschlich unter die
+            # Sicherheitsreserve druecken.
             if ankunft_soc_pct < constraints.mindest_ankunfts_soc_pct:
                 continue  # Reichweite reicht nicht bis zur Station UEBER der Sicherheitsreserve
 
@@ -654,8 +661,9 @@ class StateGraphBuilder:
                     ankunfts_soc_pct=ankunft_soc_pct,
                     ziel_soc_pct=ziel_soc,
                     ladezeit_s=float(vorgabe_s),
-                    detour_zeit_s_je_richtung=detour_zeit_s,
-                    detour_soc_pct_je_richtung=detour_soc_pct,
+                    hinweg_zeit_s=hinweg_zeit_s,
+                    rueckweg_zeit_s=rueckweg_zeit_s,
+                    rueckweg_soc_pct=rueckweg_soc_pct,
                     max_time_buckets=max_time_buckets,
                     heap=heap,
                 )
@@ -706,8 +714,9 @@ class StateGraphBuilder:
                     ankunfts_soc_pct=ankunft_soc_pct,
                     ziel_soc_pct=Ziel_soc,
                     ladezeit_s=ladezeit_s,
-                    detour_zeit_s_je_richtung=detour_zeit_s,
-                    detour_soc_pct_je_richtung=detour_soc_pct,
+                    hinweg_zeit_s=hinweg_zeit_s,
+                    rueckweg_zeit_s=rueckweg_zeit_s,
+                    rueckweg_soc_pct=rueckweg_soc_pct,
                     max_time_buckets=max_time_buckets,
                     heap=heap,
                 )
@@ -721,8 +730,9 @@ class StateGraphBuilder:
         ankunfts_soc_pct: float,
         ziel_soc_pct: float,
         ladezeit_s: float,
-        detour_zeit_s_je_richtung: float,
-        detour_soc_pct_je_richtung: float,
+        hinweg_zeit_s: float,
+        rueckweg_zeit_s: float,
+        rueckweg_soc_pct: float,
         max_time_buckets: int,
         heap: list[tuple[float, int, tuple[int, int, int]]],
     ) -> None:
@@ -730,28 +740,35 @@ class StateGraphBuilder:
 
         Erzeugt (falls günstiger als ein bestehender Pfad) eine Ladekante von
         `current` zu einem Knoten, der wieder AUF der Route liegt (derselbe
-        `seg_idx`) - dazwischen liegen Hinweg-Abstecher
-        (`detour_zeit_s_je_richtung`/`detour_soc_pct_je_richtung`, siehe
-        `detour_kosten`), die eigentliche Ladung (`ankunfts_soc_pct` ->
-        `ziel_soc_pct` in `ladezeit_s`) und der Rückweg-Abstecher. Der neue
-        Knoten-SoC ist daher `ziel_soc_pct` MINUS den Rückweg-Verbrauch, nicht
-        `ziel_soc_pct` selbst - ein Ladehalt abseits der Route "kostet" auch
-        auf dem Rückweg noch Reichweite. `ankunfts_soc_pct`/`ziel_soc_pct`
-        (Zustand AN der Station) werden zusätzlich als Kanten-Attribute
-        hinterlegt, damit `extract_charging_stops` den tatsächlichen
-        Lade-Ablauf (nicht den um die Abstecher-Fahrt verfälschten
-        Routen-SoC) berichten kann - gemeinsame Buchhaltung für sowohl die
-        automatische SoC-Ziel-Iteration als auch eine vom Nutzer vorgegebene
-        feste Ladedauer (siehe `add_charging_edges`).
+        `seg_idx`) - dazwischen liegen Hinweg-Abstecher (`hinweg_zeit_s`, der
+        SoC-Verbrauch dafuer steckt bereits in `ankunfts_soc_pct`, siehe
+        `add_charging_edges`), die eigentliche Ladung (`ankunfts_soc_pct` ->
+        `ziel_soc_pct` in `ladezeit_s`) und der Rückweg-Abstecher
+        (`rueckweg_zeit_s`/`rueckweg_soc_pct`, siehe `detour_kosten`). Der
+        neue Knoten-SoC ist daher `ziel_soc_pct` MINUS den Rückweg-Verbrauch,
+        nicht `ziel_soc_pct` selbst - ein Ladehalt abseits der Route "kostet"
+        auch auf dem Rückweg noch Reichweite. Hin- und Rückweg werden bewusst
+        NICHT gemittelt (siehe `DetourKosten`-Docstring): beide Legs koennen
+        real unterschiedlich lang sein, und jede Seite braucht ihren
+        EIGENEN, nicht symmetrisierten Wert, sonst kann eine Station mit
+        kurzem Hinweg aber langem Rückweg (oder umgekehrt) faelschlich als
+        nicht erreichbar/nicht rueckfuehrbar verworfen werden, obwohl sie es
+        real ist. `ankunfts_soc_pct`/`ziel_soc_pct` (Zustand AN der Station)
+        werden zusätzlich als Kanten-Attribute hinterlegt, damit
+        `extract_charging_stops` den tatsächlichen Lade-Ablauf (nicht den um
+        die Abstecher-Fahrt verfälschten Routen-SoC) berichten kann -
+        gemeinsame Buchhaltung für sowohl die automatische SoC-Ziel-Iteration
+        als auch eine vom Nutzer vorgegebene feste Ladedauer (siehe
+        `add_charging_edges`).
         """
-        route_soc_pct = ziel_soc_pct - detour_soc_pct_je_richtung
+        route_soc_pct = ziel_soc_pct - rueckweg_soc_pct
         if route_soc_pct < 0.0:
             return  # Reichweite reicht nicht für den Rückweg zur Route
         new_soc_bucket = soc_to_bucket(route_soc_pct, self.soc_step_pct)
 
-        ankunftszeit = G.nodes[current]["zeitpunkt"] + timedelta(seconds=detour_zeit_s_je_richtung)
+        ankunftszeit = G.nodes[current]["zeitpunkt"] + timedelta(seconds=hinweg_zeit_s)
         abfahrtszeit = ankunftszeit + timedelta(seconds=ladezeit_s)
-        neuer_zeitpunkt = abfahrtszeit + timedelta(seconds=detour_zeit_s_je_richtung)
+        neuer_zeitpunkt = abfahrtszeit + timedelta(seconds=rueckweg_zeit_s)
         new_time_bucket = time_to_bucket(neuer_zeitpunkt, self.base_time, self.time_step_min)
 
         if new_time_bucket > max_time_buckets:
@@ -763,7 +780,8 @@ class StateGraphBuilder:
         # `LADE_TIEBREAK_S_PRO_PROZENTPUNKT`).
         kosten = (
             ladezeit_s
-            + 2.0 * detour_zeit_s_je_richtung
+            + hinweg_zeit_s
+            + rueckweg_zeit_s
             + LADE_TIEBREAK_S_PRO_PROZENTPUNKT * (ziel_soc_pct - ankunfts_soc_pct)
         )
         next_node = (seg_idx, new_soc_bucket, new_time_bucket)

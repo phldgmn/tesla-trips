@@ -139,7 +139,7 @@ class OptimizationConstraints(BaseModel):
 
 
 class DetourKosten(BaseModel):
-    """Real, road-network-routed one-way detour cost for one charging station.
+    """Real, road-network-routed detour cost for one charging station, split by direction.
 
     Computed once, before the state-graph search runs, by
     `optimization.detour_routing.precompute_detour_costs` - replaces the
@@ -148,17 +148,47 @@ class DetourKosten(BaseModel):
     GraphHopper-routed, elevation-aware detour computed the same way the
     main route's distance/time/energy are computed.
 
-    Values represent the AVERAGE of the two directions of the round trip
-    (main route -> station, station -> main route) - `NetworkXOptimizer`
-    doubles this for the full round trip, mirroring the existing
-    heuristic's calling convention (`_fuege_ladekante_hinzu`).
+    `hinweg_*` (outward: main route -> station) and `rueckweg_*` (return:
+    station -> main route) are tracked SEPARATELY, not averaged - the two
+    legs generally differ (`find_bracket_points` anchors the outward leg
+    ~3 km BEFORE the branch-off point and the return leg ~3 km AFTER it,
+    so a station sitting close to one bracket but far from the other has a
+    materially asymmetric round trip). Averaging them into one symmetric
+    "per-direction" value (the previous design) kept the ROUND-TRIP total
+    correct (2 * average == outward + return) but corrupted every check
+    that depends on ONE leg alone: `_add_charging_edges`' arrival-SoC floor
+    only ever sees the OUTWARD leg, and `_fuege_ladekante_hinzu`'s
+    return-feasibility check only ever sees the RETURN leg. A station with
+    a short outward but long return leg (or vice versa) could therefore be
+    wrongly rejected as unreachable under the safety-reserve floor (its
+    true short outward leg replaced by an inflated average) even though a
+    much better, closer real alternative existed (see Nutzer-Report:
+    Kristinehamn - closer to the route, reachable at 43% SoC - wrongly
+    passed over in favour of the farther Mariestad).
     """
 
-    distanz_m: float = Field(ge=0.0, description="Average one-way routed distance in meters")
-    zeit_s: float = Field(ge=0.0, description="Average one-way drive time in seconds")
-    energie_kwh: float = Field(
+    hinweg_distanz_m: float = Field(
+        ge=0.0, description="Outward (route -> station) distance in meters"
+    )
+    hinweg_zeit_s: float = Field(
+        ge=0.0, description="Outward (route -> station) drive time in seconds"
+    )
+    hinweg_energie_kwh: float = Field(
         description=(
-            "Average one-way energy consumption in kWh (may be negative if the "
+            "Outward (route -> station) energy consumption in kWh (may be negative if the "
+            "detour road is net downhill, matching SegmentEnergyResult.energiebedarf_kwh "
+            "sign convention)"
+        )
+    )
+    rueckweg_distanz_m: float = Field(
+        ge=0.0, description="Return (station -> route) distance in meters"
+    )
+    rueckweg_zeit_s: float = Field(
+        ge=0.0, description="Return (station -> route) drive time in seconds"
+    )
+    rueckweg_energie_kwh: float = Field(
+        description=(
+            "Return (station -> route) energy consumption in kWh (may be negative if the "
             "detour road is net downhill, matching SegmentEnergyResult.energiebedarf_kwh "
             "sign convention)"
         )
