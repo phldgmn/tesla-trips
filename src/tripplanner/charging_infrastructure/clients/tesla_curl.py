@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from http import HTTPStatus
 from pathlib import Path
@@ -11,7 +12,7 @@ from urllib.parse import quote
 
 from curl_cffi import AsyncSession
 
-from .common import CurlError, _debug_log
+from .common import WAF_RETRY_MAX_ATTEMPTS, CurlError, _debug_log, is_waf_block, waf_retry_delay_s
 
 
 class TeslaLocationsClient:
@@ -116,12 +117,35 @@ class TeslaLocationsClient:
             label,
         )
 
+    async def _rotate_session(self) -> None:
+        """Ersetzt die Session durch eine frische Instanz vor einem Retry.
+
+        Neue Session = neuer TLS/Header-Fingerprint und leere Cookies, was
+        wiederholte Akamai-WAF-Bloecke auf demselben Fingerprint umgeht
+        (siehe ``_fetch``-Retry-Logik). Wird uebersprungen, wenn die Session
+        extern injiziert wurde (nicht ``_owns_client`` - z.B. in Tests oder
+        bei geteilten Sessions, deren Lebenszyklus der Aufrufer verwaltet).
+        """
+        if not self._owns_client:
+            return
+        old_client = self._client
+        self._client = AsyncSession(
+            impersonate=self._IMPERSONATE,
+            timeout=30.0,
+            headers=dict(self._BASE_HEADERS),
+        )
+        with contextlib.suppress(Exception):
+            await old_client.close()
+
     async def _fetch(self, url: str) -> str:
         """Fuehrt GET aus und liefert den Response-Body als Text.
 
-        Wirft ``CurlError`` bei HTTP-Fehlern (403, 429, andere Nicht-200)
-        oder leeren Antworten. Network-Fehler (DNS, ConnectionRefused,
-        Timeout) werden als ``CurlError`` mit der Originalnachricht weitergegeben.
+        Wiederholt bei Akamai-WAF-Bloecken (auch bei HTTP 200 - Tesla liefert
+        die "Access Denied"-Blockseite nicht zuverlaessig mit 403/429) und bei
+        403/429/leeren Antworten bis zu ``WAF_RETRY_MAX_ATTEMPTS`` mal, mit
+        exponentiellem Backoff und einer frischen Session (neuer Fingerprint,
+        keine Cookies) pro Versuch. Netzwerkfehler und andere HTTP-Fehler
+        (404, 500, ...) sind nicht retry-faehig und werfen sofort.
 
         Args:
             url: Vollstaendige URL mit Query-Parametern
@@ -130,27 +154,37 @@ class TeslaLocationsClient:
             Response-Body als Text
 
         Raises:
-            CurlError: Bei HTTP-Fehlern, leeren Antworten oder Netzwerkfehlern
+            CurlError: Bei anhaltenden WAF-Bloecken/Rate-Limits oder anderen
+                HTTP-Fehlern, leeren Antworten oder Netzwerkfehlern
         """
-        try:
-            response = await self._client.get(url)
-        except Exception as e:
-            raise self.CurlError(f"request failed: {e}") from e
+        last_error = self.CurlError("kein Versuch unternommen")
+        for attempt in range(1, WAF_RETRY_MAX_ATTEMPTS + 1):
+            try:
+                response = await self._client.get(url)
+            except Exception as e:
+                raise self.CurlError(f"request failed: {e}") from e
 
-        body = response.text
-        await self._log_response(response, body[:2000])
+            body = response.text
+            await self._log_response(response, body[:2000])
 
-        if not body.strip():
-            raise self.CurlError("empty response")
+            if is_waf_block(body):
+                last_error = self.CurlError("Tesla API: WAF-Block (Access Denied)")
+            elif not body.strip():
+                last_error = self.CurlError("empty response")
+            elif response.status_code == HTTPStatus.FORBIDDEN:
+                last_error = self.CurlError("Tesla API: 403 Access Denied (mglw. rate-limited)")
+            elif response.status_code == HTTPStatus.TOO_MANY_REQUESTS:
+                last_error = self.CurlError("Tesla API: 429 Too Many Requests (Rate-Limit)")
+            elif response.status_code != HTTPStatus.OK:
+                raise self.CurlError(f"Tesla API: HTTP {response.status_code}")
+            else:
+                return body
 
-        if response.status_code == HTTPStatus.FORBIDDEN:
-            raise self.CurlError("Tesla API: 403 Access Denied (mglw. rate-limited)")
-        if response.status_code == HTTPStatus.TOO_MANY_REQUESTS:
-            raise self.CurlError("Tesla API: 429 Too Many Requests (Rate-Limit)")
-        if response.status_code != HTTPStatus.OK:
-            raise self.CurlError(f"Tesla API: HTTP {response.status_code}")
+            if attempt < WAF_RETRY_MAX_ATTEMPTS:
+                await self._rotate_session()
+                await asyncio.sleep(waf_retry_delay_s(attempt))
 
-        return body
+        raise last_error
 
     async def _fetch_json(self, url: str) -> dict[str, Any]:
         """Fuehrt GET aus und parst JSON-Antwort (siehe ``_fetch``).

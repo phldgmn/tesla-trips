@@ -374,16 +374,46 @@ class TestTeslaLocationsClient:
         assert body == html
 
     @pytest.mark.asyncio
-    async def test_fetch_pricing_html_raises_on_waf_block(self) -> None:
-        """Ein 403 (WAF-Block) loest CurlError aus, wie bei den JSON-Endpunkten."""
+    async def test_fetch_pricing_html_raises_on_waf_block(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ein anhaltender 403 (WAF-Block) loest nach allen Retries CurlError aus."""
+        import tripplanner.charging_infrastructure.clients.tesla_curl as tesla_curl_module
+
+        monkeypatch.setattr(tesla_curl_module.asyncio, "sleep", AsyncMock())
         resp = self._make_fake_response("<html>Access Denied</html>", status_code=403)
         mock_session = AsyncMock(spec=AsyncSession)
         mock_session.get = AsyncMock(return_value=resp)
 
         client = TeslaLocationsClient(client=mock_session)
-        with pytest.raises(TeslaLocationsClient.CurlError, match="403"):
+        with pytest.raises(TeslaLocationsClient.CurlError, match="WAF-Block"):
             await client.fetch_pricing_html("rhudensupercharger")
         await client.close()
+
+        assert mock_session.get.await_count == 4
+
+    @pytest.mark.asyncio
+    async def test_fetch_raises_on_waf_block_page_with_http_200(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Akamai liefert die Blockseite manchmal mit HTTP 200 statt 403/429 -
+        muss trotzdem als Block erkannt werden statt als kaputtes JSON."""
+        import tripplanner.charging_infrastructure.clients.tesla_curl as tesla_curl_module
+
+        monkeypatch.setattr(tesla_curl_module.asyncio, "sleep", AsyncMock())
+        resp = self._make_fake_response(
+            "<html><title>Access Denied</title>https://errors.edgesuite.net/18.foo</html>",
+            status_code=200,
+        )
+        mock_session = AsyncMock(spec=AsyncSession)
+        mock_session.get = AsyncMock(return_value=resp)
+
+        client = TeslaLocationsClient(client=mock_session)
+        with pytest.raises(TeslaLocationsClient.CurlError, match="WAF-Block"):
+            await client.fetch_locations("DE")
+        await client.close()
+
+        assert mock_session.get.await_count == 4
 
     @pytest.mark.asyncio
     async def test_fetch_pricing_html_url_encodes_slug(self) -> None:
@@ -417,26 +447,41 @@ class _FakeFetcher:
     """Minimaler NodriverFetcher-Stub fuer Unit-Tests.
 
     Liefert eine konfigurierbare Antwort (Status + Body) pro URL und zeichnet
-    alle Aufrufe auf, ohne einen echten Browser zu starten.
+    alle Aufrufe auf, ohne einen echten Browser zu starten. ``set_sequence``
+    erlaubt unterschiedliche Antworten ueber aufeinanderfolgende Aufrufe
+    derselben URL hinweg (fuer Retry-Tests).
     """
 
     def __init__(self) -> None:
         self.calls: list[str] = []
         self._by_url: dict[str, tuple[int, str]] = {}
+        self._sequences: dict[str, list[tuple[int, str]]] = {}
         self._default: tuple[int, str] = (200, "")
         self.closed = False
+        self.restart_count = 0
 
     def set_response(self, url: str, status: int, body: str) -> None:
         self._by_url[url] = (status, body)
+
+    def set_sequence(self, url: str, responses: list[tuple[int, str]]) -> None:
+        """Liefert bei aufeinanderfolgenden Aufrufen von ``url`` je einen
+        Eintrag aus ``responses``; der letzte Eintrag wiederholt sich."""
+        self._sequences[url] = list(responses)
 
     def set_default(self, status: int, body: str) -> None:
         self._default = (status, body)
 
     def fetch(self, url: str) -> tuple[int, str]:
         self.calls.append(url)
+        sequence = self._sequences.get(url)
+        if sequence:
+            return sequence.pop(0) if len(sequence) > 1 else sequence[0]
         if url in self._by_url:
             return self._by_url[url]
         return self._default
+
+    def restart(self) -> None:
+        self.restart_count += 1
 
     def close(self) -> None:
         self.closed = True
@@ -567,26 +612,97 @@ class TestNodriverTeslaClient:
         assert body == html
 
     @pytest.mark.asyncio
-    async def test_fetch_pricing_html_raises_on_waf_block(self) -> None:
-        """Ein 403 (WAF-Block) loest CurlError aus, wie bei curl_cffi."""
+    async def test_fetch_pricing_html_raises_on_waf_block(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ein anhaltender 403 (WAF-Block) loest nach allen Retries CurlError aus."""
+        import tripplanner.charging_infrastructure.clients.nodriver as nodriver_module
         from tripplanner.charging_infrastructure.client import NodriverTeslaClient
 
+        monkeypatch.setattr(nodriver_module.asyncio, "sleep", AsyncMock())
         url = "https://www.tesla.com/findus/location/supercharger/rhudensupercharger"
         fetcher = _FakeFetcher()
         fetcher.set_response(url, 403, "<html>Access Denied</html>")
 
         client = NodriverTeslaClient(fetcher=fetcher)
         try:
-            with pytest.raises(CurlError, match="403"):
+            with pytest.raises(CurlError, match="WAF-Block"):
                 await client.fetch_pricing_html("rhudensupercharger")
         finally:
             await client.close()
 
+        # Ein frischer Browser (neuer Fingerprint) wird vor jedem Retry
+        # gestartet - 4 Versuche = 3 Restarts.
+        assert len(fetcher.calls) == 4
+        assert fetcher.restart_count == 3
+
     @pytest.mark.asyncio
-    async def test_fetch_raises_on_too_many_requests(self) -> None:
-        """Ein 429 loest CurlError aus."""
+    async def test_fetch_raises_on_waf_block_page_with_http_200(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Tesla liefert die Akamai-Blockseite manchmal mit HTTP 200 statt 403 -
+        muss trotzdem als Block erkannt und nicht als leeres/kaputtes JSON
+        durchgereicht werden."""
+        import tripplanner.charging_infrastructure.clients.nodriver as nodriver_module
         from tripplanner.charging_infrastructure.client import NodriverTeslaClient
 
+        monkeypatch.setattr(nodriver_module.asyncio, "sleep", AsyncMock())
+        fetcher = _FakeFetcher()
+        fetcher.set_default(
+            200,
+            "<html><head><title>Access Denied</title></head><body>"
+            "You don't have permission... https://errors.edgesuite.net/18.foo"
+            "</body></html>",
+        )
+
+        client = NodriverTeslaClient(fetcher=fetcher)
+        try:
+            with pytest.raises(CurlError, match="WAF-Block"):
+                await client.fetch_locations("DE")
+        finally:
+            await client.close()
+
+        assert len(fetcher.calls) == 4
+        assert fetcher.restart_count == 3
+
+    @pytest.mark.asyncio
+    async def test_fetch_locations_recovers_after_transient_waf_block(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ein einmaliger WAF-Block gefolgt von Erfolg liefert die Daten,
+        ohne dass der Aufrufer den Fehler sieht."""
+        import tripplanner.charging_infrastructure.clients.nodriver as nodriver_module
+        from tripplanner.charging_infrastructure.client import NodriverTeslaClient
+
+        monkeypatch.setattr(nodriver_module.asyncio, "sleep", AsyncMock())
+        url = "https://www.tesla.com/api/findus/get-locations?country=DE&view=map"
+        locations_json = json.dumps({"data": {"data": [{"uuid": "1"}]}})
+        fetcher = _FakeFetcher()
+        fetcher.set_sequence(
+            url,
+            [
+                (200, "<html><title>Access Denied</title></html>"),
+                (200, locations_json),
+            ],
+        )
+
+        client = NodriverTeslaClient(fetcher=fetcher)
+        try:
+            locations = await client.fetch_locations("DE")
+        finally:
+            await client.close()
+
+        assert locations == [{"uuid": "1"}]
+        assert len(fetcher.calls) == 2
+        assert fetcher.restart_count == 1
+
+    @pytest.mark.asyncio
+    async def test_fetch_raises_on_too_many_requests(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Ein anhaltendes 429 loest nach allen Retries CurlError aus."""
+        import tripplanner.charging_infrastructure.clients.nodriver as nodriver_module
+        from tripplanner.charging_infrastructure.client import NodriverTeslaClient
+
+        monkeypatch.setattr(nodriver_module.asyncio, "sleep", AsyncMock())
         fetcher = _FakeFetcher()
         fetcher.set_default(429, "rate limited")
 
@@ -597,9 +713,11 @@ class TestNodriverTeslaClient:
         finally:
             await client.close()
 
+        assert len(fetcher.calls) == 4
+
     @pytest.mark.asyncio
     async def test_fetch_raises_on_server_error(self) -> None:
-        """Ein 500 loest CurlError aus."""
+        """Ein 500 loest sofort (ohne Retry) CurlError aus - nicht WAF-bedingt."""
         from tripplanner.charging_infrastructure.client import NodriverTeslaClient
 
         fetcher = _FakeFetcher()
@@ -612,11 +730,15 @@ class TestNodriverTeslaClient:
         finally:
             await client.close()
 
+        assert len(fetcher.calls) == 1
+
     @pytest.mark.asyncio
-    async def test_fetch_raises_on_empty_body(self) -> None:
-        """Eine leere Antwort loest CurlError aus."""
+    async def test_fetch_raises_on_empty_body(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Eine anhaltend leere Antwort loest nach allen Retries CurlError aus."""
+        import tripplanner.charging_infrastructure.clients.nodriver as nodriver_module
         from tripplanner.charging_infrastructure.client import NodriverTeslaClient
 
+        monkeypatch.setattr(nodriver_module.asyncio, "sleep", AsyncMock())
         fetcher = _FakeFetcher()
         fetcher.set_default(200, "   ")
 
@@ -626,6 +748,8 @@ class TestNodriverTeslaClient:
                 await client.fetch_locations("DE")
         finally:
             await client.close()
+
+        assert len(fetcher.calls) == 4
 
     @pytest.mark.asyncio
     async def test_close_only_closes_owned_fetcher(self) -> None:

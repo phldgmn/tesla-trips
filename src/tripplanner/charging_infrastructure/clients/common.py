@@ -36,6 +36,49 @@ def _debug_log(log_path: Path | None, msg: str, label: str = "DEBUG") -> None:
         pass
 
 
+_WAF_BLOCK_MARKERS: tuple[str, ...] = ("Access Denied", "errors.edgesuite.net")
+"""Substrings identifying an Akamai edge WAF block page.
+
+Tesla's WAF sometimes returns this block page with HTTP 200 (not 403/429) -
+e.g. for ``get-locations``, which is otherwise expected to return JSON. A
+bare status-code check therefore misses these blocks; callers must inspect
+the body via ``is_waf_block`` before treating a 200 response as success.
+"""
+
+WAF_RETRY_MAX_ATTEMPTS: int = 4
+"""Anzahl Gesamtversuche bei WAF-Block/Rate-Limit, bevor endgueltig
+aufgegeben wird (verifiziertes Muster: neuer Browser-/Session-Fingerprint
+pro Versuch umgeht Akamai zuverlaessiger als ein blosser Retry)."""
+
+WAF_RETRY_BASE_DELAY_S: float = 1.5
+"""Basis-Verzoegerung (Sekunden) fuer den exponentiellen Backoff zwischen
+Retry-Versuchen (siehe ``waf_retry_delay_s``)."""
+
+
+def is_waf_block(body: str) -> bool:
+    """True, wenn ``body`` wie eine Akamai-WAF-Blockseite aussieht.
+
+    Args:
+        body: Response-Body (Text)
+
+    Returns:
+        True, wenn ein bekannter Block-Marker im Body vorkommt.
+    """
+    return any(marker in body for marker in _WAF_BLOCK_MARKERS)
+
+
+def waf_retry_delay_s(attempt: int) -> float:
+    """Exponentielle Backoff-Verzoegerung vor Retry-Versuch ``attempt``.
+
+    Args:
+        attempt: 1-indizierte Nummer des soeben fehlgeschlagenen Versuchs.
+
+    Returns:
+        Verzoegerung in Sekunden vor dem naechsten Versuch.
+    """
+    return float(WAF_RETRY_BASE_DELAY_S * (2 ** (attempt - 1)))
+
+
 class CurlError(Exception):
     """HTTP-Request fehlgeschlagen (WAF-Block, Rate-Limit, Netzwerkfehler).
 

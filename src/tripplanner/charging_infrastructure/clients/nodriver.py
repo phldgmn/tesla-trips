@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from .common import CurlError, _debug_log
+from .common import WAF_RETRY_MAX_ATTEMPTS, CurlError, _debug_log, is_waf_block, waf_retry_delay_s
 
 
 class NodriverBrowserFetcher:
@@ -333,6 +333,21 @@ class NodriverBrowserFetcher:
             self._thread.join(timeout=5.0)
             self._thread = None
 
+    def restart(self) -> None:
+        """Beendet die aktuelle Chromium-Instanz und erzwingt einen frischen Browser-Start.
+
+        Anders als ``close()`` bleiben Hintergrund-Thread und Event-Loop
+        erhalten - nur der Browser-Prozess wird ersetzt. Neuer Prozess =
+        neuer CDP-Fingerprint und leere Cookies, was wiederholte Akamai-WAF-
+        Bloecke auf demselben Fingerprint umgeht (siehe ``NodriverTeslaClient
+        ._fetch``-Retry-Logik).
+        """
+        if self._closed or self._loop is None or self._browser is None:
+            return
+        with contextlib.suppress(Exception):
+            future = asyncio.run_coroutine_threadsafe(self._shutdown_browser(), self._loop)
+            future.result(timeout=15.0)
+
 
 class NodriverTeslaClient:
     """HTTP-Client fuer die oeffentliche Tesla Locations-API via nodriver.
@@ -388,8 +403,13 @@ class NodriverTeslaClient:
     async def _fetch(self, url: str) -> str:
         """Fuehrt GET aus und liefert den Response-Body als Text.
 
-        Wirft ``CurlError`` bei HTTP-Fehlern (403, 429, andere Nicht-200)
-        oder leeren Antworten.
+        Wiederholt bei Akamai-WAF-Bloecken (auch bei HTTP 200 - Tesla liefert
+        die "Access Denied"-Blockseite nicht zuverlaessig mit 403/429) und bei
+        403/429/leeren Antworten bis zu ``WAF_RETRY_MAX_ATTEMPTS`` mal, mit
+        exponentiellem Backoff und einem frischen Browser-Prozess (neuer
+        Fingerprint, keine Cookies) pro Versuch - verifiziertes Muster gegen
+        Akamai (siehe ``docs/Tesla-Supercharger-Detail-Scraping.md``). Andere
+        HTTP-Fehler (404, 500, ...) sind nicht retry-faehig und werfen sofort.
 
         Args:
             url: Vollstaendige URL mit Query-Parametern
@@ -398,27 +418,44 @@ class NodriverTeslaClient:
             Response-Body als Text
 
         Raises:
-            CurlError: Bei HTTP-Fehlern, leeren Antworten oder Netzwerkfehlern
+            CurlError: Bei anhaltenden WAF-Bloecken/Rate-Limits oder anderen
+                HTTP-Fehlern, leeren Antworten oder Netzwerkfehlern
         """
-        await self._log_request("GET", url)
-        status, body = await asyncio.to_thread(self._fetcher.fetch, url)
+        last_error = CurlError("nodriver: kein Versuch unternommen")
+        for attempt in range(1, WAF_RETRY_MAX_ATTEMPTS + 1):
+            await self._log_request("GET", url)
+            status, body = await asyncio.to_thread(self._fetcher.fetch, url)
 
-        _debug_log(
-            self._debug_log,
-            f"NODRIVER GET {url} -> {status}\n  Body ({len(body)} bytes): {body[:2000]}",
-            label="NODRIVER",
-        )
+            _debug_log(
+                self._debug_log,
+                f"NODRIVER GET {url} -> {status}\n  Body ({len(body)} bytes): {body[:2000]}",
+                label="NODRIVER",
+            )
 
-        if not body.strip():
-            raise CurlError("empty response")
-        if status == HTTPStatus.FORBIDDEN:
-            raise CurlError("Tesla API: 403 Access Denied (mglw. rate-limited)")
-        if status == HTTPStatus.TOO_MANY_REQUESTS:
-            raise CurlError("Tesla API: 429 Too Many Requests (Rate-Limit)")
-        if status != HTTPStatus.OK:
-            raise CurlError(f"Tesla API: HTTP {status}")
+            if is_waf_block(body):
+                last_error = CurlError("Tesla API: WAF-Block (Access Denied)")
+            elif not body.strip():
+                last_error = CurlError("empty response")
+            elif status == HTTPStatus.FORBIDDEN:
+                last_error = CurlError("Tesla API: 403 Access Denied (mglw. rate-limited)")
+            elif status == HTTPStatus.TOO_MANY_REQUESTS:
+                last_error = CurlError("Tesla API: 429 Too Many Requests (Rate-Limit)")
+            elif status != HTTPStatus.OK:
+                raise CurlError(f"Tesla API: HTTP {status}")
+            else:
+                return body
 
-        return body
+            if attempt < WAF_RETRY_MAX_ATTEMPTS:
+                _debug_log(
+                    self._debug_log,
+                    f"Versuch {attempt}/{WAF_RETRY_MAX_ATTEMPTS} fehlgeschlagen "
+                    f"({last_error}), Browser wird neu gestartet und erneut versucht.",
+                    label="RETRY",
+                )
+                await asyncio.to_thread(self._fetcher.restart)
+                await asyncio.sleep(waf_retry_delay_s(attempt))
+
+        raise last_error
 
     async def _fetch_json(self, url: str) -> dict[str, Any]:
         """Fuehrt GET aus und parst JSON-Antwort (siehe ``_fetch``)."""
