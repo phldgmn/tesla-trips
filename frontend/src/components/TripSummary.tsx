@@ -15,7 +15,7 @@ import {
   cumulativeDistancesKm,
   findNearestFrameIndex,
 } from "../utils/timing-utils";
-import { formatZeitpunkt } from "../utils/datetime-utils";
+import { formatDatumKurz, formatUhrzeit } from "../utils/datetime-utils";
 import { formatCost, formatCostOrDash } from "../utils/currency-utils";
 import { Modal } from "./Modal";
 import { convertAllToEUR } from "../utils/currency-conversion";
@@ -422,14 +422,17 @@ function TripSummary({ result, stops }: TripSummaryProps) {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={headerCellStyle}>Art</th>
               <th style={headerCellStyle}>Ort</th>
-              <th style={headerCellStyle}>Ankunft</th>
-              <th style={headerCellStyle}>Abfahrt</th>
+              <th style={headerCellStyle} colSpan={2}>
+                Ankunft
+              </th>
+              <th style={headerCellStyle}>SoC</th>
+              <th style={headerCellStyle} colSpan={2}>
+                Abfahrt
+              </th>
+              <th style={headerCellStyle}>SoC</th>
               <th style={headerCellStyle}>Strecke</th>
               <th style={headerCellStyle}>Dauer</th>
-              <th style={headerCellStyle}>SoC (An)</th>
-              <th style={headerCellStyle}>SoC (Ab)</th>
               <th style={headerCellStyle}>Energie</th>
               <th style={headerCellStyle}>Preis</th>
             </tr>
@@ -437,23 +440,26 @@ function TripSummary({ result, stops }: TripSummaryProps) {
           <tbody>
             {schedule.map((eintrag) => (
               <tr key={eintrag.key}>
-                <td style={cellStyle}>{eintrag.art}</td>
                 <td style={cellStyle}>
                   {eintrag.label.replace("Tesla Supercharger - ", "")}
                 </td>
-                <td style={cellStyle}>{formatZeitpunkt(eintrag.arrival)}</td>
-                <td style={cellStyle}>{formatZeitpunkt(eintrag.departure)}</td>
+                <td style={cellStyle}>{formatDatumKurz(eintrag.arrival)}</td>
+                <td style={rightCellStyle}>{formatUhrzeit(eintrag.arrival)}</td>
+                <td style={rightCellStyle}>
+                  {formatSocOrDash(eintrag.ankunftsSocPct)}
+                </td>
+                <td style={cellStyle}>{formatDatumKurz(eintrag.departure)}</td>
+                <td style={rightCellStyle}>
+                  {formatUhrzeit(eintrag.departure)}
+                </td>
+                <td style={rightCellStyle}>
+                  {formatSocOrDash(eintrag.abfahrtsSocPct)}
+                </td>
                 <td style={rightCellStyle}>
                   {formatKmOrDash(eintrag.distanceSinceLastKm)}
                 </td>
                 <td style={rightCellStyle}>
                   {formatMinutenOrDash(eintrag.durationSinceLastMin)}
-                </td>
-                <td style={rightCellStyle}>
-                  {formatSocOrDash(eintrag.ankunftsSocPct)}
-                </td>
-                <td style={rightCellStyle}>
-                  {formatSocOrDash(eintrag.abfahrtsSocPct)}
                 </td>
                 <td style={rightCellStyle}>
                   {formatKwhOrDash(eintrag.energieGeladenKwh)}
@@ -509,7 +515,7 @@ function formatSocOrDash(pct: number | null): string {
 }
 
 function formatKwhOrDash(kwh: number | null): string {
-  if (kwh === null) return "–";
+  if (kwh === null || kwh === 0) return "–";
   return `${kwh.toLocaleString("de-DE", {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,

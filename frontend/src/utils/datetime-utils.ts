@@ -54,26 +54,27 @@ export function formatZeitpunkt(iso: string | null): string {
  *  Route-Timeline), die dank des Tageswechsel-Trenners (`istTageswechsel`)
  *  kein Datum mehr pro Eintrag benötigen. */
 export function formatUhrzeit(iso: string | null): string {
-  if (iso === null) return "unbekannt";
+  if (iso === null) return "–";
   try {
     return new Date(iso).toLocaleTimeString("de-DE", { timeStyle: "short" });
   } catch {
-    return "ungültig";
+    return "–";
   }
 }
 
 /** Formatiert einen ISO-Zeitstempel als knappes Datum mit Wochentag (z. B.
  *  "So., 16.08.") - für den Tageswechsel-Trenner in der Route-Timeline, der
  *  bewusst klein gehalten wird (siehe `istTageswechsel`). */
-export function formatDatumKurz(iso: string): string {
+export function formatDatumKurz(iso: string | null): string {
   try {
+    if (iso === null) return "–";
     return new Date(iso).toLocaleDateString("de-DE", {
       weekday: "short",
       day: "2-digit",
       month: "2-digit",
     });
   } catch {
-    return "";
+    return "–";
   }
 }
 
