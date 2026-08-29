@@ -10,11 +10,27 @@ export type PricingRefreshState =
   | { status: "loaded"; pricing: SuperchargerPricing }
   | { status: "error"; message: string; pricing?: SuperchargerPricing };
 
-/** Formatiert einen `SuperchargerPricingTier` als lesbare Preiszeile,
- *  z. B. "0.42 EUR/kWh" oder "0.39 EUR/kWh (16:00 - 20:00)". */
-function formatPricingTier(tier: SuperchargerPricing["tiers"][number]): string {
-  const base = `${tier.amount.toFixed(2)} ${tier.currency}/${tier.unit}`;
-  return tier.time_label ? `${base} (${tier.time_label})` : base;
+/** Formatiert den Preis eines `SuperchargerPricingTier` ohne Zeitfenster,
+ *  z. B. "0.42 EUR/kWh". */
+function formatTierPrice(tier: SuperchargerPricing["tiers"][number]): string {
+  return `${tier.amount.toFixed(2)} ${tier.currency}/${tier.unit}`;
+}
+
+/** Gruppiert Preis-Tiers nach `tier_label`, Reihenfolge des ersten
+ *  Auftretens bleibt erhalten (Backend liefert Tiers bereits gruppiert). */
+function groupTiersByLabel(
+  tiers: SuperchargerPricing["tiers"],
+): Map<string, SuperchargerPricing["tiers"]> {
+  const groups = new Map<string, SuperchargerPricing["tiers"]>();
+  for (const tier of tiers) {
+    const existing = groups.get(tier.tier_label);
+    if (existing) {
+      existing.push(tier);
+    } else {
+      groups.set(tier.tier_label, [tier]);
+    }
+  }
+  return groups;
 }
 
 /** Baut ein DOM-Element mit Preistabelle + Refresh-Aktion fuer eine Station,
@@ -61,22 +77,46 @@ export function buildPricingSection(
 
   if (loadedPricing) {
     if (loadedPricing.tiers.length > 0) {
-      const table = document.createElement("table");
-      table.style.cssText =
-        "width:100%;border-collapse:collapse;margin-bottom:6px;";
-      for (const tier of loadedPricing.tiers) {
-        const tr = document.createElement("tr");
-        const tdLabel = document.createElement("td");
-        tdLabel.style.cssText = "padding:2px 4px;color:#666;";
-        tdLabel.textContent = tier.tier_label;
-        tr.appendChild(tdLabel);
-        const tdValue = document.createElement("td");
-        tdValue.style.cssText = "padding:2px 4px;text-align:right;";
-        tdValue.textContent = formatPricingTier(tier);
-        tr.appendChild(tdValue);
-        table.appendChild(tr);
+      for (const [label, groupTiers] of groupTiersByLabel(
+        loadedPricing.tiers,
+      )) {
+        const group = document.createElement("div");
+        group.style.cssText = "margin-bottom:6px;";
+
+        const heading = document.createElement("div");
+        heading.style.cssText =
+          "font-weight:600;font-size:12px;color:#111827;margin-bottom:2px;";
+        heading.textContent = label;
+        group.appendChild(heading);
+
+        if (groupTiers.length === 1 && !groupTiers[0].time_label) {
+          const row = document.createElement("div");
+          row.style.cssText =
+            "display:flex;justify-content:flex-end;font-size:13px;font-weight:600;";
+          row.textContent = formatTierPrice(groupTiers[0]);
+          group.appendChild(row);
+        } else {
+          const table = document.createElement("table");
+          table.style.cssText =
+            "width:100%;border-collapse:collapse;font-size:12px;";
+          for (const tier of groupTiers) {
+            const tr = document.createElement("tr");
+            const tdTime = document.createElement("td");
+            tdTime.style.cssText =
+              "padding:1px 8px 1px 0;color:#666;white-space:nowrap;";
+            tdTime.textContent = tier.time_label ?? "Ganzt\u00e4gig";
+            tr.appendChild(tdTime);
+            const tdPrice = document.createElement("td");
+            tdPrice.style.cssText =
+              "padding:1px 0;text-align:right;font-weight:600;white-space:nowrap;";
+            tdPrice.textContent = formatTierPrice(tier);
+            tr.appendChild(tdPrice);
+            table.appendChild(tr);
+          }
+          group.appendChild(table);
+        }
+        section.appendChild(group);
       }
-      section.appendChild(table);
     } else {
       const empty = document.createElement("div");
       empty.style.cssText = "color:#666;font-size:12px;margin-bottom:6px;";

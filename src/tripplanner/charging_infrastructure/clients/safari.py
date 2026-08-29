@@ -54,6 +54,12 @@ _OSASCRIPT_TIMEOUT_S: float = 45.0
 """Hartes Timeout fuer den gesamten ``osascript``-Subprozess (Sicherheitsnetz
 falls Safari/AppleScript haengen bleibt)."""
 
+_CLEANUP_TIMEOUT_S: float = 10.0
+"""Timeout fuer den Rueckfall-``osascript``-Aufruf (``_build_cleanup_script``),
+der nach einem gekillten Fetch-Versuch verwaiste Safari-Tabs schliesst. Kurz
+gehalten, da dies nur ein Aufraeum-Versuch ist und selbst nicht haengen
+bleiben soll."""
+
 
 def _escape_applescript_string(value: str) -> str:
     """Escaped ``value`` fuer die Einbettung in ein AppleScript-String-Literal."""
@@ -67,7 +73,12 @@ def _build_fetch_script(url: str) -> str:
     ``activate`` -> kein Fokus-Diebstahl), wartet bis die Ziel-URL im
     Dokument sichtbar ist, pollt ``document.readyState`` bis ``"complete"``
     und liest anschliessend den Roh-Body via ``source of``. Der Tab wird in
-    jedem Fall (Erfolg wie Fehler) wieder geschlossen.
+    jedem Fall (Erfolg wie Fehler) wieder geschlossen: ``createdDoc``
+    speichert die von ``make new document`` direkt zurueckgelieferte
+    Objekt-Referenz, damit auch dann noch ein gueltiges Handle zum
+    Schliessen existiert, wenn der Tab per URL-Abgleich innerhalb von
+    ``find_attempts`` nicht wiedergefunden wird (sonst bliebe der Tab
+    verwaist offen, siehe ``newDoc is missing value``-Zweig).
     """
     escaped_url = _escape_applescript_string(url)
     find_attempts = max(1, round(_FIND_DOC_TIMEOUT_S / _POLL_INTERVAL_S))
@@ -78,7 +89,7 @@ set newDoc to missing value
 set pageSource to ""
 
 tell application "Safari"
-    make new document with properties {{URL:targetURL}}
+    set createdDoc to make new document with properties {{URL:targetURL}}
 end tell
 
 try
@@ -95,6 +106,7 @@ try
         end repeat
 
         if newDoc is missing value then
+            set newDoc to createdDoc
             error "Tab fuer Ziel-URL nicht gefunden (Timeout)"
         end if
 
@@ -127,6 +139,29 @@ tell application "Safari"
 end tell
 
 return pageSource
+""".strip()
+
+
+def _build_cleanup_script(url: str) -> str:
+    """AppleScript, das alle Safari-Tabs mit URL ``url`` schliesst (best effort).
+
+    Rueckfallebene fuer den Fall, dass ein Fetch-Versuch per Timeout
+    gekillt wurde (siehe ``_run_applescript``), bevor das Haupt-Skript
+    (``_build_fetch_script``) seinen eigenen ``close``-Schritt erreichen
+    konnte - verhindert verwaiste Safari-Tabs/-Fenster nach einem
+    haengenden ``osascript``-Prozess.
+    """
+    escaped_url = _escape_applescript_string(url)
+    return f"""
+tell application "Safari"
+    repeat with doc in documents
+        try
+            if (URL of doc) is "{escaped_url}" then
+                close doc
+            end if
+        end try
+    end repeat
+end tell
 """.strip()
 
 
@@ -176,8 +211,17 @@ class SafariTeslaClient(TeslaJsonEndpointsMixin):
         """Loggt eine Anfrage fuer Debug-Zwecke."""
         _debug_log(self._debug_log, f"GET {url}", label="SAFARI")
 
-    async def _run_applescript(self, script: str) -> str:
+    async def _run_applescript(self, script: str, *, cleanup_url: str | None = None) -> str:
         """Fuehrt ``script`` per ``osascript`` aus und liefert dessen Stdout.
+
+        Args:
+            script: Auszufuehrendes AppleScript.
+            cleanup_url: Wenn gesetzt, wird bei einem ``osascript``-Timeout
+                (der Prozess wird gekillt, bevor ``script`` seinen eigenen
+                ``close``-Schritt erreichen konnte) versucht, verwaiste
+                Safari-Tabs fuer diese URL per Rueckfall-Skript zu schliessen
+                (siehe ``_build_cleanup_script``). Best effort, unterdrueckt
+                eigene Fehler.
 
         Raises:
             CurlError: Bei Timeout, Nicht-Null-Exitcode (AppleScript-Fehler,
@@ -204,6 +248,8 @@ class SafariTeslaClient(TeslaJsonEndpointsMixin):
                 proc.kill()
             with contextlib.suppress(Exception):
                 await proc.wait()
+            if cleanup_url is not None:
+                await self._cleanup_orphaned_tab(cleanup_url)
             raise self.CurlError(f"Safari-Automation Timeout nach {_OSASCRIPT_TIMEOUT_S}s") from e
 
         if proc.returncode != 0:
@@ -215,11 +261,39 @@ class SafariTeslaClient(TeslaJsonEndpointsMixin):
 
         return stdout.decode("utf-8", errors="replace")
 
+    async def _cleanup_orphaned_tab(self, url: str) -> None:
+        """Schliesst best effort alle Safari-Tabs mit URL ``url``.
+
+        Rueckfallebene, die ausschliesslich nach einem ``osascript``-Timeout
+        greift (siehe ``_run_applescript``): dort wurde der ``osascript``-
+        Prozess gekillt, bevor das eigentliche Fetch-Skript seinen eigenen
+        ``close newDoc``-Schritt erreichen konnte, sodass der von ``make new
+        document`` erzeugte Tab sonst verwaist im Safari-Fenster des Nutzers
+        haengen bliebe. Fehler hier werden nur geloggt, nie propagiert, damit
+        ein fehlgeschlagener Aufraeum-Versuch nie den urspruenglichen Fehler
+        (den Timeout selbst) verdeckt.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "osascript",
+                "-e",
+                _build_cleanup_script(url),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=_CLEANUP_TIMEOUT_S)
+        except Exception as e:
+            _debug_log(
+                self._debug_log,
+                f"Safari-Tab-Cleanup fehlgeschlagen fuer {url}: {e}",
+                label="SAFARI",
+            )
+
     async def _fetch_once(self, url: str) -> str:
         """Ein einzelner Versuch: Tab oeffnen, laden, Body lesen, schliessen."""
         async with self._lock:
             await self._log_request(url)
-            return await self._run_applescript(_build_fetch_script(url))
+            return await self._run_applescript(_build_fetch_script(url), cleanup_url=url)
 
     async def _fetch(self, url: str) -> str:
         """Fuehrt GET aus und liefert den Response-Body als Text.
