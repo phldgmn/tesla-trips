@@ -23,53 +23,110 @@ from tripplanner.weather.providers import WeatherProvider
 if TYPE_CHECKING:
     pass
 
-# Every N-th segment is sampled for medium detail (first and last always included).
-MEDIUM_DETAIL_SEGMENT_STRIDE: int = 5
+# Target spacing (metres) between representative weather sample points along
+# the route. Deliberately distance-based, not segment-index-based: a
+# `RouteSegment` is one raw routing-provider polyline edge, and its length
+# varies wildly with route geometry (a few metres on tight urban curves, up
+# to kilometres on straight motorway stretches). Sampling every N-th
+# *segment* therefore samples every N-th *point on the polyline*, so a long,
+# curvy route with a dense polyline produced far more queries than a short,
+# straight one covering the same distance -- on multi-hundred-km trips this
+# ballooned into thousands of queries for "medium" detail and triggered
+# weather-provider 429s. Spacing by along-route distance keeps the query
+# count proportional to trip length regardless of polyline density, and
+# lets "low" (previously a single point for the whole trip, see the
+# 2026-08-29 bug report) vary sensibly across long trips while staying cheap.
+LOW_DETAIL_SAMPLE_SPACING_M: float = 200_000.0
+MEDIUM_DETAIL_SAMPLE_SPACING_M: float = 40_000.0
+
+
+def _cumulative_midpoint_distances_m(
+    segment_eta_list: Sequence[tuple[RouteSegment, timedelta]],
+) -> list[float]:
+    """Computes the along-route distance to each segment's midpoint.
+
+    Args:
+        segment_eta_list: Pairs of ``(segment, elapsed_timedelta)`` in route
+            order.
+
+    Returns:
+        A list of length ``len(segment_eta_list)`` where entry *i* is the
+        cumulative route distance (metres) to the midpoint of segment *i*,
+        computed from ``RouteSegment.laenge_m``.
+    """
+    distances: list[float] = []
+    travelled = 0.0
+    for segment, _ in segment_eta_list:
+        distances.append(travelled + segment.laenge_m / 2)
+        travelled += segment.laenge_m
+    return distances
+
+
+def _sample_indices_by_spacing(
+    distances_m: Sequence[float],
+    spacing_m: float,
+) -> list[int]:
+    """Picks representative segment indices spaced roughly *spacing_m* apart.
+
+    Args:
+        distances_m: Along-route distance to each segment's midpoint, in
+            ascending order (see `_cumulative_midpoint_distances_m`).
+        spacing_m: Target distance between consecutive sampled points.
+
+    Returns:
+        Sorted, deduplicated segment indices. The first and last segment are
+        always included regardless of spacing, so the sampled range always
+        spans the full route.
+    """
+    count = len(distances_m)
+    if count == 0:
+        return []
+
+    sampled = {0, count - 1}
+    next_threshold = distances_m[0] + spacing_m
+    for idx, distance in enumerate(distances_m):
+        if distance >= next_threshold:
+            sampled.add(idx)
+            next_threshold = distance + spacing_m
+    return sorted(sampled)
 
 
 def _nearest_sample_assignment(
-    segment_count: int,
+    distances_m: Sequence[float],
     sampled_indices: Sequence[int],
 ) -> list[int]:
-    """Return the nearest sampled index for each segment index.
+    """Returns the along-route-nearest sampled index for each segment.
 
-    For every segment *i* in ``range(segment_count)`` the function returns the
-    element of *sampled_indices* that is closest to *i* in absolute index
-    distance.  Ties are broken by choosing the **lower** index.
+    For every segment *i* the function returns the element of
+    *sampled_indices* whose midpoint distance is closest to segment *i*'s
+    midpoint distance. Ties are broken by choosing the **lower** index.
 
     Args:
-        segment_count: Total number of segments in the route.
-        sampled_indices: Sorted list of segment indices that were actually
-            queried.
+        distances_m: Along-route distance to each segment's midpoint (see
+            `_cumulative_midpoint_distances_m`); its length is the segment
+            count.
+        sampled_indices: Segment indices that were actually queried.
 
     Returns:
-        A list of length *segment_count* where ``result[i]`` is the
+        A list of length ``len(distances_m)`` where ``result[i]`` is the
         sampled index assigned to segment *i*.
 
     Examples:
-        >>> _nearest_sample_assignment(12, [0, 5, 10, 11])
-        [0, 0, 0, 5, 5, 5, 5, 5, 10, 10, 10, 11]
-        >>> _nearest_sample_assignment(5, [0, 4])
+        >>> _nearest_sample_assignment([0.0, 1.0, 2.0, 3.0, 4.0], [0, 4])
         [0, 0, 0, 4, 4]
-        >>> _nearest_sample_assignment(1, [0])
+        >>> _nearest_sample_assignment([0.0], [0])
         [0]
     """
     if not sampled_indices:
-        return list(range(segment_count))
+        return list(range(len(distances_m)))
 
-    sampled = list(sampled_indices)
     result: list[int] = []
-
-    for i in range(segment_count):
-        best = sampled[0]
-        best_dist = abs(i - best)
-        for s in sampled[1:]:
-            d = abs(i - s)
-            if d < best_dist:
-                best = s
-                best_dist = d
+    for distance in distances_m:
+        best = min(
+            sampled_indices,
+            key=lambda s: (abs(distances_m[s] - distance), s),
+        )
         result.append(best)
-
     return result
 
 
@@ -155,67 +212,36 @@ async def _fetch_high(
     return await provider.fetch_weather(queries)
 
 
-async def _fetch_low(
+async def _fetch_sampled(
     provider: WeatherProvider,
     segment_eta_list: Sequence[tuple[RouteSegment, timedelta]],
     abfahrtszeit: datetime,
+    spacing_m: float,
 ) -> list[WeatherSample]:
-    """Low-detail: one representative query at the trip midpoint, broadcast to all.
+    """Shared "low"/"medium" implementation: distance-spaced sampling with fan-out.
 
-    The representative query uses:
-    - Coordinate: midpoint of the middle segment.
-    - Timestamp: ``abfahrtszeit + total_trip_duration / 2`` (mid-trip time).
+    Queries one representative point roughly every *spacing_m* metres along
+    the route (always including the first and last segment), then assigns
+    every other segment the along-route-nearest sampled point's weather.
+
+    Args:
+        provider: Weather provider to use for fetching data.
+        segment_eta_list: Pairs of ``(segment, elapsed_timedelta)`` in route
+            order.
+        abfahrtszeit: Departure time of the trip.
+        spacing_m: Target distance between consecutive sampled points.
+
+    Returns:
+        A list of length ``len(segment_eta_list)`` with one fanned-out
+        `WeatherSample` per segment, each carrying that segment's own
+        coordinate and timestamp.
+
+    Raises:
+        RuntimeError: If the provider returns a different number of samples
+            than queries (a provider dropped an entry).
     """
-    segment_count = len(segment_eta_list)
-    mid_idx = segment_count // 2
-    mid_segment, _ = segment_eta_list[mid_idx]
-
-    total_duration = sum((d for _, d in segment_eta_list), timedelta(0))
-    mid_time = abfahrtszeit + total_duration / 2
-
-    geo = mid_segment.geometrie
-    mid_coord = geo[len(geo) // 2]
-
-    query = WeatherQuery(koordinate=mid_coord, zeitpunkt=mid_time)
-    samples = await provider.fetch_weather([query])
-
-    if len(samples) != 1:
-        raise RuntimeError(
-            f"Expected 1 sample from provider for low-detail query, "
-            f"got {len(samples)} — provider dropped an entry"
-        )
-
-    original = samples[0]
-    result: list[WeatherSample] = []
-
-    for seg_idx, (segment, _) in enumerate(segment_eta_list):
-        seg_geo = segment.geometrie
-        seg_coord = seg_geo[len(seg_geo) // 2]
-        seg_time = _compute_segment_time(seg_idx, abfahrtszeit, segment_eta_list)
-        result.append(
-            original.model_copy(
-                update={"koordinate": seg_coord, "zeitpunkt": seg_time},
-            )
-        )
-    return result
-
-
-async def _fetch_medium(
-    provider: WeatherProvider,
-    segment_eta_list: Sequence[tuple[RouteSegment, timedelta]],
-    abfahrtszeit: datetime,
-) -> list[WeatherSample]:
-    """Medium-detail: sample every N-th segment, fan out via nearest-neighbor.
-
-    First and last segments are always included regardless of stride alignment.
-    """
-    segment_count = len(segment_eta_list)
-    n = MEDIUM_DETAIL_SEGMENT_STRIDE
-
-    sampled_set: set[int] = {0, segment_count - 1}
-    for i in range(0, segment_count, n):
-        sampled_set.add(i)
-    sampled_indices = sorted(sampled_set)
+    distances = _cumulative_midpoint_distances_m(segment_eta_list)
+    sampled_indices = _sample_indices_by_spacing(distances, spacing_m)
 
     queries: list[WeatherQuery] = []
     for idx in sampled_indices:
@@ -229,7 +255,7 @@ async def _fetch_medium(
 
     if len(samples) != len(queries):
         raise RuntimeError(
-            f"Expected {len(queries)} samples from provider for medium-detail queries, "
+            f"Expected {len(queries)} samples from provider for sampled-detail queries, "
             f"got {len(samples)} — provider dropped an entry"
         )
 
@@ -238,10 +264,10 @@ async def _fetch_medium(
     for query, sample in zip(queries, samples, strict=False):
         query_to_sample[(query.koordinate, query.zeitpunkt)] = sample
 
-    assignment = _nearest_sample_assignment(segment_count, sampled_indices)
+    assignment = _nearest_sample_assignment(distances, sampled_indices)
 
     result: list[WeatherSample] = []
-    for seg_idx in range(segment_count):
+    for seg_idx in range(len(segment_eta_list)):
         sampled_seg = assignment[seg_idx]
         sampled_segment, _ = segment_eta_list[sampled_seg]
         geo = sampled_segment.geometrie
@@ -258,6 +284,28 @@ async def _fetch_medium(
             )
         )
     return result
+
+
+async def _fetch_low(
+    provider: WeatherProvider,
+    segment_eta_list: Sequence[tuple[RouteSegment, timedelta]],
+    abfahrtszeit: datetime,
+) -> list[WeatherSample]:
+    """Low-detail: samples every ``LOW_DETAIL_SAMPLE_SPACING_M`` metres along the route."""
+    return await _fetch_sampled(
+        provider, segment_eta_list, abfahrtszeit, LOW_DETAIL_SAMPLE_SPACING_M
+    )
+
+
+async def _fetch_medium(
+    provider: WeatherProvider,
+    segment_eta_list: Sequence[tuple[RouteSegment, timedelta]],
+    abfahrtszeit: datetime,
+) -> list[WeatherSample]:
+    """Medium-detail: samples every ``MEDIUM_DETAIL_SAMPLE_SPACING_M`` metres along the route."""
+    return await _fetch_sampled(
+        provider, segment_eta_list, abfahrtszeit, MEDIUM_DETAIL_SAMPLE_SPACING_M
+    )
 
 
 async def fetch_weather_for_route(
