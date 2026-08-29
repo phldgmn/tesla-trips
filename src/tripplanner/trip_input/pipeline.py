@@ -23,10 +23,6 @@ from tripplanner.charging_infrastructure import (
     ChargingStationProvider,
     FakeChargingStationProvider,
 )
-from tripplanner.charging_infrastructure.pricing import select_owner_rate_for_time
-from tripplanner.charging_infrastructure.providers import (
-    TeslaChargingStationProvider,
-)
 from tripplanner.construction.models import ConstructionProvider, ConstructionZone, Land
 from tripplanner.elevation import ElevationProvider
 from tripplanner.elevation.models import ElevationPoint
@@ -47,8 +43,6 @@ from tripplanner.routing.detour_geometry import find_bracket_points
 from tripplanner.routing.models import Coordinate, FaehrSegment, Route, RouteSegment
 from tripplanner.simulation import simulate_trip
 from tripplanner.simulation.models import (
-    ChargingCostByCurrency,
-    ChargingStopSummary,
     LadehaltDetour,
     TripSimulationResult,
 )
@@ -66,6 +60,7 @@ from tripplanner.wind.models import WindComponents
 
 if TYPE_CHECKING:
     from tripplanner.optimization.models import ChargingStop
+from .schemas.response import _attach_charging_pricing
 
 
 async def _step_1_route_calculate(
@@ -920,92 +915,3 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
         total_elapsed_ms,
     )
     return simulation_result
-
-
-def _attach_charging_pricing(
-    simulation_result: TripSimulationResult,
-    charging_provider: ChargingStationProvider | None,
-) -> TripSimulationResult:
-    """Step 12: attaches cached pricing to charging stops.
-
-    Also queues stale/missing stations for a background pricing re-scrape.
-
-    Runs at every route finalization (both `/trips` and the `ttp trips` CLI,
-    which both call `create_trip_simulation`). For each charging stop actually
-    used by this route:
-
-    1. Reads cached pricing from the database (`TeslaChargingStationProvider.
-       get_cached_pricing`) and, if available, selects the applicable
-       Tesla-owner rate for the stop's arrival time (`select_owner_rate_for_
-       time`), attaching `price_per_kwh`/`currency`/`estimated_cost`/
-       `pricing_updated_utc` to the returned `ChargingStopSummary`.
-    2. Queues the station for a pricing re-scrape (`enqueue_stations_for_
-       pricing_refresh`) if its cached pricing is missing or older than
-       `TeslaChargingStationProvider.PRICING_MAX_AGE` - fresh stations are
-       left untouched to avoid unnecessary Tesla-API/WAF traffic. The actual
-       re-scrape happens out-of-band (see the `charger scrape-pricing` CLI
-       command), NEVER synchronously here: a curl-equivalent request per
-       station is too slow and WAF-risky to run inline in the request/
-       response cycle.
-
-    Also computes `TripSimulationResult.total_charging_cost` (summed per
-    currency, since a DE/DK/SE trip can span several) and
-    `charging_stops_missing_pricing`.
-
-    Only `TeslaChargingStationProvider` supports cached pricing (SQLite-
-    backed) - other providers (`Fake`/`LocalFile`, used in tests and as
-    defaults) leave stops unpriced, and this step becomes a no-op.
-
-    Args:
-        simulation_result: The simulation result produced by `simulate_trip`.
-        charging_provider: The charging provider used for this simulation.
-
-    Returns:
-        `simulation_result` with priced `charging_stops` and populated
-        `total_charging_cost`/`charging_stops_missing_pricing` (unchanged if
-        there are no charging stops or `charging_provider` doesn't support
-        cached pricing).
-    """
-    if not simulation_result.charging_stops or not isinstance(
-        charging_provider, TeslaChargingStationProvider
-    ):
-        return simulation_result
-
-    station_ids = [stop.station_id for stop in simulation_result.charging_stops]
-    charging_provider.enqueue_stations_for_pricing_refresh(station_ids)
-
-    priced_stops: list[ChargingStopSummary] = []
-    totals_by_currency: dict[str, float] = {}
-    missing_pricing = 0
-    for stop in simulation_result.charging_stops:
-        cached = charging_provider.get_cached_pricing(stop.station_id)
-        rate = select_owner_rate_for_time(cached.tiers, stop.ankunftszeit)
-        if rate is None:
-            priced_stops.append(stop)
-            missing_pricing += 1
-            continue
-        estimated_cost = round(stop.energie_geladen_kwh * rate.amount, 2)
-        priced_stops.append(
-            stop.model_copy(
-                update={
-                    "price_per_kwh": rate.amount,
-                    "currency": rate.currency,
-                    "estimated_cost": estimated_cost,
-                    "pricing_updated_utc": cached.updated_utc,
-                }
-            )
-        )
-        totals_by_currency[rate.currency] = totals_by_currency.get(rate.currency, 0.0) + (
-            estimated_cost
-        )
-
-    return simulation_result.model_copy(
-        update={
-            "charging_stops": priced_stops,
-            "total_charging_cost": [
-                ChargingCostByCurrency(currency=currency, amount=round(amount, 2))
-                for currency, amount in sorted(totals_by_currency.items())
-            ],
-            "charging_stops_missing_pricing": missing_pricing,
-        }
-    )

@@ -9,28 +9,23 @@ from __future__ import annotations
 
 import traceback
 from datetime import datetime, timedelta
-from typing import Literal
 
 import httpx
 from fastapi import Depends, HTTPException
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import ValidationError
 
 from tripplanner.charging_infrastructure import (
-    ChargingStation,
     ChargingStationProvider,
-    StallType,
     get_all_charging_stations,
 )
 from tripplanner.charging_infrastructure.client import TeslaLocationsClient
 from tripplanner.charging_infrastructure.providers import (
     TeslaChargingStationProvider,
 )
-from tripplanner.construction.models import ConstructionProvider, ConstructionZone
+from tripplanner.construction.models import ConstructionProvider
 from tripplanner.elevation import ElevationProvider
-from tripplanner.geo import haversine_distance_m
 from tripplanner.routing import RoutingProvider
 from tripplanner.routing.models import Coordinate, FaehrSegment, Route, RouteSegment
-from tripplanner.trip_input.models import VehicleProfile
 from tripplanner.weather.providers import WeatherProvider
 
 from .app import (
@@ -43,6 +38,18 @@ from .app import (
     logger,
 )
 from .pipeline import create_trip_simulation
+from .schemas import (
+    ChargingCostByCurrencyAPI,
+    ChargingStopAPI,
+    FaehrSegmentAPI,
+    FrameAPI,
+    SuperchargerStationAPI,
+    TripRequestAPI,
+    TripSimulationResultAPI,
+    WaypointStopAPI,
+)
+from .schemas.response import _build_construction_zones_api
+from .schemas.superchargers import _station_to_api
 
 __all__ = [
     "app",
@@ -67,135 +74,7 @@ GRAPHHOPPER_URL_ENV_VAR = "GRAPHHOPPER_URL"
 DEFAULT_GRAPHHOPPER_BASE_URL = "http://localhost:8989"
 
 
-# Distance below which two nearby construction-zone markers are merged into a
-# single marker (with multiple `events`) for map display, so the user isn't
-# shown near-duplicate pins for closely-spaced roadwork records on the same
-# stretch of road. Deliberately larger than
-# `construction.matching.MAX_DISTANCE_M` (which answers "is
-# this roadwork actually on the route at all") - this constant instead
-# answers "are two on-route roadworks close enough to show as one marker".
-_CONSTRUCTION_ZONE_MERGE_DISTANCE_M = 5000.0
-
-
-def _build_construction_zones_api(
-    zones: list[ConstructionZone],
-    route_segments: list[RouteSegment],
-) -> list[ConstructionZoneAPI]:
-    """Build grouped ConstructionZoneAPI entries from raw construction zones.
-
-    Zones are sorted by their first affected segment index, then consecutive
-    zones within ``_CONSTRUCTION_ZONE_MERGE_DISTANCE_M`` metres (haversine)
-    of each other are merged into a single marker with multiple events.
-
-    Args:
-        zones: Raw construction zones from the provider.
-        route_segments: Route segments for position resolution.
-
-    Returns:
-        List of ConstructionZoneAPI markers, each potentially merging nearby
-        events.
-    """
-    valid_zones: list[ConstructionZone] = [z for z in zones if z.betroffene_segmente]
-    valid_zones.sort(key=lambda z: z.betroffene_segmente[0] if z.betroffene_segmente else 0)
-
-    construction_zones_api: list[ConstructionZoneAPI] = []
-    last_position: Coordinate | None = None
-    for zone in valid_zones:
-        first_idx = zone.betroffene_segmente[0]
-        if first_idx < 0 or first_idx >= len(route_segments):
-            continue
-
-        zone_position = route_segments[first_idx].geometrie[0]
-
-        if (
-            last_position is not None
-            and haversine_distance_m(last_position, zone_position)
-            <= _CONSTRUCTION_ZONE_MERGE_DISTANCE_M
-        ):
-            construction_zones_api[-1].events.append(
-                ConstructionZoneEventAPI(
-                    sperrungstyp=zone.sperrungstyp.value,
-                    tempolimit_kmh=zone.tempolimit_kmh,
-                    umleitungshinweis=zone.umleitungshinweis,
-                    land=zone.land.value,
-                    gueltig_von=zone.gueltig_von,
-                    gueltig_bis=zone.gueltig_bis,
-                )
-            )
-            last_position = zone_position
-            continue
-
-        # Start a new group
-        construction_zones_api.append(
-            ConstructionZoneAPI(
-                position=zone_position,
-                events=[
-                    ConstructionZoneEventAPI(
-                        sperrungstyp=zone.sperrungstyp.value,
-                        tempolimit_kmh=zone.tempolimit_kmh,
-                        umleitungshinweis=zone.umleitungshinweis,
-                        land=zone.land.value,
-                        gueltig_von=zone.gueltig_von,
-                        gueltig_bis=zone.gueltig_bis,
-                    )
-                ],
-                laenge_m=zone.laenge_m,
-            ),
-        )
-        last_position = zone_position
-
-    return construction_zones_api
-
-
 # ── Supercharger API ─────────────────────────────────────────────────────
-
-
-class SuperchargerStationAPI(BaseModel):
-    """API-Response-Modell fuer eine Supercharger-Station."""
-
-    slug: str = Field(..., description="tesla_location_id (location_url_slug)")
-    name: str = Field(..., description="Standortname")
-    latitude: float = Field(..., description="WGS84 Breitengrad")
-    longitude: float = Field(..., description="WGS84 Laengengrad")
-    country: str = Field(..., description="ISO-2 Laendercode")
-    total_stalls: int = Field(..., description="Anzahl Ladeplaetze")
-    power_kilowatt: int = Field(..., description="Maximale Ladeleistung kW")
-    status: str = Field(..., description="Betriebsstatus (OPEN, TEMP_CLOSED, ...)")
-    stalls_v2: int = Field(default=0)
-    stalls_v3: int = Field(default=0)
-    stalls_v3_ultra: int = Field(default=0)
-    stalls_v4: int = Field(default=0)
-    ist_24_7: bool = Field(default=True, description="24/7 zugaenglich")
-    date_opened: str | None = Field(default=None, description="Eroeffnungsdatum")
-
-
-class SuperchargerStationDetailAPI(SuperchargerStationAPI):
-    """Detaillierte API-Response fuer eine Supercharger-Station."""
-
-    connector_types: list[str] = Field(default_factory=list)
-    last_updated_utc: str = Field(..., description="Letzte Aktualisierung ISO-8601")
-    access_type: str | None = Field(default=None)
-    open_to_non_tesla: bool = Field(default=False)
-
-
-def _station_to_api(station: ChargingStation) -> SuperchargerStationAPI:
-    """Wandelt ein ChargingStation-Modell in das API-Response-Modell um."""
-    return SuperchargerStationAPI(
-        slug=station.station_id,
-        name=station.name.replace("Tesla Supercharger - ", ""),
-        latitude=station.coordinate[0],
-        longitude=station.coordinate[1],
-        country=station.country,
-        total_stalls=sum(station.stalls.values()) if station.stalls else 0,
-        power_kilowatt=int(station.max_ladeleistung_kw),
-        status=station.status,
-        stalls_v2=station.stalls.get(StallType.V2, 0) if station.stalls else 0,
-        stalls_v3=station.stalls.get(StallType.V3, 0) if station.stalls else 0,
-        stalls_v3_ultra=station.stalls.get(StallType.V3_ULTRA, 0) if station.stalls else 0,
-        stalls_v4=station.stalls.get(StallType.V4, 0) if station.stalls else 0,
-        ist_24_7=station.ist_24_7 if hasattr(station, "ist_24_7") else True,
-        date_opened=None,
-    )
 
 
 @app.get("/superchargers")
@@ -292,395 +171,7 @@ async def refresh_supercharger(slug: str) -> SuperchargerStationAPI:
     return _station_to_api(station)
 
 
-class WaypointAPI(BaseModel):
-    """API-Request für Zwischenstopp."""
-
-    koordinate: tuple[float, float] = Field(..., description="(lat, lon) Koordinate in Dezimalgrad")
-    aufenthaltsdauer_s: int | None = Field(
-        None, ge=0, description="Mindestaufenthaltsdauer in Sekunden"
-    )
-    geplante_abfahrt: str | None = Field(
-        None,
-        description="Gewünschter frühester Abfahrtszeitpunkt (ISO-8601)",
-    )
-    ladeleistung_kw: float | None = Field(
-        None,
-        ge=0.0,
-        description=("Vor Ort verfügbare Ladeleistung an diesem Zwischenstopp in kW, optional"),
-    )
-
-
-class FaehrAusschlussAPI(BaseModel):
-    """API-Request für eine zu vermeidende, zuvor erkannte Fährverbindung."""
-
-    name: str = Field(..., description="Anzeigename der Fährverbindung")
-    bbox_sw: tuple[float, float] = Field(..., description="Südwest-Ecke der Bounding Box")
-    bbox_no: tuple[float, float] = Field(..., description="Nordost-Ecke der Bounding Box")
-
-
-class FaehrZeitfensterAPI(BaseModel):
-    """API-Request für einen vorgegebenen Fährfahrplan (Abfahrt/Ankunft)."""
-
-    name: str = Field(..., description="Anzeigename der Fährverbindung")
-    bbox_sw: tuple[float, float] = Field(..., description="Südwest-Ecke der Bounding Box")
-    bbox_no: tuple[float, float] = Field(..., description="Nordost-Ecke der Bounding Box")
-    abfahrt: str = Field(..., description="Vorgegebene Abfahrtszeit (ISO-8601)")
-    ankunft: str = Field(..., description="Vorgegebene Ankunftszeit (ISO-8601)")
-
-
-class LadedauerVorgabeAPI(BaseModel):
-    """API-Request für eine vom Nutzer vorgegebene feste Ladedauer an einer Station."""
-
-    station_id: str = Field(..., min_length=1, description="Eindeutige ID der Ladestation")
-    ladedauer_s: int = Field(..., ge=0, description="Vorgegebene feste Ladedauer in Sekunden")
-
-
-class TripRequestAPI(BaseModel):
-    """API-Request für /trips-Endpunkt."""
-
-    start: tuple[float, float] = Field(..., description="(lat, lon) Startkoordinate")
-    ziel: tuple[float, float] = Field(..., description="(lat, lon) Zielkoordinate")
-    zwischenstopps: list[WaypointAPI] = Field(
-        default_factory=list, description="Liste von Zwischenstopps"
-    )
-    abfahrtszeit: str = Field(
-        ..., description="ISO-8601 Abfahrtszeit (z. B. '2026-08-15T08:30:00')"
-    )
-    fahrzeugprofil: VehicleProfile = Field(..., description="Physikalisches Fahrzeugprofil")
-    start_soc_pct: float = Field(80.0, ge=0.0, le=100.0, description="Start-SoC in Prozent")
-    ziel_soc_pct: float = Field(20.0, ge=0.0, le=100.0, description="Ziel-SoC in Prozent")
-    mindest_ankunfts_soc_pct: float = Field(
-        5.0,
-        ge=0.0,
-        le=100.0,
-        description=(
-            "Minimal zulässiger SoC beim Ankommen an einer Ladestation "
-            "(darf niedriger sein als die allgemeine Sicherheitsreserve auf "
-            "offener Strecke, da dort garantiert nachgeladen wird)"
-        ),
-    )
-    mindest_ladezeit_s: int = Field(
-        600,
-        ge=0,
-        le=1800,
-        description=(
-            "Minimale Dauer eines einzelnen Ladevorgangs in Sekunden, wenn "
-            "geladen wird (verhindert unnötig kurze Ladehalte, ohne den "
-            "Ladehalt an sich zu erzwingen)"
-        ),
-    )
-    max_lade_soc_pct: float = Field(
-        100.0,
-        ge=0.0,
-        le=100.0,
-        description=(
-            "Upper limit for the target SoC at regular charging stops "
-            "(Supercharger stations) in percent. 100.0 = disabled."
-        ),
-    )
-    praeferenzen: dict[str, object] = Field(default_factory=dict, description="Nutzerpräferenzen")
-    alle_faehren_vermeiden: bool = Field(
-        default=False, description="Falls True, werden alle Fährverbindungen vermieden"
-    )
-    vermiedene_faehren: list[FaehrAusschlussAPI] = Field(
-        default_factory=list,
-        description=(
-            "Liste spezifischer, zuvor erkannter Fährverbindungen, die vermieden werden sollen"
-        ),
-    )
-    faehr_zeitfenster: list[FaehrZeitfensterAPI] = Field(
-        default_factory=list,
-        description=(
-            "Vom Nutzer vorgegebene Abfahrts-/Ankunftszeiten für zuvor erkannte Fährverbindungen"
-        ),
-    )
-    ladedauer_vorgaben: list[LadedauerVorgabeAPI] = Field(
-        default_factory=list,
-        description="Vom Nutzer vorgegebene feste Ladedauern für einzelne Ladehalte",
-    )
-    wetter_detailgrad: Literal["off", "low", "medium", "high"] = Field(
-        default="high",
-        description=(
-            "Weather detail level: 'off', 'low', 'medium', or 'high'. "
-            "'low'/'medium' use coarser weather resolution and complete faster; "
-            "'off' skips weather entirely (placeholder values); 'high' uses "
-            "per-segment weather (default, exact behavior matching the legacy "
-            "wetter_beruecksichtigen=True)."
-        ),
-    )
-
-    @model_validator(mode="before")
-    @staticmethod
-    def _map_legacy_wetter_boolean(data: dict[str, object]) -> dict[str, object]:
-        """Map legacy wetter_beruecksichtigen boolean to wetter_detailgrad.
-
-        Handles both the old field name (wetter_beruecksichtigen: bool) and
-        defensively: the new field name with a boolean value from clients
-        that send the new field with the old type.
-        """
-        if not isinstance(data, dict):
-            return data
-
-        # Legacy field name: wetter_beruecksichtigen -> wetter_detailgrad
-        if "wetter_beruecksichtigen" in data and "wetter_detailgrad" not in data:
-            raw = data.pop("wetter_beruecksichtigen")
-            if isinstance(raw, bool):
-                data["wetter_detailgrad"] = "high" if raw else "off"
-            else:
-                raise ValueError(
-                    f"wetter_beruecksichtigen must be a boolean (True/False), "
-                    f"got {raw!r}. Use wetter_detailgrad instead."
-                )
-
-        # Defensive: wetter_detailgrad sent as a raw JSON boolean
-        if data.get("wetter_detailgrad") is True:
-            data["wetter_detailgrad"] = "high"
-        elif data.get("wetter_detailgrad") is False:
-            data["wetter_detailgrad"] = "off"
-
-        return data
-
-    baustellen_beruecksichtigen: bool = Field(
-        default=True,
-        description=(
-            "Falls False, wird der Baustellen-Provider für diese Berechnung "
-            "übersprungen (keine Geschwindigkeitsreduktion durch Baustellen), um "
-            "die Berechnungsdauer zu reduzieren."
-        ),
-    )
-
-
-class FrameAPI(BaseModel):
-    """Einzelner Simulationsframe in der API-Response."""
-
-    zeitpunkt: str = Field(..., description="ISO-8601 Zeitpunkt")
-    position: tuple[float, float] = Field(
-        ..., description="(lat, lon), konsistent mit Domänenmodell"
-    )
-    distanz_m: float = Field(
-        ..., ge=0.0, description="Kumulierte Distanz vom Reisebeginn entlang der Route in Metern"
-    )
-    soc_pct: float = Field(..., ge=0.0, le=100.0)
-    zustand: str = Field(..., description="'FAHREN', 'LADEN' oder 'PAUSE'")
-    geschwindigkeit_kmh: float = Field(..., ge=0.0)
-
-
-class ChargingStopAPI(BaseModel):
-    """Ladehalt in der API-Response, ein Eintrag pro tatsaechlichem Halt."""
-
-    name: str = Field(..., description="Name der Ladestation")
-    station_id: str = Field(..., description="Eindeutige ID der Ladestation")
-    position: tuple[float, float] = Field(..., description="(lat, lon) der Ladestation")
-    distanz_m: float = Field(
-        ..., ge=0.0, description="Kumulierte Distanz entlang der Route, an der abgebogen wird"
-    )
-    detour_geometrie: list[Coordinate] = Field(
-        default_factory=list,
-        description=(
-            "Echte, ueber GraphHopper geroutete Geometrie von der Route zur Ladestation und "
-            "zurueck (leer, falls die Detour-Route nicht ermittelt werden konnte)"
-        ),
-    )
-    route_index_vor: int | None = Field(
-        default=None,
-        ge=0,
-        description=(
-            "Index in `route_geometrie`, ab dem `detour_geometrie` die Hauptroute ersetzt "
-            "(None, falls `detour_geometrie` leer ist)"
-        ),
-    )
-    route_index_nach: int | None = Field(
-        default=None,
-        ge=0,
-        description=(
-            "Index in `route_geometrie`, bis zu dem (inklusive) `detour_geometrie` die "
-            "Hauptroute ersetzt (None, falls `detour_geometrie` leer ist)"
-        ),
-    )
-    detour_station_index: int | None = Field(
-        default=None,
-        ge=0,
-        description=(
-            "Index in `detour_geometrie`, an dem die Ladestation tatsaechlich erreicht wird "
-            "(None, falls `detour_geometrie` leer ist)"
-        ),
-    )
-    ankunfts_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
-    ziel_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ziel-SoC nach dem Laden in %")
-    ladedauer_s: int = Field(..., ge=0, description="Ladedauer in Sekunden")
-    energie_geladen_kwh: float = Field(..., ge=0.0, description="Geladene Energiemenge in kWh")
-    ankunftszeit: str = Field(..., description="ISO-8601 Ankunftszeitpunkt an der Station")
-    abfahrtszeit: str = Field(..., description="ISO-8601 Abfahrtszeitpunkt von der Station")
-    price_per_kwh: float | None = Field(
-        default=None,
-        ge=0.0,
-        description=(
-            "Applicable Tesla-owner rate per kWh at arrival time, from cached "
-            "pricing data. None if no pricing data is cached yet for this station."
-        ),
-    )
-    currency: str | None = Field(
-        default=None,
-        min_length=3,
-        max_length=3,
-        description=(
-            "ISO-4217 currency of `price_per_kwh`/`estimated_cost`. None iff those are None."
-        ),
-    )
-    estimated_cost: float | None = Field(
-        default=None,
-        ge=0.0,
-        description=(
-            "Estimated cost of this charging stop (`energie_geladen_kwh * "
-            "price_per_kwh`). None if no pricing data is cached yet for this station."
-        ),
-    )
-    pricing_updated_utc: str | None = Field(
-        default=None,
-        description=(
-            "ISO-8601 timestamp of the cached pricing data used for `price_per_kwh`. "
-            "None if no pricing data has ever been scraped for this station."
-        ),
-    )
-
-
-class FaehrSegmentAPI(BaseModel):
-    """API-Response für eine in der berechneten Route erkannte Fährverbindung."""
-
-    name: str = Field(..., description="Fährname (aus GraphHopper street_name oder Fallback)")
-    laenge_m: float = Field(..., ge=0, description="Länge der Fährverbindung in Metern")
-    bbox_sw: tuple[float, float] = Field(
-        ..., description="Südwest-Ecke der gepufferten Bounding Box"
-    )
-    bbox_no: tuple[float, float] = Field(
-        ..., description="Nordost-Ecke der gepufferten Bounding Box"
-    )
-    abfahrt: str | None = Field(
-        default=None,
-        description="Vom Nutzer vorgegebene Abfahrtszeit (ISO-8601), sofern vorhanden",
-    )
-    ankunft: str | None = Field(
-        default=None,
-        description="Vom Nutzer vorgegebene Ankunftszeit (ISO-8601), sofern vorhanden",
-    )
-
-
-class ChargingCostByCurrencyAPI(BaseModel):
-    """Aggregated estimated charging cost in a single currency."""
-
-    currency: str = Field(..., min_length=3, max_length=3, description="ISO-4217 currency code")
-    amount: float = Field(..., ge=0.0, description="Summed cost in `currency`")
-
-
-class ConstructionZoneEventAPI(BaseModel):
-    """One underlying construction/roadwork event merged into a ConstructionZoneAPI marker."""
-
-    sperrungstyp: str = Field(..., description="Art der Sperrung/Baustelle")
-    tempolimit_kmh: int | None = Field(
-        default=None, description="Reduziertes Tempolimit in km/h (None wenn keine Beschränkung)"
-    )
-    umleitungshinweis: str | None = Field(
-        default=None, description="Freitext-Information zur Umleitung (optional)"
-    )
-    land: str = Field(..., description="Land, in dem die Baustelle liegt")
-    gueltig_von: datetime = Field(..., description="Startzeitpunkt der Baustelle (ISO 8601)")
-    gueltig_bis: datetime | None = Field(
-        default=None, description="Endzeitpunkt der Baustelle (ISO 8601), None wenn unbestimmt"
-    )
-
-
-class ConstructionZoneAPI(BaseModel):
-    """API-repräsentation eines Baustellen-Markers, der mehrere nahe Events zusammenfasst."""
-
-    position: Coordinate = Field(
-        ..., description="Repräsentative (lat, lon) Position (erstes Event entlang der Route)"
-    )
-    events: list[ConstructionZoneEventAPI] = Field(
-        ..., description="Zusammengefasste Events (Länge > 1 = mehrere nahe Events gemerged)"
-    )
-    laenge_m: float | None = Field(
-        default=None,
-        description=(
-            "Geschätzte Länge der betroffenen Straßenstrecke in Metern "
-            "(None wenn nicht berechenbar)."
-        ),
-    )
-
-
-class WaypointStopAPI(BaseModel):
-    """Zwischenstopp-Aufenthalt in der API-Response, ein Eintrag pro Aufenthalt."""
-
-    position: tuple[float, float] = Field(..., description="(lat, lon) des Zwischenstopps")
-    distanz_m: float = Field(
-        ..., ge=0.0, description="Kumulierte Distanz entlang der Route bei diesem Zwischenstopp"
-    )
-    ankunftszeit: str = Field(..., description="ISO-8601 Ankunftszeitpunkt am Zwischenstopp")
-    abfahrtszeit: str = Field(..., description="ISO-8601 Zeitpunkt der (erzwungenen) Abfahrt")
-    ladeleistung_kw: float | None = Field(
-        default=None, ge=0.0, description="Genutzte Ladeleistung in kW, None falls nicht geladen"
-    )
-    ankunfts_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
-    ziel_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Abfahrt in %")
-    energie_geladen_kwh: float = Field(
-        ..., ge=0.0, description="Waehrend des Aufenthalts geladene Energiemenge in kWh"
-    )
-
-
-class TripSimulationResultAPI(BaseModel):
-    """API-Response für /trips-Endpunkt."""
-
-    gesamt_distanz_km: float = Field(..., description="Gesamtdistanz in km")
-    gesamt_fahrzeit_min: float = Field(..., description="Gesamtfahrzeit in Minuten")
-    gesamt_ladezeit_min: float = Field(..., description="Gesamtladezeit in Minuten")
-    gesamt_wartezeit_min: float = Field(
-        default=0.0,
-        description=(
-            "Erzwungene Wartezeit an Zwischenstopps OHNE Ladung, in Minuten "
-            "(nicht in gesamt_fahrzeit_min/gesamt_ladezeit_min enthalten)"
-        ),
-    )
-    start_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Start-SoC in %")
-    ziel_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ziel-SoC in %")
-    frames: list[FrameAPI] = Field(..., description="Liste von Simulationsframes")
-    charging_stops: list[ChargingStopAPI] = Field(
-        default_factory=list, description="Ein Eintrag pro Ladehalt, fuer die Kartendarstellung"
-    )
-    waypoint_stops: list[WaypointStopAPI] = Field(
-        default_factory=list,
-        description="Ein Eintrag pro Zwischenstopp-Aufenthalt, fuer die Kartendarstellung",
-    )
-    route_geometrie: list[Coordinate] = Field(
-        ...,
-        description=(
-            "Vollstaendige Streckengeometrie der berechneten Route (dichte GraphHopper-"
-            "Polyline, nicht auf Simulationsframes reduziert) fuer eine winkeltreue "
-            "Kartendarstellung."
-        ),
-    )
-    erkannte_faehren: list[FaehrSegmentAPI] = Field(
-        default_factory=list,
-        description="In der berechneten Route erkannte Fährverbindungen (leer, falls keine)",
-    )
-    total_charging_cost: list[ChargingCostByCurrencyAPI] = Field(
-        default_factory=list,
-        description=(
-            "Sum of estimated charging costs across all charging stops, grouped by "
-            "currency (empty if no stop has cached pricing data; multiple entries if "
-            "stops span several currencies, e.g. a DE-DK-SE trip)."
-        ),
-    )
-    charging_stops_missing_pricing: int = Field(
-        default=0,
-        ge=0,
-        description=(
-            "Number of charging stops excluded from `total_charging_cost` "
-            "because no pricing data is cached yet for their station."
-        ),
-    )
-    construction_zones: list[ConstructionZoneAPI] = Field(
-        default_factory=list,
-        description="Baustellen entlang der Route fuer die Kartendarstellung (leer, falls keine)",
-    )
+# ── Trips API ──────────────────────────────────────────────────────────────
 
 
 @app.post("/trips", response_model=TripSimulationResultAPI, status_code=201)
