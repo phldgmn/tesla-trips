@@ -7,18 +7,12 @@ Diese Modul implementiert:
 
 from __future__ import annotations
 
-__all__ = ["app", "create_trip_endpoint", "create_trip_simulation"]
-
-import logging
-import os
 import traceback
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Literal
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from tripplanner.charging_infrastructure import (
@@ -37,14 +31,29 @@ from tripplanner.geo import haversine_distance_m
 from tripplanner.routing import RoutingProvider
 from tripplanner.routing.models import Coordinate, FaehrSegment, Route, RouteSegment
 from tripplanner.trip_input.models import VehicleProfile
-from tripplanner.trip_input.providers_factory import (
-    ProductionProviders,
-    build_production_providers,
-    close_production_providers,
-)
 from tripplanner.weather.providers import WeatherProvider
 
+from .app import (
+    app,
+    get_charging_provider,
+    get_construction_provider,
+    get_elevation_provider,
+    get_routing_provider,
+    get_weather_provider,
+    logger,
+)
 from .pipeline import create_trip_simulation
+
+__all__ = [
+    "app",
+    "create_trip_endpoint",
+    "create_trip_simulation",
+    "get_charging_provider",
+    "get_construction_provider",
+    "get_elevation_provider",
+    "get_routing_provider",
+    "get_weather_provider",
+]
 
 # =============================================================================
 # GraphHopper-Konfiguration
@@ -136,134 +145,6 @@ def _build_construction_zones_api(
         last_position = zone_position
 
     return construction_zones_api
-
-
-# Kernfunktion: Orchestrierung aller 11 Schritte
-# =============================================================================
-
-
-# =============================================================================
-# FastAPI-Endpunkt
-# =============================================================================
-
-
-logger = logging.getLogger(__name__)
-
-
-def _configure_logging() -> None:
-    """Attaches a console handler to the `tripplanner` logger namespace.
-
-    Without this, `uvicorn --reload` (see `run.sh`) never installs a handler
-    for application loggers - only `uvicorn.*` loggers get one. Python's
-    logging module then falls back to `logging.lastResort`, which only ever
-    emits records at WARNING level or above, silently dropping every
-    `logger.info(...)` pipeline-step log (see `_log_step`). The level is
-    configurable via the `TRIPPLANNER_LOG_LEVEL` environment variable
-    (default: `INFO`) so a slower/quieter deployment can raise it without a
-    code change. Idempotent: safe to call multiple times (e.g. once per
-    FastAPI TestClient lifespan cycle in tests) without installing duplicate
-    handlers or duplicate log lines.
-    """
-    package_logger = logging.getLogger(__name__.split(".")[0])
-    level_name = os.environ.get("TRIPPLANNER_LOG_LEVEL", "INFO")
-    package_logger.setLevel(level_name)
-    if not any(isinstance(h, logging.StreamHandler) for h in package_logger.handlers):
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-        package_logger.addHandler(handler)
-
-
-@asynccontextmanager
-async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Verwaltet den Lebenszyklus der prozessweiten Provider-Ressourcen.
-
-    Der GraphHopper-HTTP-Client und der Tesla-Supercharger-DB-Zugriff werden
-    einmalig beim Start erzeugt (Connection-/Verbindungs-Pooling über alle
-    Requests hinweg) statt pro Request neu aufgebaut zu werden. Die
-    GraphHopper-Basis-URL ist über die Umgebungsvariable `GRAPHHOPPER_URL`
-    konfigurierbar (Default: `http://localhost:8989`, siehe README.md).
-    """
-    _configure_logging()
-    providers = await build_production_providers()
-    app.state.providers = providers
-    try:
-        yield
-    finally:
-        await close_production_providers(providers)
-
-
-app = FastAPI(title="Tesla Trip Planner API", version="0.1.0", lifespan=_lifespan)
-
-
-def get_routing_provider(request: Request) -> RoutingProvider:
-    """FastAPI-Dependency: liefert den produktiven RoutingProvider für `/trips`.
-
-    Nutzt den in `_lifespan` erzeugten, prozessweit wiederverwendeten
-    `GraphHopperClient` für echtes Straßenrouting über OSM-Daten. In Tests via
-    `app.dependency_overrides[get_routing_provider]` durch `FakeRoutingProvider`
-    ersetzbar (siehe AGENTS.md: keine Live-Calls externer Datenquellen in
-    Unit-Tests).
-    """
-    providers: ProductionProviders = request.app.state.providers
-    return providers.routing
-
-
-def get_charging_provider(request: Request) -> ChargingStationProvider:
-    """FastAPI-Dependency: liefert den produktiven ChargingStationProvider für `/trips`.
-
-    Nutzt den in `_lifespan` erzeugten, prozessweit wiederverwendeten
-    `TeslaChargingStationProvider` (SQLite-DB `data/tesla_superchargers.db`,
-    siehe README.md) für echte Supercharger-Standorte. In Tests via
-    `app.dependency_overrides[get_charging_provider]` durch eine
-    `FakeChargingStationProvider`-Instanz mit angepassten Stationen ersetzbar
-    (siehe AGENTS.md: keine Live-Calls externer Datenquellen in Unit-Tests).
-    """
-    providers: ProductionProviders = request.app.state.providers
-    return providers.charging
-
-
-def get_elevation_provider(request: Request) -> ElevationProvider:
-    """FastAPI-Dependency: returns the production ElevationProvider for `/trips`.
-
-    Uses the `ElevationProvider` created in `_lifespan` for elevation data.
-    In tests, can be replaced via `app.dependency_overrides[get_elevation_provider]`
-    with `FakeDataSource`.
-    """
-    providers: ProductionProviders = request.app.state.providers
-    return providers.elevation_provider
-
-
-def get_weather_provider(request: Request) -> WeatherProvider:
-    """FastAPI-Dependency: returns the production WeatherProvider for `/trips`.
-
-    Uses the `OpenMeteoProvider` created in `_lifespan` for weather data.
-    In tests, can be replaced via `app.dependency_overrides[get_weather_provider]`
-    with `FakeWeatherProvider` (see AGENTS.md: no live calls to external data sources
-    in unit tests).
-    """
-    providers: ProductionProviders = request.app.state.providers
-    return providers.weather
-
-
-def get_construction_provider(request: Request) -> ConstructionProvider:
-    """FastAPI-Dependency: liefert den produktiven ConstructionProvider für `/trips`.
-
-    Nutzt den in `_lifespan` erzeugten, prozessweit wiederverwendeten
-    `ConstructionProvider` für Baustellendaten. In Tests via
-    `app.dependency_overrides[get_construction_provider]` durch
-    `FakeConstructionProvider` ersetzbar.
-    """
-    providers: ProductionProviders = request.app.state.providers
-    return providers.construction
-
-
-@app.get("/health")
-async def health_check() -> dict[str, str]:
-    """Health-Check-Endpunkt.
-
-    Ermöglicht dem Frontend zu prüfen, ob das Backend erreichbar ist.
-    """
-    return {"status": "ok"}
 
 
 # ── Supercharger API ─────────────────────────────────────────────────────
