@@ -68,21 +68,6 @@ export interface ChargingDetourInput {
   abfahrtszeit?: string;
 }
 
-/** Ein SoC-Stuetzpunkt fuer `buildSocGradientExpression`, positioniert per
- * kumulierter Distanz entlang der GESPLICETEN Linie (inkl. Abstecher-Laenge). */
-export interface RouteSample {
-  distanzM: number;
-  socPct: number;
-  /** Zeitpunkt (ISO) dieses Stuetzpunkts - fuer den Routen-Hover-Tooltip
-   *  (siehe `findNearestRouteSample`/`buildRouteHoverText` in `Map.tsx`).
-   *  Optional, da nicht jeder Aufrufer (z. B. reine SoC-Gradient-Tests) ihn
-   *  benoetigt. */
-  zeitpunkt?: string;
-  /** Ladehalt-Ankunft/-Abfahrt: wird beim Downsampling nie uebersprungen, damit
-   *  der SoC-Sprung an der Ladestation sichtbar bleibt. */
-  critical?: boolean;
-}
-
 export interface SplicedRoute {
   /** Fertige Koordinatenliste fuer die GeoJSON-LineString, in [lng, lat] */
   coordinates: [number, number][];
