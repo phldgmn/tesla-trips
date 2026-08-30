@@ -829,9 +829,12 @@ class StateGraphBuilder:
             + rueckweg_zeit_s
             + LADE_TIEBREAK_S_PRO_PROZENTPUNKT * (ziel_soc_pct - ankunfts_soc_pct)
         )
+        current_cost = G.nodes[current].get("total_cost", 0.0)
+        new_total_cost = current_cost + kosten
         logger.debug(
             "Charging edge %s (%s) at segment %d: %.2f%% -> %.2f%% in %.1fs "
-            "(hinweg=%.1fs, rueckweg=%.1fs, total kosten=%.1fs)",
+            "(hinweg=%.1fs, rueckweg=%.1fs, edge kosten=%.1fs, predecessor total_cost=%.1fs, "
+            "resulting total_cost=%.1fs)",
             station.station_id,
             station.name,
             seg_idx,
@@ -841,6 +844,8 @@ class StateGraphBuilder:
             hinweg_zeit_s,
             rueckweg_zeit_s,
             kosten,
+            current_cost,
+            new_total_cost,
         )
         next_node = (seg_idx, new_soc_bucket, new_time_bucket)
 
@@ -857,9 +862,6 @@ class StateGraphBuilder:
                 total_cost=COST_INF,
                 parent=None,
             )
-
-        current_cost = G.nodes[current].get("total_cost", 0.0)
-        new_total_cost = current_cost + kosten
 
         if new_total_cost < G.nodes[next_node].get("total_cost", COST_INF):
             # `station_id` als EDGE-Attribut (nicht nur Node-Attribut) setzen:

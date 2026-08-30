@@ -278,6 +278,7 @@ class NetworkXOptimizer(OptimizerInterface):
                 G.nodes[best_target].get("total_cost", COST_INF),
             )
             self._log_parent_chain(G, best_target)
+            self._log_best_cost_per_final_station(G, target_candidates)
 
             path = nx.astar_path(
                 G,
@@ -367,6 +368,48 @@ class NetworkXOptimizer(OptimizerInterface):
             "parent-chain reconstruction: %d charging stop(s): %s",
             len(parent_chain_stations),
             list(reversed(parent_chain_stations)),
+        )
+
+    def _log_best_cost_per_final_station(
+        self, G: DiGraph, target_candidates: list[tuple[int, int, int]]
+    ) -> None:
+        """Logs the cheapest destination total_cost per last-used charging station.
+
+        Scans ALL `target_candidates` (not just `best_target`). Directly
+        answers whether a cheaper destination-reaching state involving a
+        specific station (e.g. one the user expected to be used) exists
+        ANYWHERE in the fully-built graph, without relying on error-prone
+        manual reconstruction from DEBUG logs: if that station's best entry
+        here is cheaper than the chosen `best_target`, `min(target_candidates,
+        ...)`/graph construction has a genuine bug; if it is NOT cheaper, the
+        chosen station is the true Dijkstra optimum given this route's real
+        costs, and the report is a legitimate result rather than a defect.
+        """
+        best_per_station: dict[str, tuple[float, tuple[int, int, int]]] = {}
+        for target in target_candidates:
+            total_cost = G.nodes[target].get("total_cost", COST_INF)
+            node: tuple[int, int, int] | None = target
+            visited_chain: set[tuple[int, int, int]] = set()
+            last_station: str | None = None
+            while node is not None and node not in visited_chain:
+                visited_chain.add(node)
+                parent = G.nodes[node].get("parent")
+                if parent is not None:
+                    station_id = (G.get_edge_data(parent, node) or {}).get("station_id")
+                    if station_id is not None:
+                        last_station = station_id
+                        break
+                node = parent
+            key = last_station or "<no charging stop>"
+            existing = best_per_station.get(key)
+            if existing is None or total_cost < existing[0]:
+                best_per_station[key] = (total_cost, target)
+        logger.info(
+            "best destination-reaching total_cost per LAST charging station: %s",
+            sorted(
+                ((station, cost) for station, (cost, _) in best_per_station.items()),
+                key=lambda item: item[1],
+            ),
         )
 
     def _map_waypoints_to_segments(
