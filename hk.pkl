@@ -46,6 +46,10 @@ local linters = new Mapping<String, Step> {
     ["yamllint"] = Builtins.yamllint
     ["markdown-lint"] = Builtins.markdown_lint
     ["mise"] = Builtins.mise
+    ["no-shadowed-modules"] {
+        glob = python_files
+        check = "./scripts/check_shadowed_modules.sh"
+    }
     ["check-added-large-files"] = Builtins.check_added_large_files
     ["no-log-files"] {
         glob = List("*.log", "**/*.log")
