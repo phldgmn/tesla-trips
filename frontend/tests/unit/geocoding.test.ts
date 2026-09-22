@@ -186,9 +186,7 @@ describe("searchAddress integration", () => {
 
     // Verify label is formatted, not raw display_name
     expect(result).toHaveLength(1);
-    expect(result[0].label).toBe(
-      "Hauptstraße 8, 12345 Musterstadt, Germany",
-    );
+    expect(result[0].label).toBe("Hauptstraße 8, 12345 Musterstadt, Germany");
     expect(result[0].position).toEqual([50.1109, 8.6821]);
   });
 

@@ -2,6 +2,20 @@
 
 Hochgradig personalisierter Reiseplaner für ein Tesla Model 3: physikalisch fundiertes Verbrauchsmodell, iterative Wetter-/ETA-Auflösung und optimierte Ladeplanung ausschließlich über Tesla Supercharger.
 
+## Status & Disclaimer
+
+Personal, non-commercial side project. No license is granted — the code is
+shared for reference/transparency only; there is no permission to reuse,
+redistribute, or build on it. Not affiliated with, endorsed by, or
+sponsored by Tesla, Inc.
+
+Some data sources (see `docs/Tesla-Supercharger-API.md`,
+`docs/Tesla-Supercharger-Data-Sources.md`,
+`docs/Tesla-Supercharger-Detail-Scraping.md`) are undocumented, public
+Tesla endpoints accessed without an official API agreement; using them
+likely violates Tesla's Terms of Service. Run this at your own risk and
+own IP address.
+
 ## Setup
 
 ```bash
