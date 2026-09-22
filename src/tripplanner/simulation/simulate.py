@@ -22,6 +22,7 @@ from tripplanner.simulation.models import (
     TripState,
     WaypointStopSummary,
 )
+from tripplanner.trip_input.models import TripInfeasibleError
 from tripplanner.weather.models import WeatherSample
 
 # Konstanten fuer maximale Werte
@@ -293,7 +294,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         ValueError: Wenn SoC-Werte ungueltig sind oder keine passenden Energy-Ergebnisse vorliegen.
     """
     if not (_MIN_SOC_PCT <= start_soc_pct <= _MAX_SOC_PCT):
-        raise ValueError("Start-SoC muss zwischen 0% und 100% liegen")
+        raise TripInfeasibleError("Start-SoC muss zwischen 0% und 100% liegen")
 
     if not route.segments:
         raise ValueError("Route muss mindestens ein Segment enthalten")

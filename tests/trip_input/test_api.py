@@ -69,6 +69,7 @@ from tripplanner.trip_input.cli import parse_coord, parse_waypoint
 from tripplanner.trip_input.models import (
     FaehrZeitfenster,
     LadedauerVorgabe,
+    TripInfeasibleError,
     TripRequest,
     VehicleProfile,
     Waypoint,
@@ -3489,7 +3490,7 @@ def test_fastapi_endpoint_logs_valueerror_as_422_warning(
     """
 
     async def _fake_step_1_raises(*args: object, **kwargs: object) -> Route:
-        raise ValueError("Kein erreichbarer Zielknoten gefunden")
+        raise TripInfeasibleError("Kein erreichbarer Zielknoten gefunden")
 
     monkeypatch.setattr(trip_pipeline, "_step_1_route_calculate", _fake_step_1_raises)
 
@@ -3958,3 +3959,34 @@ def test_build_construction_zones_api_three_consecutive_merge() -> None:
     assert len(result[0].events) == 3
     types = [e.sperrungstyp for e in result[0].events]
     assert types == ["temporarySpeedLimit", "laneClosed", "fullyClosed"]
+
+
+def test_fastapi_endpoint_hides_internal_error_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-domain exceptions (incl. plain ValueError) become an opaque 500 with an error id."""
+
+    async def _fake_step_1_raises(*args: object, **kwargs: object) -> Route:
+        raise ValueError("/secret/path.db: SELECT * FROM internals")
+
+    monkeypatch.setattr(trip_pipeline, "_step_1_route_calculate", _fake_step_1_raises)
+
+    app.dependency_overrides[get_routing_provider] = FakeRoutingProvider
+    try:
+        with TestClient(app) as test_client:
+            api_request = {
+                "start": (52.52, 13.405),
+                "ziel": (48.1351, 11.582),
+                "zwischenstopps": [],
+                "abfahrtszeit": "2026-08-15T08:30:00",
+                "fahrzeugprofil": _make_fahrzeugprofil_dict(),
+                "praeferenzen": {},
+            }
+            response = test_client.post("/trips", json=api_request)
+    finally:
+        app.dependency_overrides.pop(get_routing_provider, None)
+
+    assert response.status_code == 500
+    detail = response.json()["detail"]
+    assert "secret" not in detail
+    assert "Fehler-ID" in detail

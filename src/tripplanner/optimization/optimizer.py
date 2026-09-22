@@ -41,7 +41,7 @@ from tripplanner.optimization.result_extraction import (
 )
 from tripplanner.optimization.station_mapping import map_stations_to_segments
 from tripplanner.routing.models import Route, RouteSegment
-from tripplanner.trip_input.models import VehicleProfile, Waypoint
+from tripplanner.trip_input.models import TripInfeasibleError, VehicleProfile, Waypoint
 
 logger = logging.getLogger(__name__)
 
@@ -123,9 +123,11 @@ class NetworkXOptimizer(OptimizerInterface):
         """
         # Validiere Eingabeparameter
         if start_soc_pct < 0.0 or start_soc_pct > MAX_SOC_PCT:
-            raise ValueError(f"Start-SoC muss im Bereich [0, 100] liegen, ist aber {start_soc_pct}")
+            raise TripInfeasibleError(
+                f"Start-SoC muss im Bereich [0, 100] liegen, ist aber {start_soc_pct}"
+            )
         if start_soc_pct < constraints.min_soc_pct:
-            raise ValueError(
+            raise TripInfeasibleError(
                 f"Start-SoC ({start_soc_pct}%) ist unter Min-SoC ({constraints.min_soc_pct}%)"
             )
 
@@ -265,7 +267,9 @@ class NetworkXOptimizer(OptimizerInterface):
             ]
 
             if not target_candidates:
-                raise ValueError("Kein erreichbarer Zielknoten gefunden. Route nicht fahrbar.")
+                raise TripInfeasibleError(
+                    "Kein erreichbarer Zielknoten gefunden. Route nicht fahrbar."
+                )
 
             # Finde günstigsten Zielknoten
             best_target = min(
@@ -289,7 +293,7 @@ class NetworkXOptimizer(OptimizerInterface):
             )
 
         except nx.NetworkXNoPath:
-            raise ValueError(
+            raise TripInfeasibleError(
                 "Kein fahrbarer Pfad gefunden. Eventuell zu wenig Reichweite."
             ) from None
 

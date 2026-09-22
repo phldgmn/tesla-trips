@@ -16,6 +16,15 @@ from pydantic import BaseModel, Field, ValidationInfo, field_validator
 from tripplanner.geo import Coordinate
 
 
+class TripInfeasibleError(ValueError):
+    """Domain error whose message is safe to show to API clients.
+
+    Raised when a trip cannot be planned (e.g. no reachable destination with
+    the given range). Only this `ValueError` subtype is passed through to HTTP
+    responses; all other exceptions are reported as generic 500 errors.
+    """
+
+
 class Waypoint(BaseModel):
     """Ein Pflicht-Wegpunkt mit Koordinate und optionaler Mindestaufenthaltsdauer.
 

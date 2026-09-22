@@ -7,7 +7,7 @@ Diese Modul implementiert:
 
 from __future__ import annotations
 
-import traceback
+import uuid
 from datetime import datetime, timedelta
 
 import httpx
@@ -28,6 +28,7 @@ from tripplanner.construction.models import ConstructionProvider
 from tripplanner.elevation import ElevationProvider
 from tripplanner.routing import RoutingProvider
 from tripplanner.routing.models import Coordinate, FaehrSegment, Route, RouteSegment
+from tripplanner.trip_input.models import TripInfeasibleError
 from tripplanner.weather.providers import WeatherProvider
 
 from .app import (
@@ -75,6 +76,17 @@ GRAPHHOPPER_URL_ENV_VAR = "GRAPHHOPPER_URL"
 
 # Default-Basis-URL, falls GRAPHHOPPER_URL nicht gesetzt ist.
 DEFAULT_GRAPHHOPPER_BASE_URL = "http://localhost:8989"
+
+
+def _opaque_http_error(status_code: int, message: str, exc: BaseException) -> HTTPException:
+    """Logs `exc` with a correlation id and returns an HTTPException without internals.
+
+    The client only sees `message` plus the id; the full exception and
+    traceback go to the server log so the two can be matched up.
+    """
+    error_id = uuid.uuid4().hex[:12]
+    logger.exception("%s [%s]", message, error_id, exc_info=exc)
+    return HTTPException(status_code=status_code, detail=f"{message} (Fehler-ID {error_id})")
 
 
 # ── Supercharger API ─────────────────────────────────────────────────────
@@ -152,15 +164,9 @@ async def refresh_supercharger(slug: str) -> SuperchargerStationAPI:
     try:
         station = await provider.refresh_single_station(slug)
     except TeslaLocationsClient.CurlError as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Tesla API nicht erreichbar: {e}",
-        ) from e
+        raise _opaque_http_error(502, "Tesla API nicht erreichbar", e) from e
     except ValidationError as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Tesla-Antwort konnte nicht verarbeitet werden: {e}",
-        ) from e
+        raise _opaque_http_error(502, "Tesla-Antwort konnte nicht verarbeitet werden", e) from e
     finally:
         # Verbindung deterministisch schliessen: verhindert, dass eine
         # offene Transaktion (z. B. nach einem Fehler) den SQLite-
@@ -230,17 +236,11 @@ async def refresh_supercharger_pricing(slug: str) -> SuperchargerPricingAPI:
         await provider.refresh_pricing(slug)
         cached = provider.get_cached_pricing(slug)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=404, detail="Station nicht gefunden") from e
     except TeslaLocationsClient.CurlError as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Tesla API nicht erreichbar: {e}",
-        ) from e
+        raise _opaque_http_error(502, "Tesla API nicht erreichbar", e) from e
     except PricingParseError as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Preisdaten konnten nicht verarbeitet werden: {e}",
-        ) from e
+        raise _opaque_http_error(502, "Preisdaten konnten nicht verarbeitet werden", e) from e
     finally:
         provider._db.close()
     return _cached_pricing_to_api(slug, cached)
@@ -432,7 +432,7 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
             charging_stops_missing_pricing=ergebnis.charging_stops_missing_pricing,
             construction_zones=construction_zones_api,
         )
-    except ValueError as e:
+    except TripInfeasibleError as e:
         logger.warning("Trip simulation rejected (422): %s", e)
         raise HTTPException(
             status_code=422,
@@ -445,12 +445,8 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
         # propagating), so any `httpx.HTTPError` reaching this handler
         # originates from the routing (GraphHopper) call.
         logger.warning("Routing provider (GraphHopper) request failed (502): %s", e)
-        raise HTTPException(
-            status_code=502,
-            detail=f"Routing-Server (GraphHopper) nicht erreichbar oder lieferte einen Fehler: {e}",
+        raise _opaque_http_error(
+            502, "Routing-Server (GraphHopper) nicht erreichbar oder lieferte einen Fehler", e
         ) from e
     except Exception as e:
-        logger.exception(
-            "Fehler bei der Routensimulation: %s", e, extra={"traceback": traceback.format_exc()}
-        )
-        raise HTTPException(status_code=500, detail=f"Simulation fehlgeschlagen: {e!s}") from e
+        raise _opaque_http_error(500, "Simulation fehlgeschlagen", e) from e
