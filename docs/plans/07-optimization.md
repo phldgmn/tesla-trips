@@ -1,34 +1,34 @@
-# Implementierungsplan: `optimization`-Modul (Phase 5)
+# Implementation Plan: `optimization` Module (Phase 5)
 
-## 1. Zweck & Scope
+## 1. Purpose & Scope
 
-Das `optimization`-Modul berechnet den optimalen Ladeplan für eine Tesla-Reise entlang einer bereits von GraphHopper festgelegten Route. Es löst ein diskretisiertes Zustandsraum-Suchproblem, das die folgenden Dimensionen berücksichtigt:
+The `optimization` module calculates the optimal charging plan for a Tesla trip along a route already determined by GraphHopper. It solves a discretized state-space search problem that considers the following dimensions:
 
-- **Position**: Segment-Index der Route (diskret, keine Neuberechnung der Straßenroute)
-- **Batteriezustand (SoC)**: Diskretisiert in Buckets (z. B. 1%-Schritte, 0–100%)
-- **Zeit**: Diskretisiert in Buckets (z. B. 15-min-Schritte, gerundet auf volle Viertelstunde)
+- **Position**: Segment index of the route (discretized, no recalculation of the road route)
+- **State of Charge (SoC)**: Discretized into buckets (e.g., 1% steps, 0–100%)
+- **Time**: Discretized into buckets (e.g., 15-minute steps, rounded to full quarter-hours)
 
-Die Kostenfunktion minimiert Gesamtreisezeit (Fahrzeit + Ladezeit) unter Beachtung fester Nebenbedingungen und optionaler Strafkosten für Constraint-Verletzungen.
+The cost function minimizes total trip time (driving time + charging time) while respecting fixed constraints and optional penalty costs for constraint violations.
 
-### Abgrenzung
+### Boundary
 
-- **KEIN energieoptimales Rerouting**: Die Route ist von Phase 1 (GraphHopper) fixiert; das Modul plant nur Ladehalte und Geschwindigkeitsprofile entlang der vorgegebenen Strecke.
-- **Zwischenstopps sind Pflicht-Knoten**: Wie in `06-offene-punkte-widersprueche.md` entschieden (Variante a), sind Zwischenstopps eigenständige Waypoints mit optionaler Mindestaufenthaltsdauer — sie müssen im Zustandsgraph als explizite Knoten mit Zeitsperren modelliert werden.
-- **Keine Iteration in der Optimierung**: Die Iterative ETA/Wetter-Konvergenz erfolgt in der übergeordneten Orchestrierungsschicht (`trip_input`/API); das `optimization`-Modul erhält als Eingabe eine konsistente Wetter-/ETA-Situation.
+- **NO energy-optimal rerouting**: The route is fixed from Phase 1 (GraphHopper); the module only plans charging stops and speed profiles along the given route.
+- **Waypoints are mandatory nodes**: As decided in `06-open-points-contradictions.md` (Variant a), waypoints are standalone waypoints with an optional minimum stay duration — they must be modeled in the state graph as explicit nodes with time locks.
+- **No iteration within optimization**: Iterative ETA/weather convergence occurs at the higher-level orchestration layer (`trip_input`/API); the `optimization` module receives a consistent weather/ETA state as input.
 
-### Nicht-Scope
+### Out of Scope
 
-- Keine Erstellung/aktualisierte Pflege der Tesla-Supercharger-Datenbank (Provider-Interface vorgesehen, Datenquelle lokal/fix)
-- Keine personalisierte Kalibrierung des Verbrauchsmodells (feste Defaults gemäß `vehicle_energy_parameters`-Pydantic-Modell)
-- Keine Echtzeit-Neuplanung bei Fahrtfehlern (Simulation ist zukünftig vorgesehen, aber keine Live-Anpassung)
+- No creation/maintenance of the Tesla Supercharger database (provider interface envisioned, data source local/fixed)
+- No personalized calibration of the consumption model (fixed defaults per the `vehicle_energy_parameters` Pydantic model)
+- No real-time replanning for driving errors (simulation envisioned for the future, but no live adjustment)
 
 ---
 
-## 2. Abhängigkeiten & Phasenzuordnung
+## 2. Dependencies & Phase Assignment
 
-- **Phase**: 5 (Zentrale Optimierung)
-- **Phasen-Voraussetzung**: Phase 4 (battery) muss abgeschlossen sein (Ladekurven-Interface), Phase 3 (energy) muss Segmente mit Energiebedarf liefern.
-- **Konsumierte Typen** (exakt aus kanonischem Register):
+- **Phase**: 5 (Core Optimization)
+- **Phase Prerequisites**: Phase 4 (battery) must be complete (charging curve interface), Phase 3 (energy) must deliver segments with energy consumption.
+- **Consumed Types** (exactly from canonical register):
   - `tripplanner.routing.models.Route`, `tripplanner.routing.models.RouteSegment`
   - `tripplanner.elevation.models.SegmentGradient`
   - `tripplanner.weather.models.WeatherSample` (via `tripplanner.wind.models.WindComponents`)
@@ -41,9 +41,9 @@ Die Kostenfunktion minimiert Gesamtreisezeit (Fahrzeit + Ladezeit) unter Beachtu
 
 ---
 
-## 3. Datenmodelle
+## 3. Data Models
 
-### Pydantic-Modelle (in `src/tripplanner/optimization/models.py`)
+### Pydantic Models (in `src/tripplanner/optimization/models.py`)
 
 ```python
 from datetime import datetime, timedelta
@@ -56,10 +56,9 @@ from tripplanner.routing.models import RouteSegment
 from tripplanner.charging_infrastructure.models import ChargingStation
 from tripplanner.elevation.models import SegmentGradient
 
-
 class ChargingStop(BaseModel):
     """
-    Ein Ladehalt mit Station, Ankunfts- und Ziel-SoC sowie Zeitangaben.
+    A charging stop with station, arrival and target SoC plus timing.
     """
 
     station: ChargingStation
@@ -76,67 +75,63 @@ class ChargingStop(BaseModel):
         if v < 0.0 or v > 100.0:
             raise PydanticCustomError(
                 "soc_range_error",
-                "SoC muss zwischen 0.0 und 100.0 liegen, ist aber {value}",
+                "SoC must be between 0.0 and 100.0, but is {value}",
                 {"value": v},
             )
         return v
 
-
 class OptimizationConstraints(BaseModel):
     """
-    Harte Constraints und Sicherheitsparameter für die Optimierung.
+    Hard constraints and safety parameters for optimization.
     """
 
     min_soc_pct: Annotated[float, Field(ge=0.0, le=100.0)] = Field(
         default=15.0,
-        description="Minimal zulässiger SoC (Sicherheitsreserve)",
+        description="Minimum permissible SoC (safety reserve)",
     )
     ziel_soc_pct: Annotated[float, Field(ge=0.0, le=100.0)] = Field(
         default=80.0,
-        description="gewünschter SoC am Ziel",
+        description="desired SoC at destination",
     )
     max_etappenlaenge_km: Annotated[float, Field(gt=0.0)] = Field(
         default=500.0,
-        description="maximale Distanz zwischen Ladestopps (optional)",
+        description="maximum distance between charging stops (optional)",
     )
     sicherheitsreserve_pct: Annotated[float, Field(ge=0.0, le=20.0)] = Field(
         default=5.0,
-        description="Reserve auf dem Ziel-SoC (z. B. Ziel-SoC = 80%, Reserve = 5% → faktischer Ziel-SoC = 75%)",
+        description="Reserve on target SoC (e.g., target SoC = 80%, reserve = 5% → actual target SoC = 75%)",
     )
     max_ladezeit_s: Annotated[int, Field(ge=600, le=7200)] = Field(
         default=3600,
-        description="maximale Dauer eines einzelnen Ladevorgangs (optional)",
+        description="maximum duration of a single charging session (optional)",
     )
-
 
 class ChargingPlan(BaseModel):
     """
-    Ergebnis der Optimierung: geordnete Liste von Ladehalten + Gesamtreisezeit.
+    Optimization result: ordered list of charging stops + total trip time.
     """
 
     ladehalte: list[ChargingStop]
     gesamtreisezeit_s: Annotated[int, Field(ge=0)]
     min_zwischenstopp_ankunftszeit: dict[int, datetime] = Field(
         default_factory=dict,
-        description="Mindestankunftszeit für Zwischenstopps (wenn nicht geladen wird)",
+        description="Minimum arrival time for waypoints (when not charging)",
     )
-
 
 class StateNode(BaseModel):
     """
-    Interner Knoten im Zustandsgraphen: (segment_index, soc_bucket, time_bucket).
-    Wird nicht als Pydantic-Exportmodell verwendet, dient nur interner Darstellung.
+    Internal node in the state graph: (segment_index, soc_bucket, time_bucket).
+    Not used as a Pydantic export model; serves only internal representation.
     """
 
     segment_index: int
-    soc_pct: float  # diskretisiert
+    soc_pct: float  # discretized
     zeitpunkt: datetime
-
 
 class OptimizerInterface:
     """
-    Protocol/Interface für Austauschbarkeit zwischen NetworkX (Prototyp)
-    und OR-Tools (Produktion, spätere Ausbaustufe).
+    Protocol/interface for interchangeability between NetworkX (prototype)
+    and OR-Tools (production, later expansion).
     """
 
     def optimize(
@@ -154,22 +149,21 @@ class OptimizerInterface:
         iteration: int = 1,
     ) -> ChargingPlan:
         """
-        Optimierungsmethode, die von beiden Backend-Implementierungen
-        (NetworkXOptimizer, ORToolsOptimizer) bereitgestellt wird.
+        Optimization method provided by both backend implementations
+        (NetworkXOptimizer, ORToolsOptimizer).
         """
         raise NotImplementedError
 ```
 
-### Ergänzende Typen (nicht im Register enthalten, aber intern benötigt)
+### Supplemental Types (not in register but internally required)
 
 ```python
 from dataclasses import dataclass
 
-
 @dataclass(frozen=True)
 class LadekurvenLookup:
     """
-    Hilfsstruktur für Ladekurven-Interpolation: SoC-Grad → Ladeleistung (kW).
+    Helper structure for charging curve interpolation: SoC degree → charging power (kW).
     """
 
     soc_pct: float
@@ -178,20 +172,20 @@ class LadekurvenLookup:
 
 ---
 
-## 4. Öffentliche Schnittstelle
+## 4. Public Interface
 
-### Dateistruktur
+### File Structure
 
 ```
 src/tripplanner/optimization/
-├── __init__.py        # re-exportiert OptimizerInterface + public models
-├── models.py           # siehe oben
-├── optimizer.py        # Kern-Logik: NetworkX- und OR-Tools-Implementierungen
-├── discretizer.py      # Diskretisierung von SoC und Zeit
-└── validation.py       # Validierung von Eingabedaten (Routenlücke, SoC-Bereich etc.)
+├── __init__.py        # re-exports OptimizerInterface + public models
+├── models.py           # see above
+├── optimizer.py        # Core logic: NetworkX and OR-Tools implementations
+├── discretizer.py      # Discretization of SoC and time
+└── validation.py       # Input data validation (route gaps, SoC range, etc.)
 ```
 
-### Öffentliche API (`src/tripplanner/optimization/__init__.py`)
+### Public API (`src/tripplanner/optimization/__init__.py`)
 
 ```python
 from tripplanner.optimization.models import (
@@ -215,7 +209,7 @@ __all__ = [
 ]
 ```
 
-### Öffentliche Funktionen (`optimizer.py`)
+### Public Functions (`optimizer.py`)
 
 ```python
 from tripplanner.routing.models import Route
@@ -230,13 +224,12 @@ from tripplanner.optimization.models import (
     LadekurvenLookup,
 )
 
-
 def create_networkx_optimizer(
     soc_step_pct: float = 1.0,
     time_step_min: int = 15,
 ) -> OptimizerInterface:
     """
-    Factory-Funktion für den NetworkX-basierten Prototyp-Optimizer.
+    Factory function for the NetworkX-based prototype optimizer.
     """
     from tripplanner.optimization.optimizer import NetworkXOptimizer
 
@@ -245,14 +238,13 @@ def create_networkx_optimizer(
         time_step_min=time_step_min,
     )
 
-
 def create_ortools_optimizer(
     soc_step_pct: float = 1.0,
     time_step_min: int = 15,
     use_cp_sat: bool = True,
 ) -> OptimizerInterface:
     """
-    Factory-Funktion für den OR-Tools-basierten Optimizer (spätere Version).
+    Factory function for the OR-Tools-based optimizer (later version).
     use_cp_sat=True → CP-SAT Solver, False → Routing Solver.
     """
     from tripplanner.optimization.optimizer import ORToolsOptimizer
@@ -263,9 +255,8 @@ def create_ortools_optimizer(
         use_cp_sat=use_cp_sat,
     )
 
-
 class NetworkXOptimizer(OptimizerInterface):
-    """A*/Dijkstra-Optimierung mit NetworkX (Prototyp)."""
+    """A*/Dijkstra optimization with NetworkX (prototype)."""
 
     def __init__(
         self,
@@ -290,15 +281,14 @@ class NetworkXOptimizer(OptimizerInterface):
         iteration: int = 1,
     ) -> ChargingPlan:
         """
-        Optimiert Ladeplan unter Verwendung eines diskretisierten Zustandsgraphen.
-        A*-Suche mit Heuristik = verbleibende Distanz / geschätzte Reisegeschwindigkeit.
+        Optimizes charging plan using a discretized state graph.
+        A* search with heuristic = remaining distance / estimated travel speed.
         """
-        # Implementierung siehe Abschnitt 5
+        # Implementation see Section 5
         pass
 
-
 class ORToolsOptimizer(OptimizerInterface):
-    """OR-Tools-basierter Optimizer (CP-SAT oder Routing Solver)."""
+    """OR-Tools-based optimizer (CP-SAT or Routing Solver)."""
 
     def __init__(
         self,
@@ -325,69 +315,69 @@ class ORToolsOptimizer(OptimizerInterface):
         iteration: int = 1,
     ) -> ChargingPlan:
         """
-        Optimiert Ladeplan mittels Constraint-Programmierung (CP-SAT) oder
-        Routing-Solver (bei größeren Instanzen).
+        Optimizes charging plan using constraint programming (CP-SAT) or
+        routing solver (for larger instances).
         """
-        # Implementierung siehe Abschnitt 5
+        # Implementation see Section 5
         pass
 ```
 
 ---
 
-## 5. Externe Integration / Algorithmus-Details
+## 5. External Integration / Algorithm Details
 
-### 5.1 Zustandsraum-Diskretisierung (`discretizer.py`)
+### 5.1 State Space Discretization (`discretizer.py`)
 
-**SoC-Diskretisierung**: `soc_bucket = round(soc_pct / soc_step_pct)` → 0–100 in Schritten von z. B. 1% (101 Buckets)
+**SoC discretization**: `soc_bucket = round(soc_pct / soc_step_pct)` → 0–100 in steps of e.g. 1% (101 buckets)
 
-**Zeit-Diskretisierung**: `zeit_bucket = round(zeitpunkt / timedelta(minutes=time_step_min)) * timedelta(minutes=time_step_min)` → gerundet auf volle Viertelstunde (15 Min)
+**Time discretization**: `zeit_bucket = round(zeitpunkt / timedelta(minutes=time_step_min)) * timedelta(minutes=time_step_min)` → rounded to full quarter-hour (15 min)
 
-**Knoten-Hash**: `(segment_index, soc_bucket, zeit_bucket)` als Dictionary-Key
+**Node hash**: `(segment_index, soc_bucket, zeit_bucket)` as dictionary key
 
-### 5.2 Kostenfunktion
+### 5.2 Cost Function
 
 ```
-Kosten(Kante) = fahrzeit_segment + ladezeit + umweg_kosten + constraint_strafe
+Cost(Edge) = drive_time_segment + charge_time + detour_cost + constraint_penalty
 
-mit:
-- fahrzeit_segment = segment_laenge_m / (geschwindigkeit_kmh * 1000/3600)
-- ladezeit = (ziel_soc_pct - ankunfts_soc_pct) / (ladeleistung_kw * 0.01) * batteriekapazitaet_kwh * 3600
-- umweg_kosten = 0 (da keine Rerouting-Alternativen, nur Ladehalt-Planung)
-- constraint_strafe = 0 (falls Constraint erfüllt), else M (große Konstante, z. B. 10^6)
+with:
+- drive_time_segment = segment_length_m / (speed_kmh * 1000/3600)
+- charge_time = (target_soc_pct - arrival_soc_pct) / (charging_power_kw * 0.01) * battery_capacity_kwh * 3600
+- detour_cost = 0 (since no rerouting alternatives, only charging stop planning)
+- constraint_penalty = 0 (if constraint satisfied), else M (large constant, e.g. 10^6)
 ```
 
-**Heuristik (A*)**: `h(n) = verbleibende_distanz_m / (reisegeschwindigkeit_kmh * 1000/3600)`
+**Heuristic (A*)**: `h(n) = remaining_distance_m / (travel_speed_kmh * 1000/3600)`
 
-**Reisegeschwindigkeit**: vorerst als Default 110 km/h (Autobahn) festgelegt; spätere Anpassung über Tempolimits der Segmente.
+**Travel speed**: set to default 110 km/h (motorway) for now; later adjustment via segment speed limits.
 
-### 5.3 A*/Dijkstra-Algorithmus (NetworkX-Implementierung)
+### 5.3 A*/Dijkstra Algorithm (NetworkX Implementation)
 
-**Graphaufbau** (in `optimizer.py`):
+**Graph construction** (in `optimizer.py`):
 
 ```python
 import networkx as nx
 
 class NetworkXOptimizer(OptimizerInterface):
     def optimize(...):
-        # 1. Erstelle gerichteten Graph G = nx.DiGraph()
+        # 1. Create directed graph G = nx.DiGraph()
         G = nx.DiGraph()
 
-        # 2. Erstelle Startknoten (segment_index=0, soc=start_soc, zeit=abfahrtszeit)
+        # 2. Create start node (segment_index=0, soc=start_soc, time=departure_time)
         start_node = (0, self._soc_to_bucket(start_soc_pct), self._zeit_to_bucket(abfahrtszeit))
         G.add_node(start_node, type="start", soc_pct=start_soc_pct, zeitpunkt=abfahrtszeit)
 
-        # 3. Füge Knoten für alle Segmente, SoC-Buckets und Zeit-Buckets hinzu
-        #    (lazy: nur erreichbare Knoten erzeugen)
+        # 3. Add nodes for all segments, SoC buckets, and time buckets
+        #    (lazy: only generate reachable nodes)
 
-        # 4. Füge Kanten hinzu:
-        #    - Fahrtkante: (seg, soc, zeit) → (seg+1, soc_drops, zeit+delta_t)
-        #    - Ladekante: (seg, soc, zeit) → (seg, soc+charging, zeit+delta_tau)
-        #    - Zwischenstopp-Zwang: (seg, soc, zeit) → (seg+1, soc, zeit+min_aufenthalt)
+        # 4. Add edges:
+        #    - Drive edge: (seg, soc, time) → (seg+1, soc_drops, time+delta_t)
+        #    - Charge edge: (seg, soc, time) → (seg, soc+charging, time+delta_tau)
+        #    - Waypoint mandatory: (seg, soc, time) → (seg+1, soc, time+min_stay)
 
-        # 5. Füge Ladekanten zu allen verfügbaren ChargingStationen hinzu
-        #    (nur wenn Station in Reichweite oder im Segment-Intervall)
+        # 5. Add charge edges to all available charging stations
+        #    (only if station is within range or within segment interval)
 
-        # 6. Führe A*-Suche aus:
+        # 6. Run A* search:
         path = nx.astar_path(
             G,
             source=start_node,
@@ -396,48 +386,48 @@ class NetworkXOptimizer(OptimizerInterface):
             weight="cost",
         )
 
-        # 7. Extrahiere ChargingStop-Objekte aus dem Pfad
-        #    (Ladekanten erkennen und zu ChargingStop umwandeln)
+        # 7. Extract ChargingStop objects from the path
+        #    (detect charge edges and convert to ChargingStop)
 
-        # 8. Berechne Gesamtreisezeit = letzter Knoten.zeitpunkt + restliche_fahrzeit
-        #    (falls Ziel nicht im letzten Segment erreicht wird)
+        # 8. Calculate total trip time = last node time + remaining drive time
+        #    (if destination not reached in last segment)
 
-        return ChargingPlan(ladehalte=ladehalte, gesamtreisezeit_s=gesamtzeit)
+        return ChargingPlan(ladehalte=stops, gesamtreisezeit_s=total_time)
 ```
 
-**Zielknoten**: `(segment_index=len(segments)-1, soc_pct >= ziel_soc_pct, beliebige Zeit)`
+**Target node**: `(segment_index=len(segments)-1, soc_pct >= target_soc_pct, any time)`
 
-**Heuristik-Funktion (in `NetworkXOptimizer`)**:
+**Heuristic function** (in `NetworkXOptimizer`):
 
 ```python
 def _heuristik(self, u: tuple, v: tuple) -> float:
     """
-    Admissible Heuristik: Zeit bis zum Ziel unter idealen Bedingungen.
+    Admissible heuristic: time to destination under ideal conditions.
     """
-    u_seg, u_soc, u_zeit = u
-    v_seg, v_soc, v_zeit = v
+    u_seg, u_soc, u_time = u
+    v_seg, v_soc, v_time = v
 
-    # Distanz von v_seg bis zum Ende
-    rest_distanz = sum(seg.laenge_m for seg in self.segments[v_seg:])
+    # Distance from v_seg to the end
+    rest_distance = sum(seg.length_m for seg in self.segments[v_seg:])
 
-    # Idealgeschwindigkeit (Autobahn, 110 km/h)
+    # Ideal speed (motorway, 110 km/h)
     v_ideal_mps = 110.0 * 1000 / 3600
 
-    # Zeitdauer
-    rest_zeit_s = rest_distanz / v_ideal_mps
+    # Time duration
+    rest_time_s = rest_distance / v_ideal_mps
 
-    return rest_zeit_s
+    return rest_time_s
 ```
 
-### 5.4 OR-Tools-Implementierung (CP-SAT vs. Routing Solver)
+### 5.4 OR-Tools Implementation (CP-SAT vs. Routing Solver)
 
-**CP-SAT (Constraint Programming SAT Solver)**: Für kleine bis mittlere Instanzen (<50 Ladestationen). Modelliert als ganzzahlige lineare Optimierung mit booleschen Variablen für "laden an Station i".
+**CP-SAT (Constraint Programming SAT Solver)**: For small to medium instances (<50 charging stations). Modeled as integer linear optimization with boolean variables for "charge at station i".
 
-**Routing Solver**: Für große Instanzen (>50 Ladestationen). Modelliert als Vehicle Routing Problem mit Time Windows (VRPTW) und zusätzlichen Constraints für SoC.
+**Routing Solver**: For large instances (>50 charging stations). Modeled as Vehicle Routing Problem with Time Windows (VRPTW) and additional constraints for SoC.
 
-**Recherche-Ergebnis** (s. Websuche): CP-SAT ist für allgemeine Integer-Probleme und kleineren Instanzen besser geeignet; Routing Solver ist spezialisiert auf Route-Probleme mit LNS-Heuristik. Für den Prototyp und mittlere Reisen (ca. 300–600 km, ≤20 Ladestationen entlang der Route) bietet sich CP-SAT an. Spätere Ausbaustufe mit großem Datensatz → Routing Solver.
+**Research findings** (see web search): CP-SAT is better suited for general integer problems and smaller instances; Routing Solver is specialized for routing problems with LNS heuristic. For the prototype and medium trips (approx. 300–600 km, ≤20 charging stations along the route), CP-SAT is a good fit. Later expansion with large datasets → Routing Solver.
 
-**OR-Tools-Modell (CP-SAT-Pseudocode)**:
+**OR-Tools Model (CP-SAT Pseudocode)**:
 
 ```python
 from ortools.sat.python import cp_model
@@ -445,78 +435,78 @@ from ortools.sat.python import cp_model
 def optimize(...):
     model = cp_model.CpModel()
 
-    # Variablen
-    laden_an_station[i] = model.NewBoolVar(f"laden_{i}")
-    ankunfts_soc[i] = model.NewIntVar(0, 100, f"ankunfts_soc_{i}")
-    abfahrts_soc[i] = model.NewIntVar(0, 100, f"abfahrts_soc_{i}")
-    ladezeit[i] = model.NewIntVar(0, 3600, f"ladezeit_{i}")
-    ankunfts_zeit[i] = model.NewIntVar(int(abfahrtszeit.timestamp()), ..., f"ankunfts_{i}")
+    # Variables
+    charge_at_station[i] = model.NewBoolVar(f"charge_{i}")
+    arrival_soc[i] = model.NewIntVar(0, 100, f"arrival_soc_{i}")
+    departure_soc[i] = model.NewIntVar(0, 100, f"departure_soc_{i}")
+    charge_time[i] = model.NewIntVar(0, 3600, f"charge_time_{i}")
+    arrival_time[i] = model.NewIntVar(int(departure_time.timestamp()), ..., f"arrival_{i}")
 
     # Constraints
-    # 1. SoC-Konsistenz: ankunfts_soc[i+1] = abfahrts_soc[i] - energiebedarf[i→i+1]
-    # 2. Ladezeit-Berechnung: ladezeit[i] = (abfahrts_soc[i] - ankunfts_soc[i]) * faktor
-    # 3. Mindest-SoC: ankunfts_soc[i] >= min_soc_pct
-    # 4. Zwischenstopp-Zeitfenster: ankunfts_zeit[i] ≥ ziel_ankunftszeit[i]
-    # 5. Ziel-SoC: ankunfts_soc[last] >= ziel_soc_pct
+    # 1. SoC consistency: arrival_soc[i+1] = departure_soc[i] - energy_consumption[i→i+1]
+    # 2. Charge time calculation: charge_time[i] = (departure_soc[i] - arrival_soc[i]) * factor
+    # 3. Minimum SoC: arrival_soc[i] >= min_soc_pct
+    # 4. Waypoint time window: arrival_time[i] ≥ target_arrival_time[i]
+    # 5. Target SoC: arrival_soc[last] >= target_soc_pct
 
-    # Objective: minimize sum(ladezeit) + sum(fahrzeit)
+    # Objective: minimize sum(charge_time) + sum(drive_time)
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = 60.0
     result = solver.Solve(model)
 
     if result == cp_model.OPTIMAL or result == cp_model.FEASIBLE:
-        # Extrahiere Lösung und baue ChargingPlan
+        # Extract solution and build ChargingPlan
         pass
 ```
 
-### 5.5 Externe APIs / Bibliotheken
+### 5.5 External APIs / Libraries
 
-| Komponente | Bibliothek | Version | Verwendung |
+| Component | Library | Version | Usage |
 | ----------- | ----------- | --------- | ------------ |
-| NetworkX | `networkx` | ≥3.0 | A*/Dijkstra auf DiGraph |
-| OR-Tools | `ortools` | ≥9.10 | CP-SAT Solver (oder Routing Solver) |
-| Wetter/Ladekurven | `tripplanner.weather`, `tripplanner.battery` | eigene Module | Datenimport via models |
-| DEM-Zugriff | `rasterio` | ≥1.3 | nicht direkt im optimization-Modul, nur über energy/battery |
+| NetworkX | `networkx` | ≥3.0 | A*/Dijkstra on DiGraph |
+| OR-Tools | `ortools` | ≥9.10 | CP-SAT Solver (or Routing Solver) |
+| Weather/Charging Curves | `tripplanner.weather`, `tripplanner.battery` | own modules | Data import via models |
+| DEM Access | `rasterio` | ≥1.3 | not directly in optimization module, only via energy/battery |
 
-**Abhängigkeiten in `pyproject.toml`**:
+**Dependencies in `pyproject.toml`**:
 
 ```toml
 [project.dependencies]
 networkx = "^3.0"
 ortools = "^9.10"
-rasterio = "^1.3"  # über elevation-Modul, aber hier aufgeführt für Vollständigkeit
+rasterio = "^1.3"  # via elevation module, but listed here for completeness
 ```
 
 ---
 
-## 6. Test-Strategie
+## 6. Test Strategy
 
 ### Fixtures (in `tests/fixtures/optimization/`)
 
-- `route_sechs_segmente.json`: 6 Segmente, Länge insgesamt ca. 300 km, Tempolimits zwischen 80–130 km/h
-- `charging_stations_3.json`: 3 Supercharger entlang der Route (Segment 1, 3, 5)
-- `waypoints_1.json`: 1 Zwischenstopp (Segment 2, 15-min-Pause)
-- `energy_segments_6.json`: Energiebedarf je Segment (berechnet mit Referenzfahrzeug)
-- `ladekurve_v3.json`: V3-Ladekurve (10→80% in ca. 30 Min, Piezokurve modelliert)
+- `route_six_segments.json`: 6 segments, total length approx. 300 km, speed limits between 80–130 km/h
+- `charging_stations_3.json`: 3 Superchargers along the route (Segment 1, 3, 5)
+- `waypoints_1.json`: 1 waypoint (Segment 2, 15-min pause)
+- `energy_segments_6.json`: Energy consumption per segment (calculated with reference vehicle)
+- `charging_curve_v3.json`: V3 charging curve (10→80% in approx. 30 min, piezoelectric curve modeled)
 
-### Beispiel-Testfälle (Unit-Tests in `tests/optimization/test_optimizer.py`)
+### Example Test Cases (Unit Tests in `tests/optimization/test_optimizer.py`)
 
-#### Test 1: Einfache Route, keine Ladehalt nötig (Given/When/Then)
+#### Test 1: Simple Route, No Charging Stop Needed (Given/When/Then)
 
 ```
-Given: Route mit 3 Segmenten (100 km), Start-SoC = 100%, Ziel-SoC = 60%, Minimal-SoC = 15%
-When: Energiebedarf je Segment < 10% (insgesamt < 30% SoC-Verbrauch)
-Then: Kein Ladehalt im Ergebnis, Gesamtreisezeit = fahrzeit, Ankunfts-SoC ≥ Ziel-SoC
+Given: Route with 3 segments (100 km), starting SoC = 100%, target SoC = 60%, minimum SoC = 15%
+When: Energy consumption per segment < 10% (total < 30% SoC consumption)
+Then: No charging stop in the result, total trip time = drive time, arrival SoC ≥ target SoC
 ```
 
 ```python
-def test_kein_ladehalt_noetig():
-    # Setup: kleine Route, geringer Verbrauch
+def test_no_charging_stop_needed():
+    # Setup: small route, low consumption
     route = _create_route(3, [100_000, 100_000, 100_000])  # 3 × 100 km
     gradients = _create_gradients(3, [0.0, 0.0, 0.0])
-    energy = _create_energy([5.0, 5.0, 5.0])  # 15 kWh insgesamt
-    stations = []  # keine Ladestationen notwendig
+    energy = _create_energy([5.0, 5.0, 5.0])  # 15 kWh total
+    stations = []  # no charging stations needed
 
     optimizer = create_networkx_optimizer()
     plan = optimizer.optimize(
@@ -535,98 +525,98 @@ def test_kein_ladehalt_noetig():
     # Assertions
     assert plan.ladehalte == []
     assert plan.gesamtreisezeit_s > 0
-    # ... weiteres
+    # ... additional
 ```
 
-#### Test 2: Route mit Zwischenstopp, der auch Ladehalt ist (Given/When/Then)
+#### Test 2: Route with Waypoint That Is Also a Charging Stop (Given/When/Then)
 
 ```
-Given: Route mit Zwischenstopp (Segment 2, 30-min-Pause), Supercharger am selben Segment
-When: Zwischenstopp-Dauer > Zeit für Ladevorgang bis Ziel-SoC
-Then: Eine ChargingStop mit station am Segment 2, Ankunftszeit ≤ Zwischenstopp-Zeitfenster
+Given: Route with waypoint (Segment 2, 30-min pause), Supercharger on the same segment
+When: Waypoint duration > time for charging session to target SoC
+Then: A ChargingStop with station on Segment 2, arrival time ≤ waypoint time window
 ```
 
-#### Test 3: Grenzfall — maximale Iteration, Konvergenz erreicht (Integrationstest)
+#### Test 3: Edge Case — Maximum Iteration, Convergence Reached (Integration Test)
 
 ```
-Given: Iterative Wetterabfrage (Phase 6/Orchestrierung) mit 30-min-Schwellwert
-When: Reise über mehrere Wetterpunkte, ETA-Abweichung < 30 Min nach 1. Iteration
-Then: Optimization-Modul erhält konsistente Wetterdaten, Plan ist stabil (keine Änderung zwischen Iteration 1 und 2)
+Given: Iterative weather query (Phase 6/Orchestration) with 30-min threshold
+When: Trip across multiple weather points, ETA deviation < 30 min after 1st iteration
+Then: Optimization module receives consistent weather data, plan is stable (no change between iteration 1 and 2)
 ```
 
 ```python
 @pytest.mark.integration
-def test_konvergenz_kleiner_eta_abweichung():
-    # Setup: große Route (600 km), Wetteränderung im Verlauf
+def test_convergence_small_eta_deviation():
+    # Setup: large route (600 km), weather change along the way
     # → first iteration yields ETA differences < 30 min
     # → optimizer receives new weather, re-runs → plan unchanged
     pass
 ```
 
-### Unit vs. Integrationstest
+### Unit vs. Integration Test
 
-| Test | Art | Marker | Beschreibung |
+| Test | Type | Marker | Description |
 | ------ | ----- | -------- | -------------- |
-| `test_kein_ladehalt_noetig` | Unit | — | Einzelfall, alle Input-Daten synthetisch |
-| `test_zwischenstopp_mit_ladehalt` | Unit | — | Kombination von Zwischenstopp + Ladehalt |
-| `test_grenzfall_minimaler_soc` | Unit | — | Start-SoC = Min-SoC + kleines Delta → muss laden |
-| `test_konvergenz_kleiner_eta_abweichung` | Integration | `@pytest.mark.integration` | Orchestrierungsschicht mit Wetter-Iter |
+| `test_no_charging_stop_needed` | Unit | — | Single case, all input data synthetic |
+| `test_waypoint_with_charging_stop` | Unit | — | Combination of waypoint + charging stop |
+| `test_edge_case_minimum_soc` | Unit | — | Starting SoC = minimum SoC + small delta → must charge |
+| `test_convergence_small_eta_deviation` | Integration | `@pytest.mark.integration` | Orchestration layer with weather iteration |
 
 ---
 
-## 7. Aufgaben-Checkliste
+## 7. Task Checklist
 
-### Phase 7a – Modelldefinition & Validation
+### Phase 7a – Model Definition & Validation
 
-- [ ] Task 1: `src/tripplanner/optimization/models.py` erstellen — alle Pydantic-Modelle (ChargingStop, OptimizationConstraints, ChargingPlan, OptimizerInterface) mit Pydantic v2 Syntax und Custom-Validatoren (`PydanticCustomError` für SoC-Range).
-- [ ] Task 2: `src/tripplanner/optimization/validation.py` implementieren — Funktionen zur Validierung von Eingabedaten (`validate_route_has_no_gaps`, `validate_soc_range`, `validate_waypoints_ordered`).
-- [ ] Task 3: `src/tripplanner/optimization/__init__.py` erstellen — re-exportiert öffentliche API.
+- [ ] Task 1: Create `src/tripplanner/optimization/models.py` — all Pydantic models (ChargingStop, OptimizationConstraints, ChargingPlan, OptimizerInterface) with Pydantic v2 syntax and custom validators (`PydanticCustomError` for SoC range).
+- [ ] Task 2: Implement `src/tripplanner/optimization/validation.py` — functions for validating input data (`validate_route_has_no_gaps`, `validate_soc_range`, `validate_waypoints_ordered`).
+- [ ] Task 3: Create `src/tripplanner/optimization/__init__.py` — re-exports public API.
 
-### Phase 7b – NetworkX-Prototyp
+### Phase 7b – NetworkX Prototype
 
-- [ ] Task 4: `src/tripplanner/optimization/discretizer.py` erstellen — Hilfsfunktionen `_soc_to_bucket`, `_bucket_to_soc`, `_zeit_to_bucket`, `_bucket_to_zeit`.
-- [ ] Task 5: `src/tripplanner/optimization/optimizer.py` implementieren — `NetworkXOptimizer.optimize()` mit Graph-Aufbau, A*-Suche, Ladekanten-Hinzufügen.
-- [ ] Task 6: `src/tripplanner/optimization/optimizer.py` implementieren — `_heuristik()`-Methode (verbleibende Distanz / 110 km/h).
+- [ ] Task 4: Create `src/tripplanner/optimization/discretizer.py` — helper functions `_soc_to_bucket`, `_bucket_to_soc`, `_zeit_to_bucket`, `_bucket_to_time`.
+- [ ] Task 5: Implement `src/tripplanner/optimization/optimizer.py` — `NetworkXOptimizer.optimize()` with graph construction, A* search, adding charge edges.
+- [ ] Task 6: Implement `src/tripplanner/optimization/optimizer.py` — `_heuristik()` method (remaining distance / 110 km/h).
 
-### Phase 7c – OR-Tools-Backend (Vorbereitung für spätere Ausbaustufe)
+### Phase 7c – OR-Tools Backend (Preparation for later expansion)
 
-- [ ] Task 7: `src/tripplanner/optimization/optimizer.py` implementieren — `ORToolsOptimizer.optimize()` mit CP-SAT-Modell (Variablen, Constraints, Objective).
-- [ ] Task 8: `src/tripplanner/optimization/optimizer.py` implementieren — Factory-Funktion `create_ortools_optimizer()` mit `use_cp_sat`-Parameter.
+- [ ] Task 7: Implement `src/tripplanner/optimization/optimizer.py` — `ORToolsOptimizer.optimize()` with CP-SAT model (variables, constraints, objective).
+- [ ] Task 8: Implement `src/tripplanner/optimization/optimizer.py` — factory function `create_ortools_optimizer()` with `use_cp_sat` parameter.
 
 ### Phase 7d – Tests & Fixtures
 
-- [ ] Task 9: Fixtures generieren (`tests/fixtures/optimization/`): 6-Segment-Route, 3 Ladestationen, 1 Zwischenstopp, Energie- und Ladekurven-Daten.
-- [ ] Task 10: `tests/optimization/test_optimizer.py` schreiben — 3 Unit-Tests (kein Ladehalt, Zwischenstopp=Ladehalt, Minimal-SoC-Grenzfall).
-- [ ] Task 11: `tests/optimization/test_optimizer.py` schreiben — 1 Integrationstest (`@pytest.mark.integration`) für Konvergenz-Erwartung.
+- [ ] Task 9: Generate fixtures (`tests/fixtures/optimization/`): 6-segment route, 3 charging stations, 1 waypoint, energy and charging curve data.
+- [ ] Task 10: Write `tests/optimization/test_optimizer.py` — 3 unit tests (no charging stop, waypoint=charging stop, minimum SoC edge case).
+- [ ] Task 11: Write `tests/optimization/test_optimizer.py` — 1 integration test (`@pytest.mark.integration`) for convergence expectation.
 
-### Phase 7e – Integration & Validierung
+### Phase 7e – Integration & Validation
 
-- [ ] Task 12: `src/tripplanner/optimization/optimizer.py` integrieren — `tripplanner/trip_input/orchestration.py` erweitern, um `optimizer.optimize()` nach Energie-Berechnung aufzurufen.
-- [ ] Task 13: End-to-End-Test via CLI/API — Reise von Berlin nach Hamburg (ca. 260 km) mit Zwischenstopp in Magdeburg (70 km), startet mit 100% SoC, Zielsoc 80% → prüfe, dass Plan 1–2 Ladehalte vorsieht.
-- [ ] Task 14: Coverage-Check → `pytest --cov=tripplanner.optimization --cov-report=term-missing --cov-fail-under=85`.
-
----
-
-## 8. Risiken & offene technische Fragen
-
-### Risiken
-
-- **Skalierbarkeit der NetworkX-Lösung (behoben)**: Der Zustandsgraph wurde ursprünglich pro Roh-Segment (Segment-Index als eigene Dimension) aufgebaut, wodurch der Zustandsraum bei sehr langen Routen (>1000 Segmente, z. B. ein Segment pro GraphHopper-Polyline-Punktpaar) mit der Anzahl an Ladehalt-Optionen kombinatorisch anwuchs (Reisen >800 km dauerten mehrere Minuten oder liefen in ein Zeit-Limit). Fahrtkanten überspringen jetzt in `_add_drive_edge`/`_generate_graph` alle Roh-Segmente zwischen zwei Entscheidungspunkten (Ladestation, Zwischenstopp, Fähr-Einstieg) in einem Sprung (Distanz/Energie per vorberechneter Präfixsumme, siehe `optimize()`), die A*-Heuristik nutzt dieselbe Präfixsumme statt einer O(n)-Neuberechnung pro Knoten. Reduziert die Zustandsknotenzahl von O(Roh-Segmente × SoC-Buckets × Zeit-Buckets) auf O(Entscheidungspunkte × SoC-Buckets × Zeit-Buckets) - ein 1450-km-Beispiel mit 12.000 Roh-Segmenten/16 Ladestationen läuft dadurch in <1 s statt >90 s. OR-Tools (Phase 7c) bleibt für sehr viele Ladestationen (>50) dennoch die langfristig vorgesehene Ausbaustufe.
-- **Zeit-Diskretisierung**: 15-Min-Schritte können zu suboptimalen Lösungen führen (z. B. Ladebeginn bei 13:47 statt 13:45). Feinere Diskretisierung (5 Min) → bessere Lösungen, aber höherer Rechenaufwand. Default auf 15 Min festgelegt; spätere Anpassung über Konfigurationsparameter möglich.
-- **Unvollständige Ladekurven**: Die `ChargingCurve`-Validierung im battery-Modul ist noch nicht implementiert → falsche Ladezeiten möglich. Fix: Ladekurve vor Optimierung validieren (steigend, keine negativen Ladeleistungen).
-
-### Offene technische Fragen
-
-- **Reale Geschwindigkeit vs. Idealgeschwindigkeit**: Heuristik nutzt aktuell 110 km/h (Autobahn) als feste Geschwindigkeit. Bessere Heuristik: gewichtete Durchschnittsgeschwindigkeit aus Tempolimits der verbleibenden Segmente. *(Spätere Verbesserung, nicht Pflicht für MVP)*
-- **Wetter-Änderung während Fahrt**: Die aktuelle Lösung geht von konstantem Wetter je Wetterabfragepunkt aus; keine dynamische Anpassung bei plötzlichem Sturm unterwegs. *(Komplexitätserhöhung; aktuell nicht vorgesehen)*
-- **Ladekurven-Temperaturabhängigkeit**: Die Ladeleistung hängt von Batterietemperatur ab, die wiederum von Außentemperatur abhängt. Momentan wird eine mittlere Ladekurve verwendet. *(Optional für Kalibrierung in Phase 6, nicht Teil MVP)*
-
-### Später / nicht jetzt umsetzen (explizit als „nicht im Scope“ markiert)
-
-- **Mehrere GraphHopper-Alternativrouten**: Aktuell wird nur eine Route berechnet; keine energieoptimale Auswahl mehrerer Routen. *(Spätere, nicht-invasive Ausbaustufe)*
-- **Live-Neuplanung**: Keine dynamische Anpassung des Plans während der Fahrt. *(Wäre ein eigenes Modul mit Echtzeit-Feeds)*
-- **Personalisierte Kalibrierung**: Feste Default-Parameter für `VehicleEnergyParameters`; keine Anpassung an eigene Fahrdaten. *(Spätere Ausbaustufe, nicht Teil MVP)*
+- [ ] Task 12: Integrate `src/tripplanner/optimization/optimizer.py` — extend `tripplanner/trip_input/orchestration.py` to call `optimizer.optimize()` after energy calculation.
+- [ ] Task 13: End-to-end test via CLI/API — trip from Berlin to Hamburg (approx. 260 km) with waypoint in Magdeburg (70 km), starting with 100% SoC, target SoC 80% → verify that the plan proposes 1–2 charging stops.
+- [ ] Task 14: Coverage check → `pytest --cov=tripplanner.optimization --cov-report=term-missing --cov-fail-under=85`.
 
 ---
 
-**Ende des Implementierungsplans für das `optimization`-Modul.**
+## 8. Risks & Open Technical Questions
+
+### Risks
+
+- **Scalability of NetworkX solution (resolved)**: The state graph was originally built per raw segment (segment index as a separate dimension), causing the state space to grow combinatorially with the number of charging stop options on very long routes (>1000 segments, e.g., one segment per GraphHopper polyline point pair) (trips >800 km took several minutes or hit a time limit). Drive edges now skip all raw segments between two decision points (charging station, waypoint, ferry boarding) in one jump in `_add_drive_edge`/`_generate_graph` (distance/energy via precomputed prefix sum, see `optimize()`), and the A* heuristic uses the same prefix sum instead of an O(n) recalculation per node. This reduces the state node count from O(raw segments × SoC buckets × time buckets) to O(decision points × SoC buckets × time buckets) — a 1450 km example with 12,000 raw segments/16 charging stations runs in <1 s instead of >90 s. OR-Tools (Phase 7c) remains the long-term planned expansion path for very many charging stations (>50).
+- **Time discretization**: 15-minute steps can lead to suboptimal solutions (e.g., charging starting at 13:47 instead of 13:45). Finer discretization (5 min) → better solutions, but higher computational cost. Default set to 15 min; later adjustment via configuration parameter possible.
+- **Incomplete charging curves**: The `ChargingCurve` validation in the battery module is not yet implemented → incorrect charging times possible. Fix: validate charging curve before optimization (monotonically increasing, no negative charging power).
+
+### Open Technical Questions
+
+- **Real vs. Ideal Speed**: Heuristic currently uses 110 km/h (motorway) as a fixed speed. Better heuristic: weighted average speed from speed limits of remaining segments. *(Later improvement, not required for MVP)*
+- **Weather change during drive**: The current solution assumes constant weather per weather query point; no dynamic adjustment for sudden storms en route. *(Increased complexity; not currently planned)*
+- **Charging curve temperature dependence**: Charging power depends on battery temperature, which in turn depends on outside temperature. Currently using an average charging curve. *(Optional for calibration in Phase 6, not part of MVP)*
+
+### Future / not now (explicitly marked as "not in scope")
+
+- **Multiple GraphHopper alternative routes**: Currently only one route is calculated; no energy-optimal selection of multiple routes. *(Later, non-invasive expansion path)*
+- **Live replanning**: No dynamic plan adjustment during the drive. *(Would be a separate module with real-time feeds)*
+- **Personalized calibration**: Fixed default parameters for `VehicleEnergyParameters`; no adjustment to personal driving data. *(Later expansion, not part of MVP)*
+
+---
+
+**End of the implementation plan for the `optimization` module.**

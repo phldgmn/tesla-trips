@@ -1,5 +1,5 @@
 # construction
 
-Baustellen- und Sperrungsinformationen (DATEX II).
+Construction site and closure information (DATEX II).
 
 ::: tripplanner.construction

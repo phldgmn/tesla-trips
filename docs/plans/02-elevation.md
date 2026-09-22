@@ -1,60 +1,60 @@
-# Implementierungsplan: `elevation`-Modul (Phase 1)
+# Implementation Plan: `elevation` Module (Phase 1)
 
 ---
 
-## 1. Zweck & Scope
+## 1. Purpose & Scope
 
-**Zweck:** Das `elevation`-Modul extrahiert das Höhenprofil entlang einer gegebenen Route und berechnet daraus das Steigungs-/Gefälliprofil je Segment.
+**Purpose:** The `elevation` module extracts the elevation profile along a given route and derives the uphill/downhill gradient profile per segment from it.
 
-**Konkrete Leistungen:**
+**Concrete deliverables:**
 
-- Höhenwert (in Metern) pro Routenpunkt (aus DEM-Kacheln)
-- Steigung in Prozent pro Segment berechnet aus Höhendifferenz und horizontaler Distanz
-- Handling von Kachelgrenzen (automatische Kombination mehrerer DEM-Tiles)
-- Umgang mit ungültigen Höhenwerten (z. B. Meeresgebiete → 0 m)
+- Elevation value (in meters) per route point (from DEM tiles)
+- Slope in percent per segment, calculated from elevation difference and horizontal distance
+- Handling of tile boundaries (automatic combination of multiple DEM tiles)
+- Handling of invalid elevation values (e.g. sea areas → 0 m)
 
-**Abgrenzung zu anderen Modulen:**
+**Delimitation from other modules:**
 
-- Keine Wetter- oder Baustellen-Integration: Nur reine Geometrie/Höhe
-- Keine Energieberechnung: Das Modul liefert Rohdaten (Höhe, Steigung), die von `energy` verwendet werden
-- Kein Rerouting: Routenpunkte stammen aus `routing`, das Modul verändert die Route nicht
+- No weather or construction-site integration: pure geometry/elevation only
+- No energy computation: the module supplies raw data (elevation, slope) that `energy` consumes
+- No rerouting: route points come from `routing`; the module does not change the route
 
-**Explizit NICHT-Scope:**
+**Explicitly NOT in scope:**
 
-- DEM-Daten herunterladen/cachen (vorgelagerte Datenpipeline, siehe Abschnitt 5)
-- Live-Aktualisierung des DEM-Stacks (nur statischer Datenbestand)
-- Interpolation zwischen Routenpunkten (nur Punktwerte, keine Zwischenwerte)
-- UTM-Zonengrenzen überschreitende Berechnung (Annahme: Europa-West, einheitliche UTM-Zone oder WGS84->UTM-Transformation vor dem Aufruf)
-
----
-
-## 2. Abhängigkeiten & Phasenzuordnung
-
-**Phase:** Phase 1 (Datenquell-Module)
-
-**Abhängigkeiten zu anderen Modulen (konsumierte models.py-Typen):**
-
-- `tripplanner.routing.models.Route`: Konsumiert `Route.segments`, um Koordinaten zu extrahieren
-- `tripplanner.routing.models.RouteSegment`: Verwendet `RouteSegment.geometrie` für Koordinaten
-- Keine importierten Implementierungsdetails — nur `tripplanner.routing.models` importieren
-
-**Konsumierte externen Datenquellen:**
-
-- Copernicus DEM GLO-30 (Cloud Optimized GeoTIFFs, EPSG:4326 WGS84 oder UTM-Zonen)
-- Lokale DEM-Kacheln (entweder im Repo oder im `data/elevation/`-Verzeichnis)
-
-**Erzeugte Datenmodelle für andere Module:**
-
-- `tripplanner.elevation.models.ElevationPoint` (im Register definiert)
-- `tripplanner.elevation.models.SegmentGradient` (im Register definiert)
-
-**Phasen-Abhängigkeit:** Das Modul ist unabhängig von Phase 1-Modulen (`routing`, `weather`, `construction`, `charging_infrastructure`) — es verarbeitet die Routen-Geometrie aus `routing.models`, benötigt aber keine anderen Daten. Es ist VORAUSSETZUNG für `wind` (benötigt Höhenprofilliste) und `energy` (benötigt `SegmentGradient`).
+- Downloading/caching DEM data (upstream data pipeline, see section 5)
+- Live updates of the DEM stack (static data set only)
+- Interpolation between route points (point values only, no intermediate values)
+- Computation crossing UTM zone boundaries (assumption: Western Europe, a single uniform UTM zone, or WGS84->UTM transformation before the call)
 
 ---
 
-## 3. Datenmodelle
+## 2. Dependencies & Phase Assignment
 
-Alle Pydantic-Modelle in `src/tripplanner/elevation/models.py`:
+**Phase:** Phase 1 (data-source modules)
+
+**Dependencies on other modules (consumed models.py types):**
+
+- `tripplanner.routing.models.Route`: consumes `Route.segments` to extract coordinates
+- `tripplanner.routing.models.RouteSegment`: uses `RouteSegment.geometrie` for coordinates
+- No imported implementation details — import only `tripplanner.routing.models`
+
+**Consumed external data sources:**
+
+- Copernicus DEM GLO-30 (Cloud Optimized GeoTIFFs, EPSG:4326 WGS84 or UTM zones)
+- Local DEM tiles (either in the repo or in the `data/elevation/` directory)
+
+**Produced data models for other modules:**
+
+- `tripplanner.elevation.models.ElevationPoint` (defined in the registry)
+- `tripplanner.elevation.models.SegmentGradient` (defined in the registry)
+
+**Phase dependency:** The module is independent of the other Phase 1 modules (`routing`, `weather`, `construction`, `charging_infrastructure`) — it processes the route geometry from `routing.models` but needs no other data. It is a PREREQUISITE for `wind` (needs the elevation profile list) and `energy` (needs `SegmentGradient`).
+
+---
+
+## 3. Data Models
+
+All Pydantic models in `src/tripplanner/elevation/models.py`:
 
 ```python
 from pydantic import BaseModel, Field, field_validator
@@ -62,15 +62,14 @@ from typing import List, Tuple
 from datetime import datetime
 from geographiclib.geodesic import Geodesic
 
-
 class ElevationPoint(BaseModel):
-    """Höhenwert an einer Koordinate."""
+    """Elevation value at a coordinate."""
 
-    koordinate: Tuple[float, float] = Field(description="Breitengrad, Längengrad (WGS84, Grad)")
+    koordinate: Tuple[float, float] = Field(description="latitude, longitude (WGS84, degrees)")
     hoehe_m: float = Field(
         ge=-100,
         le=9000,
-        description="Höhe über NN in Metern (ungültige Werte: -9999 → nicht belegt)",
+        description="elevation above sea level in meters (invalid values: -9999 → unpopulated)",
     )
 
     @field_validator("koordinate")
@@ -78,56 +77,54 @@ class ElevationPoint(BaseModel):
     def validate_koordinate(cls, v: Tuple[float, float]) -> Tuple[float, float]:
         lat, lon = v
         if not (-90 <= lat <= 90):
-            raise ValueError("Breitengrad muss zwischen -90 und 90 Grad liegen")
+            raise ValueError("latitude must be between -90 and 90 degrees")
         if not (-180 <= lon <= 180):
-            raise ValueError("Längengrad muss zwischen -180 und 180 Grad liegen")
+            raise ValueError("longitude must be between -180 and 180 degrees")
         return v
 
-
 class SegmentGradient(BaseModel):
-    """Steigung/Gefälle je Segment aus Höhendifferenz und horizontaler Distanz."""
+    """Uphill/downhill gradient per segment from elevation difference and horizontal distance."""
 
-    segment_index: int = Field(ge=0, description="Index des RouteSegments (0-basiert)")
+    segment_index: int = Field(ge=0, description="index of the RouteSegment (0-based)")
     steigung_prozent: float = Field(
-        description="Steigung in Prozent (positive = Steigung, negativ = Gefälle)"
+        description="slope in percent (positive = uphill, negative = downhill)"
     )
     hoehendifferenz_m: float = Field(
-        description="Höhendifferenz zwischen Start- und Endpunkt des Segments in Metern"
+        description="elevation difference between the segment's start and end point in meters"
     )
     horizontale_distanz_m: float = Field(
-        description="Horizontale Distanz (nicht entlang der Route, sondern Luftlinienprojektion) in Metern"
+        description="horizontal distance (not along the route, but great-circle projection) in meters"
     )
 
     @field_validator("steigung_prozent", "hoehendifferenz_m", "horizontale_distanz_m")
     @classmethod
     def validate_values(cls, v: float) -> float:
         if v < 0 and "steigung" not in cls.__name__:
-            # hoehendifferenz_m und horizontale_distanz_m können negativ sein (Gefälle)
+            # hoehendifferenz_m and horizontale_distanz_m can be negative (downhill)
             return v
-        # steigung_prozent kann negativ sein (Gefälle)
+        # steigung_prozent can be negative (downhill)
         return v
 ```
 
-**Zusätzliche interne Typen (nicht im Register, aber intern im Modul):**
+**Additional internal types (not in the registry, but internal to the module):**
 
 ```python
 class DEMTileKey(BaseModel):
-    """Schlüssel für DEM-Kachel (Koordinaten-BBox + CRS-Referenz)."""
+    """Key for a DEM tile (coordinate bbox + CRS reference)."""
 
     min_lat: float = Field(ge=-90, le=90)
     max_lat: float = Field(ge=-90, le=90)
     min_lon: float = Field(ge=-180, le=180)
     max_lon: float = Field(ge=-180, le=180)
-    crs_epsg: int = Field(default=4326, description="EPSG-Code des CRS")
-
+    crs_epsg: int = Field(default=4326, description="EPSG code of the CRS")
 
 class DEMTile(BaseModel):
-    """In-Memory-Representation einer DEM-Kachel mit Metadaten."""
+    """In-memory representation of a DEM tile with metadata."""
 
     key: DEMTileKey
-    raster_data: bytes  # Rohe GeoTIFF-Daten (nur für Caching, nicht exportieren)
+    raster_data: bytes  # Raw GeoTIFF data (for caching only, do not export)
     transform: List[float] = Field(
-        description="Affine Transform matrix [a, b, c, d, e, f] für pixel->world"
+        description="affine transform matrix [a, b, c, d, e, f] for pixel->world"
     )
     width: int
     height: int
@@ -136,40 +133,38 @@ class DEMTile(BaseModel):
 
 ---
 
-## 4. Öffentliche Schnittstelle
+## 4. Public Interface
 
-**Dateistruktur:**
+**File structure:**
 
 ```
 src/tripplanner/elevation/
 ├── __init__.py        # exports: ElevationProvider, get_elevation_profile, calculate_segment_gradients
-├── models.py           # siehe Abschnitt 3
-├── elevation.py        # Kernlogik (öffentliche Funktionen + Provider-Interface)
+├── models.py           # see section 3
+├── elevation.py        # core logic (public functions + provider interface)
 └── providers.py        # DEMDataSourceProtocol + GeoTIFFDataSource + FakeDataSource
 ```
 
-**Öffentliche API in `src/tripplanner/elevation/elevation.py`:**
+**Public API in `src/tripplanner/elevation/elevation.py`:**
 
 ```python
 from typing import Protocol, List, Tuple
 from tripplanner.routing.models import Route, RouteSegment
 from tripplanner.elevation.models import ElevationPoint, SegmentGradient
 
-
 class DEMDataSourceProtocol(Protocol):
-    """Protocol für DEM-Datenquellen (für Testbarkeit)."""
+    """Protocol for DEM data sources (for testability)."""
 
     def get_elevation(self, lat: float, lon: float) -> float:
-        """Höhenwert an einer Koordinate abfragen. -9999 = ungültig."""
+        """Query the elevation value at a coordinate. -9999 = invalid."""
         ...
 
     def get_elevations_batch(self, coordinates: List[Tuple[float, float]]) -> List[float]:
-        """Höhenwerte für mehrere Koordinaten (optimiert für Batch-Lookup)."""
+        """Elevation values for multiple coordinates (optimized for batch lookup)."""
         ...
 
-
 class ElevationProvider:
-    """Hauptprovider-Klasse für Höhendaten."""
+    """Main provider class for elevation data."""
 
     def __init__(self, data_source: DEMDataSourceProtocol):
         self.data_source = data_source
@@ -178,14 +173,14 @@ class ElevationProvider:
         self, route: Route, sampling_distance_m: float = 100.0
     ) -> List[ElevationPoint]:
         """
-        Extrahiert Höhenprofile entlang der Route.
+        Extracts the elevation profile along the route.
 
         Args:
-            route: Die Route mit segments (aus routing.models)
-            sampling_distance_m: Sampling-Distanz in Metern (Standard: 100 m)
+            route: The route with segments (from routing.models)
+            sampling_distance_m: sampling distance in meters (default: 100 m)
 
         Returns:
-            Liste von ElevationPoint für jeden Sample-Punkt (inkl. Start/Ende jedes Segments)
+            List of ElevationPoint for every sample point (incl. start/end of each segment)
         """
         ...
 
@@ -193,35 +188,34 @@ class ElevationProvider:
         self, elevation_points: List[ElevationPoint], route: Route
     ) -> List[SegmentGradient]:
         """
-        Berechnet Steigung/Gefälle je Segment aus Höhendifferenz und horizontaler Distanz.
+        Computes the uphill/downhill gradient per segment from elevation difference and horizontal distance.
 
         Args:
-            elevation_points: ElevationPoints in Reihenfolge der Route (Start->Ziel)
-            route: Originale Route (für Segment-Geometrie)
+            elevation_points: ElevationPoints in route order (start->destination)
+            route: The original route (for segment geometry)
 
         Returns:
-            Liste von SegmentGradient (einer pro Segment)
+            List of SegmentGradient (one per segment)
         """
         ...
-
 
 def calculate_horizontal_distance(
     coord1: Tuple[float, float], coord2: Tuple[float, float]
 ) -> float:
     """
-    Berechnet horizontale Distanz zwischen zwei Koordinaten (WGS84).
+    Computes the horizontal distance between two coordinates (WGS84).
 
     Args:
-        coord1: (breitengrad, laengengrad) Punkt 1
-        coord2: (breitengrad, laengengrad) Punkt 2
+        coord1: (latitude, longitude) point 1
+        coord2: (latitude, longitude) point 2
 
     Returns:
-        Horizontale Distanz in Metern (nicht entlang der Route!)
+        Horizontal distance in meters (not along the route!)
     """
     ...
 ```
 
-**Export in `src/tripplanner/elevation/__init__.py`:**
+**Exports in `src/tripplanner/elevation/__init__.py`:**
 
 ```python
 from .models import ElevationPoint, SegmentGradient
@@ -237,31 +231,31 @@ __all__ = [
 
 ---
 
-## 5. Externe Integration / Algorithmus-Details
+## 5. External Integration / Algorithm Details
 
-### 5.1 DEM-Datenquelle: Copernicus DEM GLO-30
+### 5.1 DEM Data Source: Copernicus DEM GLO-30
 
-**Quelle:** AWS Open Data Registry `copernicus-dem-30m` (Bucket: `copernicus-dem-30m.s3.eu-central-1.amazonaws.com`)
+**Source:** AWS Open Data Registry `copernicus-dem-30m` (bucket: `copernicus-dem-30m.s3.eu-central-1.amazonaws.com`)
 
-**Begründung für AWS S3 (nicht OpenTopography API):**
+**Rationale for AWS S3 (not OpenTopography API):**
 
-- Kostenlose, uneingeschränkte Nutzung (Copernicus Open License)
-- Keine API-Key-Registrierung nötig
-- Cloud Optimized GeoTIFFs (COG) direkt nutzbar
-- Region `eu-central-1` nahe am Projekt-Standort (geringere Latenz)
-- Lesezugriff ohne AWS-Account (öffentliche Bucket-ACL)
+- Free, unrestricted use (Copernicus Open License)
+- No API key registration needed
+- Cloud Optimized GeoTIFFs (COG) directly usable
+- Region `eu-central-1` close to the project location (lower latency)
+- Read access without an AWS account (public bucket ACL)
 
-**Dateiformat & Kachelschema:**
+**File format & tile schema:**
 
-- Format: Cloud Optimized GeoTIFF (COG), LZW-Kompression
-- Auflösung: 30 m × 30 m (GLO-30 Public)
-- CRS: WGS84 / EPSG:4326 (Geodätisch) oder UTM-Zonen (abgeleitet)
-- Tile-Größe: 1° × 1° (Breite × Länge)
-- Dateinamen-Schema: `Copernicus_DSM_COG_{ZONENCODE}_{LAT}_{ZONENCODE}_{LON}_DEMSUB.tif`
-  - Beispiel: `Copernicus_DSM_COG30_N50_00_E008_00_DEM.tif` (50°N, 8°E)
-- Nodata-Wert: `-9999` (ungültige Daten, z. B. Ozeane)
+- Format: Cloud Optimized GeoTIFF (COG), LZW compression
+- Resolution: 30 m × 30 m (GLO-30 Public)
+- CRS: WGS84 / EPSG:4326 (geodetic) or UTM zones (derived)
+- Tile size: 1° × 1° (width × length)
+- File name schema: `Copernicus_DSM_COG_{ZONENCODE}_{LAT}_{ZONENCODE}_{LON}_DEMSUB.tif`
+  - Example: `Copernicus_DSM_COG30_N50_00_E008_00_DEM.tif` (50°N, 8°E)
+- Nodata value: `-9999` (invalid data, e.g. oceans)
 
-**rasterio-Workflow für Höhen-Lookup:**
+**rasterio workflow for elevation lookup:**
 
 ```python
 import rasterio
@@ -269,114 +263,111 @@ from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.crs import CRS
 import numpy as np
 
-
 def load_dem_tile(tile_path: str) -> rasterio.DatasetReader:
-    """Lädt eine DEM-Kachel und validiert CRS."""
+    """Loads a DEM tile and validates the CRS."""
     src = rasterio.open(tile_path)
     if src.crs != CRS.from_epsg(4326):
-        # UTM-Zonen nach WGS84 transformieren (nur einmal beim Laden)
+        # Transform UTM zones to WGS84 (only once at load time)
         transform, width, height = calculate_default_transform(
             src.crs, CRS.from_epsg(4326), src.width, src.height, *src.bounds
         )
-        # Reprojektion in temporäres Array (oder lazy loading)
-        # Für Produktionscode: lazy via WarpedVRT
+        # Reprojection into a temporary array (or lazy loading)
+        # For production code: lazy via WarpedVRT
     return src
-
 
 def sample_elevation(src: rasterio.DatasetReader, lat: float, lon: float) -> float:
     """
-    Extrahiert Höhenwert an Koordinate.
+    Extracts the elevation value at a coordinate.
 
     Args:
-        src: Geöffneter rasterio.DatasetReader
-        lat: Breitengrad (WGS84)
-        lon: Längengrad (WGS84)
+        src: An open rasterio.DatasetReader
+        lat: latitude (WGS84)
+        lon: longitude (WGS84)
 
     Returns:
-        Höhenwert in Metern oder -9999 (nodata)
+        Elevation value in meters or -9999 (nodata)
     """
-    # Prüfen ob Koordinate im Bounds liegt
+    # Check whether the coordinate lies within the bounds
     if not (
         src.bounds.left <= lon <= src.bounds.right and src.bounds.bottom <= lat <= src.bounds.top
     ):
-        return -9999  # Ausserhalb des Tiles
+        return -9999  # Outside the tile
 
-    # Umrechnung World -> Pixel (row, col)
-    row, col = src.index(lon, lat)  # rasterio index() nimmt (x, y) = (lon, lat) für EPSG:4326
+    # Conversion world -> pixel (row, col)
+    row, col = src.index(lon, lat)  # rasterio index() takes (x, y) = (lon, lat) for EPSG:4326
 
-    # Lesen des Wertes (band 1 = Höhe)
+    # Reading the value (band 1 = elevation)
     band_data = src.read(1, window=((row, row + 1), (col, col + 1)))
     value = band_data[0, 0]
 
-    # Nodata-Check
+    # Nodata check
     if np.isnan(value) or value == src.nodata:
         return -9999
     return value
 ```
 
-**Kachelgrenzen-Handling:**
+**Tile boundary handling:**
 
-- Koordinaten innerhalb eines Segments können mehrere Tiles betreffen
-- Algorithmus: Ermittle alle relevanten Tile-Keys für das Segment-BBox
-- Falls Koordinate außerhalb des aktuellen Tiles liegt, versuche Nachbartile
-- Priorität: exaktes Tile > Nachbar-Tile > -9999 (undefined)
+- Coordinates within a segment may span multiple tiles
+- Algorithm: determine all relevant tile keys for the segment's bbox
+- If a coordinate lies outside the current tile, try the neighboring tile
+- Priority: exact tile > neighboring tile > -9999 (undefined)
 
-**Datenpipelinemodell (lokale Vorbereitung):**
+**Data pipeline model (local preparation):**
 
-1. DEM-Kacheln für Europa-West manuell herunterladen (oder Script `scripts/fetch_dem_tiles.py`)
-2. Speicherort: `data/elevation/copernicus/` (im .gitignore)
-3. Index-Datei `data/elevation/tile_index.json` mit BBox-Metadaten (optional, für schnelles Tile-Lookup)
-4. Caching: `functools.lru_cache` für `rasterio.open()` (teures Opening vermeiden)
+1. Manually download DEM tiles for Western Europe (or script `scripts/fetch_dem_tiles.py`)
+2. Storage location: `data/elevation/copernicus/` (in .gitignore)
+3. Index file `data/elevation/tile_index.json` with bbox metadata (optional, for fast tile lookup)
+4. Caching: `functools.lru_cache` for `rasterio.open()` (avoid expensive opening)
 
 ---
 
-### 5.2 Steigungsberechnung
+### 5.2 Slope Calculation
 
-**Mathematische Formel (aus Websuche verifiziert):**
+**Mathematical formula (verified via web search):**
 
-$$\text{Steigung (\%)} = \frac{\text{Höhendifferenz}\ [\text{m}]}{\text{Horizontale\ Distanz}\ [\text{m}]} \times 100$$
+$$\text{Slope (\%)} = \frac{\text{Elevation Difference}\ [\text{m}]}{\text{Horizontal Distance}\ [\text{m}]} \times 100$$
 
-**Horizontale Distanz** ist die Luftlinienprojektion (nicht entlang der Route!):
+**Horizontal distance** is the great-circle projection (not along the route!):
 
-- Gegeben: Zwei Koordinaten $(lat_1, lon_1)$ und $(lat_2, lon_2)$
-- Berechne geodätische Distanz mit `geographiclib` (exakt auf Spheroid WGS84)
+- Given: Two coordinates $(lat_1, lon_1)$ and $(lat_2, lon_2)$
+- Compute geodetic distance with `geographiclib` (exact on WGS84 spheroid)
 
 ```python
 from geographiclib.geodesic import Geodesic
-
 
 def calculate_horizontal_distance(
     coord1: Tuple[float, float], coord2: Tuple[float, float]
 ) -> float:
     """
-    Berechnet horizontale Distanz zwischen zwei WGS84-Koordinaten.
+    Computes the horizontal distance between two WGS84 coordinates.
 
     Args:
-        coord1: (breitengrad, laengengrad)
-        coord2: (breitengrad, laengengrad)
+        coord1: (latitude, longitude)
+        coord2: (latitude, longitude)
 
     Returns:
-        Horizontale Distanz in Metern (nicht entlang der Route!)
+        Horizontal distance in meters (not along the route!)
     """
     lat1, lon1 = coord1
     lat2, lon2 = coord2
 
     geod = Geodesic.WGS84
     inv = geod.Inverse(lat1, lon1, lat2, lon2)
-    return inv["s12"]  # Distanz in Metern
+    return inv["s12"]  # Distance in meters
 ```
 
-**Algorithmus in `calculate_segment_gradients()`:**
+**Algorithm in `calculate_segment_gradients()`:**
 
 ```python
 def calculate_segment_gradients(
     self, elevation_points: List[ElevationPoint], route: Route
 ) -> List[SegmentGradient]:
-    """Berechnet Steigung je Segment."""
+    """Computes slope per segment."""
     gradients: List[SegmentGradient] = []
 
-    # Route-Segments müssen mit ElevationPoints korrelieren
-    # Annahme: elevation_points enthält Start+Ende jedes Segments in Reihenfolge
+    # Route segments must correlate with ElevationPoints
+    # Assumption: elevation_points contains start+end of each segment in order
 
     point_idx = 0
     for seg_idx, segment in enumerate(route.segments):
@@ -386,16 +377,16 @@ def calculate_segment_gradients(
         start_point = elevation_points[point_idx]
         end_point = elevation_points[point_idx + 1]
 
-        # Höhendifferenz (Ende - Start; positiv = Steigung, negativ = Gefälle)
+        # Elevation difference (end - start; positive = uphill, negative = downhill)
         dh = end_point.hoehe_m - start_point.hoehe_m
 
-        # Horizontale Distanz berechnen (nicht Route-Länge!)
+        # Compute horizontal distance (not route length!)
         horizontal_dist = calculate_horizontal_distance(
             start_point.koordinate, end_point.koordinate
         )
 
         if horizontal_dist == 0:
-            gradient_pct = 0.0  # Vermeide Division durch Null
+            gradient_pct = 0.0  # Avoid division by zero
         else:
             gradient_pct = (dh / horizontal_dist) * 100
 
@@ -408,31 +399,30 @@ def calculate_segment_gradients(
             )
         )
 
-        point_idx += 1  # Nächstes Segment startet am Endpunkt dieses
+        point_idx += 1  # Next segment starts at this segment's end point
 
     return gradients
 ```
 
-**Bemerkung:** Die Formel ist identisch mit der USGS-Definition (<https://www.usgs.gov/educational-resources/determine-percent-slope-and-angle-slope>). Für Winkel: $\text{Slope}^\circ = \arctan(\text{Steigung\%} / 100)$ — wird im `energy`-Modul für Neigungswinkel benötigt.
+**Note:** The formula is identical to the USGS definition (<https://www.usgs.gov/educational-resources/determine-percent-slope-and-angle-slope>). For angle: $\text{Slope}^\circ = \arctan(\text{Slope\%} / 100)$ — needed in the `energy` module for incline angles.
 
 ---
 
-### 5.3 Fake-Implementierung für Tests (`providers.py`)
+### 5.3 Fake Implementation for Tests (`providers.py`)
 
 ```python
 from typing import List, Tuple
 from tripplanner.elevation.providers import DEMDataSourceProtocol
 
-
 class FakeDataSource(DEMDataSourceProtocol):
-    """Synthetische DEM-Daten für Unit-Tests (kein echtes File I/O)."""
+    """Synthetic DEM data for unit tests (no real file I/O)."""
     
     def __init__(self, baseline_elevation: float = 100.0, noise_range: float = 5.0):
         self.baseline = baseline_elevation
         self.noise = noise_range
     
     def get_elevation(self, lat: float, lon: float) -> float:
-        # Deterministisch basierend auf Koordinaten (nicht zufällig!)
+        # Deterministic based on coordinates (not random!)
         hash_val = hash((round(lat, 5), round(lon, 5))) % 1000
         noise = (hash_val / 1000.0 - 0.5) * 2 * self.noise  # -noise..+noise
         return self.baseline + noise
@@ -443,19 +433,19 @@ class FakeDataSource(DEMDataSourceProtocol):
 
 ---
 
-## 6. Test-Strategie
+## 6. Test Strategy
 
 ### 6.1 Fixtures (in `tests/fixtures/elevation/`)
 
-**Dateien:**
+**Files:**
 
-1. `copernicus_dem_test_tile.tif` — kleines synthetisches GeoTIFF (5×5 Pixel, 10m Auflösung, 30m-Bezug)
-   - Koordinaten: 47.0°N, 8.0°E bis 47.00015°N, 8.00015°E (ca. 11m × 11m)
-   - Werte: lineare Steigung von 100m (linkes oben) bis 120m (rechts unten)
-2. `tile_index.json` — BBox-Metadaten für Test-Tile
-3. `route_segment_example.json` — kleines RouteSegment Beispiel mit 4 Koordinatenpunkten
+1. `copernicus_dem_test_tile.tif` — small synthetic GeoTIFF (5×5 pixels, 10m resolution, 30m reference)
+   - Coordinates: 47.0°N, 8.0°E to 47.00015°N, 8.00015°E (approx. 11m × 11m)
+   - Values: linear slope from 100m (top-left) to 120m (bottom-right)
+2. `tile_index.json` — bbox metadata for test tile
+3. `route_segment_example.json` — small RouteSegment example with 4 coordinate points
 
-**Beispiel `route_segment_example.json`:**
+**Example `route_segment_example.json`:**
 
 ```json
 {
@@ -472,32 +462,32 @@ class FakeDataSource(DEMDataSourceProtocol):
 }
 ```
 
-### 6.2 Konkrete Testfälle
+### 6.2 Concrete Test Cases
 
-**Test 1: Einzelnes Elevation-Lookup (Unit)**
+**Test 1: Single Elevation Lookup (Unit)**
 
-**Given:** `FakeDataSource` mit `baseline=150.0`, `noise=2.0`
-**When:** `provider.get_elevation(47.0, 8.0)` aufgerufen
-**Then:** Ergebnis ist im Bereich `[148.0, 152.0]` (± noise_range)
+**Given:** `FakeDataSource` with `baseline=150.0`, `noise=2.0`
+**When:** `provider.get_elevation(47.0, 8.0)` is called
+**Then:** Result is in the range `[148.0, 152.0]` (± noise_range)
 
 ```python
 def test_fake_data_source_elevation(fake_data_source: DEMDataSourceProtocol):
-    """Testet deterministische Höhen-Abfrage."""
+    """Tests deterministic elevation query."""
     elevation = fake_data_source.get_elevation(47.0, 8.0)
     assert 148.0 <= elevation <= 152.0
 ```
 
-**Test 2: Steigungsberechnung mit echtem GeoTIFF (Integration)**
+**Test 2: Slope Calculation with Real GeoTIFF (Integration)**
 
-**Given:** Test-GeoTIFF mit linearer Steigung (100m → 120m über 11m Distanz → ~181.8%)
-**When:** `ElevationProvider.calculate_segment_gradients()` aufgerufen mit 2 Punkten (Start/Ende)
-**Then:** `steigung_prozent ≈ 181.8` (innerhalb ±1% Toleranz aufgrund Raster-Auflösung)
+**Given:** Test GeoTIFF with linear slope (100m → 120m over 11m distance → ~181.8%)
+**When:** `ElevationProvider.calculate_segment_gradients()` called with 2 points (start/end)
+**Then:** `steigung_prozent ≈ 181.8` (within ±1% tolerance due to raster resolution)
 
 ```python
 def test_segment_gradient_with_real_dem(
     real_dem_provider: ElevationProvider, route_with_two_points: Route
 ):
-    """Integrationstest mit echtem DEM-Tile."""
+    """Integration test with real DEM tile."""
     points = real_dem_provider.get_elevation_profile(
         route_with_two_points, sampling_distance_m=10.0
     )
@@ -508,17 +498,17 @@ def test_segment_gradient_with_real_dem(
     assert gradients[0].steigung_prozent == pytest.approx(181.8, abs=2.0)  # 20/11*100
 ```
 
-**Test 3: Grenzfall — Kachelgrenze überschreitet (Integration)**
+**Test 3: Edge Case — Tile Boundary Crossing (Integration)**
 
-**Given:** Route, die exakt über Tile-Grenze geht (z. B. 47.00015°N)
-**When:** `get_elevation_profile()` mit Real-DEM
-**Then:** Kein `IndexError` oder `ValueError`, gültige Höhenwerte zurück (auch -9999 ist akzeptabel für Ozean)
+**Given:** Route that crosses exactly over a tile boundary (e.g. 47.00015°N)
+**When:** `get_elevation_profile()` with real DEM
+**Then:** No `IndexError` or `ValueError`, valid elevation values returned (also -9999 is acceptable for ocean)
 
 ```python
 def test_tile_boundary_crossing(real_dem_provider: ElevationProvider):
-    """Testet Umgang mit Kachelgrenzen."""
-    coords = [(47.0000, 8.0000), (47.00016, 8.0000)]  # genau an Tile-Grenze
-    # Route mit diesen Punkten simulieren
+    """Tests handling of tile boundaries."""
+    coords = [(47.0000, 8.0000), (47.00016, 8.0000)]  # exactly at tile boundary
+    # Simulate route with these points
     route = mock_route_with_coords(coords)
     
     points = real_dem_provider.get_elevation_profile(route)
@@ -527,126 +517,126 @@ def test_tile_boundary_crossing(real_dem_provider: ElevationProvider):
     assert -9999 <= points[1].hoehe_m <= 5000
 ```
 
-### 6.3 Unit- vs. Integrationstest-Abgrenzung
+### 6.3 Unit vs. Integration Test Delimitation
 
-| Test | Typ | Decorator | Beschreibung |
+| Test | Type | Decorator | Description |
 | ------ | ----- | ----------- | -------------- |
-| `test_fake_data_source_elevation` | Unit | - | FakeDataSource mit deterministischen Werten |
-| `test_fake_data_source_batch` | Unit | - | Batch-Lookup mit mehreren Koordinaten |
-| `test_horizontal_distance_calculation` | Unit | - | `calculate_horizontal_distance()` mit bekannten Koordinaten |
-| `test_segment_gradient_calculation` | Unit | - | Manuelle Erstellung von ElevationPoints, Steigung berechnen |
-| `test_real_dem_elevation_lookup` | Integration | `@pytest.mark.integration` | Echtes GeoTIFF-File einlesen, Koordinaten validieren |
-| `test_tile_boundary_crossing` | Integration | `@pytest.mark.integration` | Route über Tile-Grenze, Edge Cases |
+| `test_fake_data_source_elevation` | Unit | - | FakeDataSource with deterministic values |
+| `test_fake_data_source_batch` | Unit | - | Batch lookup with multiple coordinates |
+| `test_horizontal_distance_calculation` | Unit | - | `calculate_horizontal_distance()` with known coordinates |
+| `test_segment_gradient_calculation` | Unit | - | Manual creation of ElevationPoints, compute slope |
+| `test_real_dem_elevation_lookup` | Integration | `@pytest.mark.integration` | Read real GeoTIFF file, validate coordinates |
+| `test_tile_boundary_crossing` | Integration | `@pytest.mark.integration` | Route over tile boundary, edge cases |
 
 ---
 
-## 7. Aufgaben-Checkliste
+## 7. Task Checklist
 
-**Voraussetzung:** `docs/plans/01-routing.md` ist umgesetzt (Route-Modelle stehen)
+**Prerequisite:** `docs/plans/01-routing.md` is implemented (route models are available)
 
-- [ ] **Task 1:** Datenmodelle definieren (`src/tripplanner/elevation/models.py`)
-  - [ ] `ElevationPoint` mit Validatoren (lat/lon-Bereich, höhe_m-Grenzen)
-  - [ ] `SegmentGradient` mit Validatoren (keine Division durch Null in Tests)
-  - [ ] `__init__.py` für Exporte anlegen
-  - **Akzeptanz:** `mypy src/tripplanner/elevation/models.py` ohne Errors
+- [ ] **Task 1:** Define data models (`src/tripplanner/elevation/models.py`)
+  - [ ] `ElevationPoint` with validators (lat/lon range, hoehe_m limits)
+  - [ ] `SegmentGradient` with validators (no division by zero in tests)
+  - [ ] `__init__.py` for exports
+  - **Acceptance:** `mypy src/tripplanner/elevation/models.py` without errors
 
-- [ ] **Task 2:** Fake-DataSource implementieren (`src/tripplanner/elevation/providers.py`)
+- [ ] **Task 2:** Implement fake data source (`src/tripplanner/elevation/providers.py`)
   - [ ] `DEMDataSourceProtocol` (abc.Protocol)
-  - [ ] `FakeDataSource` mit deterministischer Noise-Funktion
-  - [ ] `get_elevation` und `get_elevations_batch` Methoden
-  - **Akzeptanz:** `pytest tests/elevation/test_providers.py -v` → 100% Coverage
+  - [ ] `FakeDataSource` with deterministic noise function
+  - [ ] `get_elevation` and `get_elevations_batch` methods
+  - **Acceptance:** `pytest tests/elevation/test_providers.py -v` → 100% coverage
 
-- [ ] **Task 3:** `calculate_horizontal_distance` implementieren
-  - [ ] Nutzung von `geographiclib.geodesic.Geodesic.WGS84.Inverse`
-  - [ ] Umgang mit identischen Koordinaten (Return 0.0)
-  - [ ] Dokstring mit Formel und Beispiel (Google-Style)
-  - **Akzeptanz:** Manueller Test: Distanz (0°,0°) → (0°,1°) ≈ 111.32 km
+- [ ] **Task 3:** Implement `calculate_horizontal_distance`
+  - [ ] Use of `geographiclib.geodesic.Geodesic.WGS84.Inverse`
+  - [ ] Handling of identical coordinates (return 0.0)
+  - [ ] Docstring with formula and example (Google-Style)
+  - **Acceptance:** Manual test: distance (0°,0°) → (0°,1°) ≈ 111.32 km
 
-- [ ] **Task 4:** `ElevationProvider` Kernlogik (`elevation.py`)
+- [ ] **Task 4:** `ElevationProvider` core logic (`elevation.py`)
   - [ ] `__init__(self, data_source: DEMDataSourceProtocol)`
-  - [ ] `get_elevation_profile(route, sampling_distance_m)` implementieren
-  - [ ] `calculate_segment_gradients(elevation_points, route)` implementieren
-  - [ ] Fehlerbehandlung: leerer Route, unvollständige elevation_points
-  - **Akzeptanz:** Unit-Tests mit FakeDataSource, keine externen Calls
+  - [ ] Implement `get_elevation_profile(route, sampling_distance_m)`
+  - [ ] Implement `calculate_segment_gradients(elevation_points, route)`
+  - [ ] Error handling: empty route, incomplete elevation_points
+  - **Acceptance:** Unit tests with FakeDataSource, no external calls
 
-- [ ] **Task 5:** Test-Fixtures vorbereiten
-  - [ ] Synthetisches 5×5 GeoTIFF erstellen (`tests/fixtures/elevation/copernicus_dem_test_tile.tif`)
-  - [ ] `tile_index.json` mit Metadaten erzeugen
-  - [ ] `route_segment_example.json` mit 4 Koordinaten
-  - **Akzeptanz:** `rasterio.open("copernicus_dem_test_tile.tif").crs == EPSG:4326`
+- [ ] **Task 5:** Prepare test fixtures
+  - [ ] Create synthetic 5×5 GeoTIFF (`tests/fixtures/elevation/copernicus_dem_test_tile.tif`)
+  - [ ] Generate `tile_index.json` with metadata
+  - [ ] `route_segment_example.json` with 4 coordinates
+  - **Acceptance:** `rasterio.open("copernicus_dem_test_tile.tif").crs == EPSG:4326`
 
-- [ ] **Task 6:** Integrationstest mit echtem GeoTIFF
-  - [ ] `conftest.py` mit fixtures: `real_dem_provider()` (läd Test-Tile einmalig)
-  - [ ] `test_segment_gradient_with_real_dem` implementieren
-  - [ ] `test_tile_boundary_crossing` implementieren
-  - [ ] `@pytest.mark.integration` decorator anwenden
-  - **Akzeptanz:** `pytest -m integration` → 2 Tests passen
+- [ ] **Task 6:** Integration test with real GeoTIFF
+  - [ ] `conftest.py` with fixtures: `real_dem_provider()` (loads test tile once)
+  - [ ] Implement `test_segment_gradient_with_real_dem`
+  - [ ] Implement `test_tile_boundary_crossing`
+  - [ ] Apply `@pytest.mark.integration` decorator
+  - **Acceptance:** `pytest -m integration` → 2 tests pass
 
-- [ ] **Task 7:** Dokumentation schreiben (Google-Style, ruff D-Regeln)
-  - [ ] Alle Klassen-, Methoden-, Funktionsdocstrings hinzufügen
-  - [ ] Type hints in allen Signaturen (auch `*args`/`**kwargs`)
-  - [ ] Beispiele in docstrings (wenn sinnvoll)
-  - **Akzeptanz:** `ruff check src/tripplanner/elevation/` → keine D1xx/ D2xx Errors
+- [ ] **Task 7:** Write documentation (Google-Style, ruff D-rules)
+  - [ ] Add all class, method, function docstrings
+  - [ ] Type hints in all signatures (including `*args`/`**kwargs`)
+  - [ ] Examples in docstrings (where sensible)
+  - **Acceptance:** `ruff check src/tripplanner/elevation/` → no D1xx/D2xx errors
 
-- [ ] **Task 8:** `rasterio`-Installation prüfen + optionalen DEM-Fetcher schreiben
-  - [ ] `uv add rasterio` ausführen, `rasterio.__version__` ≥ 1.3.0
-  - [ ] Prüfen ob `rasterio.env.Env.default_credentials` gesetzt ist (für S3 access)
-  - [ ] Optional: `scripts/fetch_dem_tiles.py` erstellen (Download für DE/DK/SE)
-  - **Akzeptanz:** `python -c "import rasterio; print(rasterio.__version__)"` → 1.3.x+
+- [ ] **Task 8:** Check `rasterio` installation + write optional DEM fetcher
+  - [ ] Run `uv add rasterio`, `rasterio.__version__` ≥ 1.3.0
+  - [ ] Check if `rasterio.env.Env.default_credentials` is set (for S3 access)
+  - [ ] Optional: create `scripts/fetch_dem_tiles.py` (download for DE/DK/SE)
+  - **Acceptance:** `python -c "import rasterio; print(rasterio.__version__)"` → 1.3.x+
 
-- [ ] **Task 9:** Test Coverage erzwingen (pytest-cov)
+- [ ] **Task 9:** Enforce test coverage (pytest-cov)
   - [ ] `pytest --cov=src/tripplanner/elevation --cov-report=term-missing --cov-fail-under=85`
-  - [ ] Alle öffentlichen Funktionen/mindestens 90% der internen Logik abgedeckt
-  - [ ] FakeDataSource und Integrationstests kombiniert für 85%+ Coverage
-  - **Akzeptanz:** CLI-Output zeigt `85%` oder höher
+  - [ ] All public functions/at least 90% of internal logic covered
+  - [ ] FakeDataSource and integration tests combined for 85%+ coverage
+  - **Acceptance:** CLI output shows `85%` or higher
 
-- [ ] **Task 10:** Linting und Typisierung prüfen
+- [ ] **Task 10:** Check linting and typing
   - [ ] `ruff check src/tripplanner/elevation/ tests/elevation/` (select=E,F,I,UP,B,SIM,PL,RUF,D)
-  - [ ] `mypy src/tripplanner/elevation/` mit `--strict` → keine Errors
-  - [ ] `pre-commit run --all-files` falls Hook-System eingerichtet
-  - **Akzeptanz:** Keine roten Zeilen in Lint-Output
+  - [ ] `mypy src/tripplanner/elevation/` with `--strict` → no errors
+  - [ ] `pre-commit run --all-files` if hook system is set up
+  - **Acceptance:** No red lines in lint output
 
-- [ ] **Task 11:** Integration mit `routing`-Modul validieren
-  - [ ] Kleines End-to-End-Szenario: `Route` von `routing` → `elevation.get_elevation_profile` → `calculate_segment_gradients`
-  - [ ] Test-Route mit 3 Segmenten (Start→Ziel inkl. Zwischenstopp)
-  - [ ] Validierung: `len(segments) == len(gradients)`
-  - **Akzeptanz:** `pytest tests/elevation/test_elevation.py::test_integration_with_routing` passiert
+- [ ] **Task 11:** Validate integration with `routing` module
+  - [ ] Small end-to-end scenario: `Route` from `routing` → `elevation.get_elevation_profile` → `calculate_segment_gradients`
+  - [ ] Test route with 3 segments (start→destination incl. waypoint)
+  - [ ] Validation: `len(segments) == len(gradients)`
+  - **Acceptance:** `pytest tests/elevation/test_elevation.py::test_integration_with_routing` passes
 
-- [ ] **Task 12:** Caching und Performance optimieren (optional, für Phase 1 nicht zwingend)
-  - [ ] `functools.lru_cache` für `rasterio.open()` (maxsize=4 für Europa-West)
-  - [ ] Batch-Lookup optimieren (numpy-Vectorized operations falls möglich)
-  - [ ] Profiling mit `pytest-benchmark` für 100+ Koordinaten
-  - **Akzeptanz:** Zeit für 100 Elevation-Lookups ≤ 100ms (on SSD)
+- [ ] **Task 12:** Optimize caching and performance (optional, not strictly required for Phase 1)
+  - [ ] `functools.lru_cache` for `rasterio.open()` (maxsize=4 for Western Europe)
+  - [ ] Optimize batch lookup (numpy vectorized operations where possible)
+  - [ ] Profiling with `pytest-benchmark` for 100+ coordinates
+  - **Acceptance:** Time for 100 elevation lookups ≤ 100ms (on SSD)
 
 ---
 
-## 8. Risiken & offene technische Fragen
+## 8. Risks & Open Technical Questions
 
-**Bereits durch „Verbindlich entschiedene offene Punkte" abgedeckt (aus docs/06):**
+**Already covered by "Decided Open Points" (from docs/06-open-points-contradictions.md):**
 
-- Keine Abhängigkeit von Live-Netzwerk in Unit-Tests (FakeDataSource deckt ab)
-- Lokale DEM-Datenquelle ist akzeptiert (kein Crawler nötig)
+- No dependency on live network in unit tests (FakeDataSource covers this)
+- Local DEM data source is accepted (no crawler needed)
 
-**Offene technische Fragen (nicht durch Projektvorgaben geregelt):**
+**Open technical questions (not governed by project specifications):**
 
-1. **UTM-Zonentransformation:** Soll das Modul WGS84→UTM automatisch durchführen, oder vorausgesetzt werden?
-   - **Entscheidung:** WGS84 (EPSG:4326) direkt mit `rasterio.index()` ist ausreichend für 30m-Auflösung (error < 1cm für Europa). UTM-Projektion erst bei Bedarf mit `pyproj.Transformer`.
+1. **UTM zone transformation:** Should the module automatically perform WGS84→UTM, or should it be assumed?
+   - **Decision:** WGS84 (EPSG:4326) directly with `rasterio.index()` is sufficient for 30m resolution (error < 1cm for Europe). UTM projection only on demand with `pyproj.Transformer`.
 
-2. **DEM-Caching-Strategie:** Soll das Modul eine eigene Cache-Layer (z. B. SQLite mit GeoTIFF-Blobs) haben?
-   - **Entscheidung:** Kein eigener Cache in Phase 1 — `rasterio` nutzt bereits internes VRT-Caching. Falls Performance-Probleme auftreten: `rasterio.vrt.WarpedVRT` für lazy reprojection.
+2. **DEM caching strategy:** Should the module have its own cache layer (e.g. SQLite with GeoTIFF blobs)?
+   - **Decision:** No dedicated cache in Phase 1 — `rasterio` already uses internal VRT caching. If performance issues arise: `rasterio.vrt.WarpedVRT` for lazy reprojection.
 
-3. **Mehrfach-Verarbeitung von Koordinaten:** Soll `get_elevation_profile`_duplicates-Debouncing implementieren (wenn Route oft die gleiche Koordinate traversiert)?
-   - **Entscheidung:** Nein — `sampling_distance_m=100` garantiert hinreichende Distanz, um Duplikate zu vermeiden. Falls nötig: `set`-Debouncing im `routing`-Modul (nicht hier).
+3. **Duplicate coordinate processing:** Should `get_elevation_profile` implement duplicate debouncing (if the route frequently traverses the same coordinate)?
+   - **Decision:** No — `sampling_distance_m=100` guarantees sufficient distance to avoid duplicates. If needed: `set` debouncing in the `routing` module (not here).
 
-4. **Nodata-Handling bei Meeresgebieten:** Soll `-9999` (nodata) durch Interpolation ersetzt werden?
-   - **Entscheidung:** Nein —保留 `-9999` als Marker. Das `energy`-Modul kann dann entscheiden, ob es Meeressegmente ablehnt oder interpoliert.
+4. **Nodata handling for sea areas:** Should `-9999` (nodata) be replaced by interpolation?
+   - **Decision:** No — retain `-9999` as a marker. The `energy` module can then decide whether to reject or interpolate sea segments.
 
-5. **Große europäische Routen (mehr als 4 Tiles):** Wie effizient ist das dynamische Tile-Lookup?
-   - **Lösung:** Erstes MVP mit sequenziellem Tile-Open. Falls Performance-Engpass: Tile-Index mit Quadtree (nicht in Phase 1).
+5. **Large European routes (more than 4 tiles):** How efficient is the dynamic tile lookup?
+   - **Solution:** Initial MVP with sequential tile opening. If performance bottleneck: tile index with quadtree (not in Phase 1).
 
-6. **rasterio-Architektur-Bindung:** Wird `rasterio` als feste Dependency akzeptiert?
-   - **Entscheidung:** Ja — `rasterio` ist der Standard für GeoTIFF in Python und in `docs/02-architektur.md` explizit genannt. Alternative (`rioxarray`) wäre Overkill.
+6. **rasterio architectural binding:** Is `rasterio` accepted as a fixed dependency?
+   - **Decision:** Yes — `rasterio` is the standard for GeoTIFF in Python and is explicitly mentioned in `docs/02-architecture.md`. Alternative (`rioxarray`) would be overkill.
 
-**Zusätzliches Risiko:**
+**Additional risk:**
 
-- **Dateigröße:** Copernicus DEM GLO-30 für ganz Europa ist ca. 500 GB. **Lösung:** Nur DE/DK/SE-Tiles herunterladen (ca. 20–30 GB), `.gitignore` für `data/elevation/` erzwingen.
+- **File size:** Copernicus DEM GLO-30 for all of Europe is approximately 500 GB. **Solution:** Download only DE/DK/SE tiles (approx. 20–30 GB), enforce `.gitignore` for `data/elevation/`.

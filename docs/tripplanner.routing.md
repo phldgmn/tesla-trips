@@ -1,5 +1,5 @@
 # routing
 
-Routenberechnung über GraphHopper.
+Route calculation via GraphHopper.
 
 ::: tripplanner.routing

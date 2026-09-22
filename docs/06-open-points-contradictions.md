@@ -1,41 +1,41 @@
-# Offene Punkte und strukturelle Spannungen im Plan
+# Open Points and Structural Tensions in the Plan
 
-Diese Punkte sind keine reinen Formfehler, sondern beeinflussen, wie Module geschnitten und Schnittstellen entworfen werden müssen. Sie sollten vor bzw. während der Implementierung der jeweils betroffenen Module bewusst entschieden werden.
+These points are not merely formal issues — they influence how modules must be sliced and how interfaces must be designed. They should be decided consciously before or during implementation of the respectively affected modules.
 
-## 1. Zirkuläre Abhängigkeit: ETA ↔ Wetter ↔ Energie/Ladeplan
+## 1. Circular Dependency: ETA ↔ Weather ↔ Energy/Charging Plan
 
-Die Wetterabfrage benötigt die erwartete Durchfahrtszeit an jedem Streckenpunkt. Diese Zeit hängt aber vom Energieverbrauch und der Ladeplanung ab — die wiederum vom Wetter abhängen. Es handelt sich um eine echte zirkuläre Abhängigkeit, kein triviales Detail.
+The weather query needs the expected transit time at every route point. That time, however, depends on energy consumption and charging planning — which in turn depend on the weather. This is a genuine circular dependency, not a trivial detail.
 
-**Lösung im vorliegenden Dokumentenset:** iterative Zwei-Phasen-Berechnung mit Konvergenzschwelle (siehe `02-architektur.md`, Abschnitt „Iterative Zeit-/Wetterauflösung"). Zu klären: konkreter Schwellwert für eine Nach-Iteration und maximale Iterationszahl — aktuell als konfigurierbarer Parameter vorgesehen, kein fixer Wert im Plan verankert. => Das ist ein guter erster Ansatz
+**Solution in this document set:** iterative two-phase computation with a convergence threshold (see `02-architecture.md`, section "Iterative Time/Weather Resolution"). To be clarified: the concrete threshold for a follow-up iteration and the maximum number of iterations — currently intended as a configurable parameter, not anchored as a fixed value in the plan. => This is a good first approach.
 
-## 2. Straßenroute wird unabhängig vom Energieverbrauch fixiert
+## 2. Road Route Is Fixed Independently of Energy Consumption
 
-GraphHopper berechnet die Route nach klassischen Kriterien (Zeit/Distanz/Weighting), bevor irgendeine Energie- oder Ladeinformation existiert. Die eigentliche „Reiseoptimierung" (Ladeplanung) kann diese Route anschließend nicht mehr verändern — sie plant nur noch Ladehalte auf dem bereits fixierten Straßenverlauf.
+GraphHopper computes the route by classic criteria (time/distance/weighting) before any energy or charging information exists. The actual "trip optimization" (charging planning) can no longer change this route afterwards — it only plans charging stops on the already-fixed road course.
 
-**Konsequenz:** Sollte eine alternative, leicht längere Straßenroute energetisch günstiger sein (z. B. weniger Steigung, günstigerer Wind), findet das System das nicht automatisch. Das ist keine unlösbare Inkonsistenz, aber eine bewusste Einschränkung des aktuellen Scopes, die im Dokumentenset jetzt explizit benannt ist (siehe `02-architektur.md`). Eine spätere Erweiterung um mehrere GraphHopper-Routenalternativen, aus denen die Optimierungsschicht die energetisch günstigste auswählt, wäre ein sauberer, nicht-invasiver Ausbauschritt — sofern das gewünscht ist, sollte das jetzt als Designentscheidung festgehalten werden, nicht erst bei der Implementierung entdeckt werden. => bitte den Ausbauschritt als spätere Option im Hinterkopf behalten, aber noch nicht implementieren, da er die Komplexität deutlich erhöht und die aktuelle Zielsetzung nicht zwingend erfordert.
+**Consequence:** If an alternative, slightly longer road route is energetically cheaper (e.g. less gradient, more favorable wind), the system does not find it automatically. This is not an unsolvable inconsistency, but a deliberate limitation of the current scope, now explicitly named in the document set (see `02-architecture.md`). A later extension with several GraphHopper route alternatives, from which the optimization layer picks the energetically cheapest, would be a clean, non-invasive upgrade step — if that is desired, it should be recorded as a design decision now, not discovered at implementation time. => Please keep this upgrade step in mind as a later option, but do not implement it yet.
 
-## 3. Datenherkunft „Tesla Supercharger" ist nicht spezifiziert
+## 3. Data Origin of "Tesla Supercharger" Is Not Specified
 
-Der Plan legt fest, dass ausschließlich Tesla Supercharger berücksichtigt werden — offen ist, **woher** diese Daten technisch bezogen werden. Optionen mit unterschiedlichen Implikationen:
+The plan stipulates that only Tesla Superchargers are considered — open is **where** this data is technically sourced from. Options with different implications:
 
-- Inoffizielle/Community-APIs, die Tesla-Standortdaten aus der offiziellen Tesla-Website/App extrahieren (rechtlich/stabilitätsseitig unsicher, aber verbreitet in ABRP & Co.)
-- Statischer, manuell gepflegter Datensatz (stabil, aber pflegeaufwändig, veraltet schnell)
-- Gefilterte Ansicht auf OpenChargeMap, beschränkt auf Einträge mit Betreiber „Tesla" (wurde ursprünglich als generische Quelle erwähnt, aber laut aktueller Vorgabe nicht mehr vorgesehen, da explizit *nur* Tesla-Ladesäulen gewünscht sind, nicht „auch OpenChargeMap gefiltert auf Tesla")
+- Unofficial/community APIs that extract Tesla location data from the official Tesla website/app (legally/stability-wise uncertain, but common in ABRP & Co.)
+- Static, manually maintained dataset (stable, but maintenance-intensive, becomes outdated quickly)
+- Filtered view of OpenChargeMap, restricted to entries with operator "Tesla" (was originally mentioned as a generic source, but per the current directive no longer intended, since explicitly *only* Tesla chargers are wanted, not "also OpenChargeMap filtered on Tesla")
 
-Das `charging_infrastructure`-Modul ist bewusst hinter einem Provider-Interface gekapselt, damit diese Entscheidung die übrige Architektur nicht berührt — die konkrete Quelle sollte aber vor Implementierung dieses Moduls festgelegt werden. => Für Tesla-Ladesäulen wird in einer Ausbaustufe ein Crawler als eine Art "Plugin"/Modul eingebaut, annahme ist solange, dass die Daten dazu lokal vorliegen (was sie später auch tun werden, nur eben mit Crawler zur Sammlung).
+The `charging_infrastructure` module is deliberately encapsulated behind a provider interface so that this decision does not touch the rest of the architecture — the concrete source should nevertheless be fixed before implementing this module. => For Tesla chargers, a crawler will be added in an expansion stage as a kind of "plugin"/module; for now the assumption is that the data exists locally (which it will later, just with a crawler for collection).
 
-## 4. Verhältnis Zwischenstopp ↔ Ladestopp ist im ursprünglichen Text nicht eindeutig
+## 4. Relationship Between Waypoint ↔ Charging Stop Is Ambiguous in the Original Text
 
-„Zwischenstopps" wurden als neue Anforderung ergänzt, ohne dass ursprünglich definiert war, ob damit (a) beliebige Pflicht-Wegpunkte (z. B. ein Besuch, eine Übernachtung) oder (b) eine alternative Bezeichnung für Ladestopps gemeint sind. Im vorliegenden Dokumentenset wurde Variante (a) angenommen: Zwischenstopps sind eigenständige, optional mit Aufenthaltsdauer versehene Pflicht-Wegpunkte, die unabhängig von der Ladeplanung existieren, aber ggf. mit einem Ladehalt zusammenfallen können (siehe `01-projektspezifikation.md`, Abschnitt „Zwischenstopps"). Diese Annahme sollte bestätigt werden, bevor die Optimierungsschicht (`optimization`-Modul) implementiert wird, da sie direkt die Zustandsraum-Modellierung betrifft. => Option (a) ist korrekt.
+"Intermediate stops" were added as a new requirement without originally defining whether they mean (a) arbitrary mandatory waypoints (e.g. a visit, an overnight stay) or (b) an alternative term for charging stops. This document set adopted variant (a): intermediate stops are standalone mandatory waypoints, optionally with a dwell duration, that exist independently of charging planning but may coincide with a charging stop (see `01-project-specifications.md`, section "Intermediate Stops"). This assumption should be confirmed before the optimization layer (`optimization` module) is implemented, since it directly affects the state-space modeling. => Option (a) is correct.
 
-## 5. Kalibrierbarkeit vs. „keine Spekulation über Zukunft"
+## 5. Calibratability vs. "No Speculation About the Future"
 
-Die ursprüngliche Zielsetzung nennt explizit, dass das Verbrauchsmodell später aus eigenen Fahrdaten kalibriert werden soll. Das ist inhaltlich eine Aussage über zukünftige Nutzung, aber zugleich eine **Architekturanforderung an das jetzige Energiemodul** (Trennung von Modellstruktur und Parametern). Sie wurde daher nicht als spekulatives Zukunftsfeature entfernt, sondern als Design-Constraint für das `energy`-Modul beibehalten (siehe `03-modulspezifikationen.md`, Modul 6). Falls das nicht gewünscht ist und das Energiemodul auch mit fest verdrahteten Parametern starten darf, wäre das eine bewusste Vereinfachung, die explizit gegen diese Vorgabe entschieden werden müsste. => Es darf auh mit fest verdrahteten Parametern gestartet werden, die Kalibrierbarkeit ist optional.
+The original objective explicitly states that the consumption model should later be calibrated from one's own driving data. Content-wise this is a statement about future usage, but at the same time an **architectural requirement on the current energy module** (separation of model structure and parameters). It was therefore not removed as a speculative future feature, but retained as a design constraint for the `energy` module (see `03-module-specifications.md`, Module 6). If that is not desired and the energy module may also start with hard-wired parameters, that would be a deliberate simplification that would have to be decided explicitly against this directive. => It may also start with hard-wired parameters; calibratability is kept in mind.
 
-## 6. Baustellendaten und Planungsvorlauf
+## 6. Construction Data and Planning Lead Time
 
-Bei Reiseplanung mit größerem zeitlichem Vorlauf (z. B. mehrere Tage vor Abfahrt) spiegeln aktuelle DATEX-II-Baustellendaten nicht zwingend den Zustand zum tatsächlichen Reisezeitpunkt wider. Das ist keine strukturelle Inkonsistenz, sondern eine inhärente Grenze der Datenquelle — sollte aber in der Optimierung als Unsicherheit behandelt werden (z. B. über die ohnehin vorgesehene Sicherheitsreserve), nicht als verlässliche Punktinformation. => Das ist ja ein generelles Problem, das ALLE Daten betrifft — Wetter, Batteriedegradation, Baustellen, Verkehrslage. Es ist nicht möglich, dass die Optimierung alle diese Unsicherheiten berücksichtigt, daher wird nur eine Sicherheitsreserve für die Batterie berücksichtigt.
+When planning a trip with larger lead time (e.g. several days before departure), current DATEX II construction data does not necessarily reflect the state at the actual time of travel. This is not a structural inconsistency but an inherent limitation of the data source — however, it should be treated as uncertainty in the optimization (e.g. via the safety reserve provided anyway), not as reliable point information. => This is a general problem affecting ALL data — weather, battery degradation, construction sites, traffic conditions. It is not possible for the optimization to account for all of these uncertainties, therefore only a safety reserve for the battery is considered.
 
-## Empfehlung
+## Recommendation
 
-Punkte 3 und 4 sollten vor dem Start der jeweils betroffenen Modul-Implementierung (`charging_infrastructure` bzw. `optimization`) explizit entschieden werden — beide beeinflussen Schnittstellen, die später nur mit Mehraufwand geändert werden können. Punkt 2 ist keine Blockade für den Start, sollte aber als bewusste Scope-Entscheidung dokumentiert bleiben, damit sie später nicht als Bug missverstanden wird.
+Points 3 and 4 should be decided explicitly before starting the respective module implementations (`charging_infrastructure` and `optimization`) — both influence interfaces that can only be changed later at additional cost. Point 2 is not a blocker for starting, but should remain documented as a deliberate scope decision so it is not later misunderstood as a bug.

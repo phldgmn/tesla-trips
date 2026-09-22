@@ -4,12 +4,12 @@
 
 ## 1. Objectives and Approach
 
-This plan covers **everything** from `01-projektspezifikation.md` through `06-offene-punkte-widersprueche.md`: all 12 functional modules, the two-phase architecture model (routing → energy/charging optimization), iterative ETA/weather resolution, the repository/tooling foundation, and the agent guidelines. It was developed iteratively:
+This plan covers **everything** from `01-project-specifications.md` through `06-open-points-contradictions.md`: all 12 functional modules, the two-phase architecture model (routing → energy/charging optimization), iterative ETA/weather resolution, the repository/tooling foundation, and the agent guidelines. It was developed iteratively:
 
 1. Analysis of all six documents and derivation of a **canonical type registry** and **phase roadmap** (Sections 3–4), so that nine parallel-working sub-agents can build consistently on the same interfaces.
 2. Nine specialized sub-agents each researched a module cluster (external APIs, concrete library syntax, physical formulas) and wrote a complete implementation plan under `docs/plans/`.
 3. Consistency review of all nine plans against each other (type names, coordinate convention, cross-module signatures) — identified inconsistencies were corrected directly in the source files (Section 6).
-4. This document summarizes the results and makes the decisions from `06-offene-punkte-widersprueche.md` binding.
+4. This document summarizes the results and makes the decisions from `06-open-points-contradictions.md` binding.
 
 ## 2. Phase Roadmap
 
@@ -145,15 +145,15 @@ The nine plans were developed independently; the consistency review (Step 3 of t
 
 ### 6.4 Missing Road Surface (`surface`) as an Input Variable
 
-`01-projektspezifikation.md` explicitly lists “surfaces” among the required OSM data and “road surface” as an influence factor for energy consumption (the “OSM Data” and “Energy Consumption” sections). Cross-checking all nine plans against `01`–`03` revealed that `RouteSegment` had no surface field, meaning `energy` could not use it — a genuine coverage gap, not merely a cross-plan inconsistency. **Resolved:** `RouteSegment.oberflaeche` (from the GraphHopper path detail `surface`) was added to `01-routing.md` (including Task 15 for implementation), and `06-energy.md` received a multiplicative road-surface factor `f_oberflaeche()` in the rolling-resistance formula (Section 5.1.1, Task 15), along with two corresponding tests.
+`01-project-specifications.md` explicitly lists “surfaces” among the required OSM data and “road surface” as an influence factor for energy consumption (the “OSM Data” and “Energy Consumption” sections). Cross-checking all nine plans against `01`–`03` revealed that `RouteSegment` had no surface field, meaning `energy` could not use it — a genuine coverage gap, not merely a cross-plan inconsistency. **Resolved:** `RouteSegment.oberflaeche` (from the GraphHopper path detail `surface`) was added to `01-routing.md` (including Task 15 for implementation), and `06-energy.md` received a multiplicative road-surface factor `f_oberflaeche()` in the rolling-resistance formula (Section 5.1.1, Task 15), along with two corresponding tests.
 
 These four corrections have already been applied to the respective `docs/plans/*.md` files — this section documents them only for traceability.
 
-## 7. Open Issues from `06-offene-punkte-widersprueche.md` — Binding Decisions
+## 7. Open Issues from `06-open-points-contradictions.md` — Binding Decisions
 
 All six issues were answered by the project owner and are incorporated into all nine detailed plans as settled decisions rather than open questions:
 
-1. **Iterative ETA/weather convergence:** The approach from `02-architektur.md` is confirmed. The threshold (default 30 min) and maximum iteration count (default 3) are configurable parameters, not hardcoded values. Implemented in `optimization` (control flow) and `weather` (`refetch_weather`/`fetch_weather_iterative`).
+1. **Iterative ETA/weather convergence:** The approach from `02-architecture.md` is confirmed. The threshold (default 30 min) and maximum iteration count (default 3) are configurable parameters, not hardcoded values. Implemented in `optimization` (control flow) and `weather` (`refetch_weather`/`fetch_weather_iterative`).
 2. **Route remains fixed after GraphHopper:** No energy-optimal rerouting is in the current scope. Multiple route alternatives + energy-based selection is explicitly documented as a possible future extension, but is not planned (`01-routing.md`, “Out of Scope” section).
 3. **Tesla Supercharger data source:** A local JSON snapshot (format compatible with supercharge.info) is the current assumption. The `ChargingStationProvider` interface encapsulates access so that a future crawler plugin can be introduced without changes to consumers. No crawler is included in this plan (`05-battery-charging-infrastructure.md`).
 4. **Waypoint ≠ charging stop:** Option (a) is confirmed — waypoints are independent mandatory route points with an optional minimum dwell time, independent of but combinable with a charging stop. They are modeled as separate nodes in the state graph (`07-optimization.md`).

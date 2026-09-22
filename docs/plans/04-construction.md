@@ -1,53 +1,53 @@
-# Plan: `construction`-Modul (Phase 1, Baustellen)
+# Plan: `construction` Module (Phase 1, Construction Zones)
 
 ---
 
-## 1. Zweck & Scope
+## 1. Purpose & Scope
 
-Das `construction`-Modul liefert aktive Baustellen, Sperrungen und Tempolimits entlang einer gegebenen Route für die Länder Deutschland (DE), Dänemark (DK) und Schweden (SE).
+The `construction` module provides active construction zones, closures, and speed limits along a given route for the countries Germany (DE), Denmark (DK), and Sweden (SE).
 
-**Leistungen:**
+**Capabilities:**
 
-- Abfrage aktueller DATEX II-Feeds von deutschen, dänischen und schwedischen Nationalen Zugangspunkten (NAP)
-- Parsing von DATEX II XML-Nachrichten (einheitlicher Parser für alle drei Länder, da einheitlicher Standard)
-- Extraktion von Baustelleninformationen: betroffene Streckenabschnitte, Tempolimits, Sperrungstypen, Umleitungshinweise
-- Mapping der extrahierten Daten auf das einheitliche `ConstructionZone`-Model
+- Querying current DATEX II feeds from German, Danish, and Swedish National Access Points (NAP)
+- Parsing DATEX II XML messages (unified parser for all three countries, since the standard is uniform)
+- Extracting construction zone information: affected road sections, speed limits, blocking types, detour information
+- Mapping extracted data to the unified `ConstructionZone` model
 
-**Abgrenzung zu anderen Modulen:**
+**Boundary with other modules:**
 
-- `routing`: Berechnet die Straßenroute; `construction` arbeitet auf der fixierten Route, nicht auf OSM-Daten.
-- `optimization`: Nutzt `ConstructionZone`-Informationen als Input für die Ladeplanung (z. B. reduzierte Geschwindigkeit = erhöhte Fahrzeit).
-- `energy`: Baustellen-Tempolimits fließen in den Energieverbrauch ein; das Modul liefert die `ConstructionZone`-Liste, nicht die Berechnung.
+- `routing`: Calculates the road route; `construction` works on the fixed route, not on OSM data.
+- `optimization`: Uses `ConstructionZone` information as input for charging planning (e.g., reduced speed = increased travel time).
+- `energy`: Construction zone speed limits factor into energy consumption; the module provides the `ConstructionZone` list, not the calculation.
 
-**NICHT-Scope (spätere Ausbaustufen):**
+**Out of scope (later expansion stages):**
 
-- Echtzeit-Verkehrsdaten (außer Baustellen, die laut DATEX II enthalten sind)
-- Prognose von Baustellen-Zeitplänen (nur aktuelle/gültige Baustellen)
-- Integration nicht-europäischer Länder (kein DATEX II-Standard)
-- Crawler zum Sammeln von Baustellendaten (nur Client für öffentliche Feeds)
-
----
-
-## 2. Abhängigkeiten & Phasenzuordnung
-
-**Phase:** Phase 1 (unabhängige Datenquellen-Module)
-
-**Fremde Modelle (nur Lesen, exakte Namen aus dem Register):**
-
-- `tripplanner.routing.models.Route`: Eingabe für die Abfrage entlang der Route
-- `tripplanner.routing.models.RouteSegment`: Für Mapping von Segment-IDs zu Baustellen
-- `tripplanner.elevation.models.ElevationPoint`: Optional für Geo-Check (Baustelle liegt im Radius eines Segments)
-
-**Abhängigkeit von anderen Modulen:**
-
-- Keine Laufzeit-Abhängigkeit zu anderen Modulen — das Modul ist eigenständig und kann isoliert getestet werden.
-- Nur die Schnittstelle via `models.py` wird benötigt.
+- Real-time traffic data (except construction zones included in DATEX II)
+- Forecasting construction zone schedules (only current/valid construction zones)
+- Integration of non-European countries (no DATEX II standard)
+- Crawler for collecting construction zone data (only client for public feeds)
 
 ---
 
-## 3. Datenmodelle
+## 2. Dependencies & Phase Assignment
 
-Die folgenden Pydantic-Modelle definieren die Datenstruktur des Moduls. Alle Modelle folgen der Google-Style Docstring-Konvention (siehe `docs/04-repo-tooling-setup.md`).
+**Phase:** Phase 1 (independent data source modules)
+
+**External models (read-only, exact names from the registry):**
+
+- `tripplanner.routing.models.Route`: Input for querying along the route
+- `tripplanner.routing.models.RouteSegment`: For mapping segment IDs to construction zones
+- `tripplanner.elevation.models.ElevationPoint`: Optional for geo-check (construction zone lies within the radius of a segment)
+
+**Dependencies on other modules:**
+
+- No runtime dependency on other modules — the module is self-contained and can be tested in isolation.
+- Only the interface via `models.py` is required.
+
+---
+
+## 3. Data Models
+
+The following Pydantic models define the data structure of the module. All models follow the Google-style docstring convention (see `docs/04-repo-tooling-setup.md`).
 
 ```python
 # src/tripplanner/construction/models.py
@@ -58,9 +58,8 @@ from typing import Annotated
 from pydantic import BaseModel, Field, model_validator
 from typing_extensions import Self
 
-
 class Sperrungstyp(StrEnum):
-    """Sperrungstyp gemäß DATEX II RoadOrCarriagewayOrLaneManagementType."""
+    """Blocking type according to DATEX II RoadOrCarriagewayOrLaneManagementType."""
 
     FULLY_CLOSED = "fullyClosed"
     PARTIALLY_CLOSED = "partiallyClosed"
@@ -69,48 +68,46 @@ class Sperrungstyp(StrEnum):
     REDUCED_LANES = "reducedLanes"
     DETOUR_REQUIRED = "detrourRequired"
 
-
 class Land(StrEnum):
-    """Ländercodes für Baustellen (DE=Deutschland, DK=Dänemark, SE=Schweden)."""
+    """Country codes for construction zones (DE=Germany, DK=Denmark, SE=Sweden)."""
 
     DE = "DE"
     DK = "DK"
     SE = "SE"
 
-
 class ConstructionZone(BaseModel):
     """
-    Ein Baustellen-Abschnitt mit Tempolimit, Sperrungstyp und Umleitungshinweis.
+    A construction zone section with speed limit, blocking type, and detour information.
 
     Args:
-        betroffene_segmente: Liste von RouteSegment-IDs (0-basiert), die von der Baustelle betroffen sind.
-        tempolimit_kmh: Reduziertes Tempolimit in km/h (None wenn keine Beschränkung).
-        sperrungstyp: Art der Sperrung/Baustelle.
-        umleitungshinweis: Freitext-Information zur Umleitung (optional).
-        land: Land, in dem die Baustelle liegt.
-        gueltig_von: Startzeitpunkt der Baustelle (ISO 8601).
-        gueltig_bis: Endzeitpunkt der Baustelle (ISO 8601), None wenn unbestimmt.
+        betroffene_segmente: List of RouteSegment IDs (0-based) affected by the construction zone.
+        tempolimit_kmh: Reduced speed limit in km/h (None if no restriction).
+        sperrungstyp: Type of blocking/construction zone.
+        umleitungshinweis: Free-text detour information (optional).
+        land: Country where the construction zone is located.
+        gueltig_von: Start time of the construction zone (ISO 8601).
+        gueltig_bis: End time of the construction zone (ISO 8601), None if indefinite.
     """
 
     betroffene_segmente: list[int] = Field(
-        description="Liste von RouteSegment-IDs (0-basiert), die von der Baustelle betroffen sind."
+        description="List of RouteSegment IDs (0-based) affected by the construction zone."
     )
     tempolimit_kmh: Annotated[int | None, Field(ge=0, le=200, default=None)] = Field(
-        description="Reduziertes Tempolimit in km/h (None wenn keine Beschränkung)."
+        description="Reduced speed limit in km/h (None if no restriction)."
     )
-    sperrungstyp: Sperrungstyp = Field(description="Art der Sperrung/Baustelle.")
+    sperrungstyp: Sperrungstyp = Field(description="Type of blocking/construction zone.")
     umleitungshinweis: Annotated[str | None, Field(max_length=500, default=None)] = Field(
-        description="Freitext-Information zur Umleitung (optional)."
+        description="Free-text detour information (optional)."
     )
-    land: Land = Field(description="Land, in dem die Baustelle liegt.")
-    gueltig_von: datetime = Field(description="Startzeitpunkt der Baustelle (ISO 8601).")
+    land: Land = Field(description="Country where the construction zone is located.")
+    gueltig_von: datetime = Field(description="Start time of the construction zone (ISO 8601).")
     gueltig_bis: Annotated[datetime | None, Field(default=None)] = Field(
-        description="Endzeitpunkt der Baustelle (ISO 8601), None wenn unbestimmt."
+        description="End time of the construction zone (ISO 8601), None if indefinite."
     )
 
     @model_validator(mode="after")
     def validate_tempolimit_for_sperrungstyp(self) -> Self:
-        """Validiert, dass tempolimit_kmh bei certain Sperrungstypen gesetzt ist."""
+        """Validates that tempolimit_kmh is set for certain blocking types."""
         if (
             self.sperrungstyp
             in (
@@ -122,17 +119,16 @@ class ConstructionZone(BaseModel):
             and self.tempolimit_kmh is None
         ):
             raise ValueError(
-                f"tempolimit_kmh muss gesetzt sein für Sperrungstyp {self.sperrungstyp}."
+                f"tempolimit_kmh must be set for blocking type {self.sperrungstyp}."
             )
         return self
 
-
 class ConstructionProvider:
     """
-    Protocol für Datenprovider von Baustelleninformationen.
+    Protocol for data providers of construction zone information.
 
-    Alle implementierenden Provider müssen die Methode `fetch_construction_zones` implementieren,
-    die eine Liste von ConstructionZone für eine gegebene Route zurückgibt.
+    All implementing providers must implement the `fetch_construction_zones` method,
+    which returns a list of ConstructionZone for a given route.
     """
 
     async def fetch_construction_zones(
@@ -140,23 +136,23 @@ class ConstructionProvider:
         route: "tripplanner.routing.models.Route",
         laender: list[Land],
     ) -> list[ConstructionZone]:
-        """Abfrage von Baustellen entlang der Route für die angegebenen Länder."""
+        """Query for construction zones along the route for the specified countries."""
         raise NotImplementedError
 ```
 
-**Zusätzliche interne Hilfstypen (nicht exportiert, nur zur Verarbeitung):**
+**Additional internal helper types (not exported, for processing only):**
 
-- `DATEXIIConstructionZone`: Internes Pydantic-Modell zum Parsen von DATEX II XML (siehe Abschnitt 5)
+- `DATEXIIConstructionZone`: Internal Pydantic model for parsing DATEX II XML (see section 5)
 
 ---
 
-## 4. Öffentliche Schnittstelle
+## 4. Public API
 
-Die öffentliche API des Moduls besteht aus einer Factory-Funktion zur Erzeugung des Providers und der Hauptfunktion `fetch_construction_zones`.
+The public API of the module consists of a factory function for creating the provider and the main function `fetch_construction_zones`.
 
 ```python
 # src/tripplanner/construction/__init__.py
-"""Modul für Baustellen- und Sperrungsinformationen entlang der Route."""
+"""Module for construction zone and blocking information along the route."""
 
 from tripplanner.construction.models import (
     ConstructionZone,
@@ -191,31 +187,29 @@ from tripplanner.construction.models import (
     ConstructionProvider,
 )
 
-# Konfiguration für externe Services (vom Aufrufer übergeben)
+# Configuration for external services (passed by the caller)
 DATEXII_ENDPOINTS = {
     Land.DE: "https://www.mobilithek.info/datexii/rest/v2/situations",
     Land.DK: "https://businessservice.dataudveksler.app.vd.dk/api/DateX2",
     Land.SE: "https://api.trafikinfo.trafikverket.se/v1/trafficincidents",
 }
 
-
 class ConstructionProviderConfig(BaseModel):
-    """Konfiguration für den ConstructionProvider."""
+    """Configuration for the ConstructionProvider."""
 
-    mdm_username: str | None = None  # Für Deutschland (MDM)
-    mdm_password: str | None = None  # Für Deutschland (MDM)
-    dk_service_account: str | None = None  # Für Dänemark (Dataudveksleren)
-    dk_api_key: str | None = None  # Optional, falls erforderlich
-    tv_api_key: str  # Für Schweden (Trafikverket), benötigt
-    timeout_seconds: float = 30.0  # HTTP-Timeout
-
+    mdm_username: str | None = None  # For Germany (MDM)
+    mdm_password: str | None = None  # For Germany (MDM)
+    dk_service_account: str | None = None  # For Denmark (Dataudveksleren)
+    dk_api_key: str | None = None  # Optional, if required
+    tv_api_key: str  # For Sweden (Trafikverket), required
+    timeout_seconds: float = 30.0  # HTTP timeout
 
 class ConstructionProviderImpl(ConstructionProvider):
     """
-    Implementierung des ConstructionProvider mit DATEX II Feeds für DE, DK, SE.
+    Implementation of ConstructionProvider with DATEX II feeds for DE, DK, SE.
 
-    Der Provider nutzt einen gemeinsamen XML-Parser (DATEX II Version 3.3) für alle Länder,
-    da der Standard einheitlich ist.
+    The provider uses a common XML parser (DATEX II version 3.3) for all countries,
+    as the standard is uniform.
     """
 
     def __init__(self, config: ConstructionProviderConfig):
@@ -237,18 +231,18 @@ class ConstructionProviderImpl(ConstructionProvider):
         laender: list[Land],
     ) -> list[ConstructionZone]:
         """
-        Abfrage von Baustellen entlang der Route für die angegebenen Länder.
+        Query for construction zones along the route for the specified countries.
 
         Args:
-            route: Die zu prüfende Route (aus routing.models).
-            laender: Liste der Länder, für die Baustellen abgefragt werden sollen.
+            route: The route to check (from routing.models).
+            laender: List of countries for which to query construction zones.
 
         Returns:
-            Liste von ConstructionZone-Objekten für die angegebenen Länder.
+            List of ConstructionZone objects for the specified countries.
 
         Raises:
-            RuntimeError: Wenn der HTTP-Client nicht initialisiert ist.
-            TimeoutException: Wenn ein HTTP-Request timeoutt.
+            RuntimeError: If the HTTP client is not initialized.
+            TimeoutException: If an HTTP request times out.
         """
         if not self._client:
             raise RuntimeError("ConstructionProviderImpl must be used as async context manager.")
@@ -266,10 +260,10 @@ class ConstructionProviderImpl(ConstructionProvider):
         route: routing_models.Route,
         land: Land,
     ) -> list[ConstructionZone]:
-        """Abfrage und Parsing für ein Land."""
+        """Query and parse for a country."""
         endpoint = DATEXII_ENDPOINTS[land]
 
-        # Query-Parameter für DATEX II Feeds anpassen
+        # Adjust query parameters for DATEX II feeds
         if land == Land.DE:
             params = self._build_de_params(route)
         elif land == Land.DK:
@@ -281,14 +275,14 @@ class ConstructionProviderImpl(ConstructionProvider):
             response = await self._client.get(endpoint, params=params)
             response.raise_for_status()
         except TimeoutException as e:
-            # Timeout als leere Liste returnen (später retry in higher level)
+            # Return empty list on timeout (retry later at higher level)
             return []
 
-        # XML parsing (lxml oder xmlschema, siehe Abschnitt 5)
+        # XML parsing (lxml or xmlschema, see section 5)
         xml_content = response.text
         construction_zones = parse_datexii_xml(xml_content, land)
 
-        # Mapping auf ConstructionZone
+        # Mapping to ConstructionZone
         return [
             ConstructionZone(
                 betroffene_segmente=await self._map_to_segment_ids(zone, route),
@@ -303,9 +297,9 @@ class ConstructionProviderImpl(ConstructionProvider):
         ]
 
     def _build_de_params(self, route: routing_models.Route) -> dict[str, str]:
-        """Parameter für MDM (Germany) DATEX II API."""
-        # MDM nutzt REST API für Situationen, Filter nach Gültigkeit und Geokoordinaten
-        # Koordinatenpolygon aus Route erzeugen (bounding box)
+        """Parameters for MDM (Germany) DATEX II API."""
+        # MDM uses REST API for situations, filtered by validity and geo-coordinates
+        # Generate coordinate polygon from route (bounding box)
         coords = self._route_to_bounding_box(route)
         return {
             "query": "roadworks",
@@ -315,8 +309,8 @@ class ConstructionProviderImpl(ConstructionProvider):
         }
 
     def _build_dk_params(self, route: routing_models.Route) -> dict[str, str]:
-        """Parameter für Dataudveksleren (Denmark) DATEX II API."""
-        # Dänemark nutzt SOAP oder REST mit DATEX II XML als Payload
+        """Parameters for Dataudveksleren (Denmark) DATEX II API."""
+        # Denmark uses SOAP or REST with DATEX II XML as payload
         coords = self._route_to_bounding_box(route)
         return {
             "coords": coords,
@@ -325,8 +319,8 @@ class ConstructionProviderImpl(ConstructionProvider):
         }
 
     def _build_se_params(self, route: routing_models.Route) -> dict[str, str]:
-        """Parameter für Trafikverket (Sweden) API."""
-        # Trafikverket Open API nutzt JSON POST mit DATEX II ontology
+        """Parameters for Trafikverket (Sweden) API."""
+        # Trafikverket Open API uses JSON POST with DATEX II ontology
         coords = self._route_to_bounding_box(route)
         return {
             "query": f"location geometry '{coords}' AND status 'active' AND type 'roadworks'",
@@ -334,11 +328,11 @@ class ConstructionProviderImpl(ConstructionProvider):
         }
 
     def _route_to_bounding_box(self, route: routing_models.Route) -> str:
-        """Konvertiert Route zuBounding Box für API-Abfrage."""
-        # Einfache Implementierung: min/max Lat/Lon aus Geometrie
+        """Converts route to bounding box for API query."""
+        # Simple implementation: min/max Lat/Lon from geometry
         coords = []
         for segment in route.segments:
-            # segment.geometrie enthält Waypoints als List[Tuple[float, float]]
+            # segment.geometrie contains waypoints as List[Tuple[float, float]]
             for lat, lon in segment.geometrie:
                 coords.append((lat, lon))
 
@@ -346,7 +340,7 @@ class ConstructionProviderImpl(ConstructionProvider):
             return ""
 
         lats, lons = zip(*coords)
-        return f"{min(lats)},{min(lons)},{max(lats)},{max(lons)}"  # WKT-Style BBOX
+        return f"{min(lats)},{min(lons)},{max(lats)},{max(lons)}"  # WKT-style BBOX
 
     async def _map_to_segment_ids(
         self,
@@ -354,20 +348,20 @@ class ConstructionProviderImpl(ConstructionProvider):
         route: routing_models.Route,
     ) -> list[int]:
         """
-        Mapped DATEX II Geometrie auf Route-Segment-IDs.
+        Maps DATEX II geometry to route segment IDs.
 
-        Der Algorithmus prüft, ob die Baustellen-Geometrie mit den Segmenten überlappt.
-        Da DATEX II Polygon- oder Linienreferenzen nutzt, wird ein Intersection-Check
-        durchgeführt (rasterio oder shapely für Geometrie-Operationen).
+        The algorithm checks whether the construction zone geometry overlaps with segments.
+        Since DATEX II uses polygon or line references, an intersection check
+        is performed (rasterio or shapely for geometry operations).
         """
         from shapely.geometry import LineString, box
 
-        # Baustellen-Geometrie in Shapely konvertieren
+        # Convert construction zone geometry to Shapely
         zone_geom = self._zone_to_geometry(zone)
 
         betroffene_ids = []
         for idx, segment in enumerate(route.segments):
-            # Segment-Geometrie als LineString
+            # Segment geometry as LineString
             seg_geom = LineString(segment.geometrie)
 
             # Intersection check
@@ -377,46 +371,46 @@ class ConstructionProviderImpl(ConstructionProvider):
         return betroffene_ids
 
     def _zone_to_geometry(self, zone: "DATEXIIConstructionZoneInternal") -> LineString:
-        """Konvertiert DATEX II Geometrie zu Shapely LineString."""
-        # DATEX II nutzt gml:LineString oder gml:Curve
-        # Für einfache Umsetzung: Koordinatenliste direct mapping
+        """Converts DATEX II geometry to Shapely LineString."""
+        # DATEX II uses gml:LineString or gml:Curve
+        # For simple implementation: coordinate list direct mapping
         coords = [(pt.lon, pt.lat) for pt in zone.koordinaten]
         return LineString(coords)
 ```
 
 ---
 
-## 5. Externe Integration / Algorithmus-Details
+## 5. External Integration / Algorithm Details
 
-### DATEX II XML-Parsing
+### DATEX II XML Parsing
 
-**Bibliotheksauswahl:** `xmlschema` (empfohlen gegenüber `lxml`)
+**Library selection:** `xmlschema` (recommended over `lxml`)
 
-**Begründung:**
+**Rationale:**
 
-- `xmlschema` bietet vollständige XSD 1.0/1.1 Validierung, die für DATEX II-Struktur unerlässlich ist.
--DATEX II Schemas sind strikt definiert; `xmlschema` liefert Daten direkt als Python-Dicts/Objekte (`to_dict()`).
-- `lxml` ist zwar schneller (~42x bei Validierung), aber `xmlschema` ist speicherfreundlicher bei großen XML-Dateien (`lazy=True` Modus).
-- Keine externen C-Bibliotheken nötig (`xmlschema` ist pure Python), was die Installation vereinfacht.
+- `xmlschema` offers full XSD 1.0/1.1 validation, which is essential for DATEX II structure.
+- DATEX II schemas are strictly defined; `xmlschema` delivers data directly as Python dicts/objects (`to_dict()`).
+- `lxml` is faster (~42x in validation), but `xmlschema` is more memory-friendly with large XML files (`lazy=True` mode).
+- No external C libraries needed (`xmlschema` is pure Python), which simplifies installation.
 
-**DATEX II Version:** 3.3 (latest stable; Germany MDM, Denmark Dataudveksleren, Sweden Trafikverket unterstützen alle DATEX II v3.x).
+**DATEX II version:** 3.3 (latest stable; Germany MDM, Denmark Dataudveksleren, Sweden Trafikverket all support DATEX II v3.x).
 
-**Schema-Download:** <https://docs.datex2.eu/downloads/modelv33/> (DATEXII_3_Situation.xsd, DATEXII_3_Common.xsd, DATEXII_3_LocationReferencing.xsd)
+**Schema download:** <https://docs.datex2.eu/downloads/modelv33/> (DATEXII_3_Situation.xsd, DATEXII_3_Common.xsd, DATEXII_3_LocationReferencing.xsd)
 
 **Mapping DATEX II → `ConstructionZone`:**
 
-| DATEX II Element (Situation) | XML-Path | `ConstructionZone` Field |
+| DATEX II Element (Situation) | XML Path | `ConstructionZone` Field |
 | ------------------------------ | ---------- | -------------------------- |
-| `situationRecord` (xsi:type) | `/situationRecord/@xsi:type` | `Sperrungstyp` (s.u.) |
-| `creationTime` | `/situationRecord/situationRecordCreationTime` | `gueltig_von` (oder aktueller Zeitpunkt als Fallback) |
+| `situationRecord` (xsi:type) | `/situationRecord/@xsi:type` | `Sperrungstyp` (see below) |
+| `creationTime` | `/situationRecord/situationRecordCreationTime` | `gueltig_von` (or current time as fallback) |
 | `validity` -> `validityTimeSpec` | `/situationRecord/validity/validityTimeSpecification` | `gueltig_von`, `gueltig_bis` |
-| `impact` -> `delays` | `/situationRecord/impact/delays/delayBand` | `tempolimit_kmh` (s.u.) |
-| `groupOfLocations` -> `itinerary` | `/situationRecord/groupOfLocations/groupOfLocations` | `koordinaten` (für `_zone_to_geometry`) |
-| `source` | `/situationRecord/source/sourceName/value` | `umleitungshinweis` (falls vorhanden) |
+| `impact` -> `delays` | `/situationRecord/impact/delays/delayBand` | `tempolimit_kmh` (see below) |
+| `groupOfLocations` -> `itinerary` | `/situationRecord/groupOfLocations/groupOfLocations` | `koordinaten` (for `_zone_to_geometry`) |
+| `source` | `/situationRecord/source/sourceName/value` | `umleitungshinweis` (if present) |
 
-**Sperrungstyp-Mapping (nach DATEX II v3 Roadworks profile):**
+**Blocking type mapping (per DATEX II v3 Roadworks profile):**
 
-| DATEX II `roadworksType` | XML-Value | `Sperrungstyp` |
+| DATEX II `roadworksType` | XML Value | `Sperrungstyp` |
 | -------------------------- | ----------- | ---------------- |
 | `fullyClosed` | `fullyClosed` | `FULLY_CLOSED` |
 | `partiallyClosed` | `partiallyClosed` | `PARTIALLY_CLOSED` |
@@ -425,33 +419,17 @@ class ConstructionProviderImpl(ConstructionProvider):
 | `reducedLanes` | `reducedLanes` | `REDUCED_LANES` |
 | `detrourRequired` | `detrourRequired` | `DETROUR_REQUIRED` |
 
-**Richtungsabhängiges Matching (Fahrtrichtung):** Eine Baustelle/ein Ereignis wird einem
-Routen-Segment nur zugeordnet, wenn sie sowohl räumlich nah (innerhalb 500 m) ALS AUCH in
-Fahrtrichtung der Route tatsächlich anwendbar ist — nicht nur auf derselben Straße. Für
-DK/SE-Zonen mit LineString-Geometrie wird das eigene Bearing der Zone (Start→Ende ihrer
-Koordinaten) gegen `RouteSegment.bearing_deg` des zugeordneten Segments verglichen; ein Match
-wird ausgeschlossen, wenn die Winkeldifferenz (gefaltet auf `[0°, 180°]`) 100° überschreitet —
-d. h. die Zone verläuft grob entgegengesetzt zur Route (Gegenfahrbahn auf einer geteilten
-Straße). Für SE-Zonen wird ein explizites `AffectedDirectionValue` (sofern nicht "beide
-Richtungen") gegenüber der Geometrie-Heuristik bevorzugt (Quelle vertrauenswürdiger als
-Ableitung). **Bekannte Einschränkung:** DE-Baustellen (Autobahn GmbH API) liefern nur einen
-einzelnen Punkt-Koordinatenwert — keine LineString-Geometrie und kein Richtungs-/
-Fahrbahn-Feld — daher ist richtungsabhängiges Filtern für DE nicht möglich; das DE-Matching
-bleibt rein distanzbasiert (dokumentiert in `_parse_autobahn_roadwork`).
+**Direction-aware matching (direction of travel):** A construction zone/event is assigned to a route segment only when it is both spatially close (within 500 m) AND actually applicable in the direction of travel of the route — not just on the same road. For DK/SE zones with LineString geometry, the zone's own bearing (start→end of its coordinates) is compared against `RouteSegment.bearing_deg` of the assigned segment; a match is excluded when the angular difference (folded to `[0°, 180°]`) exceeds 100° — i.e., the zone runs roughly opposite to the route (opposite carriageway on a divided road). For SE zones, an explicit `AffectedDirectionValue` (unless "both directions") is preferred over the geometry heuristic (source is more trustworthy than derivation). **Known limitation:** DE construction zones (Autobahn GmbH API) provide only a single point coordinate — no LineString geometry and no direction/lane field — so direction-aware filtering is not possible for DE; DE matching remains purely distance-based (documented in `_parse_autobahn_roadwork`).
 
-**Längenableitung (`laenge_m`):** Für DK/SE-Zonen mit LineString-Geometrie wird die Länge
-direkt als geodätische Länge dieser Geometrie berechnet (`tripplanner.geo.geodesic_length_m`).
-Für DE-Zonen (nur Punkt-Koordinate) wird die Länge aus dem zugeordneten Routen-Segment
-abgeleitet (`RouteSegment.laenge_m`), da die Quelle keine Längenangabe liefert. `None`, wenn
-keines von beidem berechenbar ist.
+**Length derivation (`laenge_m`):** For DK/SE zones with LineString geometry, the length is computed directly as the geodesic length of that geometry (`tripplanner.geo.geodesic_length_m`). For DE zones (point coordinate only), the length is derived from the assigned route segment (`RouteSegment.laenge_m`), since the source does not provide a length value. `None` if neither can be computed.
 
-**Falls DATEX II-Fields fehlen (robuster Default):**
+**If DATEX II fields are missing (robust default):**
 
-- `gueltig_von`: Fallback auf `situationRecordCreationTime` (oder UTC now).
-- `gueltig_bis`: Falls `overallEndTime` fehlt, auf `None` setzen (unbestimmt).
-- `tempolimit_kmh`: Aus `delayBand` ableiten (z. B. `upToTenMinutes` → 100 km/h, `tenToTwentyMinutes` → 80 km/h, usw.) — Konkretisierung in Konfiguration.
+- `gueltig_von`: Fallback to `situationRecordCreationTime` (or UTC now).
+- `gueltig_bis`: If `overallEndTime` is missing, set to `None` (indefinite).
+- `tempolimit_kmh`: Derive from `delayBand` (e.g. `upToTenMinutes` → 100 km/h, `tenToTwentyMinutes` → 80 km/h, etc.) — concretization in configuration.
 
-**Beispiel-Parse-Funktion (intern):**
+**Example parse function (internal):**
 
 ```python
 # src/tripplanner/construction/parser.py
@@ -462,38 +440,36 @@ from typing import cast
 
 import xmlschema
 
-# DATEX II v3.3 Schema lokal laden (aus Bundle oder URL)
+# Load DATEX II v3.3 schema locally (from bundle or URL)
 SCHEMA_PATH = Path(__file__).parent / "datexii_3.3" / "DATEXII_3_Situation.xsd"
 
-
 class DATEXIIConstructionZoneInternal(BaseModel):
-    """Internes Modell für DATEX II Parse-Ergebnis."""
+    """Internal model for DATEX II parse results."""
 
     sperrungstyp: str  # DATEX II roadworksType
     gueltig_von: datetime
     gueltig_bis: datetime | None
     koordinaten: list[tuple[float, float]]  # Lat, Lon
     umleitungshinweis: str | None
-    tempolimit_kmh: int | None  # abgeleitet aus delayBand
-
+    tempolimit_kmh: int | None  # derived from delayBand
 
 def parse_datexii_xml(xml_content: str, land: Land) -> list[DATEXIIConstructionZoneInternal]:
     """
-    Parse DATEX II XML und extrahiert Baustelleninformationen.
+    Parse DATEX II XML and extract construction zone information.
 
     Args:
-        xml_content: Raw XML string von DATEX II Feed.
-        land: Land (für spezifische Mapping-Logik).
+        xml_content: Raw XML string from DATEX II feed.
+        land: Country (for country-specific mapping logic).
 
     Returns:
-        Liste von DATEXIIConstructionZoneInternal (internal).
+        List of DATEXIIConstructionZoneInternal (internal).
     """
     schema = xmlschema.XMLSchema(SCHEMA_PATH)
 
-    # Validierung und Decoding
+    # Validation and decoding
     data = schema.to_dict(xml_content, validate=True)
 
-    # Extrahiere Situationen
+    # Extract situations
     situations = data.get("situation", [])
     if not isinstance(situations, list):
         situations = [situations] if situations else []
@@ -505,7 +481,7 @@ def parse_datexii_xml(xml_content: str, land: Land) -> list[DATEXIIConstructionZ
         if not sr:
             continue
 
-        # Extract type (nur roadworks relevante Types)
+        # Extract type (only roadworks-relevant types)
         xsi_type = sr.get("@xsi:type", "")
         if "Roadworks" not in xsi_type and "MaintenanceWorks" not in xsi_type:
             continue
@@ -519,7 +495,7 @@ def parse_datexii_xml(xml_content: str, land: Land) -> list[DATEXIIConstructionZ
         gueltig_von = _parse_datetime(start) if start else datetime.utcnow()
         gueltig_bis = _parse_datetime(end) if end else None
 
-        # Extract delay band (für tempolimit_kmh)
+        # Extract delay band (for tempolimit_kmh)
         impact = sr.get("impact", {})
         delays = impact.get("delays", {})
         delay_band = delays.get("delayBand")
@@ -537,14 +513,14 @@ def parse_datexii_xml(xml_content: str, land: Land) -> list[DATEXIIConstructionZ
                 for pt in pts:
                     if len(pt) >= 2:
                         # DATEX II: Lat first? Check locale
-                        # Für deutsche Feeds: Lat, Lon; für schwedisch/dänisch: Lon, Lat
+                        # For German feeds: Lat, Lon; for Swedish/Danish: Lon, Lat
                         if land == Land.DE:
                             lat, lon = float(pt[1]), float(pt[0])
                         else:
                             lat, lon = float(pt[0]), float(pt[1])
                         koordinaten.append((lat, lon))
 
-        # Extract umleitungshinweis
+        # Extract detour information
         source_name = sr.get("source", {}).get("sourceName", {}).get("value", "")
         umleitungshinweis = source_name if source_name else None
 
@@ -561,21 +537,19 @@ def parse_datexii_xml(xml_content: str, land: Land) -> list[DATEXIIConstructionZ
 
     return zones
 
-
 def _parse_datetime(dt_str: str) -> datetime:
     """Parse ISO 8601 datetime string (DATEX II standard)."""
-    # DATEX II nutzt UTC mit Z-Suffix
+    # DATEX II uses UTC with Z suffix
     if dt_str.endswith("Z"):
         dt_str = dt_str[:-1] + "+00:00"
     return datetime.fromisoformat(dt_str)
 
-
 def _delay_band_to_speed(delay_band: str | None) -> int | None:
-    """Mappe delayBand auf tempolimit_kmh (Konfiguration für feine Anpassung)."""
+    """Maps delayBand to tempolimit_kmh (configuration for fine tuning)."""
     if not delay_band:
         return None
 
-    # Beispiel-Map (anpassbar über Konfiguration)
+    # Example map (configurable via settings)
     band_map = {
         "upToTenMinutes": 100,
         "tenToTwentyMinutes": 80,
@@ -585,45 +559,45 @@ def _delay_band_to_speed(delay_band: str | None) -> int | None:
     return band_map.get(delay_band, 60)
 ```
 
-### Konkrete API-Zugangspunkte & Authentifizierung
+### Concrete API Access Points & Authentication
 
-**Deutschland (MDM – Mobilitäts Daten Marktplatz):**
+**Germany (MDM – Mobility Data Marketplace):**
 
 - **Endpoint:** `https://www.mobilithek.info/datexii/rest/v2/situations` (REST API)
-- **Authentifizierung:** Registrierung als User erforderlich (Kontakt über <https://service.mdm-portal.de/mdm-portal-application/_accountRegister.do>)
-- **Datenformat:** XML (DATEX II v3.3)
-- **Hinweis:** HTTPS allein ist ausreichend; DATEX II Auth-Optionen (C.13, C.14, C.17) nicht nötig.
-- **Quelle:** Technische Schnittstellenbeschreibung Version 1.2.2 (2024-04-04), Abschnitt "Authentication".
+- **Authentication:** User registration required (contact via <https://service.mdm-portal.de/mdm-portal-application/_accountRegister.do>)
+- **Data format:** XML (DATEX II v3.3)
+- **Note:** HTTPS alone is sufficient; DATEX II auth options (C.13, C.14, C.17) not required.
+- **Source:** Technical interface description version 1.2.2 (2024-04-04), section "Authentication".
 
-**Dänemark (Vejdirektoratet – Dataudveksleren):**
+**Denmark (Vejdirektoratet – Dataudveksleren):**
 
-- **Endpoint:** `https://businessservice.dataudveksler.app.vd.dk/api/DateX2` (SOAP oder REST)
-- **Authentifizierung:** Service-Account erforderlich (Dokumentation auf <https://vejdirektoratet.atlassian.net/wiki/spaces/TRC/pages>)
-- **Datenformat:** XML (DATEX II v3.2)
-- **Dokumentation:** TRACÉ Protokollbeschreibung Datex II 3.2 (PDF auf vejdirektoratet.atlassian.net)
-- **Portal:** <https://du-portal-ui.dataudveksler.app.vd.dk/data> (UI zur Konfiguration)
+- **Endpoint:** `https://businessservice.dataudveksler.app.vd.dk/api/DateX2` (SOAP or REST)
+- **Authentication:** Service account required (documentation at <https://vejdirektoratet.atlassian.net/wiki/spaces/TRC/pages>)
+- **Data format:** XML (DATEX II v3.2)
+- **Documentation:** TRACÉ Protocol Description Datex II 3.2 (PDF on vejdirektoratet.atlassian.net)
+- **Portal:** <https://du-portal-ui.dataudveksler.app.vd.dk/data> (UI for configuration)
 
-**Schweden (Trafikverket – NVDB):**
+**Sweden (Trafikverket – NVDB):**
 
 - **Endpoint:** `https://api.trafikinfo.trafikverket.se/v1/trafficincidents` (Open API)
-- **Authentifizierung:** API-Key erforderlich (Registrierung unter <https://api.trafikinfo.trafikverket.se/>)
-- **Datenformat:** JSON (DATEX II ontology als underlying model)
-- **Hinweis:** Alle Öffentlichen Daten sind ohne Login lesbar, aber data retrieval erfordert Account.
-- **Preis:** Kostenlos, aber Lizenzvereinbarung nötig.
+- **Authentication:** API key required (registration at <https://api.trafikinfo.trafikverket.se/>)
+- **Data format:** JSON (DATEX II ontology as underlying model)
+- **Note:** All public data is readable without login, but data retrieval requires an account.
+- **Cost:** Free, but license agreement required.
 
 ---
 
-## 6. Test-Strategie
+## 6. Test Strategy
 
 ### Fixtures
 
-**Test-XML-Dateien (im Repo als Fixtures):**
+**Test XML files (in the repo as fixtures):**
 
-- `tests/fixtures/construction/datexii_germany_roadworks_example.xml`: Auszug aus MDM (Deutschland)
-- `tests/fixtures/construction/datexii_denmark_lane_closure.xml`: Beispiel Dänemark
-- `tests/fixtures/construction/datexii_sweden_temp_limit.xml`: Beispiel Schweden
+- `tests/fixtures/construction/datexii_germany_roadworks_example.xml`: Excerpt from MDM (Germany)
+- `tests/fixtures/construction/datexii_denmark_lane_closure.xml`: Example Denmark
+- `tests/fixtures/construction/datexii_sweden_temp_limit.xml`: Example Sweden
 
-**Fixture-Inhalte (Beispiel für Deutschland):**
+**Fixture content (example for Germany):**
 
 ```xml
 <!-- tests/fixtures/construction/datexii_germany_roadworks_example.xml -->
@@ -679,40 +653,40 @@ def _delay_band_to_speed(delay_band: str | None) -> int | None:
 </situation>
 ```
 
-### Testfälle
+### Test Cases
 
-**Testfall 1: Parsing einer deutschen DATEX II Nachricht**
+**Test case 1: Parsing a German DATEX II message**
 
-- **Given:** XML-Datei aus `datexii_germany_roadworks_example.xml`.
-- **When:** `parse_datexii_xml(xml_content, Land.DE)` wird aufgerufen.
-- **Then:** Ergebnis enthält mindestens ein `DATEXIIConstructionZoneInternal` mit:
+- **Given:** XML file from `datexii_germany_roadworks_example.xml`.
+- **When:** `parse_datexii_xml(xml_content, Land.DE)` is called.
+- **Then:** Result contains at least one `DATEXIIConstructionZoneInternal` with:
   - `sperrungstyp` = `MaintenanceWorks`
   - `gueltig_von` = `2024-03-20T21:01:00+00:00`
   - `gueltig_bis` = `2024-03-21T03:00:00+00:00`
-  - `koordinaten` enthält mindestens 2 Punkte
+  - `koordinaten` contains at least 2 points
   - `tempolimit_kmh` = `80` (from `delayBand` = `tenToTwentyMinutes`)
 
-**Testfall 2: Mapping auf `ConstructionZone` mit Route-Intersection**
+**Test case 2: Mapping to `ConstructionZone` with route intersection**
 
-- **Given:** Fake `ConstructionProviderImpl` mit Test-Route (Segment 0: Koordinaten (52.5200,13.4050) → (52.5210,13.4060)), XML-Fixture.
-- **When:** `fetch_construction_zones(route, [Land.DE])` wird ausgeführt.
-- **Then:** Ergebnis enthält ein `ConstructionZone` mit `betroffene_segmente = [0]`, `tempolimit_kmh = 80`, `sperrungstyp = Sperrungstyp.TEMPORARY_SPEED_LIMIT`.
+- **Given:** Fake `ConstructionProviderImpl` with test route (segment 0: coordinates (52.5200,13.4050) → (52.5210,13.4060)), XML fixture.
+- **When:** `fetch_construction_zones(route, [Land.DE])` is executed.
+- **Then:** Result contains one `ConstructionZone` with `betroffene_segmente = [0]`, `tempolimit_kmh = 80`, `sperrungstyp = Sperrungstyp.TEMPORARY_SPEED_LIMIT`.
 
-**Testfall 3: Grenzfall — keine Baustellen in Route**
+**Test case 3: Edge case — no construction zones on route**
 
-- **Given:** Fake `ConstructionProviderImpl` mit Route, die keine Baustellen-Geometrien schneidet.
+- **Given:** Fake `ConstructionProviderImpl` with route that does not intersect any construction zone geometries.
 - **When:** `fetch_construction_zones(route, [Land.DE])`.
-- **Then:** Leere Liste `[]` zurückgegeben.
+- **Then:** Empty list `[]` returned.
 
-**Testfall 4: Validierung `ConstructionZone.tempolimit_kmh` required**
+**Test case 4: Validation of `ConstructionZone.tempolimit_kmh` required**
 
-- **Given:** `ConstructionZone` mit `sperrungstyp = Sperrungstyp.PARTIALLY_CLOSED` und `tempolimit_kmh = None`.
-- **When:** Instanziierung.
-- **Then:** Pydantic `ValidationError` wird ausgelöst (Modell-Validierung).
+- **Given:** `ConstructionZone` with `sperrungstyp = Sperrungstyp.PARTIALLY_CLOSED` and `tempolimit_kmh = None`.
+- **When:** Instantiation.
+- **Then:** Pydantic `ValidationError` is raised (model validation).
 
-### Unit- vs. Integrationstest
+### Unit vs. Integration Tests
 
-| Test | Datei | Decorator |
+| Test | File | Decorator |
 | ------ | ------- | ----------- |
 | `test_parse_datexii_germany()` | `tests/construction/test_parser.py` | — |
 | `test_parse_datexii_denmark()` | `tests/construction/test_parser.py` | — |
@@ -723,131 +697,124 @@ def _delay_band_to_speed(delay_band: str | None) -> int | None:
 
 ---
 
-## 7. Aufgaben-Checkliste
+## 7. Task Checklist
 
-- [ ] **Task 1:** Fixture-XML-Dateien erstellen
-  - **Dateien:** `tests/fixtures/construction/datexii_germany_roadworks_example.xml`, `datexii_denmark_lane_closure.xml`, `datexii_sweden_temp_limit.xml`
-  - **Beschreibung:** Drei konkrete DATEX II XML-Beispieldateien mit realistischen Werten für Baustellen.
-  - **Akzeptanz:** Dateien validieren mit `xmlschema` gegen DATEXII_3_Situation.xsd (v3.3).
+- [ ] **Task 1:** Create fixture XML files
+  - **Files:** `tests/fixtures/construction/datexii_germany_roadworks_example.xml`, `datexii_denmark_lane_closure.xml`, `datexii_sweden_temp_limit.xml`
+  - **Description:** Three concrete DATEX II XML example files with realistic values for construction zones.
+  - **Acceptance:** Files validate with `xmlschema` against DATEXII_3_Situation.xsd (v3.3).
 
-- [ ] **Task 2:** `models.py` implementieren
-  - **Dateien:** `src/tripplanner/construction/models.py` (create)
-  - **Beschreibung:** Pydantic-Modelle `ConstructionZone`, `Sperrungstyp` (Enum), `Land` (Enum), `ConstructionProvider` (Protocol).
-  - **Akzeptanz:** Modelle importierbar, Validierung durch pytest (`test_validierung_construction_zone()`).
+- [ ] **Task 2:** Implement `models.py`
+  - **Files:** `src/tripplanner/construction/models.py` (create)
+  - **Description:** Pydantic models `ConstructionZone`, `Sperrungstyp` (Enum), `Land` (Enum), `ConstructionProvider` (Protocol).
+  - **Acceptance:** Models importable, validated through pytest (`test_validierung_construction_zone()`).
 
-- [ ] **Task 3:** Parser `parser.py` implementieren
-  - **Dateien:** `src/tripplanner/construction/parser.py` (create), `tests/construction/test_parser.py` (create)
-  - **Beschreibung:** `parse_datexii_xml()`, `_parse_datetime()`, `_delay_band_to_speed()`, interne Modelle.
-  - **Akzeptanz:** 100% coverage für parser functions (pytest-cov).
+- [ ] **Task 3:** Implement parser `parser.py`
+  - **Files:** `src/tripplanner/construction/parser.py` (create), `tests/construction/test_parser.py` (create)
+  - **Description:** `parse_datexii_xml()`, `_parse_datetime()`, `_delay_band_to_speed()`, internal models.
+  - **Acceptance:** 100% coverage for parser functions (pytest-cov).
 
-- [ ] **Task 4:** `providers.py` implementieren (Kern-Logik)
-  - **Dateien:** `src/tripplanner/construction/providers.py` (create)
-  - **Beschreibung:** `ConstructionProviderConfig`, `ConstructionProviderImpl`, `fetch_construction_zones()`, `parse_datexii_xml()` Aufruf.
-  - **Akzeptanz:** `test_fetch_construction_zones()` in `test_providers.py` läuft ohne HTTP (Mock).
+- [ ] **Task 4:** Implement `providers.py` (core logic)
+  - **Files:** `src/tripplanner/construction/providers.py` (create)
+  - **Description:** `ConstructionProviderConfig`, `ConstructionProviderImpl`, `fetch_construction_zones()`, `parse_datexii_xml()` call.
+  - **Acceptance:** `test_fetch_construction_zones()` in `test_providers.py` runs without HTTP (mock).
 
-- [ ] **Task 5:** `__init__.py` exports implementieren
-  - **Dateien:** `src/tripplanner/construction/__init__.py` (create)
-  - **Beschreibung:** Re-export aller öffentlichen Modelle und Protokolle.
-  - **Akzeptanz:** `from tripplanner.construction import ConstructionZone` funktioniert.
+- [ ] **Task 5:** Implement `__init__.py` exports
+  - **Files:** `src/tripplanner/construction/__init__.py` (create)
+  - **Description:** Re-export all public models and protocols.
+  - **Acceptance:** `from tripplanner.construction import ConstructionZone` works.
 
-- [ ] **Task 6:** `rasterio`/`shapely`-Abhängigkeit prüfen und ggf. hinzufügen
-  - **Dateien:** `pyproject.toml` (modify)
-  - **Beschreibung:** `shapely` für Geometrie-Intersection Check (wird für `_map_to_segment_ids` benötigt).
-  - **Akzeptanz:** `uv add shapely` läuft durch, `import shapely` im Python-Interpreter funktioniert.
+- [ ] **Task 6:** Check and optionally add rasterio/shapely dependency
+  - **Files:** `pyproject.toml` (modify)
+  - **Description:** Add `shapely` for geometry intersection check (required for `_map_to_segment_ids`).
+  - **Acceptance:** `uv add shapely` succeeds, `import shapely` works in Python interpreter.
 
-- [ ] **Task 7:** Dokumentation der DATEX II Feeds
-  - **Dateien:** `docs/plans/04-construction.md` (diese Datei, modify)
-  - **Beschreibung:** Konkrete Endpunkte, Auth-Methoden, API-Keys für DE/DK/SE dokumentieren.
-  - **Akzeptanz:** Jeder Entwickler kann mit den Dokumentations-Links die Feeds testen.
+- [ ] **Task 7:** Document DATEX II feeds
+  - **Files:** `docs/plans/04-construction.md` (this file, modify)
+  - **Description:** Document concrete endpoints, auth methods, API keys for DE/DK/SE.
+  - **Acceptance:** Every developer can test the feeds with the documentation links.
 
-- [ ] **Task 8:** Integration in `optimization`-Modul vorbereiten
-  - **Dateien:** `src/tripplanner/optimization/models.py` (modify), `docs/03-modulspezifikationen.md` (modify)
-  - **Beschreibung:** `optimization.models.OptimizationConstraints` erhält `construction_zones: list[ConstructionZone]` als optionaler Input.
-  - **Akzeptanz:** `optimization`-Modul importiert `ConstructionZone` aus `tripplanner.construction.models`.
+- [ ] **Task 8:** Prepare integration with `optimization` module
+  - **Files:** `src/tripplanner/optimization/models.py` (modify), `docs/03-module-specifications.md` (modify)
+  - **Description:** `optimization.models.OptimizationConstraints` receives `construction_zones: list[ConstructionZone]` as optional input.
+  - **Acceptance:** `optimization` module imports `ConstructionZone` from `tripplanner.construction.models`.
 
-- [ ] **Task 9:** ruff + mypy Konfiguration prüfen
-  - **Dateien:** `.ruff.toml`, `pyproject.toml` (modify)
-  - **Beschreibung:** `ruff check src/tripplanner/construction/` und `mypy src/tripplanner/construction/` laufen ohne Fehler.
-  - **Akzeptanz:** 0 ruff errors, 0 mypy errors.
+- [ ] **Task 9:** Check ruff + mypy configuration
+  - **Files:** `.ruff.toml`, `pyproject.toml` (modify)
+  - **Description:** `ruff check src/tripplanner/construction/` and `mypy src/tripplanner/construction/` run without errors.
+  - **Acceptance:** 0 ruff errors, 0 mypy errors.
 
-- [ ] **Task 10:** pytest-cov Konfiguration anpassen
-  - **Dateien:** `pyproject.toml` (modify)
-  - **Beschreibung:** Coverage-Gate 85% für `construction`-Modul sichern.
-  - **Akzeptanz:** `pytest --cov=tripplanner.construction tests/construction/` reportet ≥85%.
+- [ ] **Task 10:** Adjust pytest-cov configuration
+  - **Files:** `pyproject.toml` (modify)
+  - **Description:** Ensure coverage gate of 85% for `construction` module.
+  - **Acceptance:** `pytest --cov=tripplanner.construction tests/construction/` reports ≥85%.
 
-- [ ] **Task 11:** Build/Deployment-Test
-  - **Dateien:** —
-  - **Beschreibung:** `uv build` und `pip install .` im venv成功.
-  - **Akzeptanz:** `from tripplanner.construction import ConstructionZone` funktioniert im neuen venv.
+- [ ] **Task 11:** Build/Deployment test
+  - **Files:** —
+  - **Description:** `uv build` and `pip install .` succeed in venv.
+  - **Acceptance:** `from tripplanner.construction import ConstructionZone` works in the new venv.
 
-- [ ] **Task 12:** Linting / Formatierung durchführen
-  - **Dateien:** Alle Python-Dateien im `construction`-Modul
-  - **Beschreibung:** `ruff format src/tripplanner/construction/` und `ruff check --fix src/tripplanner/construction/`.
-  - **Akzeptanz:** Keine Formatierungsfehler (ruff clean).
+- [ ] **Task 12:** Run linting / formatting
+  - **Files:** All Python files in the `construction` module
+  - **Description:** Run `ruff format src/tripplanner/construction/` and `ruff check --fix src/tripplanner/construction/`.
+  - **Acceptance:** No formatting errors (ruff clean).
 
-- [ ] **Task 13:** Code-Review-Checkliste abarbeiten
-  - **Dateien:** —
-  - **Beschreibung:** API-Konventionen (nur models.py-Importe), Docstrings (Google-Style), Typannotationen.
-  - **Akzeptanz:** Review durch Team-Mitglied bestätigt.
+- [ ] **Task 13:** Work through code review checklist
+  - **Files:** —
+  - **Description:** API conventions (only models.py imports), docstrings (Google-style), type annotations.
+  - **Acceptance:** Review confirmed by team member.
 
-- [ ] **Task 14:** Dokumentation für Entwickler (optional, aber empfohlen)
-  - **Dateien:** `docs/07-construction-doku.md` (create)
-  - **Beschreibung:** Wie man die Feeds lokal testet (MDM Registrierung, API-Key von Trafikverket).
-  - **Akzeptanz:** Neue Entwickler können die Feeds ohne Support einspielen.
-
----
-
-## 8. Risiken & offene technische Fragen
-
-**1. DATEX II API-Keys/Registrierung (High Risk, aber lösbar):**
-
-- **Problem:** Deutschland (MDM) und Dänemark (Dataudveksleren) erfordern Registrierung/Service-Account; Schweden (Trafikverket) benötigt API-Key.
-- **Lösung:** Konfiguration über Umgebungsvariablen (`MDM_USERNAME`, `MDM_PASSWORD`, `DK_SERVICE_ACCOUNT`, `TV_API_KEY`), Default-Values auf Dummy-String setzen (Test-Fallback). In Dokumentation klare Anleitung zur Registrierung.
-- **Status:** Dokumentiert in Task 7.
-
-**2. Geometrie-Mapping ungenau (Medium Risk):**
-
-- **Problem:** DATEX II nutzt komplexe GML-Geometrien (LineString, Curve, Polygon); Route-Segmente sind vereinfacht; Intersection-Check kann fehlschlagen.
-- **Lösung:** Erstes Release mit einfacher Bounding-Box-Check (`shapely.box` über alle Koordinaten). Spätere Verbesserung (Distanz-Toleranz, Segment-Polygon-Aufteilung).
-- **Status:** Task 4 implementiert `LineString`-Intersection; Task 2 erlaubt Erweiterung.
-
-**3. Tempolimit-Ableitung aus `delayBand` (Low Risk):**
-
-- **Problem:** DATEX II `delayBand` ist qualitativ (z. B. `upToTenMinutes`), kein exakter Geschwindigkeitswert.
-- **Lösung:** Konfigurierbare Map `_delay_band_to_speed()` in `parser.py`, Standardwerte basierend auf deutschen Autobahn-Regeln (100 km/h für kurze Staus, 40 km/h für lange). Spätere Kalibrierung mit realen Fahrdaten.
-- **Status:** Implementiert als Konfigurationspunkt (kein Hardcode), Task 2-3.
-
-**4. DATEX II Version 3.3 vs. 2.3 (Medium Risk):**
-
-- **Problem:** Dänemark nutzt DATEX II v3.2; Schweden und Deutschland unterstützen v3.3, aber auch v2.3. Inkompatibilitäten möglich.
-- **Lösung:** Parse-Logik robust halten — nur Gemeinsamkeiten nutzen (`SituationRecord`, `validity`, `impact`, `groupOfLocations`). Fallbacks bei fehlenden Fields (Task 3).
-- **Status:** In Task 3 dokumentiert;Schema-Download auf v3.3.
-
-**5. Rate Limits durch externe APIs (Medium Risk):**
-
-- **Problem:** MDM, Dataudveksleren, Trafikverket können Rate Limits erzwingen.
-- **Lösung:** `httpx.AsyncClient` mit `Retry` Policy (Task 4: `async_retry` wrapper). Integrationstest mit Mock (Task 5).
-- **Status:** In Task 4 implementiert, Task 6 als Mock-Test vorsehen.
-
-**6. Kein Echtzeit-Update-Mechanismus (Low Risk, nicht im Scope):**
-
-- **Problem:** Die Feeds werden nur bei `fetch_construction_zones()` aktualisiert (kein WebSocket/AMQP).
-- **Lösung:** Akzeptiert; das Modul ist stateless. Bei späterem Bedarf kann `ConstructionProviderImpl` um `subscribe()` erweitert werden.
-- **Status:** Explizit als Nicht-Scope in Task 7 beschrieben.
-
-**7. Keine Fahrtrichtungsfilterung für DE-Baustellen (Medium Risk, akzeptiert):**
-
-- **Problem:** Die Autobahn GmbH API liefert für DE-Baustellen nur einen einzelnen
-  Punkt-Koordinatenwert (kein LineString, kein Richtungs-/Fahrbahn-Feld). Eine
-  Baustelle auf der Gegenfahrbahn kann daher fälschlich der Route zugeordnet werden,
-  wenn sie innerhalb des 500-m-Distanzschwellwerts liegt.
-- **Lösung:** Für DK/SE (mit LineString-Geometrie bzw. `AffectedDirectionValue`) ist
-  richtungsabhängiges Matching implementiert (siehe Abschnitt 5). Für DE bleibt es bei
-  reiner Distanz-Matching; dies ist eine dokumentierte Einschränkung der Datenquelle,
-  keine Lücke in der Implementierung. Sollte Autobahn GmbH künftig Richtungsdaten
-  liefern, kann dieselbe Bearing-Vergleichslogik übernommen werden.
-- **Status:** Akzeptiert und dokumentiert (`_parse_autobahn_roadwork`), kein offener Task.
+- [ ] **Task 14:** Developer documentation (optional, but recommended)
+  - **Files:** `docs/07-construction-doku.md` (create)
+  - **Description:** How to test the feeds locally (MDM registration, API key from Trafikverket).
+  - **Acceptance:** New developers can set up the feeds without support.
 
 ---
 
-**Ende des Plans.**
+## 8. Risks & Open Technical Questions
+
+**1. DATEX II API keys/registration (High risk, but solvable):**
+
+- **Problem:** Germany (MDM) and Denmark (Dataudveksleren) require registration/service account; Sweden (Trafikverket) requires an API key.
+- **Solution:** Configuration via environment variables (`MDM_USERNAME`, `MDM_PASSWORD`, `DK_SERVICE_ACCOUNT`, `TV_API_KEY`), default values set to dummy strings (test fallback). Clear registration instructions in the documentation.
+- **Status:** Documented in Task 7.
+
+**2. Geometry mapping inaccurate (Medium risk):**
+
+- **Problem:** DATEX II uses complex GML geometries (LineString, Curve, Polygon); route segments are simplified; intersection check may fail.
+- **Solution:** First release with simple bounding box check (`shapely.box` over all coordinates). Later improvement (distance tolerance, segment-polygon splitting).
+- **Status:** Task 4 implements `LineString` intersection; Task 2 allows extension.
+
+**3. Speed limit derivation from `delayBand` (Low risk):**
+
+- **Problem:** DATEX II `delayBand` is qualitative (e.g. `upToTenMinutes`), not an exact speed value.
+- **Solution:** Configurable map `_delay_band_to_speed()` in `parser.py`, default values based on German autobahn rules (100 km/h for short delays, 40 km/h for long ones). Later calibration with real driving data.
+- **Status:** Implemented as configuration point (no hardcoded values), Task 2-3.
+
+**4. DATEX II version 3.3 vs. 2.3 (Medium risk):**
+
+- **Problem:** Denmark uses DATEX II v3.2; Sweden and Germany support v3.3, but also v2.3. Incompatibilities possible.
+- **Solution:** Keep parse logic robust — use only common elements (`SituationRecord`, `validity`, `impact`, `groupOfLocations`). Fallbacks for missing fields (Task 3).
+- **Status:** Documented in Task 3; schema download on v3.3.
+
+**5. Rate limits from external APIs (Medium risk):**
+
+- **Problem:** MDM, Dataudveksleren, Trafikverket may enforce rate limits.
+- **Solution:** `httpx.AsyncClient` with `Retry` policy (Task 4: `async_retry` wrapper). Integration test with mock (Task 5).
+- **Status:** Implemented in Task 4, Task 6 provides for mock test.
+
+**6. No real-time update mechanism (Low risk, out of scope):**
+
+- **Problem:** Feeds are only updated on `fetch_construction_zones()` (no WebSocket/AMQP).
+- **Solution:** Accepted; the module is stateless. If needed later, `ConstructionProviderImpl` can be extended with `subscribe()`.
+- **Status:** Explicitly described as out of scope in Task 7.
+
+**7. No direction filtering for DE construction zones (Medium risk, accepted):**
+
+- **Problem:** The Autobahn GmbH API provides only a single point coordinate for DE construction zones (no LineString, no direction/lane field). A construction zone on the opposite carriageway can therefore be incorrectly assigned to the route if it falls within the 500 m distance threshold.
+- **Solution:** For DK/SE (with LineString geometry or `AffectedDirectionValue`), direction-aware matching is implemented (see section 5). For DE, it remains pure distance matching; this is a documented limitation of the data source, not a gap in the implementation. Should the Autobahn GmbH provide direction data in the future, the same bearing comparison logic can be adopted.
+- **Status:** Accepted and documented (`_parse_autobahn_roadwork`), no open task.
+
+---
+
+**End of plan.**

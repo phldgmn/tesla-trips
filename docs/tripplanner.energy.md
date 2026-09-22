@@ -1,5 +1,5 @@
 # energy
 
-Physikalisches Energieverbrauchsmodell.
+Physics-based energy consumption model.
 
 ::: tripplanner.energy

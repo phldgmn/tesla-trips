@@ -1,5 +1,5 @@
 # optimization
 
-Ladeplan-Optimierung (Zustandsraum-Suche).
+Charging plan optimization (state-space search).
 
 ::: tripplanner.optimization

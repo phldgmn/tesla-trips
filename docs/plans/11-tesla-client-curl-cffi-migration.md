@@ -210,7 +210,7 @@ class TeslaLocationsClient:
         Timeout) werden als ``CurlError`` mit der Originalnachricht weitergegeben.
 
         Args:
-            url: Vollstaendige URL mit Query-Parametern
+            url: Full URL with query parameters
 
         Returns:
             Response-Body als Text
@@ -239,16 +239,16 @@ class TeslaLocationsClient:
         return body
 
     async def _fetch_json(self, url: str) -> dict[str, Any]:
-        """Fuehrt GET aus und parst JSON-Antwort (siehe ``_fetch``).
+        """Executes GET and parses JSON response (see _fetch).
 
         Args:
-            url: Vollstaendige URL mit Query-Parametern
+            url: Full URL with query parameters
 
         Returns:
-            Geparstes JSON-Dict
+            Parsed JSON dict
 
         Raises:
-            CurlError: Bei HTTP-Fehlern, leeren Antworten oder ungültigem JSON
+            CurlError: On HTTP errors, empty responses, or invalid JSON
         """
         body = await self._fetch(url)
         try:

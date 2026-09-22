@@ -1,47 +1,47 @@
-# Plan 03: Weather- und Windmodule
+# Plan 03: Weather and Wind Modules
 
-**Zweck:** Dieser Plan behandelt gemeinsam die Module `weather` (Phase 1) und `wind` (Phase 2) des Tesla-Tripplaners.
-
----
-
-## 1. Zweck & Scope
-
-### `weather`-Modul
-
-Das `weather`-Modul ist für die Abfrage und Bereitstellung von Wetterdaten entlang der Route verantwortlich. Es erfüllt folgende Funktionen:
-
-- Abfrage von Wetterdaten für gegebene Koordinaten und Zeitpunkte über die Open-Meteo Forecast API.
-- **Unterstützung der iterativen Zeit-/Wetterauflösung** (s. `02-architektur.md`, Abschnitt „Iterative Zeit-/Wetterauflösung"): Methode zur Neuabfrage bereits abgefragter Punkte mit aktualisiertem Zeitpunkt.
-- Zusammenfassung mehrerer Abfragepunkte in einem einzigen API-Call (Batching) zur Effizienzsteigerung.
-- Kapselung des HTTP-Clients hinter einem `WeatherProvider`-Protocol zur Testbarkeit (Fake-Implementierung in Tests).
-
-**NICHT-Scope:** Historische Datenabfrage (diese ist für zukünftige Kalibrierung vorgesehen, s. Abschnitt „Externe Integration / Algorithmus-Details“), Live-Verkehr, Baustellen (diese fallen in das `construction`-Modul).
-
-### `wind`-Modul
-
-Das `wind`-Modul berechnet aus den Winddaten (Geschwindigkeit und Richtung) und der Fahrtrichtung (Bearing) des jeweiligen Route-Segments die effektiven Windkomponenten:
-
-- **Gegenwind-/Rückenwind-Komponente** (m/s, vorzeichenbehaftet: positiv = Gegenwind, negativ = Rückenwind).
-- **Seitenwind-Komponente** (m/s, vorzeichenbehaftet: positiv = Seitenwind von rechts, negativ = von links).
-
-Das Modul ist reine Berechnungslogik ohne externe Datenquellen und vollständig unit-testbar.
+**Purpose:** This plan covers the `weather` (Phase 1) and `wind` (Phase 2) modules of the Tesla Trip Planner together.
 
 ---
 
-## 2. Abhängigkeiten & Phasenzuordnung
+## 1. Purpose & Scope
 
-| Modul | Phase | Konsumierte Typen (aus dem Register) |
-|-------|-------|--------------------------------------|
-| `weather` | Phase 1 | Keine (eigenständiges Modul) |
-| `wind` | Phase 2 | `tripplanner.weather.models.WeatherSample` (nur Lesen), `tripplanner.routing.models.RouteSegment` (für `bearing_deg`) |
+### `weather` Module
 
-**Hinweis:** Das `wind`-Modul liest ausschließlich aus den Pydantic-Modellen des `weather`-Moduls. Kein Modul importiert interne Implementierungsdetails eines anderen Moduls — ausschließlich `tripplanner.<anderes_modul>.models`.
+The `weather` module is responsible for querying and providing weather data along the route. It fulfills the following functions:
+
+- Query weather data for given coordinates and timestamps via the Open-Meteo Forecast API.
+- **Support for iterative time/weather resolution** (see `02-architecture.md`, section "Iterative Time/Weather Resolution"): method to re-query already-queried points with an updated timestamp.
+- Batching multiple query points into a single API call for efficiency.
+- Encapsulation of the HTTP client behind a `WeatherProvider` protocol for testability (fake implementation in tests).
+
+**Out of scope:** Historical data queries (this is intended for future calibration, see section "External Integration / Algorithm Details"), live traffic, construction sites (these fall under the `construction` module).
+
+### `wind` Module
+
+The `wind` module calculates the effective wind components from wind data (speed and direction) and the direction (bearing) of the respective route segment:
+
+- **Headwind/tailwind component** (m/s, signed: positive = headwind, negative = tailwind).
+- **Crosswind component** (m/s, signed: positive = crosswind from the right, negative = from the left).
+
+The module is pure computation logic with no external data sources and is fully unit-testable.
 
 ---
 
-## 3. Datenmodelle
+## 2. Dependencies & Phase Assignment
 
-### `weather.models` – Offizielle Typen aus dem Register
+| Module | Phase | Consumed Types (from the registry) |
+|--------|-------|------------------------------------|
+| `weather` | Phase 1 | None (standalone module) |
+| `wind` | Phase 2 | `tripplanner.weather.models.WeatherSample` (read-only), `tripplanner.routing.models.RouteSegment` (for `bearing_deg`) |
+
+**Note:** The `wind` module reads exclusively from the Pydantic models of the `weather` module. No module imports internal implementation details of another module — only `tripplanner.<other_module>.models`.
+
+---
+
+## 3. Data Models
+
+### `weather.models` – Official types from the registry
 
 ```python
 from datetime import datetime
@@ -49,41 +49,39 @@ from typing import Optional
 from pydantic import BaseModel, Field
 from tripplanner.geo import (
     Coordinate,
-)  # kanonisches Geo-Primitiv, siehe docs/plans/00-foundation-tooling.md und docs/plans/01-routing.md Abschnitt 3
-
+)  # canonical geo primitive, see docs/plans/00-foundation-tooling.md and docs/plans/01-routing.md section 3
 
 class WeatherQuery(BaseModel):
-    """Abfrage für ein einzelnes Wetterereignis."""
+    """Query for a single weather event."""
 
     koordinate: Coordinate  # WGS84 (lat, lon)
     zeitpunkt: datetime
 
-
 class WeatherSample(BaseModel):
-    """Wetterdaten für einen Zeitpunkt an einer Koordinate."""
+    """Weather data for a point in time at a coordinate."""
 
     koordinate: Coordinate
     zeitpunkt: datetime
-    temperatur_c: float = Field(ge=-100.0, le=70.0, description="Temperatur in °C")
-    windgeschwindigkeit_ms: float = Field(ge=0.0, description="Windgeschwindigkeit in m/s")
+    temperatur_c: float = Field(ge=-100.0, le=70.0, description="Temperature in °C")
+    windgeschwindigkeit_ms: float = Field(ge=0.0, description="Wind speed in m/s")
     windrichtung_deg: float = Field(
-        ge=0.0, le=360.0, description="Windrichtung in Grad (0° = N, 90° = O)"
+        ge=0.0, le=360.0, description="Wind direction in degrees (0° = N, 90° = E)"
     )
-    niederschlag_mm: float = Field(ge=0.0, description="Niederschlag in mm (Stundensumme)")
-    schneefall_cm: float = Field(ge=0.0, description="Schneefall in cm (Wasserequivalent)")
-    luftdruck_hpa: float = Field(ge=870.0, le=1084.0, description="Luftdruck in hPa (MSL)")
+    niederschlag_mm: float = Field(ge=0.0, description="Precipitation in mm (hourly sum)")
+    schneefall_cm: float = Field(ge=0.0, description="Snowfall in cm (water equivalent)")
+    luftdruck_hpa: float = Field(ge=870.0, le=1084.0, description="Air pressure in hPa (MSL)")
     luftfeuchtigkeit_pct: float = Field(
-        ge=0.0, le=100.0, description="Relative Luftfeuchtigkeit in %"
+        ge=0.0, le=100.0, description="Relative humidity in %"
     )
-    globalstrahlung_wm2: float = Field(ge=0.0, description="Globalstrahlung in W/m² (Stundensumme)")
-    bewoelkung_pct: float = Field(ge=0.0, le=100.0, description="Bewölkung in %")
+    globalstrahlung_wm2: float = Field(ge=0.0, description="Global radiation in W/m² (hourly sum)")
+    bewoelkung_pct: float = Field(ge=0.0, le=100.0, description="Cloud cover in %")
 ```
 
-### `weather.models` – Interne Hilfstypen
+### `weather.models` – Internal helper types
 
 ```python
 class OpenMeteoResponse(BaseModel):
-    """Raw-Response von Open-Meteo Forecast API (nur für interne Verarbeitung)."""
+    """Raw response from Open-Meteo Forecast API (for internal processing only)."""
 
     latitude: float
     longitude: float
@@ -92,27 +90,26 @@ class OpenMeteoResponse(BaseModel):
     elevation: float
     hourly: dict[str, list[float | int | str | None]]
     hourly_units: dict[str, str]
-    # Weitere Felder (daily, current etc.) werden ignoriert
+    # Additional fields (daily, current, etc.) are ignored
 ```
 
-### `wind.models` – Offizielle Typen aus dem Register
+### `wind.models` – Official types from the registry
 
 ```python
 from tripplanner.weather.models import WeatherSample
 from tripplanner.routing.models import RouteSegment
 
-
 class WindComponents(BaseModel):
-    """Windkomponenten entlang einer Route."""
+    """Wind components along a route."""
 
     segment_index: int
-    gegenwind_ms: float  # positiv: Gegenwind, negativ: Rückenwind
-    seitenwind_ms: float  # positiv: von rechts, negativ: von links
+    gegenwind_ms: float  # positive: headwind, negative: tailwind
+    seitenwind_ms: float  # positive: from right, negative: from left
 ```
 
 ---
 
-## 4. Öffentliche Schnittstelle
+## 4. Public Interface
 
 ### `weather.providers.WeatherProvider` (Protocol)
 
@@ -120,23 +117,22 @@ class WindComponents(BaseModel):
 from typing import Protocol, Sequence
 from tripplanner.weather.models import WeatherQuery, WeatherSample
 
-
 class WeatherProvider(Protocol):
-    """Interface für Wetter-Datenprovider (kann durch Fake ersetzt werden)."""
+    """Interface for weather data providers (can be replaced by a fake)."""
 
     async def fetch_weather(
         self,
         queries: Sequence[WeatherQuery],
     ) -> list[WeatherSample]:
-        """Abruf von Wetterdaten für mehrere Abfragepunkte.
+        """Fetch weather data for multiple query points.
 
         Args:
-            queries: Liste von Wetterabfragen (Koordinate + Zeitpunkt).
+            queries: List of weather queries (coordinate + timestamp).
 
         Returns:
-            Liste von Wetterdaten, in gleicher Reihenfolge wie queries.
-            Wird bei fehlenden Daten für einen Punkt eine leere Liste oder None zurückgegeben,
-            wird dies durch ein Sentinel (z. B. None) oder ein spezielles WeatherSample mit NaN markiert.
+            List of weather data, in the same order as queries.
+            If data is missing for a point, an empty list or None is returned,
+            which is marked by a sentinel (e.g. None) or a special WeatherSample with NaN.
         """
         ...
 
@@ -145,76 +141,74 @@ class WeatherProvider(Protocol):
         original_queries: Sequence[WeatherQuery],
         updated_queries: Sequence[WeatherQuery],
     ) -> list[WeatherSample]:
-        """Neuabfrage bereits abgefragter Punkte mit aktualisiertem Zeitpunkt.
+        """Re-query already-queried points with an updated timestamp.
 
-        Diese Methode ist zentral für die iterative Zeit-/Wetterauflösung.
-        Die Implementierung darf intern Caching nutzen (z. B. auf `koordinate` + `zeitpunkt`-Tupel),
-        um unnötige API-Calls zu vermeiden.
+        This method is central to iterative time/weather resolution.
+        The implementation may use caching internally (e.g. on `coordinate` + `timestamp` tuples)
+        to avoid unnecessary API calls.
 
         Args:
-            original_queries: Die ursprünglichen Abfragen (unverändert).
-            updated_queries: Die aktualisierten Abfragen mit neuen Zeitpunkten,
-                             gleiche Koordinaten wie original_queries.
+            original_queries: The original queries (unchanged).
+            updated_queries: The updated queries with new timestamps,
+                             same coordinates as original_queries.
 
         Returns:
-            Liste von WeatherSample für die updated_queries.
+            List of WeatherSample for the updated_queries.
         """
         ...
 ```
 
-### `weather.<modul>.py` – Öffentliche Funktionen
+### `weather.<module>.py` – Public Functions
 
 ```python
 from typing import Sequence
 from tripplanner.weather.models import WeatherQuery, WeatherSample
 from tripplanner.weather.providers import WeatherProvider
 
-
 async def fetch_weather_for_route(
     provider: WeatherProvider,
     route_queries: Sequence[WeatherQuery],
     batch_size: int = 20,
 ) -> list[WeatherSample]:
-    """Abruf von Wetterdaten entlang einer Route mit automatischem Batching.
+    """Fetch weather data along a route with automatic batching.
 
     Args:
-        provider: Der zu verwendende Wetterprovider (in Tests: Fake).
-        route_queries: Liste von Abfragen (Koordinate + ETA).
-        batch_size: Maximale Anzahl Abfragen pro API-Call (Open-Meteo empfiehlt <=50).
+        provider: The weather provider to use (in tests: fake).
+        route_queries: List of queries (coordinate + ETA).
+        batch_size: Maximum number of queries per API call (Open-Meteo recommends <=50).
 
     Returns:
-        Liste von WeatherSample in gleicher Reihenfolge wie route_queries.
+        List of WeatherSample in the same order as route_queries.
     """
     ...
-
 
 async def fetch_weather_iterative(
     provider: WeatherProvider,
     initial_queries: Sequence[WeatherQuery],
     max_iterations: int = 2,
-    convergence_threshold_s: int = 1800,  # 30 Minuten = 1800 Sekunden
+    convergence_threshold_s: int = 1800,  # 30 minutes = 1800 seconds
 ) -> list[WeatherSample]:
-    """Iterative Wetterabfrage gemäß 02-architektur.md.
+    """Iterative weather query per 02-architecture.md.
 
-    1. Abruf mit initial_queries (grobe ETA).
-    2. Berechnung von Energieverbrauch + Ladeplan → neue ETA je Segment.
-    3. Wenn Abweichung > convergence_threshold_s an einem Punkt:
-       Neuabfrage mit aktualisierten Zeitpunkten.
-    4. Konvergenzprüfung (max. max_iterations).
+    1. Fetch with initial_queries (rough ETA).
+    2. Calculate energy consumption + charging plan → new ETA per segment.
+    3. If deviation > convergence_threshold_s at a point:
+       Re-fetch with updated timestamps.
+    4. Convergence check (max. max_iterations).
 
     Args:
-        provider: Wetterprovider (kann intern Caching nutzen).
-        initial_queries: Erste Abfrage (grobe ETA).
-        max_iterations: Maximaler Iterationsschwellwert.
-        convergence_threshold_s: Abweichungsschwellwert in Sekunden.
+        provider: Weather provider (may use caching internally).
+        initial_queries: First query (rough ETA).
+        max_iterations: Maximum iteration threshold.
+        convergence_threshold_s: Deviation threshold in seconds.
 
     Returns:
-        Liste von WeatherSample nach Konvergenz (oder max_iterations).
+        List of WeatherSample after convergence (or max_iterations).
     """
     ...
 ```
 
-### `wind.<modul>.py` – Öffentliche Funktionen
+### `wind.<module>.py` – Public Functions
 
 ```python
 from typing import Sequence
@@ -222,63 +216,62 @@ from tripplanner.weather.models import WeatherSample
 from tripplanner.routing.models import RouteSegment
 from tripplanner.wind.models import WindComponents
 
-
 def compute_wind_components_for_route(
     weather_samples: Sequence[WeatherSample],
     segments: Sequence[RouteSegment],
 ) -> list[WindComponents]:
-    """Berechnet Windkomponenten für jedes Segment entlang der Route.
+    """Calculate wind components for each segment along the route.
 
     Args:
-        weather_samples: Wetterdaten je Wetterabfragepunkt.
-        segments: Route-Segmente (muss gleiche Länge wie weather_samples haben
-                  oder via Interpolation erweiterbar — hier: direkte Zuordnung).
+        weather_samples: Weather data per weather query point.
+        segments: Route segments (must have the same length as weather_samples
+                  or be extendable via interpolation — here: direct mapping).
 
     Returns:
-        Liste von WindComponents (segment_index passt zu segment.segment_index).
-        Nicht abgedeckte Segmente (z. B. fehlende Wetterdaten) werden mit
-        WindComponents(segments_index=<idx>, gegenwind_ms=0.0, seitenwind_ms=0.0) markiert.
+        List of WindComponents (segment_index corresponds to segment.segment_index).
+        Uncovered segments (e.g. missing weather data) are marked with
+        WindComponents(segment_index=<idx>, gegenwind_ms=0.0, seitenwind_ms=0.0).
     """
     ...
 ```
 
 ---
 
-## 5. Externe Integration / Algorithmus-Details
+## 5. External Integration / Algorithm Details
 
-### Open-Meteo Forecast API – Konkrete API-Endpunkte & Parameter
+### Open-Meteo Forecast API – Specific API Endpoints & Parameters
 
 **Endpoint:** `https://api.open-meteo.com/v1/forecast`
 
-**Benötigte `hourly`-Parameter für das Projekt:**
+**Required `hourly` parameters for this project:**
 
 ```python
 hourly_params = [
-    "temperature_2m",  # Temperatur in °C
-    "wind_speed_10m",  # Windgeschwindigkeit in km/h → umrechnen in m/s (* 1000/3600)
-    "wind_direction_10m",  # Windrichtung in ° (0° = N, 90° = O)
-    "precipitation",  # Niederschlag in mm (Stundensumme)
-    "snowfall",  # Schneefall in cm (Wasserequivalent)
-    "surface_pressure",  # Luftdruck in hPa (MSL)
-    "relative_humidity_2m",  # Relative Luftfeuchtigkeit in %
-    "shortwave_radiation",  # Globalstrahlung in W/m² (Stundensumme)
-    "cloud_cover",  # Bewölkung in %
+    "temperature_2m",  # Temperature in °C
+    "wind_speed_10m",  # Wind speed in km/h → convert to m/s (* 1000/3600)
+    "wind_direction_10m",  # Wind direction in ° (0° = N, 90° = E)
+    "precipitation",  # Precipitation in mm (hourly sum)
+    "snowfall",  # Snowfall in cm (water equivalent)
+    "surface_pressure",  # Air pressure in hPa (MSL)
+    "relative_humidity_2m",  # Relative humidity in %
+    "shortwave_radiation",  # Global radiation in W/m² (hourly sum)
+    "cloud_cover",  # Cloud cover in %
 ]
 ```
 
-**Koordinaten-Batching:**
+**Coordinate Batching:**
 
-- Multiple Standorte können in einem einzigen Call abgefragt werden via `latitude=<lat1>,<lat2>,...&longitude=<lon1>,<lon2>,...`
-- Open-Meteo empfiehlt **maximal 50 Standorte pro Call** (kein fester Limit in der Dokumentation, aber praktische Empfehlung).
-- In `fetch_weather_for_route` wird daher `batch_size = min(len(queries), 50)` verwendet.
+- Multiple locations can be queried in a single call via `latitude=<lat1>,<lat2>,...&longitude=<lon1>,<lon2>,...`
+- Open-Meteo recommends **a maximum of 50 locations per call** (no fixed limit in the documentation, but a practical recommendation).
+- In `fetch_weather_for_route`, `batch_size = min(len(queries), 50)` is therefore used.
 
-**Rate-Limits (ohne API-Key):**
+**Rate Limits (without API key):**
 
-- **Nicht-kommerzieller Einsatz:** 10.000 Calls/Tag kostenlos.
-- **Kommerzieller Einsatz:** Plattform-Abonnements (Standard: 1 Mio Calls/Monat).
-- Für Tests wird ein Fake-Provider verwendet (kein echter API-Call).
+- **Non-commercial use:** 10,000 calls/day free of charge.
+- **Commercial use:** Platform subscriptions (standard: 1M calls/month).
+- A fake provider is used for tests (no real API call).
 
-**Beispiel-Aufruf (HTTP GET):**
+**Example API call (HTTP GET):**
 
 ```
 GET https://api.open-meteo.com/v1/forecast
@@ -290,13 +283,11 @@ GET https://api.open-meteo.com/v1/forecast
     &forecast_days=2
 ```
 
-**Antwortformat (Auszug):**
+**Response format (excerpt):**
 
 ```json
 {
-  "latitude": 52.52,
-  "longitude": 13.405,
-  "generationtime_ms": 0.24,
+…
   "utc_offset_seconds": 3600,
   "timezone": "Europe/Berlin",
   "timezone_abbreviation": "CET",
@@ -323,16 +314,15 @@ GET https://api.open-meteo.com/v1/forecast
 }
 ```
 
-**Client-Implementierung (`weather.client.py`):**
+**Client implementation (`weather.client.py`):**
 
 ```python
 import httpx
 from typing import Sequence
 from tripplanner.weather.models import WeatherQuery, OpenMeteoResponse
 
-
 class OpenMeteoClient:
-    """HTTP-Client für Open-Meteo Forecast API."""
+    """HTTP client for Open-Meteo Forecast API."""
 
     BASE_URL = "https://api.open-meteo.com/v1/forecast"
     TIMEOUT_S = 15.0
@@ -345,11 +335,11 @@ class OpenMeteoClient:
         queries: Sequence[WeatherQuery],
         hourly_params: list[str],
     ) -> list[OpenMeteoResponse]:
-        """Abruf von Wetterdaten für mehrere Standorte + Zeitpunkte."""
+        """Fetch weather data for multiple locations + timestamps."""
         if not queries:
             return []
 
-        # Gruppieren nach Koordinate (doppelte Standorte sparen API-Calls)
+        # Group by coordinate (duplicate locations save API calls)
         coords: dict[tuple[float, float], list[tuple[int, WeatherQuery]]] = {}
         for idx, q in enumerate(queries):
             key = (q.koordinate.lat, q.koordinate.lon)
@@ -358,7 +348,7 @@ class OpenMeteoClient:
         results: list[OpenMeteoResponse | None] = [None] * len(queries)
 
         for (lat, lon), entries in coords.items():
-            # Zeitbereich: earliest bis latest Zeitpunkt für diesen Standort
+            # Time range: earliest to latest timestamp for this location
             times = [q.zeitpunkt.isoformat() for _, q in entries]
             time_min = min(times)
             time_max = max(times)
@@ -369,70 +359,70 @@ class OpenMeteoClient:
             resp.raise_for_status()
             data = OpenMeteoResponse(**resp.json())
 
-            # Zeitindex lookup für jeden Query-Punkt
+            # Time index lookup for each query point
             time_to_idx = {t: i for i, t in enumerate(data.hourly["time"])}
             for idx, q in entries:
                 time_idx = time_to_idx.get(q.zeitpunkt.isoformat())
                 if time_idx is not None:
                     results[idx] = self._extract_sample(data, time_idx)
-        # ... (Validierung, Fallback-Logik)
+        # ... (validation, fallback logic)
 
         return [r for r in results if r is not None]
 ```
 
-### Open-Meteo Historical API – Kurzinfo
+### Open-Meteo Historical API – Brief Info
 
-Für spätere Kalibrierung (nicht im aktuellen Scope implementiert, aber Design-entscheidungserheblich):
+For future calibration (not implemented in the current scope, but significant for design decisions):
 
 **Endpoint:** `https://archive-api.open-meteo.com/v1/archive`
 
-**Unterschied zur Forecast API:**
+**Differences from the Forecast API:**
 
-- Zeitbereich: `start_date`/`end_date` (bis in die Vergangenheit, z. B. 1940–heute).
-- Nutzt Reanalysis-Daten (ERA5, ERA5-Land, ECMWF IFS) statt Echtzeit-Forecasts.
-- Identische `hourly`-Parameter wie Forecast API.
-- Rate-Limits analog (10.000 Calls/Tag kostenlos, aber explizit für historische Daten gedacht).
+- Time range: `start_date`/`end_date` (back into the past, e.g. 1940–present).
+- Uses reanalysis data (ERA5, ERA5-Land, ECMWF IFS) instead of real-time forecasts.
+- Identical `hourly` parameters as the Forecast API.
+- Rate limits are analogous (10,000 calls/day free of charge, but explicitly intended for historical data).
 
-**Verwendungszweck im Plan:** Die `WeatherProvider`-Schnittstelle ist so konzipiert, dass ein späterer `HistoricalWeatherProvider` implementiert werden kann, der aus historical-Abfragen Mittelwerte (z. B. Monatsmittel für jeden Tag im Jahr) zurückgibt. Dadurch kann das Verbrauchsmodell auf langfristige Wetterbedingungen kalibriert werden.
+**Intended use in the plan:** The `WeatherProvider` interface is designed so that a `HistoricalWeatherProvider` can be implemented later, which returns averages from historical queries (e.g. monthly averages for each day of the year). This allows the consumption model to be calibrated on long-term weather conditions.
 
-### Wind-Projektion – Trigonometrische Formel
+### Wind Projection – Trigonometric Formula
 
-Die Windkomponenten entlang der Fahrtrichtung werden mittels Vektorprojektion berechnet.
+The wind components along the direction of travel are calculated using vector projection.
 
 **Notation:**
 
-- $v_w$ = Windgeschwindigkeit (m/s) — aus `WeatherSample.windgeschwindigkeit_ms`
-- $\theta_w$ = Windrichtung (Grad, 0° = N, 90° = O) — aus `WeatherSample.windrichtung_deg`
-- $\theta_b$ = Bearing der Fahrtrichtung (Grad, 0° = N, 90° = O) — aus `RouteSegment.bearing_deg`
+- $v_w$ = wind speed (m/s) — from `WeatherSample.windgeschwindigkeit_ms`
+- $\theta_w$ = wind direction (degrees, 0° = N, 90° = E) — from `WeatherSample.windrichtung_deg`
+- $\theta_b$ = bearing of the direction of travel (degrees, 0° = N, 90° = E) — from `RouteSegment.bearing_deg`
 
-**Konvention für Windrichtung:**
+**Convention for wind direction:**
 
-- In Meteorologie wird Windrichtung als **Richtung, aus der der Wind kommt** definiert (z. B. „Nordwind“ = Wind kommt vom Norden → weht nach Süden).
-- Für die Vektorprojektion müssen wir daher die **Richtung des Windvektors** um 180° verschieben: $\theta_{\text{wind, vector}} = \theta_w + 180°$ (Modulo 360°).
+- In meteorology, wind direction is defined as the **direction from which the wind comes** (e.g. "northerly wind" = wind comes from the north → blows toward the south).
+- For vector projection, we therefore need to shift the **wind vector direction** by 180°: $\theta_{\text{wind, vector}} = \theta_w + 180°$ (modulo 360°).
 
-**Berechnung:**
+**Calculation:**
 
-1. Berechne den Winkelunterschied zwischen Windvektor und Bearing:
+1. Calculate the angle difference between the wind vector and bearing:
    $$
    \Delta\theta = \theta_b - (\theta_w + 180°) \mod 360°
    $$
-   (Umrechnung in Bogenmaß: $\Delta\theta_{\text{rad}} = \Delta\theta \cdot \pi/180$)
+   (Convert to radians: $\Delta\theta_{\text{rad}} = \Delta\theta \cdot \pi/180$)
 
-2. Gegenwind-/Rückenwind-Komponente (Longitudinal):
+2. Headwind/tailwind component (longitudinal):
    $$
    v_{\text{long}} = v_w \cdot \cos(\Delta\theta_{\text{rad}})
    $$
-   - $v_{\text{long}} > 0$ → Gegenwind (bremsend)
-   - $v_{\text{long}} < 0$ → Rückenwind (unterstützend)
+   - $v_{\text{long}} > 0$ → headwind (braking)
+   - $v_{\text{long}} < 0$ → tailwind (assisting)
 
-3. Seitenwind-Komponente (Transversal):
+3. Crosswind component (transverse):
    $$
    v_{\text{side}} = v_w \cdot \sin(\Delta\theta_{\text{rad}})
    $$
-   - $v_{\text{side}} > 0$ → Seitenwind von rechts
-   - $v_{\text{side}} < 0$ → Seitenwind von links
+   - $v_{\text{side}} > 0$ → crosswind from the right
+   - $v_{\text{side}} < 0$ → crosswind from the left
 
-**Implementation in `wind.<modul>.py`:**
+**Implementation in `wind.<module>.py`:**
 
 ```python
 import math
@@ -440,20 +430,18 @@ from tripplanner.weather.models import WeatherSample
 from tripplanner.routing.models import RouteSegment
 from tripplanner.wind.models import WindComponents
 
-
 def _degrees_to_radians(deg: float) -> float:
     return deg * math.pi / 180.0
-
 
 def compute_wind_components(
     weather: WeatherSample,
     segment: RouteSegment,
 ) -> WindComponents:
-    """Berechnet Windkomponenten für ein einzelnes Segment."""
-    # Windrichtung als Vektorrichtung (180° versetzt)
+    """Calculate wind components for a single segment."""
+    # Wind direction as vector direction (offset by 180°)
     wind_dir_vector = (weather.windrichtung_deg + 180.0) % 360.0
 
-    # Bearing des Segments (Pflichtfeld, von routing bereits berechnet, siehe RouteSegment.bearing_deg)
+    # Segment bearing (required field, already calculated by routing, see RouteSegment.bearing_deg)
     bearing = segment.bearing_deg
 
     delta_theta = bearing - wind_dir_vector
@@ -464,85 +452,83 @@ def compute_wind_components(
 
     return WindComponents(
         segment_index=segment.segment_index,
-        gegenwind_ms=v_long,  # positiv = Gegenwind
-        seitenwind_ms=v_side,  # positiv = von rechts
+        gegenwind_ms=v_long,  # positive = headwind
+        seitenwind_ms=v_side,  # positive = from right
     )
-
 
 def compute_wind_components_for_route(
     weather_samples: Sequence[WeatherSample],
     segments: Sequence[RouteSegment],
 ) -> list[WindComponents]:
     if len(weather_samples) != len(segments):
-        raise ValueError("weather_samples und segments müssen gleiche Länge haben.")
+        raise ValueError("weather_samples and segments must have the same length.")
 
     return [compute_wind_components(w, s) for w, s in zip(weather_samples, segments)]
 ```
 
-**Validierungstestfälle (s. Abschnitt 6):**
+**Validation test cases (see section 6):**
 
-- Wind from North (0°), bearing East (90°) → $v_{\text{long}} = 0$, $v_{\text{side}} = +v_w$ (Seitenwind von rechts).
-- Wind from North (0°), bearing North (0°) → $v_{\text{long}} = -v_w$ (Rückenwind).
-- Wind from North (0°), bearing South (180°) → $v_{\text{long}} = +v_w$ (Gegenwind).
+- Wind from North (0°), bearing East (90°) → $v_{\text{long}} = 0$, $v_{\text{side}} = +v_w$ (crosswind from right).
+- Wind from North (0°), bearing North (0°) → $v_{\text{long}} = -v_w$ (tailwind).
+- Wind from North (0°), bearing South (180°) → $v_{\text{long}} = +v_w$ (headwind).
 
 ---
 
-## 6. Test-Strategie
+## 6. Test Strategy
 
-### `weather`-Modul
+### `weather` Module
 
 **Fixtures:**
 
-- `tests/fixtures/weather/open_meteo_response.json` — Aufgezeichnete API-Antwort (Beispiel-Weather-Point, ca. 100 Zeilen JSON).
-- `tests/fixtures/weather/fake_weather_samples.json` — Handgepflegte `WeatherSample`-Liste für Unit-Tests (kein HTTP-Call).
+- `tests/fixtures/weather/open_meteo_response.json` — Recorded API response (example weather point, ~100 lines of JSON).
+- `tests/fixtures/weather/fake_weather_samples.json` — Hand-crafted `WeatherSample` list for unit tests (no HTTP call).
 
-**Unit-Tests (`tests/weather/test_weather.py`):**
+**Unit Tests (`tests/weather/test_weather.py`):**
 
-1. **Given:** `OpenMeteoResponse` Fixture mit 24 Stunden + 5 Wettervariablen.  
-   **When:** `fetch_weather_for_route()` mit 3 `WeatherQuery` (gleiche Koordinate, 3 Zeiten).  
-   **Then:** Länge Ergebnis = 3, Werte korrekt interpoliert (z. B. `temperature_2m[0] = 15.0°C`, `wind_speed_10m[1] = 12.5 km/h → 3.47 m/s`).  
-   *Grenzfall:* Query-Zeitpunkt liegt außerhalb des Abfragezeitraums → Exception oder Sentinel-Wert.
+1. **Given:** `OpenMeteoResponse` fixture with 24 hours + 5 weather variables.  
+   **When:** `fetch_weather_for_route()` with 3 `WeatherQuery` (same coordinate, 3 times).  
+   **Then:** Result length = 3, values correctly interpolated (e.g. `temperature_2m[0] = 15.0°C`, `wind_speed_10m[1] = 12.5 km/h → 3.47 m/s`).  
+   *Edge case:* Query time falls outside the query time range → exception or sentinel value.
 
-2. **Given:** `OpenMeteoResponse` mit nur einer Koordinate, aber 2 Queries (doppelter Standort).  
-   **When:** `fetch_weather_for_route()` mit `batch_size=20`.  
-   **Then:** Nur 1 API-Call statt 2 (Caching via Koordinatengruppierung funktioniert).
+2. **Given:** `OpenMeteoResponse` with only one coordinate, but 2 queries (duplicate location).  
+   **When:** `fetch_weather_for_route()` with `batch_size=20`.  
+   **Then:** Only 1 API call instead of 2 (caching via coordinate grouping works).
 
-3. **Given:** 50 Queries mit gleicher Koordinate, 50 Queries mit anderer Koordinate (100 insgesamt).  
-   **When:** `fetch_weather_for_route()` mit `batch_size=20`.  
-   **Then:** Mindestens 4 API-Calls (50/20 + 50/20 = 2.5 + 2.5 → 3 Calls pro Koordinate-Gruppe = min. 4 Calls).
+3. **Given:** 50 queries with the same coordinate, 50 queries with a different coordinate (100 total).  
+   **When:** `fetch_weather_for_route()` with `batch_size=20`.  
+   **Then:** At least 4 API calls (50/20 + 50/20 = 2.5 + 2.5 → 3 calls per coordinate group = min. 4 calls).
 
-**Integration-Tests (`tests/weather/test_providers.py`):**
+**Integration Tests (`tests/weather/test_providers.py`):**
 
 - `@pytest.mark.integration`  
-  **Given:** Lokale GraphHopper-Instanz mit Mock-Wetter-Provider (echter HTTP-Call).  
-  **When:** `fetch_weather_iterative()` auf einer 200 km-Strecke mit 5 Abfragen.  
-  **Then:** Konvergenz nach ≤ 2 Iterationen (ETA-Abweichung < 30 Min), Gesamt-ETA < 20 Sekunden.
+  **Given:** Local GraphHopper instance with mock weather provider (real HTTP call).  
+  **When:** `fetch_weather_iterative()` on a 200 km route with 5 queries.  
+  **Then:** Convergence after ≤ 2 iterations (ETA deviation < 30 min), total ETA < 20 seconds.
 
-### `wind`-Modul
+### `wind` Module
 
-**Fixtures:** Keine externen Dateien nötig — alle Testfälle als Python-Liste.
+**Fixtures:** No external files needed — all test cases as a Python list.
 
-**Unit-Tests (`tests/wind/test_wind.py`):**
+**Unit Tests (`tests/wind/test_wind.py`):**
 
-1. **Given:** `WeatherSample(windgeschwindigkeit_ms=10.0, windrichtung_deg=0.0)` (Nordwind), `RouteSegment(bearing_deg=0.0)` (Norden).
+1. **Given:** `WeatherSample(windgeschwindigkeit_ms=10.0, windrichtung_deg=0.0)` (northerly wind), `RouteSegment(bearing_deg=0.0)` (north).
    **When:** `compute_wind_components()`.  
-   **Then:** `gegenwind_ms = -10.0` (Rückenwind), `seitenwind_ms = 0.0`.
+   **Then:** `gegenwind_ms = -10.0` (tailwind), `seitenwind_ms = 0.0`.
 
-2. **Given:** `WeatherSample(windgeschwindigkeit_ms=10.0, windrichtung_deg=0.0)` (Nordwind), `RouteSegment(bearing_deg=180.0)` (Süden).
+2. **Given:** `WeatherSample(windgeschwindigkeit_ms=10.0, windrichtung_deg=0.0)` (northerly wind), `RouteSegment(bearing_deg=180.0)` (south).
    **When:** `compute_wind_components()`.  
-   **Then:** `gegenwind_ms = +10.0` (Gegenwind), `seitenwind_ms = 0.0`.
+   **Then:** `gegenwind_ms = +10.0` (headwind), `seitenwind_ms = 0.0`.
 
-3. **Given:** `WeatherSample(windgeschwindigkeit_ms=10.0, windrichtung_deg=90.0)` (Ostwind), `RouteSegment(bearing_deg=0.0)` (Norden).
+3. **Given:** `WeatherSample(windgeschwindigkeit_ms=10.0, windrichtung_deg=90.0)` (easterly wind), `RouteSegment(bearing_deg=0.0)` (north).
    **When:** `compute_wind_components()`.  
-   **Then:** `gegenwind_ms = 0.0`, `seitenwind_ms = -10.0` (Seitenwind von links).  
-   *Grenzfall:* Windwinkel = 45° zu Bearing → $v_{\text{long}} = v_{\text{side}} = -10/\sqrt{2} \approx -7.07$.
+   **Then:** `gegenwind_ms = 0.0`, `seitenwind_ms = -10.0` (crosswind from left).  
+   *Edge case:* Wind angle = 45° to bearing → $v_{\text{long}} = v_{\text{side}} = -10/\sqrt{2} \approx -7.07$.
 
-### Test-Setup (`tests/weather/conftest.py`, `tests/wind/conftest.py`)
+### Test Setup (`tests/weather/conftest.py`, `tests/wind/conftest.py`)
 
 ```python
 import pytest
 from tripplanner.weather.models import WeatherSample
-
 
 @pytest.fixture
 def weather_sample_north_wind() -> WeatherSample:
@@ -559,7 +545,6 @@ def weather_sample_north_wind() -> WeatherSample:
         globalstrahlung_wm2=400.0,
         bewoelkung_pct=20.0,
     )
-
 
 @pytest.fixture
 def weather_sample_east_wind() -> WeatherSample:
@@ -580,64 +565,64 @@ def weather_sample_east_wind() -> WeatherSample:
 
 ---
 
-## 7. Aufgaben-Checkliste
+## 7. Task Checklist
 
-**Modulgrenzen strikt einhalten:** Jedes Modul schreibt nur in `src/tripplanner/<modul>/`, `tests/<modul>/`, `docs/plans/03-weather-wind.md`. Kein Live-Netzwerkzugriff in Unit-Tests.
+**Strictly observe module boundaries:** Each module writes only into `src/tripplanner/<module>/`, `tests/<module>/`, `docs/plans/03-weather-wind.md`. No live network access in unit tests.
 
-1. **[weather/models.py]** Erstelle `WeatherQuery` und `WeatherSample` als Pydantic-Modelle mit allen angegebenen Feldern, Validatoren (z. B. `windgeschwindigkeit_ms >= 0`, `windrichtung_deg in [0, 360]`) und Docstrings (Google-Style).
-2. **[weather/client.py]** Implementiere `OpenMeteoClient.fetch_forecast()` mit Batching (max. 50 Koordinaten pro Call), Zeitbereichs-Ermittlung und Parsing der JSON-Antwort in `OpenMeteoResponse` + `WeatherSample`.
-3. **[weather/providers.py]** Implementiere `WeatherProvider`-Protocol und `OpenMeteoProvider`-Klasse, die `OpenMeteoClient` nutzt. Füge Caching für `refetch_weather()` hinzu (Dictionary `CacheKey = Tuple[Coordinate, datetime]`).
-4. **[weather/**init**.py]** Re-exportiere `WeatherProvider`, `fetch_weather_for_route`, `fetch_weather_iterative`.
-5. **[tests/weather/test_weather.py]** Schreibe 3 Unit-Tests (siehe Abschnitt 6, Testfälle 1–3). Nutze `pytest.mark.asyncio`.
-6. **[tests/weather/test_providers.py]** Schreibe 1 Integrationstest (`@pytest.mark.integration`) für `fetch_weather_iterative` mit lokaler GraphHopper-Instanz (Mock-Provider, kein echter HTTP-Call).
-7. **[weather/**init**.py]** Füge `OpenMeteoClient` als optionalen Build-Parameter für `OpenMeteoProvider` hinzu (für Dependency Injection in Tests).
-8. **[wind/models.py]** Erstelle `WindComponents` als Pydantic-Modell (Felder: `segment_index`, `gegenwind_ms`, `seitenwind_ms`).
-9. **`[wind/<modul>.py]`** Implementiere `compute_wind_components()` gemäß trigonometrischer Formel (Vektorprojektion mit 180°-Verschiebung für Windrichtung).
-10. **`[wind/<modul>.py]`** Implementiere `compute_wind_components_for_route()` mit Längen-Check und Loop über Zipped Liste.
-11. **[wind/test_wind.py]** Schreibe 3 Unit-Tests (siehe Abschnitt 6, Testfälle 1–3). Prüfe Werte auf `math.isclose()` mit Toleranz `1e-6`.
-12. **[docs/plans/03-weather-wind.md]** Aktualisiere diese Datei mit finalen Implementation-Details (Formel, API-Endpunkt, Parameter).
-13. **[pyproject.toml]** Füge `httpx` als Abhängigkeit hinzu (`httpx = "^0.27.0"` für Async-Unterstützung).
-14. **[tests/conftest.py]** Erstelle shared `Coordinate`-Fixture für alle Module (`lat=52.52, lon=13.405` für Berlin).
-
----
-
-## 8. Risiken & offene technische Fragen
-
-**Bereits durch „Verbindlich entschiedene offene Punkte“ geregelt:**
-
-- ✅ Iterative ETA/Wetter-Konvergenz (Schwellwert 30 Min, max. Iterationszahl = konfigurierbar).
-- ✅ Straßenroute bleibt fixiert (kein energieoptimales Rerouting) — das `weather`-Modul fragt einfach nur ab, kein Rerouting-Logik.
-- ✅ Tesla-Supercharger-Datenquelle: lokal vorgehalten (JSON/SQLite) — `ChargingStationProvider`-Interface ist bereits vorbereitet, hat aber keine Schnittstelle zu `weather`.
-- ✅ `energy`-Modul darf sinnvolle Default-Parameter verwenden (kein Kalibrierungs-Deliverable im aktuellen Scope).
-
-**Neue Risiken / offene Fragen:**
-
-1. **Open-Meteo Rate-Limits bei mehreren parallelen Routenberechnungen:**
-   - Wenn 100 Routen parallel berechnet werden, könnten 100 × 5 Calls = 500 Calls/Tag schnell erreicht werden.
-   - **Lösung:** Caching im `OpenMeteoProvider` (nicht nur für `refetch_weather`, sondern auch für identische Standorte+Zeiten in verschiedenen Requests). Optional: `asyncio.Semaphore` für parallele Calls beschränken.
-
-2. **Zeitzonenhandling:**
-   - Open-Meteo gibt `timezone` und `timezone_abbreviation` zurück. In `WeatherSample.zeitpunkt` wird `datetime` mit `tzinfo` erwartet.
-   - **Lösung:** `OpenMeteoResponse` parsed `time`-Strings (ISO 8601) via `datetime.fromisoformat()` mit `tzinfo` aus `timezone`. Falls `timezone` fehlt, wird UTC angenommen.
-
-3. **Interpolation bei fehlenden Zeitpunkten:**
-   - Open-Meteo gibt Daten in Stundenschritten (oder 15-minütig). Wenn die gewünschte `WeatherQuery.zeitpunkt` nicht exakt in `hourly.time` enthalten ist, muss interpoliert werden.
-   - **Lösung:** `OpenMeteoClient.fetch_forecast()` führt lineare Interpolation durch (vorhergehender und folgender Stundenslot). Alternativ: `forecast_days=2` setzen, um sicherzustellen, dass alle gewünschten Zeiten im Vorhersagezeitraum liegen.
-
-4. **Windrichtung: 0° vs. 360° (Nordwind):**
-   - Open-Meteo liefert `wind_direction_10m` als `0..360`. `0` und `360` sind identisch.
-   - **Lösung:** In `compute_wind_components()` wird `windrichtung_deg` normalisiert (`% 360`) und für die 180°-Verschiebung korrekt gehandhabt (`(windrichtung_deg + 180) % 360`).
-
-5. **Bearing-Feld:** `RouteSegment.bearing_deg` wird bereits vom `routing`-Modul berechnet (siehe `docs/plans/01-routing.md`, Task 15) und ist ein Pflichtfeld — `wind` muss keinen Fallback aus der Geometrie mehr berechnen.
-
-6. **Historical API als Backup für fehlende Forecast-Daten:**
-   - Falls Open-Meteo Forecast API keine Daten für einen Zeitpunkt zurückgibt (z. B. zu weit in der Vergangenheit), könnte auf Historical-API ausgewichen werden.
-   - **Lösung:** Derzeit **nicht implementiert** (geplant für Phase 9: Integration/Härtung). Vorbereitung: `WeatherProvider`-Protocol ist so angelegt, dass ein `FallbackWeatherProvider` implementiert werden kann.
-
-7. **Wind-Sensorhöhe:**
-   - Open-Meteo liefert `wind_speed_10m` (in 10 m Höhe). Für Fahrzeuge (ca. 1–1.5 m Höhe) könnte eine Höhenkorrektur nötig sein (logarithmisches Windprofil).
-   - **Lösung:** Derzeit **nicht implementiert** (Wind in 10 m Höhe wird als ausreichend genau angenommen). Vorbereitung: `WindComponents` könnte `wind_speed_at_10m_ms: float` heißen, um später eine Metrik `wind_speed_at_vehicle_height_ms` einzufügen.
+1. **[weather/models.py]** Create `WeatherQuery` and `WeatherSample` as Pydantic models with all specified fields, validators (e.g. `windgeschwindigkeit_ms >= 0`, `windrichtung_deg in [0, 360]`) and docstrings (Google-Style).
+2. **[weather/client.py]** Implement `OpenMeteoClient.fetch_forecast()` with batching (max. 50 coordinates per call), time range determination, and parsing the JSON response into `OpenMeteoResponse` + `WeatherSample`.
+3. **[weather/providers.py]** Implement `WeatherProvider` protocol and `OpenMeteoProvider` class, which uses `OpenMeteoClient`. Add caching for `refetch_weather()` (Dictionary `CacheKey = Tuple[Coordinate, datetime]`).
+4. **[weather/**init**.py]** Re-export `WeatherProvider`, `fetch_weather_for_route`, `fetch_weather_iterative`.
+5. **[tests/weather/test_weather.py]** Write 3 unit tests (see section 6, test cases 1–3). Use `pytest.mark.asyncio`.
+6. **[tests/weather/test_providers.py]** Write 1 integration test (`@pytest.mark.integration`) for `fetch_weather_iterative` with local GraphHopper instance (mock provider, no real HTTP call).
+7. **[weather/**init**.py]** Add `OpenMeteoClient` as an optional build parameter for `OpenMeteoProvider` (for dependency injection in tests).
+8. **[wind/models.py]** Create `WindComponents` as a Pydantic model (fields: `segment_index`, `gegenwind_ms`, `seitenwind_ms`).
+9. **`[wind/<module>.py]`** Implement `compute_wind_components()` per the trigonometric formula (vector projection with 180° shift for wind direction).
+10. **`[wind/<module>.py]`** Implement `compute_wind_components_for_route()` with length check and loop over zipped list.
+11. **[wind/test_wind.py]** Write 3 unit tests (see section 6, test cases 1–3). Check values with `math.isclose()` using tolerance `1e-6`.
+12. **[docs/plans/03-weather-wind.md]** Update this file with final implementation details (formula, API endpoint, parameters).
+13. **[pyproject.toml]** Add `httpx` as a dependency (`httpx = "^0.27.0"` for async support).
+14. **[tests/conftest.py]** Create shared `Coordinate` fixture for all modules (`lat=52.52, lon=13.405` for Berlin).
 
 ---
 
-**Ende des Plans.** Dieses Dokument ist vollständig umsetzungsreif und enthält keine Platzhalter (TBD, „später festlegen“ etc.). Alle externen API-Details, Algorithmen und Testfälle sind konkret spezifiziert.
+## 8. Risks & Open Technical Questions
+
+**Already addressed by "Binding Decided Open Points":**
+
+- ✅ Iterative ETA/weather convergence (threshold 30 min, max. iteration count = configurable).
+- ✅ Road route remains fixed (no energy-optimal re-routing) — the `weather` module only queries, no re-routing logic.
+- ✅ Tesla Supercharger data source: kept locally (JSON/SQLite) — `ChargingStationProvider` interface is already prepared, but has no interface to `weather`.
+- ✅ `energy` module may use sensible default parameters (no calibration deliverable in the current scope).
+
+**New Risks / Open Questions:**
+
+1. **Open-Meteo Rate Limits with multiple parallel route calculations:**
+   - If 100 routes are calculated in parallel, 100 × 5 calls = 500 calls could be reached quickly.
+   - **Solution:** Caching in `OpenMeteoProvider` (not just for `refetch_weather`, but also for identical locations+times in different requests). Optional: `asyncio.Semaphore` to limit parallel calls.
+
+2. **Time zone handling:**
+   - Open-Meteo returns `timezone` and `timezone_abbreviation`. `WeatherSample.zeitpunkt` expects `datetime` with `tzinfo`.
+   - **Solution:** `OpenMeteoResponse` parses `time` strings (ISO 8601) via `datetime.fromisoformat()` with `tzinfo` from `timezone`. If `timezone` is missing, UTC is assumed.
+
+3. **Interpolation for missing timestamps:**
+   - Open-Meteo provides data in hourly steps (or 15-minute intervals). If the requested `WeatherQuery.zeitpunkt` is not exactly contained in `hourly.time`, interpolation is required.
+   - **Solution:** `OpenMeteoClient.fetch_forecast()` performs linear interpolation (previous and following hourly slot). Alternatively: set `forecast_days=2` to ensure all requested times fall within the forecast range.
+
+4. **Wind direction: 0° vs. 360° (northerly wind):**
+   - Open-Meteo provides `wind_direction_10m` as `0..360`. `0` and `360` are identical.
+   - **Solution:** In `compute_wind_components()`, `windrichtung_deg` is normalized (`% 360`) and correctly handled for the 180° shift (`(windrichtung_deg + 180) % 360`).
+
+5. **Bearing field:** `RouteSegment.bearing_deg` is already calculated by the `routing` module (see `docs/plans/01-routing.md`, Task 15) and is a required field — `wind` no longer needs to calculate a fallback from the geometry.
+
+6. **Historical API as a backup for missing forecast data:**
+   - If Open-Meteo Forecast API returns no data for a timestamp (e.g. too far in the past), the Historical API could be used as a fallback.
+   - **Solution:** Currently **not implemented** (planned for Phase 9: Integration/Hardening). Preparation: `WeatherProvider` protocol is designed so that a `FallbackWeatherProvider` can be implemented.
+
+7. **Wind sensor height:**
+   - Open-Meteo provides `wind_speed_10m` (at 10 m height). For vehicles (approx. 1–1.5 m height), a height correction may be necessary (logarithmic wind profile).
+   - **Solution:** Currently **not implemented** (wind at 10 m height is assumed to be sufficiently accurate). Preparation: `WindComponents` could be renamed to `wind_speed_at_10m_ms: float` to allow inserting a `wind_speed_at_vehicle_height_ms` metric later.
+
+---
+
+**End of plan.** This document is fully implementation-ready and contains no placeholders (TBD, "decide later", etc.). All external API details, algorithms, and test cases are concretely specified.

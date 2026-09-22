@@ -40,7 +40,7 @@ Add to `tests/routing/test_routing.py`, inside `class TestRouteSegmentModel:` (a
 
 ```python
 def test_route_segment_road_environment_optional(self) -> None:
-    """road_environment ist optional (None wenn GraphHopper es nicht liefert)."""
+    """road_environment is optional (None when GraphHopper does not supply it)."""
     segment = RouteSegment(
         segment_index=0,
         geometrie=[(52.5, 13.4), (52.6, 13.5)],
@@ -52,7 +52,7 @@ def test_route_segment_road_environment_optional(self) -> None:
 
 
 def test_route_segment_strassenname_optional(self) -> None:
-    """strassenname ist optional (None wenn GraphHopper es nicht liefert)."""
+    """strassenname is optional (None when GraphHopper does not supply it)."""
     segment = RouteSegment(
         segment_index=0,
         geometrie=[(52.5, 13.4), (52.6, 13.5)],
@@ -67,10 +67,10 @@ Add a new test class at the end of `tests/routing/test_routing.py`:
 
 ```python
 class TestFaehrSegmentModel:
-    """Tests für das FaehrSegment-Pydantic-Modell."""
+    """Tests for the FaehrSegment Pydantic model."""
 
     def test_faehr_segment_requires_all_fields(self) -> None:
-        """FaehrSegment benötigt name, laenge_m, bbox_sw, bbox_no."""
+        """FaehrSegment requires name, laenge_m, bbox_sw, bbox_no."""
         segment = FaehrSegment(
             name="Rødby (DK) - Puttgarden (D)",
             laenge_m=22000.0,
@@ -83,7 +83,7 @@ class TestFaehrSegmentModel:
         assert segment.bbox_no == (54.66, 11.36)
 
     def test_faehr_segment_rejects_negative_laenge(self) -> None:
-        """laenge_m muss >= 0 sein."""
+        """laenge_m must be >= 0."""
         with pytest.raises(ValidationError):
             FaehrSegment(name="X", laenge_m=-1.0, bbox_sw=(0.0, 0.0), bbox_no=(1.0, 1.0))
 ```
@@ -109,18 +109,18 @@ In `src/tripplanner/routing/models.py`, insert after the `bearing_deg` field (af
     road_environment: str | None = Field(
         default=None,
         description=(
-            "Umgebungstyp aus GraphHopper Path-Detail `road_environment` (ROAD, "
-            "FERRY, BRIDGE, TUNNEL, FORD, OTHER), normalisiert auf Großbuchstaben; "
-            "None wenn nicht verfügbar. Wird von `routing.faehren.erkenne_faehren()` "
-            "genutzt, um Fährabschnitte der Route zu erkennen."
+            "Environment type from GraphHopper Path Detail `road_environment` (ROAD, "
+            "FERRY, BRIDGE, TUNNEL, FORD, OTHER), normalized to uppercase; "
+            "None when unavailable. Used by `routing.faehren.erkenne_faehren()` "
+            "used to detect ferry segments of the route."
         ),
     )
     strassenname: str | None = Field(
         default=None,
         description=(
-            "Straßen-/Fährlinienname aus GraphHopper Path-Detail `street_name` "
-            "(z. B. 'Rødby (DK) - Puttgarden (D)' für eine Fähre); None wenn "
-            "nicht verfügbar oder leer."
+            "Road/ferry-line name from GraphHopper Path Detail `street_name` "
+            "(e.g. 'Rødby (DK) - Puttgarden (D)' for a ferry); None when "
+            "unavailable or empty."
         ),
     )
 ```
@@ -131,27 +131,27 @@ Append to the end of `src/tripplanner/routing/models.py`:
 
 ```python
 class FaehrSegment(BaseModel):
-    """Eine in einer berechneten `Route` erkannte, zusammenhängende Fährverbindung.
+    """A detected, contiguous ferry connection found in a computed `Route`. 
 
-    Erzeugt von `tripplanner.routing.faehren.erkenne_faehren()`. `bbox_sw`/`bbox_no`
-    beschreiben eine um `FAEHR_PUFFER_GRAD` gepufferte Bounding Box um die exakte
-    Segmentgeometrie - zur Wiederverwendung als `FaehrAusschluss`
+    Produced by `tripplanner.routing.faehren.erkenne_faehren()`. `bbox_sw`/`bbox_no`
+    describe a bounding box buffered by `FAEHR_PUFFER_GRAD` around the exact 
+    segment geometry - for reuse as `FaehrAusschluss`
     (`tripplanner.trip_input.models`) in einer nachfolgenden Routenberechnung, die
-    genau diese Fährverbindung vermeiden soll.
+    intended to avoid exactly this ferry connection. 
     """
 
     name: str = Field(
         ...,
         description=(
-            "Fährname aus `strassenname` des ersten Segments des Laufs, "
-            "'Unbenannte Fähre' falls GraphHopper keinen Namen liefert."
+            "Ferry name from `strassenname` of the first segment of the run, "
+            "'Unbenannte Fähre' if GraphHopper does not supply a name."
         ),
     )
     laenge_m: float = Field(
-        ..., ge=0, description="Gesamtlänge aller zusammenhängenden Fährsegmente in Metern"
+        ..., ge=0, description="Total length of all contiguous ferry segments in meters"
     )
-    bbox_sw: Coordinate = Field(..., description="Südwest-Ecke der gepufferten Bounding Box")
-    bbox_no: Coordinate = Field(..., description="Nordost-Ecke der gepufferten Bounding Box")
+    bbox_sw: Coordinate = Field(..., description="Southwest corner of the buffered bounding box")
+    bbox_no: Coordinate = Field(..., description="Northeast corner of the buffered bounding box")
 ```
 
 - [ ] **Step 5: Export `FaehrSegment` from the package**
@@ -222,7 +222,7 @@ Run: `test -f tests/trip_input/test_models.py && echo EXISTS || echo MISSING`
 If `MISSING`, create `tests/trip_input/test_models.py` with this header:
 
 ```python
-"""Unit-Tests für `tripplanner.trip_input.models`."""
+"""Unit tests for `tripplanner.trip_input.models`."""
 
 from __future__ import annotations
 
@@ -236,7 +236,7 @@ from tripplanner.trip_input.models import FaehrAusschluss, TripRequest, VehicleP
 
 @pytest.fixture
 def vehicle_profile() -> VehicleProfile:
-    """Beispiel-Fahrzeugprofil für TripRequest-Tests."""
+    "Example vehicle profile for TripRequest tests."
     return VehicleProfile(
         masse_kg=1706.0,
         cw_wert=0.23,
@@ -254,10 +254,10 @@ Append to `tests/trip_input/test_models.py`:
 
 ```python
 class TestFaehrAusschluss:
-    """Tests für das FaehrAusschluss-Pydantic-Modell."""
+    """Tests for the FaehrAusschluss Pydantic model."""
 
     def test_faehr_ausschluss_requires_name_and_bbox(self) -> None:
-        """FaehrAusschluss benötigt name, bbox_sw, bbox_no."""
+        """FaehrAusschluss requires name, bbox_sw, bbox_no."""
         ausschluss = FaehrAusschluss(
             name="Rødby (DK) - Puttgarden (D)",
             bbox_sw=(54.50, 11.22),
@@ -269,12 +269,12 @@ class TestFaehrAusschluss:
 
 
 class TestTripRequestFaehrPraeferenzen:
-    """Tests für die Fährvermeidungs-Felder von TripRequest."""
+    """Tests for the ferry-avoidance fields of TripRequest."""
 
     def test_alle_faehren_vermeiden_defaults_to_false(
         self, vehicle_profile: VehicleProfile
     ) -> None:
-        """alle_faehren_vermeiden ist standardmäßig False."""
+        """alle_faehren_vermeiden defaults to False."""
         anfrage = TripRequest(
             start=(52.52, 13.405),
             ziel=(53.5511, 9.9937),
@@ -287,7 +287,7 @@ class TestTripRequestFaehrPraeferenzen:
     def test_vermiedene_faehren_accepts_faehr_ausschluss_list(
         self, vehicle_profile: VehicleProfile
     ) -> None:
-        """vermiedene_faehren akzeptiert eine Liste von FaehrAusschluss."""
+        """vermiedene_faehren accepts a list of FaehrAusschluss."""
         anfrage = TripRequest(
             start=(52.52, 13.405),
             ziel=(53.5511, 9.9937),
@@ -314,25 +314,25 @@ In `src/tripplanner/trip_input/models.py`, insert a new class after `Waypoint` (
 
 ```python
 class FaehrAusschluss(BaseModel):
-    """Eine vom Nutzer zu vermeidende Fährverbindung.
+    """A ferry connection to be avoided by the user. 
 
-    Stammt aus einer zuvor per `tripplanner.routing.erkenne_faehren()` aus einer
-    berechneten Route erkannten `FaehrSegment`-Struktur (gleiche Feldnamen für
-    `name`/`bbox_sw`/`bbox_no`, aber eigenständig definiert): `routing` importiert
-    bereits `trip_input.models` (`TripRequest`), ein Import in Gegenrichtung würde
-    einen Modul-Zyklus erzeugen. Der API-Layer (`trip_input.api`, der beide Module
-    bereits importiert) konvertiert zwischen beiden Repräsentationen.
+    Originates from a `FaehrSegment` structure previously detected via `tripplanner.routing.erkenne_faehren()` from a 
+    computed route (same field names for 
+    `name`/`bbox_sw`/`bbox_no`, but independently defined): `routing` already imports 
+    already `trip_input.models` (`TripRequest`); an import in the reverse direction would 
+    create a module cycle. The API layer (`trip_input.api`, which already imports both modules 
+    already imports both) converts between the two representations. 
     """
 
     name: str = Field(
         ...,
-        description="Anzeigename der Fährverbindung (aus einer vorherigen Routenberechnung)",
+        description="Display name of the ferry connection (from a previous route calculation)", 
     )
     bbox_sw: Coordinate = Field(
-        ..., description="Südwest-Ecke der (gepufferten) Bounding Box um die Fährverbindung"
+        ..., description="Southwest corner of the (buffered) bounding box around the ferry connection"
     )
     bbox_no: Coordinate = Field(
-        ..., description="Nordost-Ecke der (gepufferten) Bounding Box um die Fährverbindung"
+        ..., description="Northeast corner of the (buffered) bounding box around the ferry connection"
     )
 ```
 
@@ -342,16 +342,16 @@ In `class TripRequest`, insert after the `fahrzeugprofil` field (after line 71, 
     alle_faehren_vermeiden: bool = Field(
         default=False,
         description=(
-            "Falls True, werden alle Fährverbindungen bei der Routenberechnung "
-            "vermieden (GraphHopper custom_model: road_environment == FERRY "
-            "ausgeschlossen)."
+            "When True, all ferry connections are excluded during route calculation 
+            (GraphHopper custom_model: road_environment == FERRY "
+            "excluded)."
         ),
     )
     vermiedene_faehren: list[FaehrAusschluss] = Field(
         default_factory=list,
         description=(
-            "Liste spezifischer, zuvor erkannter Fährverbindungen, die bei der "
-            "Routenberechnung vermieden werden sollen (siehe FaehrAusschluss)."
+            "List of specific, previously detected ferry connections to be excluded during the 
+            "route calculation (see FaehrAusschluss)."
         ),
     )
 ```
@@ -393,17 +393,17 @@ Add to `tests/routing/test_client.py`, as a new class after `TestRouteErrors`:
 
 ```python
 class TestChDisable:
-    """Tests für automatisches `ch.disable` bei custom_model-Requests.
+    """Tests for automatic `ch.disable` on custom_model requests. 
 
-    GraphHopper lehnt `custom_model` ab, solange das Profil im CH ("speed
-    mode") läuft - live gegen den Projekt-GraphHopper-Server verifiziert
+    GraphHopper rejects `custom_model` while the profile is in CH ("speed 
+    mode") - verified live against the project's GraphHopper server
     (Fehler: "The 'custom_model' parameter is currently not supported for
     speed mode, you need to disable speed mode with `ch.disable=true`.").
     """
 
     @pytest.mark.asyncio
     async def test_ch_disable_set_when_custom_model_present(self) -> None:
-        """`ch.disable=True` wird gesetzt, sobald `custom_model` übergeben wird."""
+        """`ch.disable=True` is set as soon as `custom_model` is passed."""
         captured: list[dict[str, object]] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -424,7 +424,7 @@ class TestChDisable:
 
     @pytest.mark.asyncio
     async def test_ch_disable_absent_when_custom_model_none(self) -> None:
-        """Ohne custom_model wird `ch.disable` nicht gesendet (unverändertes Verhalten)."""
+        """Without custom_model, `ch.disable` is not sent (unchanged behavior)."""
         captured: list[dict[str, object]] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -458,12 +458,12 @@ with:
 ```python
         if custom_model:
             payload["custom_model"] = custom_model
-            # GraphHopper lehnt `custom_model` ab, solange das Profil im CH
-            # ("speed mode") läuft - live gegen den Projekt-GraphHopper-Server
+            # GraphHopper rejects `custom_model` while the profile is in CH
+            # ("speed mode") - verified live against the project's GraphHopper server
             # verifiziert (Fehler: "The 'custom_model' parameter is currently
             # not supported for speed mode, you need to disable speed mode
-            # with `ch.disable=true`."). Muss bei JEDEM custom_model-Request
-            # gesetzt werden, unabhängig vom Anwendungsfall.
+            # with `ch.disable=true`."). Must be set for EVERY custom_model request
+            # regardless of the use case. 
             payload["ch.disable"] = True
 ```
 
@@ -536,7 +536,7 @@ In `tests/routing/conftest.py`, add after the `graphhopper_response_with_details
 ```python
 @pytest.fixture
 def graphhopper_response_with_ferry() -> GraphHopperResponse:
-    """Reale GraphHopper-Antwort (Puttgarden -> Rødby) mit road_environment/street_name."""
+    """Real GraphHopper response (Puttgarden -> Rødby) with road_environment/street_name."""
     data = json.loads((FIXTURES_DIR / "graphhopper_response_with_ferry.json").read_text())
     return GraphHopperResponse.model_validate(data)
 ```
@@ -547,14 +547,14 @@ Add to `tests/routing/test_providers.py`, as a new class after `TestMapPathToRou
 
 ```python
 class TestMapPathToRouteFerryDetails:
-    """Tests für road_environment/strassenname-Mapping (Grundlage der Fährerkennung)."""
+    """Tests for road_environment/strassenname mapping (basis of ferry detection)."""
 
     def test_ferry_segment_has_uppercased_road_environment(
         self,
         gh_provider: GraphHopperRoutingProvider,
         graphhopper_response_with_ferry: GraphHopperResponse,
     ) -> None:
-        """Das Fährsegment hat road_environment='FERRY' (uppercased aus GraphHopper 'ferry')."""
+        """The ferry segment has road_environment='FERRY' (uppercased from GraphHopper 'ferry')."""
         route = gh_provider._map_path_to_route(graphhopper_response_with_ferry.paths[0])
 
         ferry_segments = [s for s in route.segments if s.road_environment == "FERRY"]
@@ -565,7 +565,7 @@ class TestMapPathToRouteFerryDetails:
         gh_provider: GraphHopperRoutingProvider,
         graphhopper_response_with_ferry: GraphHopperResponse,
     ) -> None:
-        """Das Fährsegment übernimmt den Namen aus dem street_name Path-Detail."""
+        """The ferry segment takes the name from the street_name Path Detail."""
         route = gh_provider._map_path_to_route(graphhopper_response_with_ferry.paths[0])
 
         ferry_segment = next(s for s in route.segments if s.road_environment == "FERRY")
@@ -576,7 +576,7 @@ class TestMapPathToRouteFerryDetails:
         gh_provider: GraphHopperRoutingProvider,
         graphhopper_response_with_ferry: GraphHopperResponse,
     ) -> None:
-        """Ein Segment mit street_name=null im JSON wird zu strassenname=None."""
+        """A segment with street_name=null in the JSON becomes strassenname=None."""
         route = gh_provider._map_path_to_route(graphhopper_response_with_ferry.paths[0])
 
         assert route.segments[0].strassenname is None
@@ -613,13 +613,13 @@ with:
         "surface",
         "road_environment",
     )
-    # `street_name` liest OSM-Namen direkt (z. B. Fährlinien-Relationen wie
+    # `street_name` reads OSM names directly (e.g. ferry-line relations like 
     # "Rødby (DK) - Puttgarden (D)") und ist - anders als road_class/surface/
-    # etc. - KEIN `graph.encoded_values`-Eintrag: taucht nie in `/info` auf
-    # und würde von `_ermittele_verfuegbare_path_details()`s Verfügbarkeits-
-    # filter fälschlich verworfen. Wird deshalb unabhängig vom Filter immer
-    # angefragt (live gegen den Projekt-GraphHopper-Server verifiziert:
-    # Detail wird korrekt geliefert, siehe graphhopper_response_with_ferry.json).
+    # etc. - NOT a `graph.encoded_values` entry: never appears in `/info` and
+    # would be incorrectly discarded by `_ermittele_verfuegbare_path_details()`'s availability 
+    # filter. Therefore always requested independently of the filter 
+    # (verified live against the project's GraphHopper server: 
+    # detail is correctly supplied, see graphhopper_response_with_ferry.json). 
     _IMMER_VERFUEGBARE_DETAILS: tuple[str, ...] = ("street_name",)
 ```
 
@@ -717,7 +717,7 @@ server (Puttgarden<->Rødby)."
 Create `tests/routing/test_faehren.py`:
 
 ```python
-"""Unit-Tests für `tripplanner.routing.faehren.erkenne_faehren()`."""
+"""Unit tests for `tripplanner.routing.faehren.erkenne_faehren()`."""
 
 from __future__ import annotations
 
@@ -734,7 +734,7 @@ def _segment(
     road_environment: str | None,
     strassenname: str | None = None,
 ) -> RouteSegment:
-    """Baut ein minimales RouteSegment für Fähr-Erkennungstests."""
+    """Builds a minimal RouteSegment for ferry detection tests."""
     return RouteSegment(
         segment_index=index,
         geometrie=[start, end],
@@ -747,10 +747,10 @@ def _segment(
 
 
 class TestErkenneFaehren:
-    """Tests für erkenne_faehren()."""
+    """Tests for erkenne_faehren()."""
 
     def test_no_ferry_segments_returns_empty_list(self) -> None:
-        """Eine Route ohne FERRY-Segmente liefert eine leere Liste."""
+        """A route without FERRY segments returns an empty list."""
         route = Route(
             segments=[_segment(0, (54.0, 11.0), (54.1, 11.1), "ROAD")],
             gesamtlaenge_m=1000.0,
@@ -759,7 +759,7 @@ class TestErkenneFaehren:
         assert erkenne_faehren(route) == []
 
     def test_missing_road_environment_returns_empty_list(self) -> None:
-        """Segmente ohne road_environment (z. B. FakeRoutingProvider) werden ignoriert."""
+        """Segments without road_environment (e.g. FakeRoutingProvider) are ignored."""
         route = Route(
             segments=[_segment(0, (54.0, 11.0), (54.1, 11.1), None)],
             gesamtlaenge_m=1000.0,
@@ -768,7 +768,7 @@ class TestErkenneFaehren:
         assert erkenne_faehren(route) == []
 
     def test_single_contiguous_ferry_run_grouped_into_one_segment(self) -> None:
-        """Ein zusammenhängender FERRY-Lauf ergibt genau ein FaehrSegment mit summierter Länge."""
+        """A contiguous FERRY run yields exactly one FaehrSegment with summed length."""
         route = Route(
             segments=[
                 _segment(0, (54.50, 11.22), (54.55, 11.25), "ROAD"),
@@ -793,7 +793,7 @@ class TestErkenneFaehren:
         assert faehren[0].laenge_m == 2000.0
 
     def test_ferry_bbox_buffered_around_segment_geometry(self) -> None:
-        """Die Bounding Box umschließt die Fährgeometrie gepuffert um FAEHR_PUFFER_GRAD."""
+        """The bounding box encloses the ferry geometry buffered by FAEHR_PUFFER_GRAD."""
         route = Route(
             segments=[_segment(0, (54.50, 11.22), (54.60, 11.30), "FERRY", "Testfähre")],
             gesamtlaenge_m=1000.0,
@@ -810,7 +810,7 @@ class TestErkenneFaehren:
         )
 
     def test_ferry_without_strassenname_falls_back_to_default_name(self) -> None:
-        """Fehlt strassenname (kein street_name von GraphHopper), wird ein Fallback-Name verwendet."""
+        """When strassenname is missing (no street_name from GraphHopper), a fallback name is used."""
         route = Route(
             segments=[_segment(0, (54.50, 11.22), (54.60, 11.30), "FERRY", None)],
             gesamtlaenge_m=1000.0,
@@ -822,7 +822,7 @@ class TestErkenneFaehren:
         assert faehren[0].name == "Unbenannte Fähre"
 
     def test_two_disjoint_ferry_runs_produce_two_segments(self) -> None:
-        """Zwei durch ein ROAD-Segment getrennte FERRY-Läufe ergeben zwei FaehrSegmente."""
+        """Two FERRY runs separated by a ROAD segment yield two FaehrSegments."""
         route = Route(
             segments=[
                 _segment(0, (54.0, 11.0), (54.1, 11.1), "FERRY", "Fähre A"),
@@ -838,7 +838,7 @@ class TestErkenneFaehren:
         assert [f.name for f in faehren] == ["Fähre A", "Fähre B"]
 
     def test_ferry_run_extending_to_end_of_route_is_captured(self) -> None:
-        """Ein FERRY-Lauf, der bis zum letzten Segment reicht, wird nicht verworfen."""
+        """A FERRY run that extends to the last segment is not discarded."""
         route = Route(
             segments=[
                 _segment(0, (54.0, 11.0), (54.1, 11.1), "ROAD"),
@@ -864,11 +864,11 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'tripplanner.routing.fa
 Create `src/tripplanner/routing/faehren.py`:
 
 ```python
-"""Erkennung von Fährverbindungen in einer berechneten `Route`.
+"""Detection of ferry connections in a computed `Route`. 
 
-Kein statisches Fähr-Register: Fährabschnitte werden ausschließlich aus den
-`road_environment`/`strassenname`-Feldern erkannt, die `GraphHopperRoutingProvider`
-je Segment aus den GraphHopper Path-Details `road_environment`/`street_name`
+No static ferry register: ferry segments are detected exclusively from the
+`road_environment`/`strassenname` fields, which `GraphHopperRoutingProvider`
+extracts per segment from the GraphHopper Path Details `road_environment`/`street_name`
 extrahiert (siehe `docs/superpowers/specs/2026-08-15-ferry-avoidance-design.md`).
 """
 
@@ -877,28 +877,28 @@ from __future__ import annotations
 from tripplanner.routing.models import Coordinate, FaehrSegment, Route, RouteSegment
 
 FAEHR_PUFFER_GRAD: float = 0.005
-"""Pufferung (in Dezimalgrad, ca. 500 m bei den Breitengraden DE/DK/SE) um die
-exakte Segmentgeometrie einer erkannten Fährverbindung, damit die daraus gebaute
-GraphHopper Custom-Model-Area die komplette Fährlinie sicher abdeckt."""
+"Buffering (in decimal degrees, approx. 500 m at the latitudes DE/DK/SE) around the
+exact segment geometry of a detected ferry connection, so that the Custom Model Area built from it
+covers the entire ferry line reliably."
 
 _UNBENANNTE_FAEHRE = "Unbenannte Fähre"
 
 
 def erkenne_faehren(route: Route) -> list[FaehrSegment]:
-    """Gruppiert zusammenhängende Fährsegmente einer Route zu `FaehrSegment`-Einträgen.
+    """Groups contiguous ferry segments of a route into `FaehrSegment` entries. 
 
-    Läuft einmal linear über `route.segments` und fasst aufeinanderfolgende
-    Segmente mit `road_environment == "FERRY"` zu je einem `FaehrSegment`
-    zusammen (Name aus dem ersten vorhandenen `strassenname` des Laufs, sonst
-    "Unbenannte Fähre"; Länge als Summe der `laenge_m`; Bounding Box aus allen
-    beteiligten `geometrie`-Koordinaten, gepuffert um `FAEHR_PUFFER_GRAD`).
+    Iterates once linearly over `route.segments` and combines consecutive
+    segments with `road_environment == "FERRY"` into one `FaehrSegment` each
+    (name from the first available `strassenname` of the run, else 
+    "Unbenannte Fähre"; length as the sum of `laenge_m`; bounding box from all
+    involved `geometry` coordinates, buffered by `FAEHR_PUFFER_GRAD`. 
 
     Args:
         route: Eine bereits berechnete Route (z. B. aus `RoutingProvider.berechne_route()`).
 
     Returns:
-        Liste erkannter Fährverbindungen in Fahrtrichtung. Leer, wenn die Route
-        keine Fährsegmente enthält oder `road_environment` nicht verfügbar war
+        List of detected ferry connections in driving direction. Empty if the route
+        contains no ferry segments or `road_environment` was unavailable
         (z. B. `FakeRoutingProvider`-Routen).
     """
     ergebnis: list[FaehrSegment] = []
@@ -920,7 +920,7 @@ def erkenne_faehren(route: Route) -> list[FaehrSegment]:
 
 
 def _lauf_zu_faehrsegment(lauf: list[RouteSegment]) -> FaehrSegment:
-    """Baut ein `FaehrSegment` aus einem zusammenhängenden Lauf von Fähr-`RouteSegment`s."""
+    """Builds a `FaehrSegment` from a contiguous run of ferry `RouteSegment`s."""
     name = next((s.strassenname for s in lauf if s.strassenname), None) or _UNBENANNTE_FAEHRE
     laenge_m = sum(s.laenge_m for s in lauf)
 
@@ -1000,18 +1000,18 @@ Add to `tests/routing/test_providers.py`, as a new class after `TestNormalizeMax
 
 ```python
 class TestBuildCustomModel:
-    """Tests für GraphHopperRoutingProvider._build_custom_model()."""
+    """Tests for GraphHopperRoutingProvider._build_custom_model()."""
 
     def test_no_avoidance_and_no_speed_profile_returns_none(
         self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
     ) -> None:
-        """Ohne Fährvermeidung und ohne use_custom_model wird kein custom_model gebaut."""
+        """Without ferry avoidance and without use_custom_model, no custom_model is built."""
         assert gh_provider._build_custom_model(trip_request) is None
 
     def test_alle_faehren_vermeiden_adds_ferry_priority_rule(
         self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
     ) -> None:
-        """alle_faehren_vermeiden=True fügt eine road_environment==FERRY Priority-Regel hinzu."""
+        """alle_faehren_vermeiden=True adds a road_environment==FERRY priority rule."""
         anfrage = trip_request.model_copy(update={"alle_faehren_vermeiden": True})
 
         custom_model = gh_provider._build_custom_model(anfrage)
@@ -1023,7 +1023,7 @@ class TestBuildCustomModel:
     def test_vermiedene_faehren_adds_area_and_priority_rule(
         self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
     ) -> None:
-        """Jede vermiedene Fähre erzeugt eine GeoJSON-Area und eine in_<id> Priority-Regel."""
+        """Each avoided ferry creates a GeoJSON Area and an in_<id> priority rule."""
         ausschluss = FaehrAusschluss(
             name="Rødby (DK) - Puttgarden (D)",
             bbox_sw=(54.50, 11.22),
@@ -1043,7 +1043,7 @@ class TestBuildCustomModel:
         assert ring[0] == ring[-1]  # geschlossener Ring
 
     def test_use_custom_model_and_ferry_avoidance_combined(self, trip_request: TripRequest) -> None:
-        """use_custom_model=True und Fährvermeidung wirken gemeinsam auf dieselbe priority-Liste."""
+        """use_custom_model=True and ferry avoidance work together on the same priority list."""
         provider = GraphHopperRoutingProvider(client=None, use_custom_model=True)  # type: ignore[arg-type]
         anfrage = trip_request.model_copy(update={"alle_faehren_vermeiden": True})
 
@@ -1108,8 +1108,8 @@ Replace the `berechne_route` body's custom_model construction (the block current
 
 ```python
 async def berechne_route(self, anfrage: TripRequest) -> Route:
-    """Berechnet eine Route für eine TripRequest (inkl. Zwischenstopps)."""
-    # Umwandlung TripRequest → GraphHopper Parameter
+    """Calculates a route for a TripRequest (including waypoints)."""
+    # TripRequest -> GraphHopper parameter conversion
     points = [anfrage.start] + [wp.koordinate for wp in anfrage.zwischenstopps] + [anfrage.ziel]
 
     details_list = [
@@ -1122,11 +1122,11 @@ async def berechne_route(self, anfrage: TripRequest) -> Route:
     response = await self.client.route(
         points=points,
         profile="car",
-        # elevation=False: der `polyline`-Decoder unterstützt nur 2D
-        # (lat, lon) - eine 3D-kodierte Polyline (mit Elevation) würde
-        # `polyline.decode()` falsch ausrichten und zum Absturz bringen.
-        # `RouteSegment.geometrie` ist ohnehin nur (lat, lon); Steigung
-        # wird separat vom `elevation`-Modul aus DEM-Kacheln berechnet.
+        # elevation=False: the `polyline` decoder only supports 2D
+        # (lat, lon) - a 3D-encoded polyline (with elevation) would
+        # `polyline.decode()` misalign and cause a crash.
+        # `RouteSegment.geometry` is only (lat, lon) anyway; slope
+        # is calculated separately by the `elevation` module from DEM tiles.
         elevation=False,
         details=details_list,
         custom_model=custom_model,
@@ -1137,12 +1137,12 @@ async def berechne_route(self, anfrage: TripRequest) -> Route:
 
 
 def _build_custom_model(self, anfrage: TripRequest) -> dict[str, object] | None:
-    """Baut das optionale GraphHopper `custom_model` aus Tempolimit- und Fähr-Präferenzen.
+    """Builds the optional GraphHopper `custom_model` from speed-limit and ferry preferences. 
 
-    Gibt `None` zurück, wenn weder `use_custom_model` (Tempolimit-Profil) noch
-    Fährvermeidung (`anfrage.alle_faehren_vermeiden`/`anfrage.vermiedene_faehren`)
-    angefordert wurde - identisch zum bisherigen Verhalten ohne benutzerdefiniertes
-    Modell (kein custom_model-Feld im GraphHopper-Request).
+    Returns `None` when neither `use_custom_model` (speed-limit profile) nor 
+    ferry avoidance (`anfrage.alle_faehren_vermeiden`/`anfrage.vermiedene_faehren`)
+    is requested - identical to previous behavior without a custom 
+    model (no custom_model field in the GraphHopper request). 
     """
     priority: list[dict[str, object]] = []
     speed: list[dict[str, object]] | None = None
@@ -1225,10 +1225,10 @@ Expected: `11.0` (if not running, start it: `docker compose up -d graphhopper` a
 Create `tests/routing/test_faehren_integration.py`:
 
 ```python
-"""Integrationstests: Fährvermeidung gegen einen echten GraphHopper-Server.
+"""Integration tests: ferry avoidance against a real GraphHopper server. 
 
-Reproduziert die live gegen den Projekt-GraphHopper (siehe docker-compose.yml,
-DE+DK+SE-Extrakt) validierten Szenarien aus
+Reproduces the scenarios validated live against the project GraphHopper (see docker-compose.yml, 
+DE+DK+SE extract) validated from
 `docs/superpowers/specs/2026-08-15-ferry-avoidance-design.md`.
 """
 
@@ -1243,15 +1243,15 @@ from tripplanner.routing.faehren import erkenne_faehren
 from tripplanner.routing.providers import GraphHopperRoutingProvider
 from tripplanner.trip_input.models import FaehrAusschluss, TripRequest, VehicleProfile
 
-# Rødby (DK) <-> Puttgarden (D): direkte Fährüberquerung des Fehmarnbelt,
-# ca. 22 km / 69 min per Fähre (live verifiziert).
+# Rødby (DK) <-> Puttgarden (D): direct ferry crossing of the Fehmarnbelt, 
+# approx. 22 km / 69 min per ferry (verified live). 
 _PUTTGARDEN = (54.5033, 11.2270)
 _RODBY = (54.6558, 11.3453)
 
 
 @pytest.fixture
 def vehicle_profile() -> VehicleProfile:
-    """Beispiel-Fahrzeugprofil für Integrationstests."""
+    "Example vehicle profile for integration tests."
     return VehicleProfile(
         masse_kg=1706.0,
         cw_wert=0.23,
@@ -1264,7 +1264,7 @@ def vehicle_profile() -> VehicleProfile:
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_baseline_route_uses_the_ferry(vehicle_profile: VehicleProfile) -> None:
-    """Ohne Vermeidung nutzt die direkte Route die Rødby-Puttgarden-Fähre."""
+    """Without avoidance, the direct route uses the Rødby-Puttgarden ferry."""
     client = GraphHopperClient(base_url="http://localhost:8989")
     provider = GraphHopperRoutingProvider(client)
     anfrage = TripRequest(
@@ -1285,7 +1285,7 @@ async def test_baseline_route_uses_the_ferry(vehicle_profile: VehicleProfile) ->
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_alle_faehren_vermeiden_forces_long_detour(vehicle_profile: VehicleProfile) -> None:
-    """alle_faehren_vermeiden=True erzwingt eine deutlich längere Landroute ohne Fähre."""
+    """alle_faehren_vermeiden=True forces a much longer land route without ferries."""
     client = GraphHopperClient(base_url="http://localhost:8989")
     provider = GraphHopperRoutingProvider(client)
     anfrage = TripRequest(
@@ -1308,7 +1308,7 @@ async def test_alle_faehren_vermeiden_forces_long_detour(vehicle_profile: Vehicl
 async def test_specific_ferry_exclusion_reroutes_around_detected_segment(
     vehicle_profile: VehicleProfile,
 ) -> None:
-    """Wird die zuvor erkannte Fähre gezielt ausgeschlossen, wird sie nicht erneut genutzt."""
+    """When the previously detected ferry is specifically excluded, it is not used again."""
     client = GraphHopperClient(base_url="http://localhost:8989")
     provider = GraphHopperRoutingProvider(client)
     baseline_anfrage = TripRequest(
@@ -1411,7 +1411,7 @@ async def test_create_trip_simulation_without_route_observer_unaffected(
     fake_weather_provider: FakeWeatherProvider,
     fake_charging_provider_berlin_munich: FakeChargingStationProvider,
 ) -> None:
-    """Ohne route_observer (Default None) verhält sich die Funktion unverändert."""
+    """Without route_observer (default None), the function behaves unchanged."""
     result = await create_trip_simulation(
         valid_trip_request,
         routing_provider=fake_routing_provider,
@@ -1436,8 +1436,8 @@ Also add a test proving the switch to `berechne_route` actually threads ferry pr
 async def test_step_1_route_berechnen_uses_berechne_route_not_waypoints(
     valid_trip_request: dict,
 ) -> None:
-    """_step_1_route_berechnen() ruft berechne_route() auf (nicht berechne_route_mit_waypoints()),
-    damit TripRequest-Präferenzen (z. B. Fährvermeidung) den Provider erreichen."""
+    """_step_1_route_berechnen() calls berechne_route() (not berechne_route_mit_waypoints()), 
+    so that TripRequest preferences (e.g. ferry avoidance) reach the provider."""
 
     class _RecordingProvider(FakeRoutingProvider):
         def __init__(self) -> None:
@@ -1477,13 +1477,13 @@ async def _step_1_route_berechnen(
     anfrage: TripRequest,
     routing_provider: RoutingProvider | None = None,
 ) -> Route:
-    """Schritt 1: OSM-Routing berechnen (inkl. Zwischenstopps als Pflicht-Waypoints).
+    """Step 1: Calculate OSM route (including waypoints as mandatory waypoints). 
 
-    Als Default-Provider wird `FakeRoutingProvider` verwendet, damit die Pipeline
-    ohne echten GraphHopper-Server läuft. Für Produktion kann ein echter Provider
-    wie `GraphHopperRoutingProvider` übergeben werden. Ruft `berechne_route()`
-    (nicht `berechne_route_mit_waypoints()`) auf, damit Präferenzen aus `anfrage`
-    (z. B. Fährvermeidung) den Provider erreichen.
+    `FakeRoutingProvider` is used as the default provider so the pipeline 
+    runs without a real GraphHopper server. For production, a real provider
+    such as `GraphHopperRoutingProvider` can be passed. Calls `berechne_route()`
+    (not `berechne_route_mit_waypoints()`) so that preferences from `anfrage`
+    (e.g. ferry avoidance) reach the provider. 
     """
     provider = routing_provider or FakeRoutingProvider()
     return await provider.berechne_route(anfrage)
@@ -1509,9 +1509,9 @@ Add to its docstring `Args:` block (after `ziel_soc_pct`):
 
 ```
         route_observer: Optionaler Callback, der unmittelbar nach Schritt 1 (Routing)
-            mit der berechneten Route aufgerufen wird - z. B. um erkannte
-            Fährverbindungen zu extrahieren, ohne GraphHopper ein zweites Mal
-            aufzurufen (siehe `create_trip_endpoint`).
+            called with the computed route - e.g. to extract detected 
+            ferry connections without calling GraphHopper a second time
+(see `create_trip_endpoint`). 
 ```
 
 In the function body, replace:
@@ -1581,8 +1581,8 @@ Add to `tests/trip_input/test_api.py`, near `test_fastapi_endpoint_creates_trip`
 def test_fastapi_endpoint_response_includes_erkannte_faehren_key(
     client: TestClient, valid_trip_request: dict
 ) -> None:
-    """Response enthält den Schlüssel erkannte_faehren (leer, da FakeRoutingProvider
-    keine road_environment-Daten liefert)."""
+    """Response contains the erkannte_faehren key (empty, because FakeRoutingProvider 
+    does not supply road_environment data)."""
     api_request = {
         "start": valid_trip_request["start"],
         "ziel": valid_trip_request["ziel"],
@@ -1658,10 +1658,10 @@ Add two new API models just before `class TripRequestAPI` (before line 781):
 
 ```python
 class FaehrAusschlussAPI(BaseModel):
-    """API-Request für eine zu vermeidende, zuvor erkannte Fährverbindung."""
+    """API request for a previously detected ferry connection to be avoided."""
 
-    name: str = Field(..., description="Anzeigename der Fährverbindung")
-    bbox_sw: tuple[float, float] = Field(..., description="Südwest-Ecke der Bounding Box")
+    name: str = Field(..., description="Display name of the ferry connection")
+    bbox_sw: tuple[float, float] = Field(..., description="Southwest corner of the bounding box")
     bbox_no: tuple[float, float] = Field(..., description="Nordost-Ecke der Bounding Box")
 ```
 
@@ -1669,27 +1669,27 @@ Update `TripRequestAPI` (lines 781-795), adding two fields at the end:
 
 ```python
 class TripRequestAPI(BaseModel):
-    """API-Request für /trips-Endpunkt."""
+    """API request for /trips endpoint."""
 
-    start: tuple[float, float] = Field(..., description="(lat, lon) Startkoordinate")
-    ziel: tuple[float, float] = Field(..., description="(lat, lon) Zielkoordinate")
+    start: tuple[float, float] = Field(..., description="(lat, lon) start coordinate")
+    ziel: tuple[float, float] = Field(..., description="(lat, lon) target coordinate")
     zwischenstopps: list[WaypointAPI] = Field(
-        default_factory=list, description="Liste von Zwischenstopps"
+        default_factory=list, description="List of waypoints"
     )
     abfahrtszeit: str = Field(
         ..., description="ISO-8601 Abfahrtszeit (z. B. '2026-08-15T08:30:00')"
     )
     fahrzeugprofil: VehicleProfile = Field(..., description="Physikalisches Fahrzeugprofil")
-    start_soc_pct: float = Field(80.0, ge=0.0, le=100.0, description="Start-SoC in Prozent")
-    ziel_soc_pct: float = Field(20.0, ge=0.0, le=100.0, description="Ziel-SoC in Prozent")
-    praeferenzen: dict[str, object] = Field(default_factory=dict, description="Nutzerpräferenzen")
+    start_soc_pct: float = Field(80.0, ge=0.0, le=100.0, description="Start SoC in percent")
+    ziel_soc_pct: float = Field(20.0, ge=0.0, le=100.0, description="Target SoC in percent")
+    praeferenzen: dict[str, object] = Field(default_factory=dict, description="User preferences")
     alle_faehren_vermeiden: bool = Field(
-        default=False, description="Falls True, werden alle Fährverbindungen vermieden"
+        default=False, description="When True, all ferry connections are excluded"
     )
     vermiedene_faehren: list[FaehrAusschlussAPI] = Field(
         default_factory=list,
         description=(
-            "Liste spezifischer, zuvor erkannter Fährverbindungen, die vermieden werden sollen"
+            "List of specific, previously detected ferry connections to be excluded"
         ),
     )
 ```
@@ -1698,15 +1698,15 @@ Add a new API model just before `class TripSimulationResultAPI` (before line 821
 
 ```python
 class FaehrSegmentAPI(BaseModel):
-    """API-Response für eine in der berechneten Route erkannte Fährverbindung."""
+    """API response for a ferry connection detected in the computed route."""
 
-    name: str = Field(..., description="Fährname (aus GraphHopper street_name oder Fallback)")
-    laenge_m: float = Field(..., ge=0, description="Länge der Fährverbindung in Metern")
+    name: str = Field(..., description="Ferry name (from GraphHopper street_name or fallback)")
+    laenge_m: float = Field(..., ge=0, description="Length of the ferry connection in meters")
     bbox_sw: tuple[float, float] = Field(
-        ..., description="Südwest-Ecke der gepufferten Bounding Box"
+        ..., description="Southwest corner of the buffered bounding box"
     )
     bbox_no: tuple[float, float] = Field(
-        ..., description="Nordost-Ecke der gepufferten Bounding Box"
+        ..., description="Northeast corner of the buffered bounding box"
     )
 ```
 
@@ -1714,20 +1714,20 @@ Update `TripSimulationResultAPI` (lines 821-832), adding a field at the end:
 
 ```python
 class TripSimulationResultAPI(BaseModel):
-    """API-Response für /trips-Endpunkt."""
+    """API response for /trips endpoint."""
 
-    gesamt_distanz_km: float = Field(..., description="Gesamtdistanz in km")
-    gesamt_fahrzeit_min: float = Field(..., description="Gesamtfahrzeit in Minuten")
-    gesamt_ladezeit_min: float = Field(..., description="Gesamtladezeit in Minuten")
-    start_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Start-SoC in %")
-    ziel_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ziel-SoC in %")
-    frames: list[FrameAPI] = Field(..., description="Liste von Simulationsframes")
+    gesamt_distanz_km: float = Field(..., description="Total distance in km")
+    gesamt_fahrzeit_min: float = Field(..., description="Total driving time in minutes")
+    gesamt_ladezeit_min: float = Field(..., description="Total charging time in minutes")
+    start_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Start SoC in %")
+    ziel_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Target SoC in %")
+    frames: list[FrameAPI] = Field(..., description="List of simulation frames")
     charging_stops: list[ChargingStopAPI] = Field(
-        default_factory=list, description="Ein Eintrag pro Ladehalt, fuer die Kartendarstellung"
+        default_factory=list, description="One entry per charging stop, for map display"
     )
     erkannte_faehren: list[FaehrSegmentAPI] = Field(
         default_factory=list,
-        description="In der berechneten Route erkannte Fährverbindungen (leer, falls keine)",
+        description="Ferry connections detected in the computed route (empty if none)", ,
     )
 ```
 
@@ -1817,7 +1817,7 @@ try:
 except ValueError as e:
     raise HTTPException(
         status_code=422,
-        detail=f"Route nicht durchführbar: {e!s}",
+        detail=f"Route not feasible: {e!s}",
     ) from e
 except httpx.HTTPError as e:
     raise HTTPException(
@@ -1828,7 +1828,7 @@ except Exception as e:
     logger.exception(
         "Fehler bei der Routensimulation: %s", e, extra={"traceback": traceback.format_exc()}
     )
-    raise HTTPException(status_code=500, detail=f"Simulation fehlgeschlagen: {e!s}") from e
+    raise HTTPException(status_code=500, detail=f"Simulation failed: {e!s}") from e
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -1938,8 +1938,8 @@ Expected: FAIL — TypeScript error, `alleFaehrenVermeiden`/`vermiedeneFaehren` 
 Add a new interface after `WaypointInput` (before `TripRequestPayload`, around line 82):
 
 ```typescript
-/** Eine (gepufferte) Bounding Box um eine erkannte Fährverbindung, zur Vermeidung
- *  in einer nachfolgenden Routenberechnung (`FaehrAusschlussAPI`). */
+/** A (buffered) bounding box around a detected ferry connection, for exclusion 
+ *  in a subsequent route calculation (`FaehrAusschlussAPI`). */
 export interface FaehrAusschluss {
   name: string;
   bbox_sw: [number, number];
@@ -1994,7 +1994,7 @@ Add a new interface after `Waypoint` (end of file):
 
 ```typescript
 
-/** Eine in der berechneten Route erkannte Fährverbindung (`FaehrSegmentAPI`). */
+/** A ferry connection detected in the computed route (`FaehrSegmentAPI`). */
 export interface FaehrSegment {
   name: string;
   laenge_m: number;
@@ -2019,9 +2019,9 @@ export interface TripSimulationResult {
   start_soc_pct: number;
   /** Ziel-SoC in % */
   ziel_soc_pct: number;
-  /** Ladehalte (ein Eintrag pro tatsächlichem Halt, nicht pro Frame) */
+  /** Charging stops (one entry per actual stop, not per frame) */
   charging_stops: ChargingStop[];
-  /** In der berechneten Route erkannte Fährverbindungen */
+  /** Ferry connections detected in the computed route */
   erkannte_faehren: FaehrSegment[];
 }
 ```
@@ -2148,9 +2148,9 @@ export interface TripPlannerFormProps {
   onSubmit: (payload: TripRequestPayload) => void;
   isSubmitting: boolean;
   submitError?: string | null;
-  /** Fährverbindungen, die in der zuletzt berechneten Route erkannt wurden
-   *  (aus `TripSimulationResult.erkannte_faehren`), zur Anzeige als
-   *  "vermeiden"-Checkboxen. `undefined`/leer, solange noch keine Route
+  /** Ferry connections that were detected in the most recently computed route
+   *  (from `TripSimulationResult.erkannte_faehren`), displayed as 
+   *  "avoid" checkboxes. `undefined`/empty until a route has been computed. */
    *  berechnet wurde. */
   erkannteFaehren?: FaehrSegment[];
 }
@@ -2159,7 +2159,7 @@ export interface TripPlannerFormProps {
 Add two exported pure helper functions after `validateForm` (before the `// Component` section header):
 
 ```typescript
-/** Vergleicht zwei FaehrAusschluss-Einträge auf inhaltliche Gleichheit. */
+/** Compares two FaehrAusschluss entries for content equality. */
 export function sameFaehrAusschluss(a: FaehrAusschluss, b: FaehrAusschluss): boolean {
   return (
     a.name === b.name &&
@@ -2170,7 +2170,7 @@ export function sameFaehrAusschluss(a: FaehrAusschluss, b: FaehrAusschluss): boo
   );
 }
 
-/** Ergänzt oder entfernt eine erkannte Fährverbindung aus der Ausschlussliste. */
+/** Adds or removes a detected ferry connection from the exclusion list. */
 export function toggleFaehrAusschluss(
   liste: FaehrAusschluss[],
   faehre: FaehrSegment,
@@ -2234,9 +2234,9 @@ Replace the `handleSubmit` function body with a reusable `buildAndSubmit`, so bo
       onSubmit(payload);
     } catch (error) {
       if (error instanceof TripRequestBuildError) {
-        // Wird als submitError an die Eltern-Komponente übergeben
-        // Hier fangen wir es als zusätzliche Inline-Fehlermeldung
-        // (die Props-Integration kann das auch über submitError handhaben)
+        // Passed as submitError to the parent component
+        // We catch it here as an additional inline error message
+        // (the props integration can also handle this via submitError)
       }
     }
   };
@@ -2244,10 +2244,10 @@ Replace the `handleSubmit` function body with a reusable `buildAndSubmit`, so bo
   const handleSubmit = () => buildAndSubmit(alleFaehrenVermeiden, vermiedeneFaehren);
 ```
 
-Insert a new "Fähren" `<fieldset>` between the "Ladestand" fieldset and the submit `<button>` (i.e. right after the closing `</fieldset>` of the "Ladestand" section, before the `{/* 4. Submit */}` comment):
+Insert a new "Ferries" `<fieldset>` between the "Ladestand" fieldset and the submit `<button>` (i.e. right after the closing `</fieldset>` of the "Ladestand" section, before the `{/* 4. Submit */}` comment):
 
 ```typescript
-      {/* 3.5 Fähren */}
+      {/* 3.5 Ferries */}
       <fieldset
         style={{
           marginBottom: "1.5rem",
@@ -2256,7 +2256,7 @@ Insert a new "Fähren" `<fieldset>` between the "Ladestand" fieldset and the sub
           padding: "1rem",
         }}
       >
-        <legend style={{ fontWeight: 600, padding: "0 0.5rem" }}>Fähren</legend>
+        <legend style={{ fontWeight: 600, padding: "0 0.5rem" }}>Ferries</legend>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <input
             type="checkbox"
@@ -2265,12 +2265,12 @@ Insert a new "Fähren" `<fieldset>` between the "Ladestand" fieldset and the sub
             id="alle-faehren-vermeiden-checkbox"
             disabled={isSubmitting}
           />
-          <label htmlFor="alle-faehren-vermeiden-checkbox">Alle Fähren vermeiden</label>
+          <label htmlFor="alle-faehren-vermeiden-checkbox">Avoid all ferries</label>
         </div>
         {erkannteFaehren && erkannteFaehren.length > 0 && (
           <div style={{ marginTop: "0.75rem", display: "grid", gap: "0.4rem" }}>
             <p style={{ margin: 0, fontSize: "0.8rem", fontWeight: 500 }}>
-              In der letzten Route genutzte Fähren:
+              Ferries used in the last route:
             </p>
             {erkannteFaehren.map((faehre, idx) => {
               const checkboxId = `faehre-vermeiden-${idx}`;
@@ -2329,7 +2329,7 @@ Expected: PASS
 git add frontend/src/components/TripPlannerForm.tsx frontend/tests/unit/trip-planner-form-utils.test.ts
 git commit -m "feat(frontend): add ferry avoidance UI to TripPlannerForm
 
-Global 'Alle Fähren vermeiden' checkbox (always available) plus
+Global 'Avoid all ferries' checkbox (always available) plus
 per-detected-ferry checkboxes populated from erkannteFaehren (the
 previous simulation result), auto-resubmitting on toggle."
 ```
@@ -2371,7 +2371,7 @@ In `frontend/src/components/TripSummary.tsx`, add a conditional row to the summa
 ```tsx
           {result.erkannte_faehren.length > 0 && (
             <tr>
-              <td style={labelCellStyle}>Fähren</td>
+              <td style={labelCellStyle}>Ferries</td>
               <td style={valueCellStyle}>
                 {result.erkannte_faehren.map((f) => f.name).join(", ")}
               </td>
@@ -2401,13 +2401,13 @@ the current result."
 
 **Files:**
 
-- Modify: `docs/03-modulspezifikationen.md` (routing/trip_input module bullet points)
+- Modify: `docs/03-module-specifications.md` (routing/trip_input module bullet points)
 
 **Interfaces:** none (documentation + end-to-end verification only).
 
 - [ ] **Step 1: Update the module spec doc**
 
-In `docs/03-modulspezifikationen.md`, locate the `routing` module's "Ausgaben" bullet (around line 13) and append a sentence noting ferry detection; locate the `trip_input` module's description of `TripRequest`/`praeferenzen` and note the two typed ferry-avoidance fields. Read the file first to get exact line numbers before editing (structure may differ slightly from the routing-section excerpt seen during design), then make a minimal one-or-two-sentence addition per module — do not restructure the document.
+In `docs/03-module-specifications.md`, locate the `routing` module's "Ausgaben" bullet (around line 13) and append a sentence noting ferry detection; locate the `trip_input` module's description of `TripRequest`/`praeferenzen` and note the two typed ferry-avoidance fields. Read the file first to get exact line numbers before editing (structure may differ slightly from the routing-section excerpt seen during design), then make a minimal one-or-two-sentence addition per module — do not restructure the document.
 
 - [ ] **Step 2: Full backend verification**
 
@@ -2471,7 +2471,7 @@ curl -s -X POST http://localhost:8000/trips -H "Content-Type: application/json" 
 
 Expected: `gesamt_distanz_km` far exceeds the direct ~22 km crossing (several hundred km), `erkannte_faehren` is `[]`.
 
-Then verify the frontend renders and drives it, using the `browser` tool against `http://localhost:5173` (or whatever port `./run.sh` reports): set a trip whose direct route uses this ferry crossing (e.g. Hamburg → Copenhagen or the two coordinates above), submit, confirm the "Fähren" section shows the detected crossing and the "vermeiden" checkbox triggers a visibly different (longer) route on the map.
+Then verify the frontend renders and drives it, using the `browser` tool against `http://localhost:5173` (or whatever port `./run.sh` reports): set a trip whose direct route uses this ferry crossing (e.g. Hamburg → Copenhagen or the two coordinates above), submit, confirm the "Ferries" section shows the detected crossing and the "avoid" checkbox triggers a visibly different (longer) route on the map.
 
 Once verified, stop the services:
 
@@ -2482,6 +2482,6 @@ Once verified, stop the services:
 - [ ] **Step 5: Commit the docs update**
 
 ```bash
-git add docs/03-modulspezifikationen.md
+git add docs/03-module-specifications.md
 git commit -m "docs: mention ferry detection/avoidance in module spec"
 ```

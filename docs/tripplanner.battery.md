@@ -1,5 +1,5 @@
 # battery
 
-Ladekurve und Ladedauer-Berechnung.
+Charging curve and charging duration calculation.
 
 ::: tripplanner.battery

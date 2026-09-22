@@ -30,7 +30,7 @@ directly). Verified live against the project's GraphHopper 11.0 instance
 ```
 POST /route {"points":[[11.2270,54.5033],[11.3453,54.6558]], "details":["road_environment","street_name"]}
 → details.road_environment: [[0,15,"road"],[15,29,"ferry"],[29,67,"road"],[67,68,"bridge"],[68,101,"road"]]
-→ details.street_name:      [[0,15,null],[15,29,"Rødby (DK) - Puttgarden (D)"],[29,52,"Sydmotorvejen"],...]
+→ details.street_name:      [[0,15,null],[15,29,"Rødby (DK) - Puttgarden (D)"]... Sydmotorvejen, ...]
 ```
 
 So: compute the route once, detect which ferry segments it actually used (with real
@@ -84,21 +84,21 @@ Add two optional fields, following the existing pattern of `strassenklasse`/`obe
 
 ```python
 class FaehrSegment(BaseModel):
-    """Eine im berechneten Route erkannte, zusammenhängende Fährverbindung."""
+    """A detected, contiguous ferry connection found in a computed route."""
 
-    name: str  # z. B. "Rødby (DK) - Puttgarden (D)"; Fallback "Unbenannte Fähre" wenn kein street_name
+    name: str  # e.g. "Rødby (DK) - Puttgarden (D)"; fallback "Unbenannte Fähre" when no street_name
     laenge_m: float
-    bbox_sw: Coordinate  # gepufferte Bounding Box, Südwest-Ecke
-    bbox_no: Coordinate  # gepufferte Bounding Box, Nordost-Ecke
+    bbox_sw: Coordinate  # buffered bounding box, southwest corner
+    bbox_no: Coordinate  # buffered bounding box, northeast corner
 
 
-FAEHR_PUFFER_GRAD: float = 0.005  # ~500 m Puffer um die exakte Segmentgeometrie
+FAEHR_PUFFER_GRAD: float = 0.005  # ~500 m buffer around the exact segment geometry
 
 
 def erkenne_faehren(route: Route) -> list[FaehrSegment]:
-    """Gruppiert zusammenhängende `road_environment == "FERRY"`-Segmente der Route zu
-    FaehrSegment-Einträgen (Name aus `strassenname`, gepufferte Bounding Box aus
-    `geometrie`). Segmente ohne road_environment (z. B. FakeRoutingProvider) liefern []."""
+    """Groups contiguous `road_environment == "FERRY"` segments of the route into
+    FaehrSegment entries (name from `strassenname`, buffered bounding box from
+    `geometry`). Segments without road_environment (e.g. FakeRoutingProvider) return []."""
 ```
 
 ### 3.3 `trip_input/models.py` (`TripRequest`)
@@ -108,7 +108,7 @@ Add two typed sibling fields (matching the existing convention of `start_soc_pct
 
 ```python
 class FaehrAusschluss(BaseModel):
-    """Eine vom Nutzer zu vermeidende, zuvor per `FaehrSegment` erkannte Fährverbindung."""
+    """A ferry connection to be avoided by the user, previously detected per `FaehrSegment`."""
     name: str
     bbox_sw: Coordinate
     bbox_no: Coordinate
@@ -192,13 +192,13 @@ inline comment referencing the live-confirmed server error. No signature change.
 
 ### 5.2 `TripPlannerForm.tsx`
 
-- New "Fähren" section (near the SoC/vehicle sections):
-  - Checkbox "Alle Fähren vermeiden" — always available, independent of any prior
+- A new "Ferries" section (near the SoC/vehicle sections):
+  - Checkbox "Avoid all ferries" — always available, independent of any prior
     computation, wired directly to local `alleFaehrenVermeiden` component state
     (internal state var name is free-form camelCase per usual React/TS convention; only
     the wire payload field is snake_case), serialized as `alle_faehren_vermeiden`.
   - When `simulationResult.erkannte_faehren` is non-empty (passed down from `App.tsx`),
-    render one checkbox per detected ferry: `"{name} vermeiden ({laenge_km} km)"`.
+    render one checkbox per detected ferry: `"{name} avoid ({laenge_km} km)"`.
     Checking it adds the corresponding `FaehrAusschluss` to local `vermiedeneFaehren`
     state and triggers `onSubmit` again (recompute), serialized as `vermiedene_faehren`.
 - `App.tsx`: `vermiedeneFaehren` state persists across further recomputation (e.g. user
@@ -242,7 +242,7 @@ error path needed.
 - No persisted/curated ferry database — everything is derived per-request from the live
   GraphHopper response.
 - No cost modeling for ferries beyond what already exists (`docs/Tesla-Supercharger-...
-  -Scraping.md` mentions a "Fähre" cost line item elsewhere in the project; out of scope
+  -Scraping.md` mentions a "ferry" cost line item elsewhere in the project; out of scope
   here — this feature only changes *route selection*, not cost calculation).
 - No UI for manually typing/pasting arbitrary ferry coordinates — avoidance is only
   offered for ferries actually detected in a computed route.

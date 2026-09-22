@@ -1,5 +1,5 @@
 # simulation
 
-Zeitreihen-Rekonstruktion der Reise.
+Time-series reconstruction of the trip.
 
 ::: tripplanner.simulation

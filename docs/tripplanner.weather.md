@@ -1,5 +1,5 @@
 # weather
 
-Wetterabfrage über Open-Meteo.
+Weather queries via Open-Meteo.
 
 ::: tripplanner.weather

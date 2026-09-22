@@ -1,39 +1,39 @@
-# Plan: Tesla Supercharger Provider (SQLite-basiert)
+# Plan: Tesla Supercharger Provider (SQLite-based)
 
 ---
 
-## 1. Zweck & Scope
+## 1. Purpose & Scope
 
-Erweiterung des Moduls `charging_infrastructure` um einen **dauerhaften, live-aktualisierbaren Tesla-Supercharger-Provider**, der eine lokale SQLite-Datenbank als persistenten Speicher nutzt — Ablösung des reinen JSON-Snapshot-Ansatzes durch eine strukturierte, indizierte Datenbank mit zwei Tabellen: `charging_stations` (Standortdaten) und `charging_pricing` (zeitbasierte Preise).
+Extension of the `charging_infrastructure` module with a **persistent, live-updatable Tesla Supercharger provider** that uses a local SQLite database as persistent storage — replacing the pure JSON snapshot approach with a structured, indexed database with two tables: `charging_stations` (location data) and `charging_pricing` (time-based pricing).
 
-**Kernentscheidung:** Der Provider arbeitet standardmäßig von der lokalen SQLite-Datenbank (kein Live-Request bei Normalbetrieb). Ein expliziter `refresh()`-Aufruf holt frische Daten von der öffentlichen supercharge.info-API und schreibt sie persistent in die SQLite-Datenbank. Dies folgt dem in AGENTS.md geforderten Prinzip: "lokal, persistent, nur bei Bedarf aktualisiert".
+**Key decision:** The provider operates from the local SQLite database by default (no live request during normal operation). An explicit `refresh()` call fetches fresh data from the public supercharge.info API and writes it persistently into the SQLite database. This follows the principle required in AGENTS.md: "local, persistent, updated only when needed".
 
-**Abgrenzung:**
+**Boundary:**
 
-- Dieses Dokument ersetzt *nicht* den bestehenden `LocalFileChargingStationProvider` — dieser bleibt als einfacher JSON-basierter Provider bestehen (für Tests ohne DB, minimales Setup).
-- Der neue `TeslaChargingStationProvider` ist die Empfehlung für Produktion / Integrationstests.
-- `FakeChargingStationProvider` bleibt unverändert für Unit-Tests.
-- Pricing-Daten (Tesla Guest GraphQL) sind als zweite Phase vorgesehen, da die Tesla-API hinter Akamai WAF liegt und ein Browser-Fallback (Safari/Playwright) erforderlich macht.
+- This document does *not* replace the existing `LocalFileChargingStationProvider` — this remains as a simple JSON-based provider (for tests without a DB, minimal setup).
+- The new `TeslaChargingStationProvider` is the recommendation for production / integration tests.
+- `FakeChargingStationProvider` remains unchanged for unit tests.
+- Pricing data (Tesla Guest GraphQL) is planned as a second phase, since the Tesla API is behind Akamai WAF and requires a browser fallback (Safari/Playwright).
 
 ---
 
-## 2. Architektur
+## 2. Architecture
 
 ```mermaid
 graph TD
-    subgraph "Externe APIs"
+    subgraph "External APIs"
         SCI[supercharge.info REST API]
         TGQ[Tesla Guest GraphQL API<br/>Phase 2]
     end
 
-    subgraph "Neue Komponenten"
+    subgraph "New Components"
         CLIENT[SuperchargeInfoClient<br/>client.py]
         DB[SQLiteDatabase<br/>database.py]
         PROVIDER[TeslaChargingStationProvider<br/>providers.py]
         PRICING_MODEL[ChargingPricingTier<br/>models.py]
     end
 
-    subgraph "Bestehend"
+    subgraph "Existing"
         PROTOCOL[ChargingStationProvider Protocol]
         LOCALFILE[LocalFileChargingStationProvider]
         FAKE[FakeChargingStationProvider]
@@ -44,18 +44,18 @@ graph TD
     CLIENT --> PROVIDER
     PROVIDER --> DB
     PROVIDENT -.->|Phase 2| TGQ
-    PROVIDER -->|implementiert| PROTOCOL
+    PROVIDER -->|implements| PROTOCOL
     PROVIDER --> PRICING_MODEL
     CHARGING_FN --> PROVIDER
 ```
 
 ---
 
-## 3. SQLite-Datenbank-Schema
+## 3. SQLite Database Schema
 
-Die Datenbank liegt unter `data/tesla_superchargers.db` (konfigurierbar via `data_path`).
+The database is located at `data/tesla_superchargers.db` (configurable via `data_path`).
 
-### Tabelle: `charging_stations`
+### Table: `charging_stations`
 
 ```sql
 CREATE TABLE IF NOT EXISTS charging_stations (
@@ -91,40 +91,40 @@ CREATE INDEX IF NOT EXISTS idx_stations_status
 
 **Mapping supercharge.info → SQLite:**
 
-| supercharge.info-Feld | SQLite-Spalte | Transformation |
+| supercharge.info Field | SQLite Column | Transformation |
 | --- | --- | --- |
-| `id` | `supercharge_info_id` | Direkt, als INTEGER |
-| `locationId` | `tesla_location_id` | String, kann NULL sein |
-| `name` | `site_name` | Direkt |
-| `gps.latitude` | `latitude` | Direkt |
-| `gps.longitude` | `longitude` | Direkt |
-| `address.country` → ISO-2 | `country_code` | Aus `country` (USA→US, Germany→DE via Mapping) |
+| `id` | `supercharge_info_id` | Direct, as INTEGER |
+| `locationId` | `tesla_location_id` | String, may be NULL |
+| `name` | `site_name` | Direct |
+| `gps.latitude` | `latitude` | Direct |
+| `gps.longitude` | `longitude` | Direct |
+| `address.country` → ISO-2 | `country_code` | From `country` (USA→US, Germany→DE via mapping) |
 | `stalls.v2` | `stalls_v2` | 0 if missing |
 | `stalls.v3` | `stalls_v3` | 0 if missing |
-| `stalls.v3` (bei >250kW) | `stalls_v3_ultra` | Siehe Stall-Typ-Erkennung |
+| `stalls.v3` (at >250kW) | `stalls_v3_ultra` | See Stall Type Detection |
 | `stalls.v4` | `stalls_v4` | 0 if missing |
-| `stallCount` | `total_stalls` | Direkt |
-| `powerKilowatt` | `power_kilowatt` | Per-Stall-Spitzenleistung |
+| `stallCount` | `total_stalls` | Direct |
+| `powerKilowatt` | `power_kilowatt` | Per-stall peak power |
 | `status` | `status` | OPEN→OPEN, CONSTRUCTION→CONSTRUCTION, etc. |
-| `plugs.*` | `connector_types` | JSON-Array der Plug-Typen mit count>0 |
-| `dateOpened` | `date_opened` | ISO-Datum oder NULL |
+| `plugs.*` | `connector_types` | JSON array of plug types with count>0 |
+| `dateOpened` | `date_opened` | ISO date or NULL |
 
-**Stall-Typ-Erkennung aus `powerKilowatt`:**
+**Stall Type Detection from `powerKilowatt`:**
 
-Da supercharge.info in `stalls.v3` alle V3-Stalls zusammenfasst (auch welche, die wir als `V3_ULTRA` bezeichnen), klassifizieren wir basierend auf der Nennleistung:
+Since supercharge.info groups all V3 stalls together in `stalls.v3` (including ones we designate as `V3_ULTRA`), we classify based on rated power:
 
-| `powerKilowatt` | Stall-Typ |
+| `powerKilowatt` | Stall Type |
 | --- | --- |
 | ≤150 kW | `V2` |
 | 151-250 kW | `V3` |
 | 251-350 kW | `V3_ULTRA` |
 | ≥351 kW | `V4` |
 
-Dies ist eine Näherung — exakte Typ-Klassifizierung erfordert Tesla-eigene Daten. Die Werte sind aber ausreichend, da `powerKilowatt` die per-Stall-Nennleistung ist.
+This is an approximation — exact type classification requires Tesla-owned data. But the values are sufficient since `powerKilowatt` is the per-stall rated power.
 
-**Ländermapping:**
+**Country Mapping:**
 
-supercharge.info verwendet ausgeschriebene Ländernamen (`"Germany"`, `"Denmark"`, `"Sweden"`). Ein festes Mapping in `database.py` wandelt in ISO-2-Codes um. Unbekannte Länder → `"XX"`.
+supercharge.info uses full country names (`"Germany"`, `"Denmark"`, `"Sweden"`). A fixed mapping in `database.py` converts to ISO-2 codes. Unknown countries → `"XX"`.
 
 ```python
 _COUNTRY_MAP: dict[str, str] = {
@@ -161,7 +161,7 @@ _COUNTRY_MAP: dict[str, str] = {
 }
 ```
 
-### Tabelle: `charging_pricing`
+### Table: `charging_pricing`
 
 ```sql
 CREATE TABLE IF NOT EXISTS charging_pricing (
@@ -183,25 +183,25 @@ CREATE INDEX IF NOT EXISTS idx_pricing_station
     ON charging_pricing(supercharge_info_id);
 ```
 
-**Datenherkunft (Phase 2):**
+**Data Source (Phase 2):**
 
 - Tesla Guest GraphQL API (`getGuestChargingSiteDetails`)
-- Liegt hinter Akamai WAF — erfordert Browser-Fallback (Safari via AppleScript oder Playwright)
-- Preis-Tiers: `"Charging Fees for Tesla Owner"`, `"Charging Fees for Other EV"`
-- Rate Windows: zeitbasierte Preise (z. B. `"4:00 PM - 8:00 PM"`)
+- Behind Akamai WAF — requires browser fallback (Safari via AppleScript or Playwright)
+- Pricing tiers: `"Charging Fees for Tesla Owner"`, `"Charging Fees for Other EV"`
+- Rate windows: time-based pricing (e.g. `"4:00 PM - 8:00 PM"`)
 
-Ein Pricing-Eintrag repräsentiert genau einen Rate-Window eines Tiers:
+A pricing record represents exactly one rate window of a tier:
 
-| Feld | Beispiel |
+| Field | Example |
 | --- | --- |
 | `tier_label` | `"Charging Fees for Tesla Owner"` |
-| `time_label` | `"4:00 PM - 8:00 PM"` (oder NULL für Flatrate) |
+| `time_label` | `"4:00 PM - 8:00 PM"` (or NULL for flat rate) |
 | `currency` | `"EUR"`, `"SEK"`, `"DKK"` |
 | `amount` | `0.39` (€/kWh) |
-| `unit` | `"kWh"` oder `"min"` |
-| `idle_fee_text` | `"0.50 €/min idle"` (oder NULL) |
+| `unit` | `"kWh"` or `"min"` |
+| `idle_fee_text` | `"0.50 €/min idle"` (or NULL) |
 
-### Metadaten-Tabelle (optional aber empfohlen)
+### Metadata Table (optional but recommended)
 
 ```sql
 CREATE TABLE IF NOT EXISTS db_meta (
@@ -210,82 +210,81 @@ CREATE TABLE IF NOT EXISTS db_meta (
 );
 ```
 
-Speichert:
+Stores:
 
-- `schema_version` — für Migrationen
-- `last_full_refresh_utc` — Zeitstempel des letzten vollständigen API-Abrufs
-- `station_count` — Anzahl Stationen (Redundanz für schnelle Prüfung)
+- `schema_version` — for migrations
+- `last_full_refresh_utc` — timestamp of the last full API fetch
+- `station_count` — number of stations (redundancy for quick check)
 - `data_source` — `"supercharge.info"`
 
 ---
 
-## 4. Neue Datenmodelle (Pydantic, in `models.py`)
+## 4. New Data Models (Pydantic, in `models.py`)
 
-Erweiterung der bestehenden `models.py` um Pricing-Modelle:
+Extension of the existing `models.py` with pricing models:
 
 ```python
 class ChargingPricingTier(BaseModel):
-    """Ein Preistier mit optionalen zeitbasierten Raten.
+    """A pricing tier with optional time-based rates.
 
-    Kann eine Flatrate (time_label=None) oder zeitabhängige Raten abbilden.
+    Can represent a flat rate (time_label=None) or time-dependent rates.
     """
 
     tier_label: str = Field(
         ...,
-        description='Name des Preistiers, z.B. "Charging Fees for Tesla Owner"',
+        description='Name of the pricing tier, e.g. "Charging Fees for Tesla Owner"',
     )
     time_label: str | None = Field(
         default=None,
         description=(
-            'Zeitfenster als Text, z.B. "4:00 PM - 8:00 PM". None = Flatrate (immer gültig)'
+            'Time window as text, e.g. "4:00 PM - 8:00 PM". None = flat rate (always valid)'
         ),
     )
     currency: str = Field(
         ...,
         min_length=3,
         max_length=3,
-        description="Währung als ISO-4217-Code (EUR, SEK, DKK, ...)",
+        description="Currency as ISO-4217 code (EUR, SEK, DKK, ...)",
     )
     amount: float = Field(
         ...,
         gt=0,
-        description="Preis pro Einheit (z.B. 0.39 EUR/kWh)",
+        description="Price per unit (e.g. 0.39 EUR/kWh)",
     )
     unit: Literal["kWh", "min"] = Field(
         ...,
-        description='Abrechnungseinheit: "kWh" (Energie) oder "min" (Zeit)',
+        description='Billing unit: "kWh" (energy) or "min" (time)',
     )
     idle_fee_text: str | None = Field(
         default=None,
-        description="Idle-Fee als Rohtext, z.B. '0.50 EUR/min idle'",
+        description="Idle fee as raw text, e.g. '0.50 EUR/min idle'",
     )
 
-
 class ChargingStationWithPricing(BaseModel):
-    """ChargingStation mit zugehörigen Preisdaten."""
+    """ChargingStation with associated pricing data."""
 
     station: ChargingStation
     pricing: list[ChargingPricingTier] = Field(
         default_factory=list,
-        description="Preisinformationen für diese Station",
+        description="Pricing information for this station",
     )
 ```
 
 ---
 
-## 5. Komponenten-Details
+## 5. Component Details
 
 ### 5.1 `client.py` — SuperchargeInfoClient
 
 ```python
 class SuperchargeInfoClient:
-    """HTTP-Client für die supercharge.info REST-API.
+    """HTTP client for the supercharge.info REST API.
 
-    Die API ist öffentlich, benötigt keinen API-Key und blockiert keine
-    einfachen HTTP-Clients (kein WAF). Dokumentierte Endpunkte:
-    - /service/supercharge/allSites   → vollständiger Datensatz
-    - /service/supercharge/databaseInfo → Änderungs-Timestamp
-    - /service/supercharge/allChanges  → Delta-Änderungen
+    The API is public, requires no API key, and does not block simple
+    HTTP clients (no WAF). Documented endpoints:
+    - /service/supercharge/allSites   → full data set
+    - /service/supercharge/databaseInfo → change timestamp
+    - /service/supercharge/allChanges  → delta changes
     """
 
     BASE_URL = "https://supercharge.info/service/supercharge"
@@ -293,28 +292,28 @@ class SuperchargeInfoClient:
     def __init__(self, client: httpx.AsyncClient | None = None) -> None: ...
 
     async def fetch_all_sites(self) -> list[dict]:
-        """Ruft den vollständigen Datensatz aller Supercharger-Standorte ab.
+        """Fetches the full data set of all supercharger locations.
 
-        Returns: Roh-JSON-Liste (jedes Element ein Site-Dict)
+        Returns: Raw JSON list (each element a site dict)
         """
 
     async def fetch_database_info(self) -> dict:
-        """Ruft den letzten Änderungszeitstempel der Datenbank ab.
+        """Fetches the last modification timestamp of the database.
 
         Returns: {"lastModified": timestamp_ms, "lastModifiedString": str}
         """
 
     async def fetch_all_changes(self) -> list[dict]:
-        """Ruft die Liste aller Änderungen/Transitions ab.
+        """Fetches the list of all changes/transitions.
 
-        Returns: Liste von Änderungseinträgen
+        Returns: List of change records
         """
 
     async def close(self) -> None:
-        """Schließt die HTTP-Client-Session."""
+        """Closes the HTTP client session."""
 ```
 
-**Antwortstruktur `allSites` (Auszug):**
+**Response structure `allSites` (excerpt):**
 
 ```json
 {
@@ -343,46 +342,46 @@ class SuperchargeInfoClient:
 
 ```python
 class SQLiteDatabase:
-    """Verwaltet die lokale SQLite-Datenbank für Supercharger-Daten.
+    """Manages the local SQLite database for supercharger data.
 
-    Erzeugt Tabellen bei erstmaliger Initialisierung, bietet CRUD-Zugriff
-    für Stationen und Preise. Transaktionsbasiert — refresh() läuft in
-    einer einzelnen Transaktion.
+    Creates tables on first initialization, provides CRUD access
+    for stations and pricing. Transaction-based — refresh() runs in
+    a single transaction.
     """
 
     def __init__(self, db_path: Path) -> None:
-        """Öffnet/erzeugt die SQLite-Datenbank.
+        """Opens/creates the SQLite database.
 
         Args:
-            db_path: Pfad zur .db-Datei (Default: data/tesla_superchargers.db)
+            db_path: Path to the .db file (Default: data/tesla_superchargers.db)
         """
 
     def initialize(self) -> None:
-        """Erzeugt Tabellen und Indizes, falls nicht vorhanden.
-        Darf mehrfach aufgerufen werden (IF NOT EXISTS).
+        """Creates tables and indexes if they don't exist.
+        May be called multiple times (IF NOT EXISTS).
         """
 
     def load_stations(
         self,
         country_filter: set[str] | None = None,
     ) -> list[dict]:
-        """Lädt alle Stationen aus der DB (als Roh-Dicts für ChargingStation-Mapping).
-        Wird vom Provider gecached in ChargingStation-Objekte umgewandelt.
+        """Loads all stations from the DB (as raw dicts for ChargingStation mapping).
+        Cached by the provider and converted to ChargingStation objects.
         """
 
     def load_pricing(
         self,
         supercharge_info_ids: set[int] | None = None,
     ) -> dict[int, list[ChargingPricingTier]]:
-        """Lädt Pricing- Daten für eine oder alle Stationen.
+        """Loads pricing data for one or all stations.
         Returns: dict mapping supercharge_info_id → list[ChargingPricingTier]
         """
 
     def replace_all_stations(self, stations: list[dict]) -> None:
-        """Ersetzt den gesamten Stationsbestand in einer Transaktion.
-        - Löscht alle existierenden Stationen (CASCADE löscht auch Pricing)
-        - Fügt die übergebenen Stationen ein
-        - Aktualisiert db_meta
+        """Replaces the entire station set in a transaction.
+        - Deletes all existing stations (CASCADE also deletes pricing)
+        - Inserts the passed stations
+        - Updates db_meta
         """
 
     def upsert_pricing(
@@ -390,29 +389,29 @@ class SQLiteDatabase:
         supercharge_info_id: int,
         tiers: list[ChargingPricingTier],
     ) -> None:
-        """Ersetzt Pricing-Daten für eine Station.
-        (Phase 2: separater Pricing-Refresh ohne Stations-Refresh)
+        """Replaces pricing data for a station.
+        (Phase 2: separate pricing refresh without station refresh)
         """
 
     def get_meta(self, key: str) -> str | None:
-        """Liest einen Metadaten-Wert."""
+        """Reads a metadata value."""
 
     def set_meta(self, key: str, value: str) -> None:
-        """Schreibt einen Metadaten-Wert."""
+        """Writes a metadata value."""
 
     def close(self) -> None:
-        """Schließt die DB-Verbindung."""
+        """Closes the DB connection."""
 
     @property
     def station_count(self) -> int:
-        """Gibt die Anzahl der gespeicherten Stationen zurück."""
+        """Returns the number of stored stations."""
 
     @property
     def last_refresh_utc(self) -> datetime | None:
-        """Gibt den Zeitstempel des letzten Refresh zurück."""
+        """Returns the timestamp of the last refresh."""
 ```
 
-**Transaktionslogik `replace_all_stations`:**
+**Transaction logic `replace_all_stations`:**
 
 ```python
 def replace_all_stations(self, stations: list[dict]) -> None:
@@ -451,18 +450,18 @@ def replace_all_stations(self, stations: list[dict]) -> None:
 
 ```python
 class TeslaChargingStationProvider(ChargingStationProvider):
-    """Implementierung, die Supercharger-Daten aus einer lokalen SQLite-DB liest
-    und bei Bedarf via supercharge.info-API aktualisiert.
+    """Implementation that reads supercharger data from a local SQLite DB
+    and updates via supercharge.info API when needed.
 
-    Default: liest aus data/tesla_superchargers.db (erzeugt Datenbank bei
-    erstmaligem Zugriff automatisch und lädt initiale Daten).
+    Default: reads from data/tesla_superchargers.db (creates database on
+    first access automatically and loads initial data).
 
     Usage:
         provider = TeslaChargingStationProvider()
-        # Automatischer Init: prüft DB → wenn leer, fetch von API
+        # Auto init: checks DB → if empty, fetches from API
         stations = await provider.get_stations_in_radius((52.5, 13.4), 10)
 
-        # Manuelles Refresh:
+        # Manual refresh:
         await provider.refresh()
     """
 
@@ -471,25 +470,25 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         db_path: Path | None = None,
         client: SuperchargeInfoClient | None = None,
     ) -> None:
-        """Initialisiert den Provider.
+        """Initializes the provider.
 
         Args:
-            db_path: Pfad zur SQLite-DB. Default: data/tesla_superchargers.db
-            client: Optionaler HTTP-Client (für Tests mit Mock). Sonst auto.
+            db_path: Path to the SQLite DB. Default: data/tesla_superchargers.db
+            client: Optional HTTP client (for tests with mock). Otherwise auto.
         """
 
     async def refresh(self) -> int:
-        """Holt aktuelle Daten von supercharge.info und schreibt sie in die DB.
+        """Fetches current data from supercharge.info and writes it to the DB.
 
         Flow:
         1. Fetch all sites via SuperchargeInfoClient
-        2. Filtere auf Europe (address.region == "Europe")
-        3. Mappe jedes Site auf unser internes Dict-Format
-        4. Rufe SQLiteDatabase.replace_all_stations() auf
-        5. Aktualisiere db_meta
+        2. Filter for Europe (address.region == "Europe")
+        3. Map each site to our internal dict format
+        4. Call SQLiteDatabase.replace_all_stations()
+        5. Update db_meta
 
         Returns:
-            Anzahl der gespeicherten Stationen
+            Number of stored stations
         """
 
     async def get_stations_in_radius(
@@ -498,8 +497,8 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         radius_km: float,
         country_filter: Literal["DE", "DK", "SE"] | None = None,
     ) -> list[ChargingStation]:
-        """Liest aus SQLite, filtert nach Radius + Land, sortiert nach Distanz.
-        Wie LocalFileChargingStationProvider, aber aus DB statt JSON.
+        """Reads from SQLite, filters by radius + country, sorted by distance.
+        Like LocalFileChargingStationProvider, but from DB instead of JSON.
         """
 
     async def get_stations_along_route(
@@ -507,7 +506,7 @@ class TeslaChargingStationProvider(ChargingStationProvider):
         route: Any,
         search_radius_km: float = 2.0,
     ) -> dict[int, list[ChargingStation]]:
-        """Wie LocalFileChargingStationProvider, Segment-Mittelpunkte + Radius."""
+        """Like LocalFileChargingStationProvider, segment centers + radius."""
 ```
 
 **Mapping supercharge.info → ChargingStation:**
@@ -515,9 +514,9 @@ class TeslaChargingStationProvider(ChargingStationProvider):
 ```python
 @staticmethod
 def _site_to_charging_station(site: dict) -> ChargingStation:
-    """Wandelt ein supercharge.info-Site-Dict in ein ChargingStation-Modell um."""
+    """Converts a supercharge.info site dict into a ChargingStation model."""
 
-    # Stall-Typ-Verteilung aus powerKilowatt ableiten
+    # Derive stall type distribution from powerKilowatt
     power = site.get("powerKilowatt", 250)
     if power <= 150:
         stall_type = StallType.V2
@@ -528,7 +527,7 @@ def _site_to_charging_station(site: dict) -> ChargingStation:
     else:
         stall_type = StallType.V4
 
-    # Gesamt-Stalls auf den erkannten Typ mappen
+    # Map total stalls to detected type
     total = site.get("stallCount", 0)
     stalls = {
         StallType.V2: site.get("stalls", {}).get("v2", 0),
@@ -537,7 +536,7 @@ def _site_to_charging_station(site: dict) -> ChargingStation:
         StallType.V4: site.get("stalls", {}).get("v4", 0),
     }
 
-    # Connector-Typen aus plugs extrahieren
+    # Extract connector types from plugs
     plugs = site.get("plugs", {})
     connector_map = {
         "nacs": ConnectorType.NACS,
@@ -552,19 +551,19 @@ def _site_to_charging_station(site: dict) -> ChargingStation:
         connector_map[k] for k, v in plugs.items() if v and v > 0 and k in connector_map
     ]
     if not connector_types:
-        connector_types = [ConnectorType.CCS2]  # Fallback für Europa
+        connector_types = [ConnectorType.CCS2]  # Fallback for Europe
 
-    # Status-Mapping
+    # Status mapping
     status_map = {
         "OPEN": "online",
-        "CONSTRUCTION": "wartung",
+        "CONSTRUCTION": "maintenance",
         "PERMIT": "online",
-        "TEMP_CLOSED": "temporaer_geschlossen",
+        "TEMP_CLOSED": "temporarily_closed",
         "PLAN": "online",
     }
     status = status_map.get(site.get("status", "OPEN"), "online")
 
-    # Ländercode
+    # Country code
     country = _COUNTRY_MAP.get(site.get("address", {}).get("country", ""), "XX")
 
     return ChargingStation(
@@ -584,9 +583,9 @@ def _site_to_charging_station(site: dict) -> ChargingStation:
     )
 ```
 
-### 5.4 `charging_infrastructure.py` — Anpassung
+### 5.4 `charging_infrastructure.py` — Adaptation
 
-Die bestehenden Hilfsfunktionen (`init_charging_infrastructure`, `get_stations_in_radius`, `get_stations_along_route`) müssen erweitert werden, um auch `TeslaChargingStationProvider` als Default nutzen zu können. Die `init_charging_infrastructure`-Funktion bekommt einen `provider_type`-Parameter:
+The existing helper functions (`init_charging_infrastructure`, `get_stations_in_radius`, `get_stations_along_route`) need to be extended to also use `TeslaChargingStationProvider` as the default. The `init_charging_infrastructure` function gets a `provider_type` parameter:
 
 ```python
 def init_charging_infrastructure(
@@ -595,36 +594,35 @@ def init_charging_infrastructure(
 ) -> None:
 ```
 
-Bei `"tesla_db"` wird `TeslaChargingStationProvider` mit der SQLite-DB verwendet, bei `"local_file"` der bestehende `LocalFileChargingStationProvider` mit JSON.
+With `"tesla_db"`, `TeslaChargingStationProvider` is used with the SQLite DB; with `"local_file"` the existing `LocalFileChargingStationProvider` with JSON is used.
 
 ---
 
-## 6. Refresh-Logik im Detail
+## 6. Refresh Logic in Detail
 
 ```python
 async def refresh(self) -> int:
-    """Vollständiger Refresh aller Supercharger-Daten von supercharge.info."""
+    """Full refresh of all supercharger data from supercharge.info."""
 
-    # 1. Fetch alle Sites
+    # 1. Fetch all sites
     raw_sites = await self._client.fetch_all_sites()
 
-    # 2. Filtere Europe
+    # 2. Filter Europe
     euro_sites = [s for s in raw_sites if s.get("address", {}).get("region") == "Europe"]
 
-    # 3. Mappe in DB-Dicts
+    # 3. Map to DB dicts
     db_records = [_site_to_db_record(s) for s in euro_sites]
 
-    # 4. In Transaktion in DB schreiben
+    # 4. Write to DB in transaction
     self._db.replace_all_stations(db_records)
 
-    # 5. In-Memory-Cache invalidieren
+    # 5. Invalidate in-memory cache
     self._stations = None
 
     return len(db_records)
 
-
 def _site_to_db_record(site: dict) -> dict:
-    """Wandelt ein supercharge.info-Dict in ein DB-Record-Dict um."""
+    """Converts a supercharge.info dict into a DB record dict."""
     gps = site["gps"]
     address = site.get("address", {})
     plugs = site.get("plugs", {})
@@ -647,7 +645,7 @@ def _site_to_db_record(site: dict) -> dict:
         "country_code": _COUNTRY_MAP.get(address.get("country", ""), "XX"),
         "stalls_v2": site.get("stalls", {}).get("v2", 0),
         "stalls_v3": site.get("stalls", {}).get("v3", 0),
-        "stalls_v3_ultra": 0,  # supercharge.info hat kein separates v3ultra
+        "stalls_v3_ultra": 0,  # supercharge.info has no separate v3ultra
         "stalls_v4": site.get("stalls", {}).get("v4", 0),
         "total_stalls": site.get("stallCount", 0),
         "power_kilowatt": site.get("powerKilowatt", 250),
@@ -661,9 +659,9 @@ def _site_to_db_record(site: dict) -> dict:
 
 ---
 
-## 7. Schnittstelle zu bestehenden Komponenten
+## 7. Interface with Existing Components
 
-### `__init__.py` — neue Exports
+### `__init__.py` — new Exports
 
 ```python
 from .database import SQLiteDatabase
@@ -700,48 +698,48 @@ __all__ = [
 ]
 ```
 
-### Abhängigkeiten zu anderen Modulen
+### Dependencies on Other Modules
 
-| Modul | Nutzung |
+| Module | Usage |
 | --- | --- |
-| `tripplanner.geo` | `Coordinate`, `haversine_distance_m()` für Radius-Suche |
-| `tripplanner.routing.models` | `Route` (für `get_stations_along_route`) |
-| `httpx` | HTTP-Client für supercharge.info API (bereits in `pyproject.toml`) |
-| `sqlite3` | Python-Standardbibliothek — keine neue Dependency |
+| `tripplanner.geo` | `Coordinate`, `haversine_distance_m()` for radius search |
+| `tripplanner.routing.models` | `Route` (for `get_stations_along_route`) |
+| `httpx` | HTTP client for supercharge.info API (already in `pyproject.toml`) |
+| `sqlite3` | Python standard library — no new dependency |
 
 ---
 
-## 8. Teststrategie
+## 8. Test Strategy
 
-### 8.1 Neue Tests
+### 8.1 New Tests
 
-| Test-Datei | Was wird getestet |
+| Test File | What is tested |
 | --- | --- |
-| `tests/charging_infrastructure/test_client.py` | `SuperchargeInfoClient` mit aufgezeichneter API-Response |
-| `tests/charging_infrastructure/test_database.py` | `SQLiteDatabase`: Tabellen-Erzeugung, CRUD, Transaktion, Ländermapping |
-| `tests/charging_infrastructure/test_providers.py` (erweitert) | `TeslaChargingStationProvider`: Refresh, Mapping, Radius-Suche, Länderfilter |
+| `tests/charging_infrastructure/test_client.py` | `SuperchargeInfoClient` with recorded API response |
+| `tests/charging_infrastructure/test_database.py` | `SQLiteDatabase`: table creation, CRUD, transaction, country mapping |
+| `tests/charging_infrastructure/test_providers.py` (extended) | `TeslaChargingStationProvider`: refresh, mapping, radius search, country filter |
 
-### 8.2 Test-Fixtures (neu)
+### 8.2 Test Fixtures (new)
 
-| Fixture-Datei | Inhalt |
+| Fixture File | Content |
 | --- | --- |
-| `tests/fixtures/charging_infrastructure/supercharge_info_response_3sites.json` | 3 supercharge.info-Sites (DE, DK, SE, verschiedene Stall-Typen) für Mock-Tests |
-| `tests/fixtures/charging_infrastructure/supercharge_info_dbinfo.json` | Beispiel-Response von `/databaseInfo` |
+| `tests/fixtures/charging_infrastructure/supercharge_info_response_3sites.json` | 3 supercharge.info sites (DE, DK, SE, various stall types) for mock tests |
+| `tests/fixtures/charging_infrastructure/supercharge_info_dbinfo.json` | Example response from `/databaseInfo` |
 
-### 8.3 Testfälle `test_client.py`
+### 8.3 Test Cases `test_client.py`
 
 ```python
 class TestSuperchargeInfoClient:
-    """Tests für den HTTP-Client der supercharge.info-API."""
+    """Tests for the supercharge.info API HTTP client."""
 
     async def test_fetch_all_sites_returns_list(self, mock_client):
-        """Prüft, dass allSites eine Liste zurückgibt."""
+        """Checks that allSites returns a list."""
         sites = await mock_client.fetch_all_sites()
         assert isinstance(sites, list)
         assert len(sites) > 0
 
     async def test_fetch_all_sites_structure(self, mock_client, sample_site):
-        """Prüft die Struktur eines Site-Eintrags (Pflichtfelder)."""
+        """Checks the structure of a site entry (required fields)."""
         sites = await mock_client.fetch_all_sites()
         site = sites[0]
         assert "id" in site
@@ -754,20 +752,20 @@ class TestSuperchargeInfoClient:
         assert "powerKilowatt" in site
 
     async def test_fetch_database_info(self, mock_client):
-        """Prüft databaseInfo-Endpunkt."""
+        """Checks the databaseInfo endpoint."""
         info = await mock_client.fetch_database_info()
         assert "lastModified" in info
         assert isinstance(info["lastModified"], int)
 ```
 
-### 8.4 Testfälle `test_database.py`
+### 8.4 Test Cases `test_database.py`
 
 ```python
 class TestSQLiteDatabase:
-    """Tests für den SQLite-Datenbank-Manager."""
+    """Tests for the SQLite database manager."""
 
     async def test_initialize_creates_tables(self, tmp_db):
-        """Prüft, dass bei initialize() alle Tabellen existieren."""
+        """Checks that initialize() creates all tables."""
         tmp_db.initialize()
         tables = tmp_db._cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
@@ -778,55 +776,55 @@ class TestSQLiteDatabase:
         assert "db_meta" in table_names
 
     async def test_replace_all_stations(self, tmp_db, sample_db_records):
-        """Prüft replace_all_stations in Transaktion."""
+        """Checks replace_all_stations in a transaction."""
         tmp_db.initialize()
         count = tmp_db.replace_all_stations(sample_db_records)
         assert count == len(sample_db_records)
         assert tmp_db.station_count == len(sample_db_records)
 
     async def test_replace_all_stations_is_idempotent(self, tmp_db, sample_db_records):
-        """Zweimaliges replace_all_stations = einmal."""
+        """Calling replace_all_stations twice = same as once."""
         tmp_db.initialize()
         tmp_db.replace_all_stations(sample_db_records)
         tmp_db.replace_all_stations(sample_db_records)
         assert tmp_db.station_count == len(sample_db_records)
 
     async def test_load_stations_country_filter(self, tmp_db, sample_db_records):
-        """Prüft country_filter beim Laden."""
+        """Checks country_filter when loading."""
         tmp_db.initialize()
         tmp_db.replace_all_stations(sample_db_records)
         de_only = tmp_db.load_stations(country_filter={"DE"})
         assert all(r["country_code"] == "DE" for r in de_only)
 ```
 
-### 8.5 Testfälle `test_providers.py` (erweitert)
+### 8.5 Test Cases `test_providers.py` (extended)
 
 ```python
 class TestTeslaChargingStationProvider:
-    """Tests für TeslaChargingStationProvider."""
+    """Tests for TeslaChargingStationProvider."""
 
     async def test_refresh_filters_europe(self, provider_with_mock_client):
-        """Prüft, dass nur europäische Sites in die DB gelangen."""
+        """Checks that only European sites make it into the DB."""
         count = await provider_with_mock_client.refresh()
         assert count > 0
-        # USA-Sites aus der Mock-Response wurden rausgefiltert
+        # USA sites from the mock response were filtered out
 
     async def test_get_stations_in_radius(self, provider_with_seeded_db):
-        """Radius-Suche aus der SQLite-DB."""
+        """Radius search from the SQLite DB."""
         stations = await provider_with_seeded_db.get_stations_in_radius((52.5, 13.4), 10.0)
         assert len(stations) >= 1
         assert stations[0].country == "DE"
 
     async def test_get_stations_in_radius_empty(self, provider_with_seeded_db):
-        """Leeres Ergebnis bei zu kleinem Radius."""
+        """Empty result for too small a radius."""
         stations = await provider_with_seeded_db.get_stations_in_radius(
             (48.0, 2.0),
-            1.0,  # Paris, wahrscheinlich keine Stationen im Fixture
+            1.0,  # Paris, probably no stations in the fixture
         )
         assert len(stations) == 0
 
     async def test_station_mapping(self, provider_with_seeded_db):
-        """Prüft korrektes Mapping von supercharge.info → ChargingStation."""
+        """Checks correct mapping from supercharge.info → ChargingStation."""
         stations = await provider_with_seeded_db.get_stations_in_radius((52.5, 13.4), 200.0)
         station = stations[0]
         assert isinstance(station.station_id, str)
@@ -835,18 +833,18 @@ class TestTeslaChargingStationProvider:
         assert len(station.stalls) > 0
 
     async def test_auto_init_creates_db_if_empty(self, tmp_path):
-        """Bei leerer DB+fehlendem Client: automatischer Init-Versuch."""
+        """With empty DB + missing client: auto init attempt."""
         db_path = tmp_path / "test_empty.db"
-        # Provider mit leerem DB-Pfad und client=None
-        # Sollte keine Exception werfen, sondern leere Stationsliste liefern
+        # Provider with empty DB path and client=None
+        # Should not raise an exception, but return an empty station list
         provider = TeslaChargingStationProvider(db_path=db_path)
         stations = await provider.get_stations_in_radius((52.5, 13.4), 10.0)
         assert stations == []
 ```
 
-### 8.6 Test-Fixture für supercharge.info API-Response
+### 8.6 Test Fixture for supercharge.info API Response
 
-Die Test-Fixture enthält 3 minimale, realistische Site-Einträge — einen pro Land (DE, DK, SE). Ein vierter Eintrag ist "USA" (nicht Europa) um den Europe-Filter zu testen:
+The test fixture contains 3 minimal, realistic site entries — one per country (DE, DK, SE). A fourth entry is "USA" (not Europe) to test the Europe filter:
 
 ```json
 [
@@ -918,103 +916,103 @@ Die Test-Fixture enthält 3 minimale, realistische Site-Einträge — einen pro 
 
 ---
 
-## 9. Aufgaben-Checkliste
+## 9. Task Checklist
 
-### Phase 1: Datenmodelle
+### Phase 1: Data Models
 
-- [ ] Task 1.1: `src/tripplanner/charging_infrastructure/models.py` erweitern um `ChargingPricingTier` und `ChargingStationWithPricing`
-- [ ] Task 1.2: Tests für neue Modelle schreiben (Validierung, Serialisierung)
+- [ ] Task 1.1: Extend `src/tripplanner/charging_infrastructure/models.py` with `ChargingPricingTier` and `ChargingStationWithPricing`
+- [ ] Task 1.2: Write tests for new models (validation, serialization)
 
 ### Phase 2: Client
 
-- [ ] Task 2.1: `src/tripplanner/charging_infrastructure/client.py` — `SuperchargeInfoClient` mit allen 3 Endpunkten
-- [ ] Task 2.2: `tests/fixtures/charging_infrastructure/supercharge_info_response_3sites.json` erstellen
-- [ ] Task 2.3: `tests/charging_infrastructure/test_client.py` schreiben (mock-basiert)
+- [ ] Task 2.1: `src/tripplanner/charging_infrastructure/client.py` — `SuperchargeInfoClient` with all 3 endpoints
+- [ ] Task 2.2: Create `tests/fixtures/charging_infrastructure/supercharge_info_response_3sites.json`
+- [ ] Task 2.3: Write `tests/charging_infrastructure/test_client.py` (mock-based)
 
-### Phase 3: Datenbank
+### Phase 3: Database
 
-- [ ] Task 3.1: `src/tripplanner/charging_infrastructure/database.py` — `SQLiteDatabase` mit Schema, CRUD, Transaktionen
-- [ ] Task 3.2: `tests/charging_infrastructure/test_database.py` schreiben (mit `tmp_path`+SQLite in-Memory)
+- [ ] Task 3.1: `src/tripplanner/charging_infrastructure/database.py` — `SQLiteDatabase` with schema, CRUD, transactions
+- [ ] Task 3.2: Write `tests/charging_infrastructure/test_database.py` (with `tmp_path` + SQLite in-memory)
 
 ### Phase 4: Provider
 
-- [ ] Task 4.1: `src/tripplanner/charging_infrastructure/providers.py` erweitern um `TeslaChargingStationProvider`
-- [ ] Task 4.2: `__init__.py` aktualisieren (neue Exports)
-- [ ] Task 4.3: `charging_infrastructure.py` anpassen (Unterstützung für `TeslaChargingStationProvider` in `init_charging_infrastructure`)
-- [ ] Task 4.4: `tests/charging_infrastructure/test_providers.py` erweitern um `TeslaChargingStationProvider`-Tests
+- [ ] Task 4.1: Extend `src/tripplanner/charging_infrastructure/providers.py` with `TeslaChargingStationProvider`
+- [ ] Task 4.2: Update `__init__.py` (new exports)
+- [ ] Task 4.3: Adapt `charging_infrastructure.py` (support for `TeslaChargingStationProvider` in `init_charging_infrastructure`)
+- [ ] Task 4.4: Extend `tests/charging_infrastructure/test_providers.py` with `TeslaChargingStationProvider` tests
 
-### Phase 5: Integration & Verifikation
+### Phase 5: Integration & Verification
 
 - [ ] Task 5.1: `uv run hk check --all` — Linting, Formatting, Type-Checking
-- [ ] Task 5.2: `uv run pytest -m "not integration"` — alle Tests grün
-- [ ] Task 5.3: Coverage-Schwelle (85 %) prüfen
-- [ ] Task 5.4: Integrationstest: `TeslaChargingStationProvider.refresh()` gegen echte supercharge.info-API (`@pytest.mark.integration`)
+- [ ] Task 5.2: `uv run pytest -m "not integration"` — all tests green
+- [ ] Task 5.3: Check coverage threshold (85 %)
+- [ ] Task 5.4: Integration test: `TeslaChargingStationProvider.refresh()` against live supercharge.info API (`@pytest.mark.integration`)
 
 ---
 
-## 10. Risiken & offene Fragen
+## 10. Risks & Open Questions
 
-1. **supercharge.info-API-Verfügbarkeit:** Die API ist inoffiziell (community-betrieben). Ein Ausfall oder eine API-Änderung kann den Refresh unterbrechen.
-   - *Minderung:* Lokale SQLite-DB bleibt erhalten; der Provider funktioniert auch ohne Refresh mit den zuletzt gespeicherten Daten.
+1. **supercharge.info API availability:** The API is unofficial (community-run). An outage or API change can interrupt the refresh.
+   - *Mitigation:* The local SQLite DB is retained; the provider also works without a refresh, using the last saved data.
 
-2. **Stall-Typ-Klassifizierung:** supercharge.info unterscheidet nicht zwischen V3 und V3_ULTRA in `stalls.v3`. Die Klassifizierung per `powerKilowatt` ist eine Näherung.
-   - *Minderung:* Die Ladekurven-Auswahl in `battery` (Phase 4) kann bei Bedarf auf `powerKilowatt` pro Stall zurückgreifen, nicht auf den Enum-Namen.
+2. **Stall type classification:** supercharge.info does not distinguish between V3 and V3_ULTRA in `stalls.v3`. Classification via `powerKilowatt` is an approximation.
+   - *Mitigation:* The charging curve selection in `battery` (Phase 4) can fall back to `powerKilowatt` per stall if needed, not on the enum name.
 
-3. **Ländermapping-Vollständigkeit:** supercharge.info verwendet ausgeschriebene Ländernamen (z. B. "Czech Republic"). Das Mapping muss alle europäischen Länder abdecken.
-   - *Minderung:* Unbekannte Länder → `"XX"`. Diese Stationen werden dann bei `country_filter` nicht gefunden, aber der Provider funktioniert trotzdem.
+3. **Country mapping completeness:** supercharge.info uses full country names (e.g. "Czech Republic"). The mapping must cover all European countries.
+   - *Mitigation:* Unknown countries → `"XX"`. These stations are then not found via `country_filter`, but the provider still works.
 
-4. **Pricing-Phase-2:** Das Pricing erfordert einen Browser (Akamai WAF). Das bedeutet:
-   - Entwicklungsaufwand für Safari-Automation (AppleScript) und/oder Playwright-Fallback
-   - Abhängigkeit von macOS für Safari (Playwright als Cross-Plattform-Fallback)
-   - Kein Pricing-Refresh in CI (kein echter Browser verfügbar)
-   - *Minderung:* Pricing-Daten sind optional; Stationsdaten (ohne Pricing) sind der primäre Deliverable.
+4. **Pricing Phase 2:** Pricing requires a browser (Akamai WAF). This means:
+   - Development effort for Safari automation (AppleScript) and/or Playwright fallback
+   - Dependency on macOS for Safari (Playwright as cross-platform fallback)
+   - No pricing refresh in CI (no real browser available)
+   - *Mitigation:* Pricing data is optional; station data (without pricing) is the primary deliverable.
 
-5. **Datenbank-Größe:** supercharge.info hat ~10.000+ Sites global, davon schätzungsweise 3.000-4.000 in Europa. SQLite handhabt dies problemlos (< 10 MB).
-   - Keine Performance-Bedenken.
+5. **Database size:** supercharge.info has ~10,000+ sites globally, of which an estimated 3,000-4,000 are in Europe. SQLite handles this effortlessly (< 10 MB).
+   - No performance concerns.
 
 ---
 
-## 11. Abgrenzung zum bestehenden `LocalFileChargingStationProvider`
+## 11. Boundary with Existing `LocalFileChargingStationProvider`
 
-| Aspekt | `LocalFileChargingStationProvider` | `TeslaChargingStationProvider` |
+| Aspect | `LocalFileChargingStationProvider` | `TeslaChargingStationProvider` |
 | --- | --- | --- |
-| Speicher | JSON-Datei | SQLite-Datenbank |
-| Refresh | Manuell (Datei ersetzen) | `refresh()` via supercharge.info-API |
-| Pricing | Nicht unterstützt | `charging_pricing`-Tabelle (Phase 2) |
-| Indizierung | Keine (O(n)-Scan) | B-Tree auf lat/lon, country, status |
-| Transaktionen | Keine (atomares File-Write) | SQL-Transaktionen (Rollback bei Fehler) |
-| Datenqualität | Handkuratierter Snapshot | Live von supercharge.info |
-| Abhängigkeiten | Keine außer `json` | `sqlite3`, `httpx` |
-| Ziel | Unit-Tests, minimale Setup | Produktion, Integrationstests |
+| Storage | JSON file | SQLite database |
+| Refresh | Manual (replace file) | `refresh()` via supercharge.info API |
+| Pricing | Not supported | `charging_pricing` table (Phase 2) |
+| Indexing | None (O(n) scan) | B-Tree on lat/lon, country, status |
+| Transactions | None (atomic file write) | SQL transactions (rollback on error) |
+| Data quality | Hand-curated snapshot | Live from supercharge.info |
+| Dependencies | None except `json` | `sqlite3`, `httpx` |
+| Target | Unit tests, minimal setup | Production, integration tests |
 
-Beide Provider implementieren `ChargingStationProvider` und sind über das Protocol austauschbar. Die `init_charging_infrastructure()`-Funktion kann zwischen beiden umschalten.
+Both providers implement `ChargingStationProvider` and are interchangeable via the protocol. The `init_charging_infrastructure()` function can switch between both.
 
 ---
 
-## 12. Datei-Übersicht (neu / geändert)
+## 12. File Overview (new / changed)
 
 ```
 src/tripplanner/charging_infrastructure/
-├── __init__.py              # GEÄNDERT: neue Exports
-├── models.py                # GEÄNDERT: neue Pricing-Modelle
-├── client.py                # NEU: SuperchargeInfoClient
-├── database.py              # NEU: SQLiteDatabase
-├── providers.py             # GEÄNDERT: TeslaChargingStationProvider
-└── charging_infrastructure.py  # GEÄNDERT: init-Unterstützung für neuen Provider
+├── __init__.py              # CHANGED: new exports
+├── models.py                # CHANGED: new pricing models
+├── client.py                # NEW: SuperchargeInfoClient
+├── database.py              # NEW: SQLiteDatabase
+├── providers.py             # CHANGED: TeslaChargingStationProvider
+└── charging_infrastructure.py  # CHANGED: init support for new provider
 
 tests/charging_infrastructure/
-├── conftest.py              # GEÄNDERT: neue Fixtures für DB + Client
-├── test_client.py           # NEU
-├── test_database.py         # NEU
-├── test_providers.py        # GEÄNDERT: TeslaChargingStationProvider-Tests
-└── test_models.py           # GEÄNDERT: Pricing-Modell-Tests
+├── conftest.py              # CHANGED: new fixtures for DB + client
+├── test_client.py           # NEW
+├── test_database.py         # NEW
+├── test_providers.py        # CHANGED: TeslaChargingStationProvider tests
+└── test_models.py           # CHANGED: pricing model tests
 
 tests/fixtures/charging_infrastructure/
-├── tesla_supercharger_snapshot.json  # unverändert
-├── route_sample.json                 # unverändert
-└── supercharge_info_response_3sites.json  # NEU
+├── tesla_supercharger_snapshot.json  # unchanged
+├── route_sample.json                 # unchanged
+└── supercharge_info_response_3sites.json  # NEW
 
 data/
-├── supercharger_snapshot.json        # unverändert
-└── (tesla_superchargers.db)          # NEU: wird bei refresh() erzeugt
+├── supercharger_snapshot.json        # unchanged
+└── (tesla_superchargers.db)          # NEW: created on refresh()
 ```

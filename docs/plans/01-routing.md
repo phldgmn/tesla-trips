@@ -1,37 +1,37 @@
-# Implementierungsplan: `routing`-Modul (Phase 1)
+# Implementation Plan: `routing` Module (Phase 1)
 
-## 1. Zweck & Scope
+## 1. Purpose & Scope
 
-Das `routing`-Modul berechnet eine oder mehrere Straßenrouten zwischen Start, Ziel und gegebenenfalls Zwischenstopps (Pflicht-Wegpunkten) mithilfe von GraphHopper. Es kennt **nicht** die Energieverbrauchsdaten, Ladeplanung oder Wetterbedingungen — diese werden erst in nachgelagerten Modulen (`energy`, `optimization`) bearbeitet.
+The `routing` module calculates one or more road routes between a start point, destination, and any intermediate stops (mandatory waypoints) using GraphHopper. It does **not** know energy consumption data, charging planning, or weather conditions — these are handled later by downstream modules (`energy`, `optimization`).
 
 **Scope:**
 
-- HTTP-Client für GraphHopper-Server mit Docker-Setup (lokale Instanz)
-- Berechnung einer einzigen Route für gegebene Waypoints (Start → Zwischenstopps → Ziel)
-- Extrahieren aller für nachgelagerte Module relevanten Segmentinformationen: Geometrie, Länge, Straßenklasse, Tempolimit, Steigung (sofern verfügbar)
-- Behandlung von Zwischenstopps als Pflicht-Wegpunkte, die in der Reihenfolge durchlaufen werden müssen
+- HTTP client for GraphHopper server with Docker setup (local instance)
+- Calculation of a single route for given waypoints (start → intermediate stops → destination)
+- Extraction of all segment information relevant to downstream modules: geometry, length, road class, speed limit, elevation (if available)
+- Treatment of intermediate stops as mandatory waypoints that must be traversed in order
 
-**Nicht-Scope:**
+**Out of Scope:**
 
-- Keine eigene OSM-Datenverarbeitung — ausschließlich GraphHopper als Datenquelle nutzen
-- Keine Energierouting-Optimierung (keine Berücksichtigung von Steigungen für Kostenfunktion im aktuellen Scope)
-- Keine mehreren Routenalternativen mit energetischem Vergleich (Später / nicht jetzt umsetzen, siehe "Offene Punkte" in `06-offene-punkte-widersprueche.md`)
-- Keine Live-Verkehrsdaten (explizit nicht Teil des Projekts)
+- No own OSM data processing — exclusively use GraphHopper as data source
+- No energy-aware routing optimization (no elevation-based cost function in current scope)
+- No multiple route alternatives with energy comparison (deferred / not now, see "Open Points" in `06-open-points-contradictions.md`)
+- No live traffic data (explicitly not part of the project)
 
-## 2. Abhängigkeiten & Phasenzuordnung
+## 2. Dependencies & Phase Assignment
 
-**Phase:** Phase 1 (unabhängige Datenquell-Module, parallelisierbar)
+**Phase:** Phase 1 (independent data source modules, parallelizable)
 
-**Fremde Typen (nur Lesen, exakt wie im Register definiert):**
+**External Types (read-only, exactly as defined in the register):**
 
-- `tripplanner.trip_input.models.TripRequest` (Startkoordinate, Zielkoordinate, zwischenstopps: list[Waypoint], abfahrtszeit, fahrzeugprofil: VehicleProfile, praeferenzen)
+- `tripplanner.trip_input.models.TripRequest` (start coordinate, destination coordinate, zwischenstopps: list[Waypoint], abfahrtszeit, fahrzeugprofil: VehicleProfile, praeferenzen)
 - `tripplanner.trip_input.models.Waypoint` (koordinate, aufenthaltsdauer: timedelta | None)
-- `tripplanner.routing.models.Route` (Segmentsammlung)
-- `tripplanner.routing.models.RouteSegment` (segment_index, geometrie/koordinaten, laenge_m, strassenklasse, oberflaeche, tempolimit_kmh, steigung_rohdaten, bearing_deg)
+- `tripplanner.routing.models.Route` (segments collection)
+- `tripplanner.routing.models.RouteSegment` (segment_index, geometrie/coordinates, laenge_m, strassenklasse, oberflaeche, tempolimit_kmh, steigung_rohdaten, bearing_deg)
 
-**Hinweis zum Fahrzeugprofil:** Der `VehicleProfile` aus `trip_input` wird aktuell **nicht** zur Beeinflussung des GraphHopper-Routings verwendet, da GraphHopper sein eigenes Fahrzeugprofil (`profile`) erfordert und die individuellen Tesla-spezifischen Parameter erst in Phase 2 (`energy`) wirksam werden. Zukünftig könnte das Fahrzeugprofil via `custom_model` eingebunden werden, ist aber aktuell bewusst nicht umgesetzt (keine Steigungsbestrafung im Routing selbst — nur Tempolimit-Gewichtung).
+**Note on Vehicle Profile:** The `VehicleProfile` from `trip_input` is currently **not** used to influence GraphHopper routing, since GraphHopper requires its own vehicle profile (`profile`) and individual Tesla-specific parameters only become active in Phase 2 (`energy`). In the future, the vehicle profile could be integrated via `custom_model`, but it is intentionally not implemented at present (no elevation penalty in the routing itself — only speed limit weighting).
 
-## 3. Datenmodelle
+## 3. Data Models
 
 ```python
 # src/tripplanner/routing/models.py
@@ -40,89 +40,84 @@ from pydantic import BaseModel, Field
 from typing import List, Tuple
 from datetime import timedelta
 
-# Repräsentiert eine Koordinate (Breitengrad, Längengrad)
+# Represents a coordinate (latitude, longitude)
 Coordinate = Tuple[float, float]  # (lat, lon)
 
-
 class RouteSegment(BaseModel):
-    """Ein Segment der Route mit allen für nachgelagerte Module relevanten Attributen."""
+    """A segment of the route with all attributes relevant to downstream modules."""
 
-    segment_index: int = Field(..., description="Nullbasierter Index dieses Segments in der Route")
+    segment_index: int = Field(..., description="Zero-based index of this segment in the route")
     geometrie: List[Coordinate] = Field(
-        ..., description="Liste von (lat, lon) Koordinaten, die das Segment beschreiben"
+        ..., description="List of (lat, lon) coordinates describing the segment"
     )
-    laenge_m: float = Field(..., gt=0, description="Länge des Segments in Metern")
+    laenge_m: float = Field(..., gt=0, description="Length of the segment in meters")
     strassenklasse: str = Field(
-        ..., description="Straßenklasse (MOTORWAY, TRUNK, PRIMARY, SECONDARY, TRACK, etc.)"
+        ..., description="Road class (MOTORWAY, TRUNK, PRIMARY, SECONDARY, TRACK, etc.)"
     )
     oberflaeche: str | None = Field(
         default=None,
-        description="Straßenbelag aus GraphHopper Path-Detail `surface` (z. B. asphalt, gravel, dirt), None wenn nicht verfügbar. Wird von `energy` für den Rollwiderstands-Faktor konsumiert (siehe docs/plans/06-energy.md, Abschnitt 5.1.1).",
+        description="Road surface from GraphHopper Path detail `surface` (e.g. asphalt, gravel, dirt), None if not available. Consumed by `energy` for the rolling resistance factor (see docs/plans/06-energy.md, section 5.1.1).",
     )
     tempolimit_kmh: int | None = Field(
-        default=None, ge=0, description="Tempolimit in km/h (None wenn nicht verfügbar)"
+        default=None, ge=0, description="Speed limit in km/h (None if not available)"
     )
     steigung_rohdaten: float | None = Field(
-        default=None, ge=-100, le=100, description="Steigung in Prozent (None wenn nicht verfügbar)"
+        default=None, ge=-100, le=100, description="Slope in percentage (None if not available)"
     )
     bearing_deg: float = Field(
         ...,
         ge=0.0,
         lt=360.0,
-        description="Fahrtrichtung (Bearing) am Segmentanfang in Grad (0°=Nord, 90°=Ost), vom routing-Modul aus Start-/Endkoordinate des Segments berechnet (Vorwärtsazimut, WGS84-Großkreis). Wird von `wind` zur Windkomponenten-Projektion konsumiert.",
+        description="Direction of travel (bearing) at segment start in degrees (0=N, 90=E), calculated by the routing module from segment start/end coordinate (forward azimuth, WGS84 great circle). Consumed by `wind` for wind component projection.",
     )
-
 
 class Route(BaseModel):
-    """Die gesamte berechnete Route mit Metadaten."""
+    """The complete calculated route with metadata."""
 
     segments: List[RouteSegment] = Field(
-        ..., description="Liste aller Route-Segmente in Fahrtrichtung"
+        ..., description="List of all route segments in travel direction"
     )
-    gesamtlaenge_m: float = Field(..., gt=0, description="Gesamtlänge der Route in Metern")
+    gesamtlaenge_m: float = Field(..., gt=0, description="Total route length in meters")
     geometrie: List[Coordinate] = Field(
-        ..., description="Vollständige Geometrie der Route als Liste von Koordinaten"
+        ..., description="Full route geometry as a list of coordinates"
     )
     bbox: Tuple[float, float, float, float] | None = Field(
         default=None, description="Bounding box [min_lat, min_lon, max_lat, max_lon] (optional)"
     )
 
-
 class GraphHopperResponse(BaseModel):
-    """Interne Darstellung einer GraphHopper /route API Antwort (nur zur internen Verarbeitung)."""
+    """Internal representation of a GraphHopper /route API response (for internal processing only)."""
 
     paths: List[GraphHopperPath]
     info: GraphHopperInfo
 
-
 class GraphHopperPath(BaseModel):
-    """Ein Pfad (in der Regel nur einer) aus der GraphHopper Antwort."""
+    """A path (usually only one) from the GraphHopper response."""
 
-    distance: float  # Meter
-    time: int  # Millisekunden
-    points: str  # Encodierte Polyline (points_encoded=True)
+    distance: float  # Meters
+    time: int  # Milliseconds
+    points: str  # Encoded polyline (points_encoded=True)
     points_encoded: bool = True
     details: dict[str, list[str | float]] = Field(
         default_factory=dict
-    )  # Details wie road_class, max_speed, average_slope
+    )  # Details like road_class, max_speed, average_slope
     instructions: list = Field(default_factory=list)
 
-
 class GraphHopperInfo(BaseModel):
-    """Meta-Informationen zur GraphHopper Antwort."""
+    """Meta-information about the GraphHopper response."""
 
     copyright: list[str]
     hints: list[dict] = Field(default_factory=list)
-    took: int  # Millisekunden
+    took: int  # Milliseconds
 ```
 
-**Zusätzliche Hilfstypen (nicht im Register enthalten, aber notwendig):**
+**Additional helper types (not in the register, but necessary):**
 
-- `Coordinate`: Tuple[float, float] — (Breitengrad, Längengrad). **Konsolidierungshinweis:** Dieser Alias ist identisch mit dem in `docs/plans/00-foundation-tooling.md` vorgesehenen `tripplanner.geo.Coordinate`-Primitiv. `routing` definiert ihn hier lokal, da `routing` das erste Modul in der Pipeline ist; sobald `tripplanner.geo` in Phase 0 existiert, importiert `routing.models` von dort statt lokal neu zu definieren (kein funktionaler Unterschied, nur eine Quelle der Wahrheit).
-- `GraphHopperResponse`/`GraphHopperPath` — Nur zur internen Verarbeitung, keine Cross-Modul-Schnittstelle
-- **Koordinaten-Konvention (verbindlich für das gesamte Projekt):** Alle `Coordinate`-Tupel sind `(lat, lon)`, niemals `(lon, lat)`. Eine Umwandlung nach GeoJSON-Reihenfolge `(lon, lat)` erfolgt ausschließlich an der Serialisierungsgrenze zum Frontend (siehe `docs/plans/08-simulation-visualization-api.md`, Abschnitt 5.2), nicht in Domänenmodellen.
+- `Coordinate`: Tuple[float, float] — (latitude, longitude). **Consolidation note:** This alias is identical to the `tripplanner.geo.Coordinate` primitive in `docs/plans/00-foundation-tooling.md`. `routing` defines it locally here since `routing` is the first module in the pipeline; once `tripplanner.geo` exists in Phase 0, `routing.models` will import from there instead of redefining locally (no functional difference, only a single source of truth).
+- `GraphHopperResponse`/`GraphHopperPath` — For internal processing only, no cross-module interface
+- **Coordinate convention (mandatory for the entire project):** All `Coordinate` tuples are `(lat, lon)`, never `(lon, lat)`. Conversion to GeoJSON order `(lon, lat)` happens exclusively at the serialization boundary to the frontend (see `docs/plans/08-simulation-visualization-api.md`, section 5.2), not in domain models.
 
-## 4. Öffentliche Schnittstelle
+## 4. Public Interface
 
 ```python
 # src/tripplanner/routing/__init__.py
@@ -149,12 +144,11 @@ from typing import Protocol
 from tripplanner.trip_input.models import TripRequest
 from tripplanner.routing.models import Route
 
-
 class RoutingProvider(Protocol):
-    """Interface für Routing-Anbieter. Ermöglicht Fake-Implementierungen für Tests."""
+    """Interface for routing providers. Enables fake implementations for testing."""
 
     async def berechne_route(self, anfrage: TripRequest) -> Route:
-        """Berechnet eine Route für die gegebene TripRequest."""
+        """Calculates a route for the given TripRequest."""
         ...
 
     async def berechne_route_mit_waypoints(
@@ -163,22 +157,21 @@ class RoutingProvider(Protocol):
         ziel: Coordinate,
         zwischenstopps: list[tuple[Coordinate, timedelta | None]],
     ) -> Route:
-        """Berechnet eine Route mit expliziten Zwischenstopps."""
+        """Calculates a route with explicit intermediate stops."""
         ...
 
-
 class GraphHopperRoutingProvider:
-    """Konkrete Implementierung über GraphHopper HTTP API."""
+    """Concrete implementation via GraphHopper HTTP API."""
 
     def __init__(self, client: GraphHopperClient, use_custom_model: bool = False):
         self.client = client
         self.use_custom_model = use_custom_model
 
     async def berechne_route(self, anfrage: TripRequest) -> Route:
-        """Berechnet eine Route für eine TripRequest (inkl. Zwischenstopps)."""
-        # Umwandlung TripRequest → GraphHopper Parameter
-        # Anruf self.client.route(...)
-        # Mapping GraphHopperResponse → Route
+        """Calculates a route for a TripRequest (including intermediate stops)."""
+        # Convert TripRequest → GraphHopper parameters
+        # Call self.client.route(...)
+        # Map GraphHopperResponse → Route
         ...
 
     async def berechne_route_mit_waypoints(
@@ -187,8 +180,8 @@ class GraphHopperRoutingProvider:
         ziel: Coordinate,
         zwischenstopps: list[tuple[Coordinate, timedelta | None]],
     ) -> Route:
-        """Berechnet eine Route mit Zwischenstopps über GraphHopper."""
-        # Aufruf client.route mit points=[start] + [zwischenstopps] + [ziel]
+        """Calculates a route with intermediate stops via GraphHopper."""
+        # Call client.route with points=[start] + [zwischenstopps] + [ziel]
         ...
 ```
 
@@ -200,9 +193,8 @@ from tripplanner.routing.models import GraphHopperResponse, GraphHopperPath
 
 Coordinate = Tuple[float, float]
 
-
 class GraphHopperClient:
-    """HTTP-Client für GraphHopper API. Handles Authentifizierung, Request/Response Mapping."""
+    """HTTP client for GraphHopper API. Handles authentication, request/response mapping."""
 
     def __init__(self, base_url: str = "http://localhost:8989", api_key: str | None = None):
         self.base_url = base_url.rstrip("/")
@@ -218,23 +210,23 @@ class GraphHopperClient:
         custom_model: dict | None = None,
     ) -> GraphHopperResponse:
         """
-        GraphHopper /route HTTP Endpoint.
+        GraphHopper /route HTTP endpoint.
 
         Args:
-            points: Liste von [lon, lat] Koordinaten (mindestens 2)
-            profile: GraphHopper profile (z. B. "car", "bike", "foot", oder benutzerdefiniert)
-            elevation: Falls True, Elevation in Polyline einbeziehen
-            details: Liste von gewünschten Path Details (z. B. ["road_class", "max_speed", "average_slope", "surface"])
-            custom_model: Optionaler custom_model JSON für individuelles Fahrzeugprofil
+            points: List of [lon, lat] coordinates (at least 2)
+            profile: GraphHopper profile (e.g. "car", "bike", "foot", or custom)
+            elevation: If True, include elevation in polyline
+            details: List of desired path details (e.g. ["road_class", "max_speed", "average_slope", "surface"])
+            custom_model: Optional custom_model JSON for individual vehicle profile
 
         Returns:
-            GraphHopperResponse mit decoded Polyline und Details
+            GraphHopperResponse with decoded polyline and details
 
         Raises:
-            ValueError: Wenn weniger als 2 Punkte übergeben werden
-            httpx.HTTPStatusError: Bei HTTP-Fehlern (4xx/5xx)
+            ValueError: If fewer than 2 points are provided
+            httpx.HTTPStatusError: On HTTP errors (4xx/5xx)
         """
-        # Umwandlung points: (lat, lon) → [lon, lat]
+        # Convert points: (lat, lon) → [lon, lat]
         gh_points = [[lon, lat] for lat, lon in points]
         payload = {"point": gh_points, "profile": profile, "elevation": elevation}
 
@@ -250,7 +242,7 @@ class GraphHopperClient:
         return GraphHopperResponse.model_validate(response.json())
 
     async def close(self) -> None:
-        """Schließt den HTTP Client."""
+        """Closes the HTTP client."""
         await self._client.aclose()
 
     async def __aenter__(self) -> "GraphHopperClient":
@@ -260,15 +252,15 @@ class GraphHopperClient:
         await self.close()
 ```
 
-## 5. Externe Integration / Algorithmus-Details
+## 5. External Integration / Algorithm Details
 
 ### GraphHopper Docker Setup
 
-**Version:** 11.0 (aktuelle Stable Release, 14. Oktober 2025)
+**Version:** 11.0 (current stable release, October 14, 2025)
 
-**Docker-Image:** `israelhikingmap/graphhopper` oder `harelmazor/graphhopper` (beide aktuell gepflegt)
+**Docker image:** `israelhikingmap/graphhopper` or `harelmazor/graphhopper` (both actively maintained)
 
-**Docker Compose Beispiel (für lokalen Development-Server):**
+**Docker Compose example (for local development server):**
 
 ```yaml
 version: "3.8"
@@ -285,30 +277,30 @@ services:
     restart: unless-stopped
 ```
 
-**OSM-Datenquelle:** Geofabrik-Extrakte
+**OSM data source:** Geofabrik extracts
 
-- Deutschland: `germany-latest.osm.pbf` (~4.5 GB)
-- Dänemark: `denmark-latest.osm.pbf` (aus `europe/denmark.html`)
-- Schweden: `sweden-latest.osm.pbf` (~772 MB)
+- Germany: `germany-latest.osm.pbf` (~4.5 GB)
+- Denmark: `denmark-latest.osm.pbf` (from `europe/denmark.html`)
+- Sweden: `sweden-latest.osm.pbf` (~772 MB)
 
-**Extrakt-Methode für DE/DK/SE:**
+**Extract method for DE/DK/SE:**
 
 ```bash
-# Option 1: Einzelne Länder herunterladen
+# Option 1: Download individual countries
 wget https://download.geofabrik.de/europe/germany-latest.osm.pbf
 wget https://download.geofabrik.de/europe/denmark-latest.osm.pbf
 wget https://download.geofabrik.de/europe/sweden-latest.osm.pbf
 
-# Option 2: Europe-Gesamtextrakt + osmconvert für Bereichsausschnitt
-# Bounding Box: west= -10, south= 47, east= 34, north= 71 (ungefähr DE/DK/SE)
+# Option 2: Europe full extract + osmconvert for region clipping
+# Bounding box: west=-10, south=47, east=34, north=71 (approx DE/DK/SE)
 wget https://download.geofabrik.de/europe-latest.osm.pbf
 osmconvert europe-latest.osm.pbf -b=-10,47,34,71 -o=de-dk-se.osm.pbf
 ```
 
-**GraphHopper mit Custom Model:**
+**GraphHopper with Custom Model:**
 
 ```yaml
-# In config.yml des GraphHopper-Containers
+# In config.yml of GraphHopper container
 profiles:
   - name: tesla_model3
     vehicle: car
@@ -341,42 +333,42 @@ custom_models.directory: /data/models
 }
 ```
 
-*Begründung:*
+*Justification:*
 
-- Tempolimits anpassen: Auf Autobahnen in DE/DK/SE typische 130 km/h statt Default (meist 120 km/h für car), in Städten auf 100 km/h beschränken.
-- Keine Motorway-Avoidance — Tesla Model 3 darf Autobahnen nutzen.
-- `distance_influence: 0` → bevorzugt schnellste Route (kein Zwang zu kürzeren Wegen bei gleicher Fahrzeit).
-- Steigungen: Aktuell **nicht** über `custom_model` einbeziehen — erst in Phase 2 (`energy`) durch Recherche der Steigungen anhand Elevation.
+- Adjust speed limits: On highways in DE/DK/SE typical 130 km/h instead of default (usually 120 km/h for car), restricted to 100 km/h in cities.
+- No motorway avoidance — Tesla Model 3 is allowed to use highways.
+- `distance_influence: 0` → prefers fastest route (no forced preference for shorter paths at equal travel time).
+- Elevation: Currently **not** included via `custom_model` — only in Phase 2 (`energy`) by researching elevations from elevation data.
 
-### GraphHopper `/route` HTTP API Parameter
+### GraphHopper `/route` HTTP API Parameters
 
 **Endpoint:** `POST /route`
 
-**Relevante Parameter (für dieses Modul):**
+**Relevant parameters (for this module):**
 
-| Parameter | Typ | Obligatorisch | Beschreibung |
+| Parameter | Type | Required | Description |
 | ----------- | ----- | --------------- | -------------- |
-| `point` | array[lon, lat] | Ja | Mindestens 2 Koordinaten (Start, [Zwischenstopps], Ziel) |
-| `profile` | string | Ja | GraphHopper Profilname (z. B. "car", "tesla_model3") |
-| `elevation` | boolean | Nein | Falls `true`, Elevation in Polyline inkludieren (für Steigungsberechnung) |
-| `points_encoded` | boolean | Nein | Standard: `true` (Poliyline-Encode), `false` → GeoJSON |
-| `details` | array[string] | Nein | Gewünschte Path Details: `["road_class", "max_speed", "average_slope", "max_slope", "surface"]` |
+| `point` | array[lon, lat] | Yes | At least 2 coordinates (start, [intermediate stops], destination) |
+| `profile` | string | Yes | GraphHopper profile name (e.g. "car", "tesla_model3") |
+| `elevation` | boolean | No | If `true`, include elevation in polyline (for slope calculation) |
+| `points_encoded` | boolean | No | Default: `true` (polyline encode), `false` → GeoJSON |
+| `details` | array[string] | No | Desired path details: `["road_class", "max_speed", "average_slope", "max_slope", "surface"]` |
 
-**Relevante Path Details (für nachgelagerte Module):**
+**Relevant Path Details (for downstream modules):**
 
-| Detail | Typ | Beschreibung |
+| Detail | Type | Description |
 | -------- | ----- | -------------- |
 | `road_class` | string | MOTORWAY, TRUNK, PRIMARY, SECONDARY, TRACK, STEPS, CYCLEWAY, FOOTWAY, OTHER |
-| `max_speed` | number | Tempolimit in km/h (0 = kein Limit, -1 = nicht verfügbar) |
-| `average_slope` | number | durchschnittliche Steigung in Prozent (100 * Δh / d) |
-| `max_slope` | number | maximale Steigung im Segment in Prozent (längs des Segments) |
-| `surface` | string | PAVED, GRAVEL, DIRT, GRASS, etc. (für spätere Rollwiderstandsberechnung) |
+| `max_speed` | number | Speed limit in km/h (0 = no limit, -1 = not available) |
+| `average_slope` | number | average slope in percentage (100 * Δh / d) |
+| `max_slope` | number | maximum slope in the segment in percentage (along the segment) |
+| `surface` | string | PAVED, GRAVEL, DIRT, GRASS, etc. (for later rolling resistance calculation) |
 
-**Beispiel-Request (Python/httpx):**
+**Example Request (Python/httpx):**
 
 ```python
 payload = {
-    "point": [[lon1, lat1], [lon2, lat2], [lon3, lat3]],  # [lon, lat] Reihenfolge!
+    "point": [[lon1, lat1], [lon2, lat2], [lon3, lat3]],  # [lon, lat] order!
     "profile": "car",
     "elevation": True,
     "details": ["road_class", "max_speed", "average_slope", "surface"],
@@ -384,7 +376,7 @@ payload = {
 response = await client.post("/route", json=payload)
 ```
 
-**Beispiel-Response-Ausschnitt (path details):**
+**Example Response Snippet (path details):**
 
 ```json
 {
@@ -402,112 +394,112 @@ response = await client.post("/route", json=payload)
 }
 ```
 
-### Steigungsberechnung aus GraphHopper Details
+### Slope Calculation from GraphHopper Details
 
-- **`average_slope`** ist bereits in Prozent geliefert (signed decimal), benötigt keine weitere Berechnung.
-- **`max_slope`** ist die maximale Steigung innerhalb des Segments (wichtiger für Rekuperation).
-- Falls `elevation: true` gesetzt ist, kann auch die Roh-Polyline mit Höheninformationen abgerufen werden (für spätere präzisere Berechnung).
+- **`average_slope`** is already provided in percentage (signed decimal), needs no further calculation.
+- **`max_slope`** is the maximum slope within the segment (more relevant for recuperation).
+- If `elevation: true` is set, the raw polyline with elevation information can also be retrieved (for later more precise calculation).
 
-## 6. Test-Strategie
+## 6. Test Strategy
 
-### Unit Tests (Mock/Fake, ohne GraphHopper Server)
+### Unit Tests (Mock/Fake, without GraphHopper Server)
 
 **Fixtures:**
 
-- `tests/fixtures/routing/graphhopper_response_basic.json`: Minimale Antwort ohne Details
-- `tests/fixtures/routing/graphhopper_response_with_details.json`: Antwort mit `road_class`, `max_speed`, `average_slope`, `surface` details
-- `tests/fixtures/routing/expected_route_model.json`: Erwartetes Pydantic-`Route`-Objekt
-- `tests/fixtures/routing/waypoints_testcase.json`: Beispiel `TripRequest` mit Zwischenstopps
+- `tests/fixtures/routing/graphhopper_response_basic.json`: Minimal response without details
+- `tests/fixtures/routing/graphhopper_response_with_details.json`: Response with `road_class`, `max_speed`, `average_slope`, `surface` details
+- `tests/fixtures/routing/expected_route_model.json`: Expected Pydantic `Route` object
+- `tests/fixtures/routing/waypoints_testcase.json`: Example `TripRequest` with intermediate stops
 
-**Testfälle:**
+**Test Cases:**
 
-1. **Given:** Gültige `TripRequest` ohne Zwischenstopps  
-   **When:** `berechne_route()` wird aufgerufen  
-   **Then:** `Route`-Objekt wird zurückgegeben, `gesamtlaenge_m` > 0, `segments` ≥ 1, `tempolimit_kmh` und `strassenklasse` sind gesetzt (oder `None` falls nicht verfügbar)
+1. **Given:** Valid `TripRequest` without intermediate stops  
+   **When:** `berechne_route()` is called  
+   **Then:** `Route` object is returned, `gesamtlaenge_m` > 0, `segments` ≥ 1, `tempolimit_kmh` and `strassenklasse` are set (or `None` if not available)
 
-2. **Given:** `TripRequest` mit 2 Zwischenstopps  
-   **When:** Route wird berechnet  
-   **Then:** Route enthält Segmente in korrekter Reihenfolge Start → Stopp1 → Stopp2 → Ziel, GesamtlängeSumme der Segmentlängen (innerhalb Toleranz 1%)
+2. **Given:** `TripRequest` with 2 intermediate stops  
+   **When:** Route is calculated  
+   **Then:** Route contains segments in correct order Start → Stop1 → Stop2 → Destination, Total length sum of segment lengths (within 1% tolerance)
 
-3. **Given:** GraphHopper-Antwort mit `average_slope` details  
-   **When:** `RouteSegment` wird extrahiert  
-   **Then:** `steigung_rohdaten` ist korrekt gesetzt (oder `None` falls `average_slope` fehlt), `tempolimit_kmh` ≥ 0 oder `None`, `strassenklasse` ist ein gültiger Wert aus `["MOTORWAY", "TRUNK", "PRIMARY", "SECONDARY", "TRACK", "OTHER"]`
+3. **Given:** GraphHopper response with `average_slope` details  
+   **When:** `RouteSegment` is extracted  
+   **Then:** `steigung_rohdaten` is correctly set (or `None` if `average_slope` is missing), `tempolimit_kmh` ≥ 0 or `None`, `strassenklasse` is a valid value from `["MOTORWAY", "TRUNK", "PRIMARY", "SECONDARY", "TRACK", "OTHER"]`
 
-### Integration Tests (gegen lokalen GraphHopper Server)
+### Integration Tests (against local GraphHopper Server)
 
-**Fixture:** Lokaler GraphHopper-Container (via `pytest-docker` oder manueller Start) mit `germany-latest.osm.pbf`
+**Fixture:** Local GraphHopper container (via `pytest-docker` or manual start) with `germany-latest.osm.pbf`
 
-**Testfälle:**
+**Test Cases:**
 
-1. **Given:** Start/Ende in Deutschland (z. B. Berlin → Hamburg)  
-   **When:** `GraphHopperClient.route()` wird aufgerufen  
-   **Then:** HTTP Status 200, Antwort enthält gültige Polyline, `distance` ≈ 250 km (innerhalb Toleranz ±5 km)
+1. **Given:** Start/End in Germany (e.g. Berlin → Hamburg)  
+   **When:** `GraphHopperClient.route()` is called  
+   **Then:** HTTP Status 200, response contains valid polyline, `distance` ≈ 250 km (within ±5 km tolerance)
 
-2. **Given:** Route mit Zwischenstopp in Dänemark (Berlin → Kopenhagen → Malmö)  
-   **When:** Route berechnet  
-   **Then:** Route enthält mind. 3 Segmente (Start→Stopp, Stopp→Ziel), `gesamtlaenge_m` ≈ 750 km (innerhalb Toleranz)
+2. **Given:** Route with intermediate stop in Denmark (Berlin → Copenhagen → Malmö)  
+   **When:** Route calculated  
+   **Then:** Route contains at least 3 segments (Start→Stop, Stop→Destination), `gesamtlaenge_m` ≈ 750 km (within tolerance)
 
-**Markierung:** `@pytest.mark.integration`
+**Marker:** `@pytest.mark.integration`
 
-**Test-Datei-Struktur:**
+**Test File Structure:**
 
 ```
 tests/routing/
 ├── test_routing.py          # Unit Tests (fake provider)
-├── test_providers.py        # Integration Tests (gegen GraphHopper)
+├── test_providers.py        # Integration Tests (against GraphHopper)
 └── conftest.py              # Fixture: graphhopper_client, example_trip_request
 ```
 
-## 7. Aufgaben-Checkliste
+## 7. Task Checklist
 
-- [ ] **Task 1:** Erstelle Modul-Skeleton (`src/tripplanner/routing/`, `tests/routing/`, `docs/plans/01-routing.md` existiert bereits). Erstelle `pyproject.toml`-Einträge für `rasterio`-Abhängigkeit nicht nötig, da `rasterio` nur `elevation`-Modul benötigt. Füge `httpx` hinzu (bereits im Root-`pyproject.toml` enthalten).
+- [ ] **Task 1:** Create module skeleton (`src/tripplanner/routing/`, `tests/routing/`, `docs/plans/01-routing.md` already exists). No need to create `pyproject.toml` entries for `rasterio` dependency since `rasterio` is only needed by `elevation` module. Add `httpx` (already included in root `pyproject.toml`).
 
-- [ ] **Task 2:** Implementiere `src/tripplanner/routing/models.py` mit `RouteSegment`, `Route`, `GraphHopperResponse`, `GraphHopperPath`. Definiere `Coordinate = Tuple[float, float]`. Füge Validatoren hinzu (`gt=0` für Längen, `ge=-100, le=100` für Steigung).
+- [ ] **Task 2:** Implement `src/tripplanner/routing/models.py` with `RouteSegment`, `Route`, `GraphHopperResponse`, `GraphHopperPath`. Define `Coordinate = Tuple[float, float]`. Add validators (`gt=0` for lengths, `ge=-100, le=100` for slope).
 
-- [ ] **Task 3:** Implementiere `src/tripplanner/routing/client.py` mit `GraphHopperClient.route()`. Implementiere Request-Mapping (Python `Coordinate` → GraphHopper `[lon, lat]`), Parameterübergabe (`elevation`, `details`), Response-Parsing (`GraphHopperResponse.model_validate(response.json())`). Implementiere Context-Manager (`__aenter__`/`__aexit__`).
+- [ ] **Task 3:** Implement `src/tripplanner/routing/client.py` with `GraphHopperClient.route()`. Implement request mapping (Python `Coordinate` → GraphHopper `[lon, lat]`), parameter passing (`elevation`, `details`), response parsing (`GraphHopperResponse.model_validate(response.json())`). Implement context manager (`__aenter__`/`__aexit__`).
 
-- [ ] **Task 4:** Implementiere `src/tripplanner/routing/providers.py` mit `RoutingProvider` Protocol und `GraphHopperRoutingProvider`. Implementiere `berechne_route()` (Umwandlung `TripRequest` → `GraphHopperClient.route()` mit points, profile="car", elevation=True, details=["road_class","max_speed","average_slope","surface"]). Implementiere `berechne_route_mit_waypoints()` (explizite Waypoint-Liste).
+- [ ] **Task 4:** Implement `src/tripplanner/routing/providers.py` with `RoutingProvider` Protocol and `GraphHopperRoutingProvider`. Implement `berechne_route()` (convert `TripRequest` → `GraphHopperClient.route()` with points, profile="car", elevation=True, details=["road_class","max_speed","average_slope","surface"]). Implement `berechne_route_mit_waypoints()` (explicit waypoint list).
 
-- [ ] **Task 5:** Implementiere Mapping-Logik zwischen `GraphHopperPath` und `Route`. Dekodiere Polyline (GraphHopper `points` → Liste `Coordinate`), extrahiere `details` in Segment-Attribute (`road_class` → `strassenklasse`, `max_speed` → `tempolimit_kmh`, `average_slope` → `steigung_rohdaten`, `surface` → `oberflaeche`). Generiere `Route.gesamtlaenge_m = sum(s.laenge_m for s in segments)`.
+- [ ] **Task 5:** Implement mapping logic between `GraphHopperPath` and `Route`. Decode polyline (GraphHopper `points` → list of `Coordinate`), extract `details` into segment attributes (`road_class` → `strassenklasse`, `max_speed` → `tempolimit_kmh`, `average_slope` → `steigung_rohdaten`, `surface` → `oberflaeche`). Generate `Route.gesamtlaenge_m = sum(s.laenge_m for s in segments)`.
 
-- [ ] **Task 6:** Erstelle Unit Tests in `tests/routing/test_routing.py`. Teste Mapping von `GraphHopperResponse` → `Route`. Teste Umgang mit fehlenden Details (`details` leer → `tempolimit_kmh=None`, `steigung_rohdaten=None`).
+- [ ] **Task 6:** Create unit tests in `tests/routing/test_routing.py`. Test mapping from `GraphHopperResponse` → `Route`. Test handling of missing details (`details` empty → `tempolimit_kmh=None`, `steigung_rohdaten=None`).
 
-- [ ] **Task 7:** Erstelle Integration Tests in `tests/routing/test_providers.py`. Teste `GraphHopperClient.route()` gegen lokalen GraphHopper-Server (Docker-Container). Teste `GraphHopperRoutingProvider.berechne_route()` mit `TripRequest` (Berlin → Hamburg).
+- [ ] **Task 7:** Create integration tests in `tests/routing/test_providers.py`. Test `GraphHopperClient.route()` against local GraphHopper server (Docker container). Test `GraphHopperRoutingProvider.berechne_route()` with `TripRequest` (Berlin → Hamburg).
 
-- [ ] **Task 8:** Erstelle Fixtures: `tests/fixtures/routing/graphhopper_response_basic.json`, `tests/fixtures/routing/graphhopper_response_with_details.json`, `tests/fixtures/routing/expected_route_model.json`, `tests/fixtures/routing/waypoints_testcase.json`. Nutze echte GraphHopper-Antworten aus Docker-Test oder synthetische Beispiele.
+- [ ] **Task 8:** Create fixtures: `tests/fixtures/routing/graphhopper_response_basic.json`, `tests/fixtures/routing/graphhopper_response_with_details.json`, `tests/fixtures/routing/expected_route_model.json`, `tests/fixtures/routing/waypoints_testcase.json`. Use real GraphHopper responses from Docker test or synthetic examples.
 
-- [ ] **Task 9:** Schreibe Docstrings für alle öffentlichen Funktionen gemäß Google-Style (httpx, pydantic, ruff-D-Regeln). Beispiel: `GraphHopperClient.route()`: Args/Returns/Raises gemäß Schema im Plan beschrieben.
+- [ ] **Task 9:** Write docstrings for all public functions per Google style (httpx, pydantic, ruff-D rules). Example: `GraphHopperClient.route()`: Args/Returns/Raises as described in the plan schema.
 
-- [ ] **Task 10:** Implementiere `src/tripplanner/routing/__init__.py` mit Export von `Route`, `RouteSegment`, `Coordinate`, `GraphHopperResponse`, `GraphHopperPath`, `RoutingProvider`, `FakeRoutingProvider`, `GraphHopperClient`.
+- [ ] **Task 10:** Implement `src/tripplanner/routing/__init__.py` with exports of `Route`, `RouteSegment`, `Coordinate`, `GraphHopperResponse`, `GraphHopperPath`, `RoutingProvider`, `FakeRoutingProvider`, `GraphHopperClient`.
 
-- [ ] **Task 11:** Erstelle `docker-compose.yml` für lokalen GraphHopper (Version 11.0, Volume `./data:/data`, Ports `8989:8989`, JVM-Options `-Xms1g -Xmx4g`). Schreibe README-Snippet für Start: `docker-compose up -d`, warten auf Log "GraphHopper is starting..." (ca. 2–5 Minuten).
+- [ ] **Task 11:** Create `docker-compose.yml` for local GraphHopper (version 11.0, volume `./data:/data`, ports `8989:8989`, JVM options `-Xms1g -Xmx4g`). Write README snippet for start: `docker-compose up -d`, wait for log "GraphHopper is starting..." (approx. 2–5 minutes).
 
-- [ ] **Task 12:** Implementiere `FakeRoutingProvider` (für Unit Tests ohne GraphHopper). Führe Dummy-`Route` zurück, die `RouteSegment` mit synthetischen Daten enthält (Längen ≈ 100 km, `tempolimit_kmh=100`, `strassenklasse="PRIMARY"`, `oberflaeche="asphalt"`, `steigung_rohdaten=1.5`).
+- [ ] **Task 12:** Implement `FakeRoutingProvider` (for unit tests without GraphHopper). Return dummy `Route` containing `RouteSegment` with synthetic data (lengths ≈ 100 km, `tempolimit_kmh=100`, `strassenklasse="PRIMARY"`, `oberflaeche="asphalt"`, `steigung_rohdaten=1.5`).
 
-- [ ] **Task 13:** Führe `ruff check src/tripplanner/routing/ tests/routing/` aus (select E,F,I,UP,B,SIM,PL,RUF) und korrigiere alle Meldungen. Führe `mypy src/tripplanner/routing/` mit `--strict` aus und korrigiere Typprüfungsfehler (vollständige Typannotationen, keine `Any`-Fallbacks).
+- [ ] **Task 13:** Run `ruff check src/tripplanner/routing/ tests/routing/` (select E,F,I,UP,B,SIM,PL,RUF) and fix all messages. Run `mypy src/tripplanner/routing/` with `--strict` and fix type check errors (full type annotations, no `Any` fallbacks).
 
-- [ ] **Task 14:** Schreibe `docs/plans/01-routing.md` vollständig (dieser Plan). Prüfe, ob alle Abschnitte (Zweck & Scope, Abhängigkeiten, Datenmodelle, öffentliche Schnittstelle, Externe Integration, Test-Strategie, Aufgaben-Checkliste, Risiken) enthalten sind und keine "TBD"-Placehalter stehen.
+- [ ] **Task 14:** Write `docs/plans/01-routing.md` completely (this plan). Check that all sections (Purpose & Scope, Dependencies, Data Models, Public Interface, External Integration, Test Strategy, Task Checklist, Risks) are included and no "TBD" placeholders remain.
 
-- [ ] **Task 15:** Ergänze `RouteSegment.bearing_deg`-Berechnung in `providers.py`/`routing.py`: Vorwärtsazimut aus erster und letzter Koordinate von `segment.geometrie` (Formel: `atan2(sin(Δlon)·cos(lat2), cos(lat1)·sin(lat2) − sin(lat1)·cos(lat2)·cos(Δlon))`, normalisiert auf `[0, 360)`). Unit-Test mit bekannten Himmelsrichtungen (Nord/Ost/Süd/West).
+- [ ] **Task 15:** Add `RouteSegment.bearing_deg` calculation in `providers.py`/`routing.py`: forward azimuth from first and last coordinate of `segment.geometrie` (formula: `atan2(sin(Δlon)·cos(lat2), cos(lat1)·sin(lat2) − sin(lat1)·cos(lat2)·cos(Δlon))`, normalized to `[0, 360)`). Unit test with known cardinal directions (North/East/South/West).
 
-## 8. Risiken & offene technische Fragen
+## 8. Risks & Open Technical Questions
 
-1. **Polyline-Dekodierung:** GraphHopper nutzt die gleiche Polyline-Encodierung wie Google Maps (Encoded Polyline Algorithm). Verwendung einer etablierten Bibliothek (`polyline` PyPI-Paket) ist empfohlen. Falls nicht verfügbar, Implementierung der Dekodierung gemäß offiziellem Algorithmus.
+1. **Polyline decoding:** GraphHopper uses the same polyline encoding as Google Maps (Encoded Polyline Algorithm). Using an established library (`polyline` PyPI package) is recommended. If not available, implement decoding per the official algorithm.
 
-2. **Grenzfälle mit `max_speed`:** GraphHopper liefert `max_speed: 0` für Straßen ohne Schild (z. B. Spielstraßen in DE) oder `-1` falls nicht bekannt. Das `routing`-Modul muss diese Werte entweder als `None` (kein Limit) oder als typische Default-Geschwindigkeit interpretieren (entscheidet `energy`-Modul später für die Berechnung). Im `routing`-Modul wird `0` oder `-1` als `tempolimit_kmh=None` gespeichert.
+2. **Edge cases with `max_speed`:** GraphHopper returns `max_speed: 0` for streets without signage (e.g. residential streets in DE) or `-1` if not known. The `routing` module must either treat these values as `None` (no limit) or interpret them as a typical default speed (the `energy` module will decide later for calculation). In the `routing` module, `0` or `-1` is stored as `tempolimit_kmh=None`.
 
-3. **Elevation-Details ohne Elevation-Daten:** Falls GraphHopper mit `elevation: true` gestartet wurde, aber keine DEM-Daten für die Route verfügbar sind, liefert `average_slope` möglicherweise `null` oder `0`. Im `routing`-Modul wird dies als `steigung_rohdaten=None` behandelt.
+3. **Elevation details without elevation data:** If GraphHopper was started with `elevation: true` but no DEM data is available for the route, `average_slope` may return `null` or `0`. In the `routing` module, this is treated as `steigung_rohdaten=None`.
 
-4. **Mehrfachrouten in GraphHopper Antwort:** Die Antwort kann mehrere Pfade enthalten (bei `alt=true` Parameter). Das `routing`-Modul nutzt aktuell **nur den ersten Pfad** (`paths[0]`). Falls Mehrfachrouten gewünscht sind (Später / nicht jetzt), muss das Modul erweitert werden.
+4. **Multiple routes in GraphHopper response:** The response can contain multiple paths (with `alt=true` parameter). The `routing` module currently uses **only the first path** (`paths[0]`). If multiple routes are desired (deferred / not now), the module must be extended.
 
-5. **Stauprognosen:** GraphHopper kann live Verkehr berücksichtigen (via `weighting=shortest` mit `traffic=true`). Ist aktuell nicht vorgesehen (Verkehr ist "nicht Bestandteil dieses Projekts"), daher wird `weighting=fastest` ohne Verkehrsdaten verwendet.
+5. **Traffic forecasts:** GraphHopper can consider live traffic (via `weighting=shortest` with `traffic=true`). This is not currently planned (traffic is "not part of this project"), so `weighting=fastest` without traffic data is used.
 
-6. **Tempolimit-Interpolation:** Falls `max_speed` nur segmentweise vorliegt (Pro Edge), aber `RouteSegment` aus mehreren Edges besteht (bei langen Straßenabschnitten), kann die Durchschnittsgeschwindigkeit berechnet werden. Für den aktuellen Scope wird das erste oder durchschnittliche `max_speed` des Segments verwendet.
+6. **Speed limit interpolation:** If `max_speed` is only available per segment (per edge) but a `RouteSegment` consists of multiple edges (for long road sections), an average speed can be calculated. For the current scope, the first or average `max_speed` of the segment is used.
 
-7. **Cross-Border-Routing (DE/DK/SE):** GraphHopper unterstützt Cross-Border-Routing out-of-the-box, solange die OSM-Daten zusammenhängend sind (Deutschland, Dänemark, Schweden sind im Europe-Extrakt enthalten). Keine额外 Handlung notwendig.
+7. **Cross-border routing (DE/DK/SE):** GraphHopper supports cross-border routing out of the box as long as the OSM data is contiguous (Germany, Denmark, Sweden are included in the Europe extract). No additional action needed.
 
-8. **Fehlende Straßenklassen:** Falls eine Straße keine `road_class` hat (z. B. private Zufahrten), liefert GraphHopper `"OTHER"`. Das Modul akzeptiert diesen Wert.
+8. **Missing road classes:** If a road has no `road_class` (e.g. private driveways), GraphHopper returns `"OTHER"`. The module accepts this value.
 
-9. **GraphHopper-Container-Startzeit:** Der erste Start nach `docker-compose up` kann 2–10 Minuten dauern (OSM-Import). In CI/CD-Pipelines muss eine Warte-Logik (Polling auf `/health` Endpoint) implementiert werden.
+9. **GraphHopper container startup time:** The first start after `docker-compose up` can take 2–10 minutes (OSM import). CI/CD pipelines must implement a wait logic (polling on the `/health` endpoint).
 
-10. **Reproducibility:** GraphHopper nutzt intern eine Graph-Cache (`/data/graph-cache`). Für reproduzierbare Tests (selbe OSM-Datei → selbe Route) ist sicherzustellen, dass keine externen Changes (z. B. Waze-Traffic-Updates) erfolgen. In der Praxis ist die Route für dieselbe OSM-Datei reproduzierbar.
+10. **Reproducibility:** GraphHopper uses an internal graph cache (`/data/graph-cache`). For reproducible tests (same OSM file → same route), it must be ensured that no external changes (e.g. Waze traffic updates) occur. In practice, the route is reproducible for the same OSM file.

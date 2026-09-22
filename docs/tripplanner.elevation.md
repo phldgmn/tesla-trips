@@ -1,5 +1,5 @@
 # elevation
 
-Höhenprofil und Steigungsberechnung.
+Elevation profile and gradient calculation.
 
 ::: tripplanner.elevation

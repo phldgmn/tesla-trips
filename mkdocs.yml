@@ -1,4 +1,4 @@
-site_name: Tesla-Tripplaner API
+site_name: Tesla Trip Planner API
 theme:
   name: "material"
   palette:
@@ -23,16 +23,16 @@ plugins:
 
 nav:
   - Home: index.md
-  - Spezifikation:
-      - Projektspezifikation: 01-projektspezifikation.md
-      - Architektur: 02-architektur.md
-      - Modulspezifikationen: 03-modulspezifikationen.md
-      - Repo-Tooling-Setup: 04-repo-tooling-setup.md
-      - Agent-Leitlinien: 05-agent-guidelines.md
-      - Offene Punkte: 06-offene-punkte-widersprueche.md
-  - Implementierungsplan:
-      - Master-Plan: 07-implementierungsplan.md
-      - Fundament & Tooling: plans/00-foundation-tooling.md
+  - Specification:
+      - Project Specification: 01-project-specifications.md
+      - Architecture: 02-architecture.md
+      - Module Specifications: 03-module-specifications.md
+      - Repo Tooling Setup: 04-repo-tooling-setup.md
+      - Agent Guidelines: 05-agent-guidelines.md
+      - Open Points: 06-open-points-contradictions.md
+  - Implementation Plan:
+      - Master Plan: 07-implementation-plan.md
+      - Foundation & Tooling: plans/00-foundation-tooling.md
       - routing: plans/01-routing.md
       - elevation: plans/02-elevation.md
       - weather/wind: plans/03-weather-wind.md
@@ -41,7 +41,7 @@ nav:
       - energy: plans/06-energy.md
       - optimization: plans/07-optimization.md
       - simulation/visualization/API: plans/08-simulation-visualization-api.md
-  - API-Referenz:
+  - API Reference:
       - routing: tripplanner.routing.md
       - elevation: tripplanner.elevation.md
       - weather: tripplanner.weather.md

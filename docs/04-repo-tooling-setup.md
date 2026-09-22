@@ -12,7 +12,7 @@ tesla-tripplanner/
 ├── uv.lock
 ├── AGENTS.md                  # see 05-agent-guidelines.md
 ├── docs/
-│   ├── 01-project-specification.md
+│   ├── 01-project-specifications.md
 │   ├── 02-architecture.md
 │   └── 03-module-specifications.md
 ├── src/

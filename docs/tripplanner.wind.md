@@ -1,5 +1,5 @@
 # wind
 
-Windkomponenten-Projektion auf die Fahrtrichtung.
+Wind component projection onto the direction of travel.
 
 ::: tripplanner.wind

@@ -15,13 +15,13 @@ The existing codebase (AGENTS.md, all `docs/*.md`, all identifiers, comments, an
 
 ## 1. Purpose & Scope
 
-This plan is the result of an audit of the contextual data sources that, per `docs/02-architektur.md` and `docs/03-modulspezifikationen.md`, are supposed to feed into trip planning: charging infrastructure, weather (incl. wind/temperature), construction sites, and (implicitly, since it is directly energy-relevant) elevation/grade. For each source we checked: (a) does a real, network-capable provider exist, and (b) is it actually used by the production pipeline (`POST /trips`, CLI `trips`), as opposed to only in the module's own tests.
+This plan is the result of an audit of the contextual data sources that, per `docs/02-architecture.md` and `docs/03-module-specifications.md`, are supposed to feed into trip planning: charging infrastructure, weather (incl. wind/temperature), construction sites, and (implicitly, since it is directly energy-relevant) elevation/grade. For each source we checked: (a) does a real, network-capable provider exist, and (b) is it actually used by the production pipeline (`POST /trips`, CLI `trips`), as opposed to only in the module's own tests.
 
 **Core finding:** Of the five data sources, only **one** (`charging_infrastructure`) is actually wired end-to-end into production. `routing` (GraphHopper) is also fully wired, but it supplies geometry only, not context data. **Weather, construction, and elevation are all three already implemented as real, network-/data-capable providers — but none of them is ever instantiated by the production endpoint or the CLI.** The energy calculation (`energy.calculate_segment_consumption`) correctly consumes every one of these inputs; the problem is entirely in the orchestration layer (`trip_input/api.py`, `trip_input/cli.py`), which never gives the real providers a chance because it (1) is type-restricted to the Fake classes, (2) never imports the real classes, and (3) in two places overwrites intermediate results with hardcoded placeholders.
 
 This plan fixes that for Germany/Denmark/Sweden (DE/DK/SE) — the project's geographic focus.
 
-**Explicit non-goals** (already decided in `docs/06-offene-punkte-widersprueche.md`): energy-optimal rerouting (the road route stays fixed after GraphHopper), Tesla Supercharger crawler extensions (already solved separately in Plan 09), live traffic data, per-source uncertainty modeling.
+**Explicit non-goals** (already decided in `docs/06-open-points-contradictions.md`): energy-optimal rerouting (the road route stays fixed after GraphHopper), Tesla Supercharger crawler extensions (already solved separately in Plan 09), live traffic data, per-source uncertainty modeling.
 
 ---
 
@@ -41,7 +41,7 @@ This plan fixes that for Germany/Denmark/Sweden (DE/DK/SE) — the project's geo
 ### 2.2 Evidence — Weather
 
 - `src/tripplanner/weather/client.py`: `OpenMeteoClient` — a real `httpx` request against `https://api.open-meteo.com/v1/forecast`, not a stub.
-- `src/tripplanner/weather/providers.py:147` `OpenMeteoProvider` (with cache), `:214` `refetch_weather` (re-queries already-cached points with an updated timestamp — exactly the "Besonderheit" required by `03-modulspezifikationen.md` §3).
+- `src/tripplanner/weather/providers.py:147` `OpenMeteoProvider` (with cache), `:214` `refetch_weather` (re-queries already-cached points with an updated timestamp — exactly the "Besonderheit" required by `03-module-specifications.md` §3).
 - `src/tripplanner/trip_input/api.py:59`: `from tripplanner.weather import FakeWeatherProvider` — **`OpenMeteoProvider` is never imported anywhere in `api.py`.**
 - `src/tripplanner/trip_input/api.py:604`: `weather_provider: FakeWeatherProvider | None = None` — the parameter type is the concrete Fake class, not the `WeatherProvider` protocol. A caller trying to pass `OpenMeteoProvider` would be rejected by `mypy --strict`.
 - `src/tripplanner/trip_input/api.py:150-161` (`_step_5_wetterabfrage`): `if provider is None: provider = FakeWeatherProvider()`.
@@ -68,7 +68,7 @@ This plan fixes that for Germany/Denmark/Sweden (DE/DK/SE) — the project's geo
 - `src/tripplanner/trip_input/api.py:605`: `construction_provider: FakeConstructionProvider | None = None` — same type problem as weather.
 - `src/tripplanner/trip_input/api.py:177-192` (`_step_6_construction_sites`): `if construction_provider is None: return []` — not even a Fake is used as default; an empty list is returned immediately.
 - `src/tripplanner/trip_input/api.py:679`: `baustellen = await _step_6_construction_sites(construction_provider, route, ["DE", "DK", "SE"])` — the country filter is correctly scoped to the project's focus countries, but never actually applies because `construction_provider` is always `None` in production.
-- **What already works:** `energy.py:13,63,94-100` imports `ConstructionZone` and correctly applies `tempolimit_kmh`/`tempolimit_override` to the segment speed via `min()`; per architecture decision 2 in `06-offene-punkte-widersprueche.md`, `optimization/` doesn't need construction awareness since there is no rerouting. So the consumption path is correct — only the data source never delivers real data in production.
+- **What already works:** `energy.py:13,63,94-100` imports `ConstructionZone` and correctly applies `tempolimit_kmh`/`tempolimit_override` to the segment speed via `min()`; per architecture decision 2 in `docs/06-open-points-contradictions.md`, `optimization/` doesn't need construction awareness since there is no rerouting. So the consumption path is correct — only the data source never delivers real data in production.
 
 ### 2.4 Evidence — Elevation/Grade
 
@@ -79,13 +79,13 @@ This plan fixes that for Germany/Denmark/Sweden (DE/DK/SE) — the project's geo
 - `src/tripplanner/trip_input/api.py:229-238` and `:345-351` (two locations): instead of using the (discarded) elevation profile, every segment gets a hardcoded `SegmentGradient(steigung_prozent=0.0, hoehendifferenz_m=0.0, …)` with the comment `# Vereinfachung: flach` ("simplification: flat").
 - **Consequence:** the physically correct grade calculation in `energy.py:111,133,137,162-163` (grade force, regeneration on downhill) never receives real data — every trip is treated energetically as if it were completely flat. This particularly affects elevation profiles in southern Germany/low mountain ranges and parts of southern Sweden.
 
-### 2.5 Evidence — Iterative ETA/Weather Convergence (`docs/02-architektur.md`)
+### 2.5 Evidence — Iterative ETA/Weather Convergence (`docs/02-architecture.md`)
 
 - `src/tripplanner/weather/weather.py:51-126` (`fetch_weather_iterative`): the structure exists (loop, `max_iterations`, `convergence_threshold_s`), but line 98 simulates deviations with `if hash(sample.koordinate) % 3 == 0` instead of deriving a real ETA from an actual energy/charging-plan recalculation. The comment on lines 90-91 confirms this explicitly: "Simuliere Berechnung einer neuen ETA (in echter Implementierung: Energieverbrauch + Ladeplan berechnen)" ("Simulates computing a new ETA — in a real implementation: compute energy consumption + charging plan").
 - This function has **zero callers outside `tests/weather/`**.
 - `src/tripplanner/simulation/simulate.py:118-119,130`: `simulate_trip` accepts `max_iterations` and `convergence_threshold_minutes`; the docstring marks both explicitly "(nicht verwendet)" ("unused"); the `weather_samples` parameter carries the same annotation.
 - `src/tripplanner/trip_input/api.py:371-404` (`_step_9_eta_aktualisieren`): a single, fixed ETA update after the charging-plan calculation — no feedback loop back to step 5 (weather query), no convergence check, no retry.
-- **Consequence:** the "iterative time/weather resolution" described in `docs/02-architektur.md` to resolve the ETA ↔ weather ↔ energy/charging-plan circularity exists only as documentation and as an isolated, non-integrated stub function.
+- **Consequence:** the "iterative time/weather resolution" described in `docs/02-architecture.md` to resolve the ETA ↔ weather ↔ energy/charging-plan circularity exists only as documentation and as an isolated, non-integrated stub function.
 
 ---
 
@@ -303,7 +303,7 @@ async def close_production_providers(providers: ProductionProviders) -> None: ..
   2. For each distinct Autobahn ID, `GET {AUTOBAHN_BASE_URL}/{autobahn_id}/services/roadworks` (no auth headers, no query params) — issue these concurrently (`asyncio.gather`) since each call is a separate, small JSON payload, mirroring the existing per-country concurrency pattern in `fetch_construction_zones`.
   3. `_parse_autobahn_roadwork(entry: dict, route) -> ConstructionZone | None`: map each JSON `roadworks[]` entry to a `ConstructionZone`:
      - `betroffene_segmente`: match `entry["coordinate"]` (and optionally sample points along `entry["geometry"]["coordinates"]`) to the nearest route segment(s) via the existing `_segment_index_for_coordinate`-style haversine matching (reuse the helper renamed in Phase A instead of duplicating it); entries whose nearest segment is farther than a small corridor threshold (e.g. 500 m) are discarded as not actually on this route.
-     - `sperrungstyp`: `Sperrungstyp.PARTIALLY_CLOSED` if `"CLOSED"` appears in `entry["impact"]["symbols"]`, else `Sperrungstyp.TEMPORARY_SPEED_LIMIT` — documented assumption per AGENTS.md ("bei Unsicherheit... eine begründete, dokumentierte Annahme"): the Autobahn API does not expose a structured speed-limit field, and a generic reduced-speed assumption for active roadworks without an explicit closure is the standard real-world default for German Autobahn construction zones.
+     - `sperrungstyp`: `Sperrungstyp.PARTIALLY_CLOSED` if `"CLOSED"` appears in `entry["impact"]["symbols"]`, else `Sperrungstyp.TEMPORARY_SPEED_LIMIT` — documented assumption per AGENTS.md ("bei Unsicherheit... eine grounded, dokumentierte Annahme"): the Autobahn API does not expose a structured speed-limit field, and a generic reduced-speed assumption for active roadworks without an explicit closure is the standard real-world default for German Autobahn construction zones.
      - `tempolimit_kmh`: `None` if `sperrungstyp == PARTIALLY_CLOSED` is not required by the model validator; when `sperrungstyp == TEMPORARY_SPEED_LIMIT` (the required-tempolimit case), default to `80` (the standard German Autobahn roadworks speed limit absent more specific data) — document this constant with a comment citing this assumption.
      - `gueltig_von`: `entry["startTimestamp"]` parsed as ISO 8601 if present, else the fetch time (`datetime.now(UTC)`) as a conservative "currently valid" fallback.
      - `gueltig_bis`: `None` (API gives no reliable end date across all entry shapes — some only describe recurring daily windows in free-text `description`).
@@ -341,7 +341,7 @@ async def close_production_providers(providers: ProductionProviders) -> None: ..
 
 ## 9. Phase E: Iterative ETA/Weather Convergence
 
-**Goal:** Actually implement the feedback loop specified in `docs/02-architektur.md`, section "Iterative Zeit-/Wetterauflösung". This is the **architecturally most invasive** phase, since `create_trip_simulation` is currently a linear pipeline (step 4 → 5 → 6 → 7 → 8 → 9, each exactly once) and needs to become a loop over steps 4/5/7/8/9 with a termination condition.
+**Goal:** Actually implement the feedback loop specified in `docs/02-architecture.md`, section "Iterative Time/Weather Resolution". This is the **architecturally most invasive** phase, since `create_trip_simulation` is currently a linear pipeline (step 4 → 5 → 6 → 7 → 8 → 9, each exactly once) and needs to become a loop over steps 4/5/7/8/9 with a termination condition.
 
 **Prerequisite:** Phase B (real weather) must be complete — a convergence loop on `FakeWeatherProvider`'s constant values is pointless, since the values never change and every iteration converges immediately.
 
@@ -386,8 +386,8 @@ for iteration in range(
 ## 10. Phase F: Integration Tests, Documentation, Regression Safety Net
 
 - New: `tests/integration/test_trip_end_to_end.py` (`@pytest.mark.integration`) — a full `POST /trips` run against a running GraphHopper container (`./run.sh start backend`, per AGENTS.md) with a **real** `OpenMeteoProvider` (a real Open-Meteo call, permitted per AGENTS.md only in tests marked `integration`) for a Berlin → Copenhagen → Stockholm route; verifies non-null wind/temperature values, a non-flat elevation profile, and (if credentials are available in the CI environment) at least one successful construction fetch per country without an exception.
-- Modify: `docs/02-architektur.md` section "Iterative Zeit-/Wetterauflösung" — add the implementation status (reference this plan, Section 9), if the document should be marked "implemented" after completion (same convention used for already-decided open questions in `07-implementierungsplan.md` §7).
-- Modify: `docs/03-modulspezifikationen.md` — Module 2 (`elevation`) dependency line: add `CopernicusDEMDataSource`/AWS Open Data as the concrete realization of the previously only abstractly named "local DEM tiles."
+- Modify: `docs/02-architecture.md` section "Iterative Time/Weather Resolution" — add the implementation status (reference this plan, Section 9), if the document should be marked "implemented" after completion (same convention used for already-decided open questions in `07-implementation-plan.md` §7).
+- Modify: `docs/03-module-specifications.md` — Module 2 (`elevation`) dependency line: add `CopernicusDEMDataSource`/AWS Open Data as the concrete realization of the previously only abstractly named "local DEM tiles."
 - `uv run hk check --all` and `uv run pytest -m "not integration"` must stay green after every phase (AGENTS.md Definition of Done); re-check the 85% coverage threshold for `src/tripplanner/`, since new modules (`providers_factory.py`, `CopernicusDEMDataSource`) are added.
 
 ---
@@ -455,7 +455,7 @@ Every phase follows TDD (test before implementation, per AGENTS.md Definition of
 ### Phase F: Integration & Docs
 
 - [x] Task F.1: `tests/integration/test_trip_end_to_end.py`
-- [x] Task F.2: Update status in `docs/02-architektur.md`/`docs/03-modulspezifikationen.md`
+- [x] Task F.2: Update status in `docs/02-architecture.md`/`docs/03-module-specifications.md`
 - [x] Task F.3: Final `uv run hk check --all`, `uv run pytest -m "not integration"`, coverage gate check
 - [x] Task F.4: Commit per phase (AGENTS.md item 6 — no single combined commit across all phases)
 
@@ -510,6 +510,6 @@ tests/fixtures/elevation/
 └── <test-cog-tile>.tif        # NEW, via scripts/create_test_dem_tile.py (Phase C)
 
 docs/
-├── 02-architektur.md          # CHANGED: iterative convergence status (Phase F)
-└── 03-modulspezifikationen.md # CHANGED: elevation data source made concrete (Phase F)
+├── 02-architecture.md          # CHANGED: iterative convergence status (Phase F)
+└── 03-module-specifications.md # CHANGED: elevation data source made concrete (Phase F)
 ```

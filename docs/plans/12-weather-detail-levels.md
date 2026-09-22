@@ -199,10 +199,10 @@ Rules:
   labeled `Aus` / `Niedrig` / `Mittel` / `Hoch` with the `CloudSun` icon) or a single
   cycling pill showing the active label — implementer's choice, but:
   - disabled while `isSubmitting` (as today);
-  - `title` tooltip per level in German, e.g. `Hoch`: "Wetter pro Streckenabschnitt (genaueste, langsamste Berechnung)",
-    `Mittel`: "Wetter an ausgewählten Punkten (Schneller, grobe räumliche Auflösung)",
-    `Niedrig`: "Einzelnes Wetterpunkt für die gesamte Reise (schnellste Wetter-Berechnung)",
-    `Aus`: "Wetterdaten werden ignoriert (Platzhalterwerte)";
+  - `title` tooltip per level in English, e.g. `Hoch`: "Weather per route segment (most accurate, slowest calculation)",
+    `Mittel`: "Weather at selected points (faster, coarse spatial resolution)",
+    `Niedrig`: "Single weather point for the entire trip (fastest weather calculation)",
+    `Aus`: "Weather data ignored (placeholder values)";
   - active state highlighted in the existing blue palette;
   - `aria-pressed` / `role="radiogroup"` semantics appropriate for a multi-state control.
 - Pass `wetterDetailgrad` through the submit handler where `wetterBeruecksichtigen` is

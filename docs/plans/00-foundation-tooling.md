@@ -1,127 +1,127 @@
-# Plan Phase 0 — Repo-Fundament & Tooling
+# Plan Phase 0 — Repo Foundation & Tooling
 
-## 1. Zweck & Scope
+## 1. Purpose & Scope
 
-Phase 0 legt das technische Fundament für das gesamte Projekt. Es geht nicht um Funktionalität, sondern um die Einrichtung einer strukturierten, testbaren, lint- und type-safe Codebasis, die KI-Agenten und Entwickler:innen anleitet und zwingt, qualitativ hochwertigen Code zu liefern.
+Phase 0 lays the technical foundation for the entire project. This is not about functionality, but about establishing a structured, testable, lint- and type-safe codebase that guides and compels AI agents and developers to deliver high-quality code.
 
-**Was dieses Modul leistet:**
+**What this module delivers:**
 
-- Exakter Verzeichnisbaum für alle 12 Module (`routing`, `elevation`, `weather`, `wind`, `construction`, `energy`, `battery`, `charging_infrastructure`, `optimization`, `simulation`, `visualization`, `trip_input`)
-- Python-Projektdefinition mittels `pyproject.toml` mit allen Dependencies und Dev-Gruppen
-- Git-Hook-Konfiguration mittels `hk.pkl` für pre-commit (Linting/Auto-Fix) und pre-push (Unit-Tests)
-- CI-Pipeline (`ci.yml`) mit Lint-, Test- und Frontend-Jobs inkl. konkretem GraphHopper-Docker-Image
-- AGENTS.md als Leitlinien-Datei für alle KI-Coding-Agenten (ausformuliert aus `05-agent-guidelines.md`)
-- Vorbereitung für mkdocs/mkdocstrings-Dokumentation
+- Exact directory tree for all 12 modules (`routing`, `elevation`, `weather`, `wind`, `construction`, `energy`, `battery`, `charging_infrastructure`, `optimization`, `simulation`, `visualization`, `trip_input`)
+- Python project definition via `pyproject.toml` with all dependencies and dev groups
+- Git hook configuration via `hk.pkl` for pre-commit (linting/auto-fix) and pre-push (unit tests)
+- CI pipeline (`ci.yml`) with lint, test, and frontend jobs including a specific GraphHopper Docker image
+- AGENTS.md as a guidelines file for all AI coding agents (expanded from `05-agent-guidelines.md`)
+- Preparation for mkdocs/mkdocstrings documentation
 
-**Abgrenzung:**
+**Out of scope:**
 
-- Keine Implementierung von Logik (Routing, Energie, Optimierung etc.)
-- Keine Einrichtung von Datenquellen (GraphHopper-Container starten ist Aufgabe der CI, nicht dieses Plans)
-- Keine Erstellung von Test- oder Quellcode-Dateien außer der Struktur-Vorgabe
+- No implementation of business logic (routing, energy, optimization, etc.)
+- No data source setup (starting the GraphHopper container is a CI task, not part of this plan)
+- No creation of test or source code files beyond the structural scaffold
 
-**NICHT-Scope (spätere Erweiterung):**
+**NOT in scope (future expansion):**
 
-- Aktiver GraphHopper-Container im dev-mode (nur CI-intern)
-- Echt-Zeit-Wetter-Crawler
-- Live-Baustellen-Feed
-- Datenbank-Migrationen
-
----
-
-## 2. Abhängigkeiten & Phasenzuordnung
-
-**Phase:** Phase 0 (Fundament & Tooling)
-
-**Konsumierte Typen aus anderen Modulen:** Keine — Phase 0 precediert alle anderen Module.
-
-**Zukünftige Abhängigkeiten (für Integration in Phase 1+):**
-
-- Alle Module (`tripplanner.routing`, `tripplanner.elevation`, …) werden `uv` als Paketmanager nutzen
-- Externe Dependencies (GraphHopper, Open-Meteo, DATEX II) werden via `httpx` angesprochen (in `pyproject.toml` definiert)
-- Test-Framework: `pytest`, `pytest-cov` (Coverage-Gate 85%)
+- Active GraphHopper container in dev-mode (CI-internal only)
+- Real-time weather crawler
+- Live construction-site feed
+- Database migrations
 
 ---
 
-## 3. Verzeichnisbaum (exakt wie vorgegeben + Modul-Skeleton)
+## 2. Dependencies & Phase Assignment
+
+**Phase:** Phase 0 (Foundation & Tooling)
+
+**Types consumed from other modules:** None — Phase 0 precedes all other modules.
+
+**Future dependencies (for integration in Phase 1+):**
+
+- All modules (`tripplanner.routing`, `tripplanner.elevation`, …) will use `uv` as the package manager
+- External dependencies (GraphHopper, Open-Meteo, DATEX II) are accessed via `httpx` (defined in `pyproject.toml`)
+- Test framework: `pytest`, `pytest-cov` (coverage gate at 85%)
+
+---
+
+## 3. Directory Tree (exactly as specified + Module Skeleton)
 
 ```
 tesla-tripplanner/
-├── hk.pkl                     # Git-Hook- und Lint-Konfiguration (s. Abschnitt 4)
-├── pyproject.toml             # uv/Python-Projektdefinition (s. Abschnitt 4)
+├── hk.pkl                     # Git hook and lint configuration (see section 4)
+├── pyproject.toml             # uv/Python project definition (see section 4)
 ├── uv.lock
-├── AGENTS.md                  # siehe 05-agent-guidelines.md (s. Abschnitt 5)
+├── AGENTS.md                  # see 05-agent-guidelines.md (see section 5)
 ├── docs/
-│   ├── 01-projektspezifikation.md
-│   ├── 02-architektur.md
-│   └── 03-modulspezifikationen.md
+│   ├── 01-project-specifications.md
+│   ├── 02-architecture.md
+│   └── 03-module-specifications.md
 ├── src/
 │   └── tripplanner/
-│       ├── __init__.py        # Package init (leer, aber erforderlich)
-│       ├── geo/                # Phase 0 — geteilte geografische Primitive (kein Business-Modul)
-│       │   ├── __init__.py    # exportiert Coordinate, bearing_deg(), haversine_distance_m()
-│       │   └── geo.py         # Coordinate = tuple[float, float] (lat, lon); Bearing-/Distanzformeln
+│       ├── __init__.py        # Package init (empty but required)
+│       ├── geo/                # Phase 0 — shared geographic primitives (not a business module)
+│       │   ├── __init__.py    # exports Coordinate, bearing_deg(), haversine_distance_m()
+│       │   └── geo.py         # Coordinate = tuple[float, float] (lat, lon); bearing/distance formulas
 │       ├── routing/           # Phase 1
-│       │   ├── __init__.py    # re-exportiert öffentliche API
-│       │   ├── models.py      # Pydantic-Modelle: Route, RouteSegment
-│       │   ├── routing.py     # Kernlogik (graphhopper_client, route berechnen)
-│       │   ├── providers.py   # GraphHopperProvider + FakeProvider für Tests
-│       │   └── client.py      # HTTP-Client für GraphHopper-API
+│       │   ├── __init__.py    # re-exports public API
+│       │   ├── models.py      # Pydantic models: Route, RouteSegment
+│       │   ├── routing.py     # Core logic (graphhopper_client, route calculation)
+│       │   ├── providers.py   # GraphHopperProvider + FakeProvider for tests
+│       │   └── client.py      # HTTP client for GraphHopper API
 │       ├── elevation/         # Phase 1
 │       │   ├── __init__.py
-│       │   ├── models.py      # Pydantic-Modelle: ElevationPoint, SegmentGradient
-│       │   ├── elevation.py   # DEM-Lookup, Steigung berechnen
-│       │   ├── providers.py   # ElevationProvider (rasterio-basiert)
-│       │   └── client.py      # (optional, falls file-system-access gekapselt)
+│       │   ├── models.py      # Pydantic models: ElevationPoint, SegmentGradient
+│       │   ├── elevation.py   # DEM lookup, gradient calculation
+│       │   ├── providers.py   # ElevationProvider (rasterio-based)
+│       │   └── client.py      # (optional, if file-system access is encapsulated)
 │       ├── weather/           # Phase 1
 │       │   ├── __init__.py
-│       │   ├── models.py      # Pydantic-Modelle: WeatherQuery, WeatherSample
-│       │   ├── weather.py     # Wetterabfrage, Iterationslogik
+│       │   ├── models.py      # Pydantic models: WeatherQuery, WeatherSample
+│       │   ├── weather.py     # Weather query, iteration logic
 │       │   ├── providers.py   # WeatherProvider (Open-Meteo) + FakeProvider
-│       │   └── client.py      # HTTP-Client für Open-Meteo API
-│       ├── wind/              # Phase 2 (abhängig von weather.models)
+│       │   └── client.py      # HTTP client for Open-Meteo API
+│       ├── wind/              # Phase 2 (depends on weather.models)
 │       │   ├── __init__.py
-│       │   ├── models.py      # Pydantic-Modelle: WindComponents
-│       │   └── wind.py        # Windkomponenten berechnen (Bearing, Projektion)
+│       │   ├── models.py      # Pydantic models: WindComponents
+│       │   └── wind.py        # Calculate wind components (bearing, projection)
 │       ├── construction/      # Phase 1
 │       │   ├── __init__.py
-│       │   ├── models.py      # Pydantic-Modelle: ConstructionZone, Sperrungstyp-Enum
-│       │   ├── construction.py # DATEX II Parser, Baustellen-Extraktion
+│       │   ├── models.py      # Pydantic models: ConstructionZone, RestrictionType enum
+│       │   ├── construction.py # DATEX II parser, construction site extraction
 │       │   ├── providers.py   # ConstructionProvider + FakeProvider
-│       │   └── client.py      # (optional, falls DATEX II Feed über HTTP)
-│       ├── energy/            # Phase 3 (abhängig von routing, elevation, weather, wind, construction)
+│       │   └── client.py      # (optional, if DATEX II feed is over HTTP)
+│       ├── energy/            # Phase 3 (depends on routing, elevation, weather, wind, construction)
 │       │   ├── __init__.py
-│       │   ├── models.py      # Pydantic-Modelle: VehicleEnergyParameters, SegmentEnergyResult
-│       │   ├── energy.py      # Physik-Modell (Rollwiderstand, Luftwiderstand, etc.)
-│       │   ├── rolling_resistance.py  # (optional: modularisiert)
-│       │   ├── aerodynamics.py        # (optional: modularisiert)
-│       │   └── providers.py   # (optional, falls Wetter/Ladekurven gekapselt)
-│       ├── battery/           # Phase 4 (abhängig von energy models + charging_infrastructure)
+│       │   ├── models.py      # Pydantic models: VehicleEnergyParameters, SegmentEnergyResult
+│       │   ├── energy.py      # Physics model (rolling resistance, aerodynamic drag, etc.)
+│       │   ├── rolling_resistance.py  # (optional: modularized)
+│       │   ├── aerodynamics.py        # (optional: modularized)
+│       │   └── providers.py   # (optional, if weather/charging curves are encapsulated)
+│       ├── battery/           # Phase 4 (depends on energy models + charging_infrastructure)
 │       │   ├── __init__.py
-│       │   ├── models.py      # Pydantic-Modelle: SoCState, ChargingCurvePoint, ChargingCurve
-│       │   ├── battery.py     # SoC-Verlauf, Ladekurve, Entladung
+│       │   ├── models.py      # Pydantic models: SoCState, ChargingCurvePoint, ChargingCurve
+│       │   ├── battery.py     # SoC history, charging curve, discharge
 │       │   └── providers.py   # (optional)
 │       ├── charging_infrastructure/  # Phase 1
 │       │   ├── __init__.py
-│       │   ├── models.py      # Pydantic-Modelle: ChargingStation, ChargingStationProvider
-│       │   ├── providers.py   # ChargingStationProvider (Tesla Supercharger, lokal) + FakeProvider
-│       │   └── client.py      # (optional, falls JSON/SQLite-Daten über API)
-│       ├── optimization/      # Phase 5 (abhängig von routing, energy, battery, charging_infrastructure)
+│       │   ├── models.py      # Pydantic models: ChargingStation, ChargingStationProvider
+│       │   ├── providers.py   # ChargingStationProvider (Tesla Supercharger, local) + FakeProvider
+│       │   └── client.py      # (optional, if JSON/SQLite data via API)
+│       ├── optimization/      # Phase 5 (depends on routing, energy, battery, charging_infrastructure)
 │       │   ├── __init__.py
-│       │   ├── models.py      # Pydantic-Modelle: ChargingPlan, ChargingStop, OptimizationConstraints
-│       │   ├── optimization.py # Optimierungs-Interface, Zustandsraum-Suche
-│       │   └── optimizer_ortools.py  # OR-Tools-Implementierung
-│       ├── simulation/        # Phase 6 (abhängig von optimization output)
+│       │   ├── models.py      # Pydantic models: ChargingPlan, ChargingStop, OptimizationConstraints
+│       │   ├── optimization.py # Optimization interface, state-space search
+│       │   └── optimizer_ortools.py  # OR-Tools implementation
+│       ├── simulation/        # Phase 6 (depends on optimization output)
 │       │   ├── __init__.py
-│       │   ├── models.py      # Pydantic-Modelle: SimulationFrame, TripSimulationResult
-│       │   └── simulation.py  # Simulation aus ChargingPlan + Route
-│       ├── visualization/     # Phase 7 (abhängig von simulation output-Contract)
+│       │   ├── models.py      # Pydantic models: SimulationFrame, TripSimulationResult
+│       │   └── simulation.py  # Simulation from ChargingPlan + Route
+│       ├── visualization/     # Phase 7 (depends on simulation output contract)
 │       │   ├── __init__.py
-│       │   └── models.py      # (optional, falls JSON-Schema generiert wird)
-│       └── trip_input/        # Phase 7 (CLI/API, abhängig von simulation)
+│       │   └── models.py      # (optional, if JSON schema is generated)
+│       └── trip_input/        # Phase 7 (CLI/API, depends on simulation)
 │           ├── __init__.py
-│           ├── models.py      # Pydantic-Modelle: TripRequest, Waypoint, VehicleProfile
-│           ├── api.py         # FastAPI-Endpunkte
-│           └── cli.py         # CLI-Schnittstelle (typer/argparse)
+│           ├── models.py      # Pydantic models: TripRequest, Waypoint, VehicleProfile
+│           ├── api.py         # FastAPI endpoints
+│           └── cli.py         # CLI interface (typer/argparse)
 ├── tests/
 │   ├── routing/
 │   │   ├── test_routing.py
@@ -134,7 +134,7 @@ tesla-tripplanner/
 │   │   ├── test_providers.py
 │   │   └── conftest.py
 │   │   └── fixtures/elevation/
-│   │       └── synthetic_dem_tile.tif  # kleine Test-Kachel
+│   │       └── synthetic_dem_tile.tif  # small test tile
 │   ├── weather/
 │   │   ├── test_weather.py
 │   │   ├── test_providers.py
@@ -168,7 +168,7 @@ tesla-tripplanner/
 │   │   ├── test_optimization.py
 │   │   └── conftest.py
 │   │   └── fixtures/optimization/
-│   │       └── small_scenarios.json  # von Hand nachvollziehbare Szenarien
+│   │       └── small_scenarios.json  # manually verifiable scenarios
 │   ├── simulation/
 │   │   ├── test_simulation.py
 │   │   └── conftest.py
@@ -178,45 +178,45 @@ tesla-tripplanner/
 │   ├── trip_input/
 │   │   ├── test_trip_input.py
 │   │   └── conftest.py
-│   └── fixtures/  # aufgezeichnete API-Antworten, Beispiel-DEM-Kacheln, DATEX-II-Beispiele
+│   └── fixtures/  # Recorded API responses, example DEM tiles, DATEX-II examples
 │       ├── common_fixtures/
-│       │   └── test_coords.json  # Koordinaten-Samples (Start/Ziel/Waypoints)
+│       │   └── test_coords.json  # Coordinate samples (start/target/waypoints)
 │       └── integration_fixtures/
 │           └── graphhopper_demo_route.json
 ├── frontend/
 │   ├── package.json
 │   ├── src/
-│   │   ├── main.ts            # Entry-Point, MapLibre GL JS init
+│   │   ├── main.ts            # Entry point, MapLibre GL JS init
 │   │   ├── components/
 │   │   │   ├── Map.tsx
 │   │   │   ├── RouteOverlay.tsx
 │   │   │   ├── SoCChart.tsx
 │   │   │   └── ChargingStopsMarker.tsx
-│   │   ├── types.ts           # TypeScript-Types (aus Pydantic-Modellen generiert)
+│   │   ├── types.ts           # TypeScript types (generated from Pydantic models)
 │   │   └── utils.ts
 │   └── tests/
 │       ├── unit/
 │       └── e2e/
-├── .github/workflows/ci.yml   # CI-Pipeline (s. Abschnitt 4)
-└── mkdocs.yml                 # MkDocs-Konfiguration (s. Abschnitt 7)
+├── .github/workflows/ci.yml   # CI pipeline (see section 4)
+└── mkdocs.yml                 # MkDocs configuration (see section 7)
 ```
 
-**Modul-Skeleton-Konvention (pro Modul verbindlich):**
+**Module Skeleton Convention (binding per module):**
 
 ```
 src/tripplanner/<modul>/
-├── __init__.py        # re-exportiert öffentliche API (z. B. from .models import Route)
-├── models.py           # Pydantic-Modelle — einzige Cross-Modul-Schnittstelle
-├── <modul>.py           # Kernlogik / öffentliche Funktionen
-├── providers.py          # NUR falls externe Datenquelle: Protocol-Interface + konkrete Implementierung + Fake
-└── client.py               # HTTP/IO-Client, vom Provider genutzt (falls vorhanden)
+├── __init__.py        # re-exports public API (e.g. from .models import Route)
+├── models.py           # Pydantic models — the only cross-module interface
+├── <modul>.py           # Core logic / public functions
+├── providers.py          # ONLY if external data source: protocol interface + concrete implementation + fake
+└── client.py               # HTTP/IO client, used by the provider (if present)
 ```
 
-**Regel:** Kein Modul importiert interne Implementierungsdetails eines anderen Moduls — ausschließlich `tripplanner.<anderes_modul>.models`. **Ausnahme:** `tripplanner.geo` ist kein Business-Modul, sondern ein minimales, abhängigkeitsfreies Geo-Primitiv (`Coordinate`-Typalias, `bearing_deg()`, `haversine_distance_m()`). Es darf von jedem Modul importiert werden, da es keine Geschäftslogik und keinen veränderlichen Zustand enthält — analog zu einer externen Bibliothek. Alle `Coordinate`-Tupel im Projekt sind `(lat, lon)`; siehe `docs/plans/01-routing.md`, Abschnitt 3, „Koordinaten-Konvention".
+**Rule:** No module imports internal implementation details of another module — exclusively `tripplanner.<other_module>.models`. **Exception:** `tripplanner.geo` is not a business module, but a minimal, dependency-free geo primitive (`Coordinate` type alias, `bearing_deg()`, `haversine_distance_m()`). It may be imported by any module, as it contains no business logic and no mutable state — analogous to an external library. All `Coordinate` tuples in the project are `(lat, lon)`; see `docs/plans/01-routing.md`, section 3, "coordinate convention".
 
 ---
 
-## 4. Konfigurationsdateien vollständig ausformuliert
+## 4. Configuration Files Fully Specified
 
 ### 4.1 `pyproject.toml`
 
@@ -224,7 +224,7 @@ src/tripplanner/<modul>/
 [project]
 name = "tripplanner"
 version = "0.1.0"
-description = "Hochgradig personalisierter Reiseplaner für Tesla Model 3"
+description = "Highly personalized trip planner for Tesla Model 3"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -284,7 +284,7 @@ plugins = ["pydantic.mypy"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "integration: integration tests (slow, gegen echte Dienste)",
+    "integration: integration tests (slow, against real services)",
 ]
 addopts = "-v --tb=short --cov=src/tripplanner --cov-report=term-missing --cov-fail-under=85"
 
@@ -329,8 +329,8 @@ local linters = new Mapping<String, Step> {
     ["mypy"] {
         glob = python_files
         check = "uv run mypy src"
-        // kein fix — Type-Fehler werden nicht automatisch behoben,
-        // sondern blockieren den Commit bewusst
+        // no fix — type errors are not automatically fixed,
+        // but intentionally block the commit
     }
     ["prettier"] = (Builtins.prettier) {
         glob = List("frontend/**/*.ts", "frontend/**/*.tsx", "frontend/**/*.json")
@@ -353,8 +353,8 @@ local tests = new Mapping<String, Step> {
 
 hooks {
     ["pre-commit"] {
-        fix = true       // Auto-Fix läuft direkt beim Commit
-        stash = "git"    // unstaged Änderungen werden währenddessen weggesichert
+        fix = true       # Auto-Fix runs directly at commit
+        stash = "git"    # unstaged changes are backed up during this
         steps = linters
     }
     ["pre-push"] {
@@ -405,7 +405,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       graphhopper:
-        image: israelhikingmap/graphhopper:11.0  # offizielles Community-Image, aktuellstable Tag
+        image: israelhikingmap/graphhopper:11.0  # official community image, current stable tag
         ports:
           - 8989:8989
         env:
@@ -464,97 +464,97 @@ jobs:
 
 ---
 
-## 5. `AGENTS.md` — vollständige Ausformulierung
+## 5. `AGENTS.md` — Full Specification
 
 ```markdown
-# AGENTS.md — Leitlinien für KI-Coding-Agenten
+# AGENTS.md — Guidelines for AI Coding Agents
 
-Diese Datei liegt im Repo-Root und wird von KI-Coding-Agenten vor Beginn jeder Aufgabe gelesen.
+This file is located in the repo root and is read by AI coding agents before starting any task.
 
-## Grundprinzip
+## Core Principle
 
-Code gilt nur dann als fertig, wenn **alle** der folgenden Punkte erfüllt sind — nicht als Checkliste zum Abhaken nach dem Schreiben, sondern als Definition of Done:
+Code is only considered complete when **all** of the following criteria are met — not as a checklist to tick off after writing, but as a definition of done:
 
-1. `uv run hk check --all` läuft ohne Fehler durch (Linting, Formatting, Type-Checking).
-2. Für jede neue Funktionalität existieren Tests, die vor der Änderung fehlschlagen und danach erfolgreich sind.
-3. `uv run pytest -m "not integration"` läuft vollständig grün.
-4. Die Coverage-Schwelle aus `04-repo-tooling-setup.md` wird nicht unterschritten (85 % für `src/tripplanner/`).
-5. Keine neue Abhängigkeit zwischen Modulen außer über die in `models.py` definierten Schnittstellen (siehe `03-modulspezifikationen.md`).
+1. `uv run hk check --all` passes without errors (linting, formatting, type-checking).
+2. For every new feature, tests exist that fail before the change and pass after.
+3. `uv run pytest -m "not integration"` passes entirely.
+4. The coverage threshold from `04-repo-tooling-setup.md` is not fallen below (85% for `src/tripplanner/`).
+5. No new dependencies between modules except through those defined in `models.py` (see `03-module-specifications.md`).
 
-## Verbotene Abkürzungen
+## Forbidden Shortcuts
 
-Agenten dürfen **nicht**:
+Agents must **not**:
 
-- Commits mit `--no-verify` oder vergleichbaren Mechanismen an den Hooks vorbei erzeugen.
-- Lint- oder Type-Fehler durch `# noqa`, `# type: ignore` oder das Absenken von `mypy`/`ruff`-Regeln in `pyproject.toml` "beheben", ohne dass eine inhaltliche Begründung im Commit/PR dokumentiert ist. Regel-Ausnahmen sind auf Zeilenebene mit Begründungskommentar zulässig, nicht als globale Config-Änderung ohne Rücksprache.
-- Tests löschen oder deaktivieren (`skip`), um eine rote CI grün zu bekommen.
-- Externe Datenquellen (GraphHopper, Open-Meteo, DATEX II, Tesla-Ladepunktdaten) in Unit-Tests live ansprechen — dafür existieren Fixtures (siehe `03-modulspezifikationen.md`).
+- Create commits with `--no-verify` or similar mechanisms to bypass hooks.
+- "Fix" lint or type errors through `# noqa`, `# type: ignore`, or by lowering `mypy`/`ruff` rules in `pyproject.toml` without a substantive justification documented in the commit/PR. Rule exceptions at the line level with explanation comments are allowed, not as global config changes without consultation.
+- Delete or disable tests (`skip`) to make a red CI green.
+- Access external data sources (GraphHopper, Open-Meteo, DATEX II, Tesla charging station data) live in unit tests — fixtures exist for this (see `03-module-specifications.md`).
 
-## Vorgehen pro Aufgabe
+## Approach per task
 
-1. Zuständiges Modul aus `03-modulspezifikationen.md` identifizieren; Aufgabe nicht modulübergreifend beginnen, wenn sie sich auf ein Modul eingrenzen lässt.
-2. Bestehende Schnittstellen (`models.py` des Moduls) lesen, bevor neue Datenstrukturen eingeführt werden — Duplikate von Datenmodellen vermeiden.
-3. Test zuerst schreiben oder zumindest vor der Implementierung festlegen, anhand welcher Testfälle die Änderung verifiziert wird.
-4. Implementierung.
-5. `uv run hk check --all` und relevante Tests lokal ausführen, bevor ein Commit vorgeschlagen wird.
-6. Commit-Nachricht beschreibt **was** und **warum**, nicht nur **was** (z. B. nicht nur "add wind module", sondern kurz die Berechnungsannahme benennen).
+1. Identify the responsible module from `03-module-specifications.md`; do not start the task cross-module if it can be scoped to a single module.
+2. Read existing interfaces (`models.py` of the module) before introducing new data structures — avoid duplicating data models.
+3. Write tests first or at least define before implementation which test cases will verify the change.
+4. Implementation.
+5. Run `uv run hk check --all` and relevant tests locally before proposing a commit.
+6. Commit message describes **what** and **why**, not just **what** (e.g. not just "add wind module", but briefly name the calculation assumption).
 
-## Modulgrenzen
+## Module boundaries
 
-- Kein Modul greift auf interne Implementierungsdetails eines anderen Moduls zu — nur auf dessen `models.py`-Datenstrukturen und öffentliche Funktionen/Klassen.
-- Externe Datenquellen (HTTP-Clients, Dateisystemzugriffe) werden hinter einem Provider-Interface gekapselt (siehe z. B. `WeatherProvider`, `ChargingStationProvider` in `03-modulspezifikationen.md`), damit sie in Tests ersetzbar sind und die Datenquelle bei Bedarf austauschbar bleibt.
-- Neue externe Abhängigkeiten (Bibliotheken, APIs) werden nicht ohne Bezug zu einem der in `01-projektspezifikation.md` festgelegten Architekturentscheidungen eingeführt.
+- No module accesses internal implementation details of another module — only its `models.py` data structures and public functions/classes.
+- External data sources (HTTP clients, filesystem access) are encapsulated behind a provider interface (see e.g. `WeatherProvider`, `ChargingStationProvider` in `03-module-specifications.md`), so they are replaceable in tests and the data source remains interchangeable when needed.
+- New external dependencies (libraries, APIs) are not introduced without reference to one of the architectural decisions defined in `01-project-specifications.md`.
 
-## Typannotationen und Docstrings
+## Type annotations and docstrings
 
-- Jede öffentliche Funktion/Methode hat vollständige Typannotationen (durch `mypy --strict` erzwungen) und einen Docstring im projektweit einheitlichen Stil (Google-Style, siehe `04-repo-tooling-setup.md`).
-- Pydantic-Modelle sind die einzige zulässige Form für Datenstrukturen, die Modulgrenzen überqueren.
+- Every public function/method has full type annotations (enforced by `mypy --strict`) and a docstring in the project-wide uniform style (Google-Style, see `04-repo-tooling-setup.md`).
+- Pydantic models are the only permissible form for data structures crossing module boundaries.
 
-## Bei Unsicherheit
+## When in doubt
 
-Wenn eine Anforderung mehrdeutig ist (z. B. konkreter Schwellwert für die ETA-Neuiteration, konkrete Tesla-Ladepunkt-Datenquelle — siehe `06-offene-punkte-widersprueche.md`), trifft der Agent eine begründete, dokumentierte Annahme (Kommentar im Code + Erwähnung im PR-Text) statt die Aufgabe unbearbeitet zu lassen — außer die Mehrdeutigkeit betrifft eine der offenen Fragen in `06-offene-punkte-widersprueche.md`; diese werden vor Beginn der jeweiligen Modul-Implementierung mit dem Projektverantwortlichen geklärt.
+When a requirement is ambiguous (e.g. specific threshold for ETA re-iteration, specific Tesla charging station data source — see `06-open-points-contradictions.md`), the agent makes a justified, documented assumption (comment in code + mention in PR text) rather than leaving the task unaddressed — unless the ambiguity affects one of the open questions in `06-open-points-contradictions.md`; these are clarified with the project lead before starting the respective module implementation.
 ```
 
 ---
 
-## 6. Aufgaben-Checkliste
+## 6. Task Checklist
 
-| Nr | Task | Betroffene Dateien | Beschreibung | Akzeptanzkriterium |
+| Nr | Task | Affected Files | Description | Acceptance criterion |
 | ---- | ------ | ------------------- | -------------- | -------------------- |
-| 1 | Repo-Verzeichnisbaum erstellen | `src/tripplanner/*/`, `tests/*/` | Alle 12 Modul-Verzeichnisse plus `tripplanner/geo/` mit `__init__.py`, `models.py`, `<modul>.py`, `providers.py`, `client.py` (wo relevant) anlegen; `docs/plans/` und `frontend/` mit Basisstruktur | `find src/tripplanner -type f -name "*.py" \| wc -l` ergibt mindestens 48, `find tests -type d \| wc -l` ergibt mindestens 13 |
-| 2 | `pyproject.toml` anlegen | `pyproject.toml` | Vollständige TOML-Datei gemäß Abschnitt 4.1 erstellen | `uv sync` läuft fehlerfrei, `uv pip list \| grep pydantic` zeigt Version ≥2 |
-| 3 | `hk.pkl` anlegen | `hk.pkl` | Vollständige Konfiguration gemäß Abschnitt 4.2 | `hk check --all` läuft ohne Fehler auf leerem Repo |
-| 4 | `.github/workflows/ci.yml` anlegen | `.github/workflows/ci.yml` | Vollständiger Workflow gemäß Abschnitt 4.3 | CI-Check simuliert (`act -W .github/workflows/ci.yml --container-architecture="linux/amd64"` oder GitHub UI) zeigt keine Syntaxfehler |
-| 5 | `AGENTS.md` anlegen | `AGENTS.md` | Vollständiger Inhalt gemäß Abschnitt 5 | Datei existiert im Repo-Root, enthält alle 5 Abschnitte |
-| 6 | `mkdocs.yml` und Dokumentation konfigurieren | `mkdocs.yml`, `docs/index.md` | MkDocs mit mkdocstrings konfigurieren (Python-Modul-Doku) | `mkdocs serve` startet local server und zeigt API-Doku |
-| 7 | `uv.lock` generieren | `uv.lock` | `uv sync` ausführen und lock file commiten | `git status` zeigt nur neue/modified Dateien, keine untracked Dependencies |
-| 8 | Test-Setup verifizieren (Unit-Tests ohne Integration) | `tests/conftest.py`, `tests/.../test_*.py` | Mindestens 2 Dummy-Tests pro Modul anlegen (z. B. `tests/routing/test_routing.py`) | `uv run pytest -m "not integration"` läuft grün (erwartet rote Tests am Anfang) |
-| 9 | Ruff/Linter-Konfiguration testen | `pyproject.toml`, `ruff check` | `uv run ruff check src` und `uv run ruff format --check src` auf leerem Code | Keine Errors, keine Warnings |
-| 10 | MyPy-Setup testen | `mypy` | `uv run mypy src` auf leerem Code | Keine Errors (erwartet rote Tests, da noch keine Typannotationen) |
-| 11 | Frontend-Setup (Vorbereitung) | `frontend/package.json` | `package.json` mit TypeScript, MapLibre GL JS, React/TypeScript-Setup anlegen | `npm ci` und `npm run typecheck` laufen fehlerfrei |
-| 12 | Git-Hooks testen (pre-commit) | `hk pre-commit` | Dummy-Python-Datei mit Lint-Fehler erstellen und commiten | Hook bricht Commit ab, Auto-Fix läuft (wenn `--fix` möglich) |
-| 13 | `tripplanner.geo`-Primitiv implementieren | `src/tripplanner/geo/geo.py`, `tests/geo/test_geo.py` | `Coordinate = tuple[float, float]`, `bearing_deg(a, b) -> float` (Vorwärtsazimut), `haversine_distance_m(a, b) -> float`; keine Abhängigkeit zu anderen `tripplanner`-Modulen | Unit-Tests mit bekannten Referenzpunkten (z. B. Berlin→Hamburg-Bearing ≈ 312°) grün |
+| 1 | Create repo directory tree | `src/tripplanner/*/`, `tests/*/` | Create all 12 module directories plus `tripplanner/geo/` with `__init__.py`, `models.py`, `<modul>.py`, `providers.py`, `client.py` (where relevant); `docs/plans/` and `frontend/` with base structure | `find src/tripplanner -type f -name "*.py" \| wc -l` yields at least 48, `find tests -type d \| wc -l` yields at least 13 |
+| 2 | Create `pyproject.toml` | `pyproject.toml` | Create complete TOML file per section 4.1 | `uv sync` runs without errors, `uv pip list \| grep pydantic` shows version ≥2 |
+| 3 | Create `hk.pkl` | `hk.pkl` | Complete configuration per section 4.2 | `hk check --all` runs without errors on an empty repo |
+| 4 | Create `.github/workflows/ci.yml` | `.github/workflows/ci.yml` | Complete workflow per section 4.3 | CI check simulates (`act -W .github/workflows/ci.yml --container-architecture="linux/amd64"` or GitHub UI) shows no syntax errors |
+| 5 | Create `AGENTS.md` | `AGENTS.md` | Complete content per section 5 | File exists in repo root, contains all 5 sections |
+| 6 | Configure `mkdocs.yml` and documentation | `mkdocs.yml`, `docs/index.md` | Configure MkDocs with mkdocstrings (Python module documentation) | `mkdocs serve` starts local server and shows API documentation |
+| 7 | Generate `uv.lock` | `uv.lock` | Run `uv sync` and commit lock file | `git status` shows only new/modified files, no untracked dependencies |
+| 8 | Verify test setup (unit tests without integration) | `tests/conftest.py`, `tests/.../test_*.py` | Create at least 2 dummy tests per module (e.g. `tests/routing/test_routing.py`) | `uv run pytest -m "not integration"` passes green (red tests expected at start) |
+| 9 | Test Ruff/linter configuration | `pyproject.toml`, `ruff check` | `uv run ruff check src` and `uv run ruff format --check src` on empty code | No errors, no warnings |
+| 10 | Test MyPy setup | `mypy` | `uv run mypy src` on empty code | No errors (red tests expected, as no type annotations yet) |
+| 11 | Frontend setup (preparation) | `frontend/package.json` | Create `package.json` with TypeScript, MapLibre GL JS, React/TypeScript setup | `npm ci` and `npm run typecheck` run without errors |
+| 12 | Test git hooks (pre-commit) | `hk pre-commit` | Create dummy Python file with lint error and commit | Hook aborts commit, auto-fix runs (if `--fix` possible) |
+| 13 | Implement `tripplanner.geo` primitive | `src/tripplanner/geo/geo.py`, `tests/geo/test_geo.py` | `Coordinate = tuple[float, float]`, `bearing_deg(a, b) -> float` (forward azimuth), `haversine_distance_m(a, b) -> float`; no dependency to other `tripplanner` modules | Unit tests with known reference points (e.g. Berlin→Hamburg bearing ≈ 312°) green |
 
 ---
 
-## 7. Risiken & offene technische Fragen
+## 7. Risks & Open Technical Questions
 
-- **Risiko:** GraphHopper-Docker-Image (`israelhikingmap/graphhopper:11.0`) ist ein Community-Image, keine offizielle Release von GraphHopper GmbH. **Abwehrmaßnahme:** Image-Versionspinning in CI (`:11.0` statt `:latest`), Monitoring auf Image-Updates.
-- **Risiko:** `hk` ist ein relativ neuer Hook-Runner; falls Team-Mitglieder (`--no-verify` nutzen) oder CI-Umgebungen (fehlende `hk` Installation) Probleme verursachen. **Abwehrmaßnahme:** CI wiederholt alle Checks explizit (s. Abschnitt 4.3), `hk` ist in `dev`-Group enthalten.
-- **Offene Frage:** Soll `frontend/` tatsächlich TypeScript + MapLibre GL JS sein (wie in `02-architektur.md` empfohlen) oder auf Leaflet setzen (wie in `04-repo-tooling-setup.md` als Alternative genannt)? **Entscheidung:** MapLibre GL JS wird als Standard genommen (besseres Vektor-Styling, bereits im Team-Stack verbreitet, siehe Tech-Stack in `02-architektur.md`).
-- **Offene Frage:** Soll die `hk.pkl` zusätzlich `black` als Alternative zu `ruff format` unterstützen? **Entscheidung:** Nein — `ruff format` ist schneller, konsistent mit `ruff check`, und in `pyproject.toml` bereits als einziger Formatter konfiguriert.
-- **Offene Frage:** Soll die CI-Pipeline `pre-commit`-Hook-Check (lokal) als separater Job haben? **Entscheidung:** Nein — CI testet nur die synthetischen Checks (ruff, mypy, pytest), da lokale Hooks nicht reproduzierbar sind (umgangen via `--no-verify`).
+- **Risk:** GraphHopper Docker image (`israelhikingmap/graphhopper:11.0`) is a community image, not an official release from GraphHopper GmbH. **Mitigation:** Image version pinning in CI (`:11.0` instead of `:latest`), monitoring for image updates.
+- **Risk:** `hk` is a relatively new hook runner; in case team members use (`--no-verify`) or CI environments (missing `hk` installation) cause problems. **Mitigation:** CI explicitly repeats all checks (see section 4.3), `hk` is included in the `dev` group.
+- **Open question:** Should `frontend/` actually use TypeScript + MapLibre GL JS (as recommended in `02-architecture.md`) or use Leaflet (called as an alternative in `04-repo-tooling-setup.md`)? **Decision:** MapLibre GL JS is taken as standard (better vector styling, already prevalent in the team stack, see tech stack in `02-architecture.md`).
+- **Open question:** Should the `hk.pkl` additionally support `black` as an alternative to `ruff format`? **Decision:** No — `ruff format` is faster, consistent with `ruff check`, and already configured as the only formatter in `pyproject.toml`.
+- **Open question:** Should the CI pipeline have a separate job for the `pre-commit` hook check (local)? **Decision:** No — CI only tests the synthetic checks (ruff, mypy, pytest), as local hooks are not reproducible (bypassed via `--no-verify`).
 
 ---
 
-## 8. mkdocs/mkdocstrings-Setup-Empfehlung
+## 8. mkdocs/mkdocstrings Setup Recommendation
 
-**Zweck:** Generierung von API-Dokumentation aus Docstrings im Google-Style (wie in `pyproject.toml`/`ruff.lint.pydocstyle.convention = "google"` definiert).
+**Purpose:** Generation of API documentation from docstrings in Google style (as defined in `pyproject.toml`/`ruff.lint.pydocstyle.convention = "google"`).
 
-**Empfohlene Konfiguration (`mkdocs.yml`):**
+**Recommended configuration (`mkdocs.yml`):**
 
 ```yaml
-site_name: Tesla-Tripplaner API
+site_name: Tesla-Tripplanner API
 theme:
   name: "material"
   palette:
@@ -599,38 +599,38 @@ watch:
   - src/tripplanner
 ```
 
-**Regel für Entwickler:** Alle öffentlichen Funktionen/Methode müssen Docstrings im Google-Style haben, damit `mkdocs serve` vollständige Dokumentation generiert. Beispiel:
+**Rule for developers:** All public functions/methods must have Google-style docstrings so that `mkdocs serve` generates complete documentation. Example:
 
 ```python
 def calculate_energy(
     segment: RouteSegment, weather: WeatherSample, vehicle: VehicleEnergyParameters
 ) -> SegmentEnergyResult:
-    """Berechnet den Energieverbrauch für ein Segment unter Berücksichtigung von Wetter und Fahrzeug.
+    """Calculates energy consumption for a segment considering weather and vehicle.
 
     Args:
-        segment: Das zu berechnende RouteSegment mit Geometrie und Steigung.
-        weather: Das aktuelle Wetter an diesem Segment ( temperatur, wind etc.).
-        vehicle: Fahrzeugparameter ( Masse, cW, Stirnfläche, etc.).
+        segment: The RouteSegment to calculate with geometry and gradient.
+        weather: The current weather at this segment (temperature, wind, etc.).
+        vehicle: Vehicle parameters (mass, drag coefficient, frontal area, etc.).
 
     Returns:
-        SegmentEnergyResult mit energiebedarf_kwh und rekuperation_kwh.
+        SegmentEnergyResult with energy_consumption_kwh and recuperation_kwh.
 
     Raises:
-        ValueError: Wenn segment.laenge_m <= 0 oder temperatur < -50°C.
+        ValueError: If segment.laenge_m <= 0 or temperature < -50°C.
     """
     # Implementation
 ```
 
-**Build- und Deploy-Befehle:**
+**Build and deploy commands:**
 
-- `mkdocs build` — erstellt statische HTML-Seiten in `site/`
-- `mkdocs serve` — lokal live-Preview
-- Deploy: `mkdocs gh-deploy` — direkt auf GitHub Pages (falls gewünscht)
+- `mkdocs build` — generates static HTML pages in `site/`
+- `mkdocs serve` — local live preview
+- Deploy: `mkdocs gh-deploy` — directly to GitHub Pages (if desired)
 
 ---
 
 **Handover from previous session (2026-08-02):**
 
-- **Was war geplant:** Phase 0 — Repo-Fundament & Tooling (kein Code, nur Konfiguration und Struktur).
-- **Was ist als nächstes zu tun:** Implementierung der 12 Tasks aus der Checkliste, beginnend mit Verzeichnisbaum (Task 1) und `pyproject.toml` (Task 2).
-- **Wichtigste Dateien:** `docs/plans/00-foundation-tooling.md` (dieser Plan), `docs/04-repo-tooling-setup.md`, `docs/05-agent-guidelines.md`, `docs/01-projektspezifikation.md`, `docs/02-architektur.md`, `docs/03-modulspezifikationen.md`.
+- **What was planned:** Phase 0 — Repo Foundation & Tooling (no code, only configuration and structure).
+- **What's next:** Implement the 12 tasks from the checklist, starting with directory tree (task 1) and `pyproject.toml` (task 2).
+- **Key files:** `docs/plans/00-foundation-tooling.md` (this plan), `docs/04-repo-tooling-setup.md`, `docs/05-agent-guidelines.md`, `docs/01-project-specifications.md`, `docs/02-architecture.md`, `docs/03-module-specifications.md`.

@@ -1,5 +1,5 @@
 # charging_infrastructure
 
-Tesla-Supercharger-Standortdaten.
+Tesla Supercharger location data.
 
 ::: tripplanner.charging_infrastructure

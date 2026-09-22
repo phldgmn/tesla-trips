@@ -973,7 +973,7 @@ Current (`optimizer.py:1023-1053`):
         offroute_distance_m: float,
         vehicle_profile: VehicleProfile,
     ) -> tuple[float, float]:
-        """Schätzt Zeit (s) und SoC-Verbrauch (%) für die einfache Strecke.
+        """Estimates time (s) and SoC consumption (%) for the one-way leg.
         ...
         """
         if offroute_distance_m <= 0.0:
@@ -1404,12 +1404,12 @@ Expected: all PASS.
 
 - [ ] **Step 3: Manual smoke test against the running local stack**
 
-With the local GraphHopper server and backend already running (per this conversation, `localhost:8989` and `localhost:3000`), replay the exact request from this conversation:
+With the local GraphHopper server and backend already running (per this conversation, `localhost:8989` and `localhost:3000`), replay the request from this conversation (coordinates below are the same route type, generalized to city-center coordinates already used in the test suite; substitute your own start/destination when running locally):
 
 ```bash
 curl -s -X POST http://localhost:3000/api/trips \
   -H "Content-Type: application/json" \
-  -d '{"start":[51.0451814,7.5571072],"ziel":[60.1079036,13.4509775],"zwischenstopps":[],"abfahrtszeit":"2026-08-17T23:00:00","fahrzeugprofil":{"masse_kg":1800,"cw_wert":0.23,"stirnflaeche_m2":2.2,"rollwiderstandsbeiwert":0.01,"batteriekapazitaet_kwh":60,"nebenverbraucher_baseline_kw":0.34,"reifentyp":"standard","dachbox":false},"praeferenzen":{},"start_soc_pct":100,"ziel_soc_pct":5,"mindest_ankunfts_soc_pct":5,"alle_faehren_vermeiden":true,"vermiedene_faehren":[],"faehr_zeitfenster":[],"ladedauer_vorgaben":[],"wetter_beruecksichtigen":false,"mindest_ladezeit_s":360,"baustellen_beruecksichtigen":false}' \
+  -d '{"start":[51.033,7.567],"ziel":[60.033,13.650],"zwischenstopps":[],"abfahrtszeit":"2026-08-17T23:00:00","fahrzeugprofil":{"masse_kg":1800,"cw_wert":0.23,"stirnflaeche_m2":2.2,"rollwiderstandsbeiwert":0.01,"batteriekapazitaet_kwh":60,"nebenverbraucher_baseline_kw":0.34,"reifentyp":"standard","dachbox":false},"praeferenzen":{},"start_soc_pct":100,"ziel_soc_pct":5,"mindest_ankunfts_soc_pct":5,"alle_faehren_vermeiden":true,"vermiedene_faehren":[],"faehr_zeitfenster":[],"ladedauer_vorgaben":[],"wetter_beruecksichtigen":false,"mindest_ladezeit_s":360,"baustellen_beruecksichtigen":false}' \
   | python3 -c "import json,sys; d=json.load(sys.stdin); [print(s['name'], round(s['ankunfts_soc_pct'],1),'->',round(s['ziel_soc_pct'],1), s['ladedauer_s']) for s in d['charging_stops']]"
 ```
 
