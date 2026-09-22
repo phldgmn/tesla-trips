@@ -18,6 +18,15 @@ import type {
 } from "../../types";
 import type { Stop } from "../../types/trip-request";
 import type { RouteSample } from "../../utils/route-line";
+import { escapeHtml } from "../../utils/html-escape";
+
+/** Renders one label/value table row; both cells are HTML-escaped. */
+function renderRow([label, value]: [string, string]): string {
+  return (
+    `<tr><td style="padding:2px 4px;color:#666;">${escapeHtml(label)}</td>` +
+    `<td style="padding:2px 4px;text-align:right;">${escapeHtml(value)}</td></tr>`
+  );
+}
 
 /** Popup-Text für einen Stopp: Adresse falls vorhanden, sonst Rolle + gerundete Koordinaten. */
 export function buildPopupText(stop: Stop, role: StopRole): string {
@@ -67,16 +76,10 @@ export function buildChargingStopPopupHtml(stop: ChargingStop): string {
     ["Geladen", `${stop.energy_charged_kwh.toFixed(1)} kWh`],
     ["Preis", formatCostOrDash(stop.estimated_cost, stop.currency)],
   ];
-  const rowsHtml = rows
-    .map(
-      ([label, value]) =>
-        `<tr><td style="padding:2px 4px;color:#666;">${label}</td>` +
-        `<td style="padding:2px 4px;text-align:right;">${value}</td></tr>`,
-    )
-    .join("");
+  const rowsHtml = rows.map(renderRow).join("");
   return (
     `<div style="font-family:system-ui,sans-serif;font-size:13px;min-width:190px;">` +
-    `<strong style="font-size:14px;">${stop.name}</strong>` +
+    `<strong style="font-size:14px;">${escapeHtml(stop.name)}</strong>` +
     `<table style="width:100%;border-collapse:collapse;margin-top:4px;">${rowsHtml}</table>` +
     `</div>`
   );
@@ -131,7 +134,7 @@ export function buildStopPopupHtml(
 ): string {
   const title = buildPopupText(stop, role);
   if (!waypointStop) {
-    return `<div style="font-family:system-ui,sans-serif;font-size:13px;">${title}</div>`;
+    return `<div style="font-family:system-ui,sans-serif;font-size:13px;">${escapeHtml(title)}</div>`;
   }
   const rows: [string, string][] = [
     ["Ankunft", `${waypointStop.arrival_soc_pct.toFixed(0)}% SoC`],
@@ -146,16 +149,10 @@ export function buildStopPopupHtml(
     ]);
     rows.push(["Geladen", `${waypointStop.energy_charged_kwh.toFixed(1)} kWh`]);
   }
-  const rowsHtml = rows
-    .map(
-      ([label, value]) =>
-        `<tr><td style="padding:2px 4px;color:#666;">${label}</td>` +
-        `<td style="padding:2px 4px;text-align:right;">${value}</td></tr>`,
-    )
-    .join("");
+  const rowsHtml = rows.map(renderRow).join("");
   return (
     `<div style="font-family:system-ui,sans-serif;font-size:13px;min-width:190px;">` +
-    `<strong style="font-size:14px;">${title}</strong>` +
+    `<strong style="font-size:14px;">${escapeHtml(title)}</strong>` +
     `<table style="width:100%;border-collapse:collapse;margin-top:4px;">${rowsHtml}</table>` +
     `</div>`
   );
@@ -213,13 +210,7 @@ export function buildConstructionZonePopupHtml(zone: ConstructionZone): string {
       "Gültig bis",
       event.valid_to !== null ? formatTimestamp(event.valid_to) : "unbestimmt",
     ]);
-    return rows
-      .map(
-        ([label, value]) =>
-          `<tr><td style="padding:2px 4px;color:#666;">${label}</td>` +
-          `<td style="padding:2px 4px;text-align:right;">${value}</td></tr>`,
-      )
-      .join("");
+    return rows.map(renderRow).join("");
   }
 
   const eventCount = zone.events.length;
@@ -236,7 +227,7 @@ export function buildConstructionZonePopupHtml(zone: ConstructionZone): string {
         (index < eventCount - 1
           ? `<hr style="border:none;border-top:1px solid #e5e7eb;margin:8px 0;">`
           : "") +
-        `<strong style="font-size:14px;">${heading}</strong>` +
+        `<strong style="font-size:14px;">${escapeHtml(heading)}</strong>` +
         `<table style="width:100%;border-collapse:collapse;margin-top:4px;">${eventRowsHtml(event)}</table>` +
         `</div>`
       );
@@ -245,7 +236,7 @@ export function buildConstructionZonePopupHtml(zone: ConstructionZone): string {
 
   const lengthRow =
     zone.length_m !== null
-      ? `<div style="margin-bottom:12px;"><strong style="font-size:14px;">Länge</strong><table style="width:100%;border-collapse:collapse;margin-top:4px;"><tr><td style="padding:2px 4px;color:#666;">Länge</td><td style="padding:2px 4px;text-align:right;">${formatLength(zone.length_m)}</td></tr></table></div>`
+      ? `<div style="margin-bottom:12px;"><strong style="font-size:14px;">Länge</strong><table style="width:100%;border-collapse:collapse;margin-top:4px;"><tr><td style="padding:2px 4px;color:#666;">Länge</td><td style="padding:2px 4px;text-align:right;">${escapeHtml(formatLength(zone.length_m))}</td></tr></table></div>`
       : "";
   return (
     `<div style="font-family:system-ui,sans-serif;font-size:13px;min-width:190px;">` +

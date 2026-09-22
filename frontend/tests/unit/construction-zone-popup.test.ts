@@ -310,3 +310,25 @@ describe("buildConstructionZonePopupHtml", () => {
     });
   });
 });
+
+describe("buildConstructionZonePopupHtml escaping", () => {
+  it("escapes third-party free text", () => {
+    const html = buildConstructionZonePopupHtml({
+      position: [51.0, 7.0],
+      length_m: null,
+      events: [
+        {
+          closureType: "<b>x</b>",
+          speed_limit_kmh: null,
+          detourNotice: "<img src=x onerror=alert(1)>",
+          state: "DE",
+          valid_from: "2026-08-01T00:00:00",
+          valid_to: null,
+        },
+      ],
+    } as ConstructionZone);
+    expect(html).toContain("&lt;img");
+    expect(html).not.toContain("<img");
+    expect(html).toContain("&lt;b&gt;x&lt;/b&gt;");
+  });
+});
