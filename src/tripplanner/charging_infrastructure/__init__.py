@@ -13,17 +13,10 @@ Exports:
   Fehlertyp aller Tesla-Transports)
 - Pricing: `parse_pricing_tiers`, `select_owner_rate_for_time`,
   `PricingParseError`, `CachedPricing`, `PricingQueueDrainResult`
-- Hilfsfunktionen: `init_charging_infrastructure`,
-  `get_charging_stations_in_radius`, `get_charging_stations_along_route`
+- Hilfsfunktionen: `provider_session` (kurzlebiger Provider fuer Skripte/CLI)
 """
 
-from .charging_infrastructure import (
-    get_all_charging_stations,
-    get_charging_stations_along_route,
-    get_charging_stations_in_radius,
-    init_charging_infrastructure,
-    refresh_supercharger_station,
-)
+from .charging_infrastructure import provider_session
 from .client import (
     CurlError,
     NodriverTeslaClient,
@@ -68,11 +61,7 @@ __all__ = [
     "TeslaChargingStationProvider",
     "TeslaLocationsClient",
     "create_tesla_client",
-    "get_all_charging_stations",
-    "get_charging_stations_along_route",
-    "get_charging_stations_in_radius",
-    "init_charging_infrastructure",
     "parse_pricing_tiers",
-    "refresh_supercharger_station",
+    "provider_session",
     "select_owner_rate_for_time",
 ]

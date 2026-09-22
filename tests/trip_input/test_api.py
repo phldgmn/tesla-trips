@@ -63,6 +63,7 @@ from tripplanner.trip_input.api import (
     get_construction_provider,
     get_elevation_provider,
     get_routing_provider,
+    get_supercharger_provider,
     get_weather_provider,
 )
 from tripplanner.trip_input.cli import parse_coord, parse_waypoint
@@ -115,6 +116,7 @@ def fake_construction_provider() -> FakeConstructionProvider:
 @pytest.fixture
 def client(
     fake_charging_provider_berlin_munich: FakeChargingStationProvider,
+    tmp_path: Path,
 ) -> Iterator[TestClient]:
     """TestClient für FastAPI-Endpunkte mit `FakeRoutingProvider` statt echtem
     GraphHopper-Server (keine Live-Calls externer Datenquellen in Unit-Tests,
@@ -132,8 +134,11 @@ def client(
     # wie `samples`/`test_zones`), was die /trips-Body-Validierung bricht.
     app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
     app.dependency_overrides[get_construction_provider] = lambda: FakeConstructionProvider()  # noqa: PLW0108
+    supercharger_provider = TeslaChargingStationProvider(db_path=tmp_path / "superchargers.db")
+    app.dependency_overrides[get_supercharger_provider] = lambda: supercharger_provider
     with TestClient(app) as test_client:
         yield test_client
+    app.dependency_overrides.pop(get_supercharger_provider, None)
     app.dependency_overrides.pop(get_routing_provider, None)
     app.dependency_overrides.pop(get_charging_provider, None)
     app.dependency_overrides.pop(get_elevation_provider, None)
@@ -3988,3 +3993,83 @@ def test_fastapi_endpoint_hides_internal_error_details(
     detail = response.json()["detail"]
     assert "secret" not in detail
     assert "Fehler-ID" in detail
+
+
+# =============================================================================
+# Supercharger endpoints: DI provider, slug validation, cooldown, admin token
+# =============================================================================
+
+
+def _seed_station(provider: TeslaChargingStationProvider, slug: str, country: str) -> None:
+    provider._db.update_station(
+        {
+            "supercharge_info_id": abs(hash(slug)) % 100_000,
+            "tesla_location_id": slug,
+            "site_name": slug,
+            "latitude": 52.0,
+            "longitude": 13.0,
+            "country_code": country,
+            "stalls_v2": 0,
+            "stalls_v3": 8,
+            "stalls_v3_ultra": 0,
+            "stalls_v4": 0,
+            "total_stalls": 8,
+            "power_kilowatt": 250,
+            "status": "OPEN",
+            "connector_types": '["NACS"]',
+            "ist_24_7": 1,
+            "date_opened": None,
+        }
+    )
+
+
+def _supercharger_provider() -> TeslaChargingStationProvider:
+    provider = app.dependency_overrides[get_supercharger_provider]()
+    assert isinstance(provider, TeslaChargingStationProvider)
+    return provider
+
+
+def test_supercharger_detail_and_country_filter_use_db_queries(client: TestClient) -> None:
+    provider = _supercharger_provider()
+    _seed_station(provider, "berlin", "DE")
+    _seed_station(provider, "malmo", "SE")
+
+    assert client.get("/superchargers/berlin").json()["slug"] == "berlin"
+    assert client.get("/superchargers/nope").status_code == 404
+    assert [s["slug"] for s in client.get("/superchargers?country=SE").json()] == ["malmo"]
+
+
+def test_supercharger_slug_is_validated(client: TestClient) -> None:
+    assert client.get("/superchargers/Bad_Slug!").status_code == 422
+    assert client.post("/superchargers/UPPER/refresh").status_code == 422
+
+
+def test_refresh_supercharger_returns_cached_station_within_cooldown(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_station(_supercharger_provider(), "berlin", "DE")
+
+    async def must_not_scrape(*args: object, **kwargs: object) -> None:
+        raise AssertionError("scraped despite fresh data")
+
+    monkeypatch.setattr(TeslaChargingStationProvider, "refresh_single_station", must_not_scrape)
+
+    response = client.post("/superchargers/berlin/refresh")
+
+    assert response.status_code == 200
+    assert response.headers["X-Cache"] == "HIT"
+
+
+def test_refresh_routes_require_admin_token_when_configured(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TRIPPLANNER_ADMIN_TOKEN", "s3cret")
+    _seed_station(_supercharger_provider(), "berlin", "DE")
+
+    assert client.post("/superchargers/berlin/refresh").status_code == 401
+    assert (
+        client.post("/superchargers/berlin/refresh", headers={"X-Admin-Token": "wrong"}).status_code
+        == 401
+    )
+    ok = client.post("/superchargers/berlin/refresh", headers={"X-Admin-Token": "s3cret"})
+    assert ok.status_code == 200

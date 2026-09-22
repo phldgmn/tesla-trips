@@ -9,12 +9,16 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 
-from tripplanner.charging_infrastructure import ChargingStationProvider
+from tripplanner.charging_infrastructure import (
+    ChargingStationProvider,
+    TeslaChargingStationProvider,
+)
 from tripplanner.construction.models import ConstructionProvider
 from tripplanner.elevation import ElevationProvider
 from tripplanner.routing import RoutingProvider
@@ -31,9 +35,13 @@ __all__ = [
     "get_construction_provider",
     "get_elevation_provider",
     "get_routing_provider",
+    "get_supercharger_provider",
     "get_weather_provider",
     "health_check",
+    "require_admin_token",
 ]
+
+ADMIN_TOKEN_ENV_VAR = "TRIPPLANNER_ADMIN_TOKEN"
 
 
 # Keep the logger bound to the original module name so app/endpoint log
@@ -112,6 +120,32 @@ def get_charging_provider(request: Request) -> ChargingStationProvider:
     """
     providers: ProductionProviders = request.app.state.providers
     return providers.charging
+
+
+def get_supercharger_provider(request: Request) -> TeslaChargingStationProvider:
+    """FastAPI-Dependency: the process-wide Tesla provider for `/superchargers*`.
+
+    Same instance as `get_charging_provider` in production, but typed as the
+    concrete Tesla provider because the supercharger endpoints use its
+    DB/scrape methods. Tests override it via `app.dependency_overrides`.
+    """
+    providers: ProductionProviders = request.app.state.providers
+    return providers.charging
+
+
+def require_admin_token(
+    x_admin_token: str | None = Header(default=None),
+) -> None:
+    """Guards scrape-triggering routes with a shared secret when one is configured.
+
+    If `TRIPPLANNER_ADMIN_TOKEN` is unset (local-only default), the check is
+    skipped. Otherwise the `X-Admin-Token` header must match it.
+    """
+    expected = os.environ.get(ADMIN_TOKEN_ENV_VAR)
+    if not expected:
+        return
+    if x_admin_token is None or not secrets.compare_digest(x_admin_token, expected):
+        raise HTTPException(status_code=401, detail="Admin-Token fehlt oder ist ungueltig")
 
 
 def get_elevation_provider(request: Request) -> ElevationProvider:

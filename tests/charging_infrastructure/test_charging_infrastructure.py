@@ -1,20 +1,16 @@
-"""Tests für charging_infrastructure Hilfsfunktionen (globale Provider,
-Convenience-Funktionen)."""
+"""Tests für provider_session und die Provider-Abfragen."""
 
 from __future__ import annotations
 
-from collections.abc import Generator
 from pathlib import Path
 
 import pytest
 
-from tripplanner.charging_infrastructure import charging_infrastructure as ci_module
-from tripplanner.charging_infrastructure.charging_infrastructure import (
-    get_charging_stations_along_route,
-    get_charging_stations_in_radius,
-    init_charging_infrastructure,
+from tripplanner.charging_infrastructure.charging_infrastructure import provider_session
+from tripplanner.charging_infrastructure.providers import (
+    LocalFileChargingStationProvider,
+    TeslaChargingStationProvider,
 )
-from tripplanner.charging_infrastructure.providers import LocalFileChargingStationProvider
 from tripplanner.geo import Coordinate
 from tripplanner.routing.models import Route, RouteSegment
 
@@ -27,51 +23,26 @@ FIXTURE_PATH = (
 )
 
 
-@pytest.fixture(autouse=True)
-def reset_default_provider() -> Generator[None, None, None]:
-    """Setzt den globalen _DEFAULT_PROVIDER vor und nach jedem Test zurück."""
-    ci_module._DEFAULT_PROVIDER = None
-    yield
-    ci_module._DEFAULT_PROVIDER = None
+class TestProviderSession:
+    """Tests für provider_session()."""
 
+    def test_local_file_with_explicit_data_path(self) -> None:
+        with provider_session(data_path=FIXTURE_PATH, provider_type="local_file") as provider:
+            assert isinstance(provider, LocalFileChargingStationProvider)
+            assert provider.data_path == FIXTURE_PATH
 
-class TestInitChargingInfrastructure:
-    """Tests für init_charging_infrastructure()."""
+    def test_local_file_with_none_uses_default_path(self) -> None:
+        with provider_session(data_path=None, provider_type="local_file") as provider:
+            assert isinstance(provider, LocalFileChargingStationProvider)
 
-    def test_init_with_explicit_data_path(self) -> None:
-        """Test Initialisierung mit explizitem data_path."""
-        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
-        assert ci_module._DEFAULT_PROVIDER is not None
-        assert isinstance(ci_module._DEFAULT_PROVIDER, LocalFileChargingStationProvider)
-        assert ci_module._DEFAULT_PROVIDER.data_path == FIXTURE_PATH
-
-    def test_init_with_none_uses_default_path(self) -> None:
-        """Test Initialisierung ohne data_path nutzt Default-Pfad."""
-        init_charging_infrastructure(data_path=None, provider_type="local_file")
-        assert ci_module._DEFAULT_PROVIDER is not None
-        assert isinstance(ci_module._DEFAULT_PROVIDER, LocalFileChargingStationProvider)
-
-    def test_init_idempotent_second_call_reuses_provider(self) -> None:
-        """Test: Zweiter Aufruf gibt bestehenden Provider zurück (kein Neuerstellen)."""
-        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
-        first_provider = ci_module._DEFAULT_PROVIDER
-
-        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
-        second_provider = ci_module._DEFAULT_PROVIDER
-
-        assert first_provider is second_provider
-
-    def test_init_with_different_path_after_first_call_ignored(self) -> None:
-        """Test: Bei zweitem Aufruf mit anderem Pfad wird der erste Provider beibehalten."""
-        other_fixture = Path("/tmp/nonexistent.json")
-        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
-        first_provider = ci_module._DEFAULT_PROVIDER
-
-        init_charging_infrastructure(data_path=other_fixture, provider_type="local_file")
-        second_provider = ci_module._DEFAULT_PROVIDER
-
-        assert first_provider is second_provider
-        assert second_provider.data_path == FIXTURE_PATH
+    def test_tesla_db_provider_is_closed_on_exit(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        closed: list[bool] = []
+        monkeypatch.setattr(TeslaChargingStationProvider, "close", lambda self: closed.append(True))
+        with provider_session(data_path=tmp_path / "t.db") as provider:
+            assert isinstance(provider, TeslaChargingStationProvider)
+        assert closed == [True]
 
 
 class TestGetChargingStationsInRadius:
@@ -80,23 +51,21 @@ class TestGetChargingStationsInRadius:
     @pytest.mark.asyncio
     async def test_auto_initializes_provider(self) -> None:
         """Test: Funktion initialisiert Provider automatisch bei Bedarf."""
-        assert ci_module._DEFAULT_PROVIDER is None
-        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
+        provider = LocalFileChargingStationProvider(FIXTURE_PATH)
 
         coordinate: Coordinate = (52.5200, 13.4050)
-        stations = await get_charging_stations_in_radius(coordinate, radius_km=10.0)
+        stations = await provider.get_stations_in_radius(coordinate, radius_km=10.0)
 
-        assert ci_module._DEFAULT_PROVIDER is not None
         assert isinstance(stations, list)
         assert len(stations) > 0
 
     @pytest.mark.asyncio
     async def test_returns_stations_sorted_by_distance(self) -> None:
         """Test: Stationen sind nach Distanz sortiert."""
-        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
+        provider = LocalFileChargingStationProvider(FIXTURE_PATH)
         coordinate: Coordinate = (52.5200, 13.4050)
 
-        stations = await get_charging_stations_in_radius(coordinate, radius_km=50.0)
+        stations = await provider.get_stations_in_radius(coordinate, radius_km=50.0)
 
         assert len(stations) >= 2
         for i in range(len(stations) - 1):
@@ -105,14 +74,14 @@ class TestGetChargingStationsInRadius:
     @pytest.mark.asyncio
     async def test_country_filter(self) -> None:
         """Test: Länderfilter funktioniert."""
-        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
+        provider = LocalFileChargingStationProvider(FIXTURE_PATH)
         coordinate: Coordinate = (52.5200, 13.4050)
 
-        stations_de = await get_charging_stations_in_radius(
-            coordinate, radius_km=100.0, country="DE"
+        stations_de = await provider.get_stations_in_radius(
+            coordinate, radius_km=100.0, country_filter="DE"
         )
-        stations_dk = await get_charging_stations_in_radius(
-            coordinate, radius_km=100.0, country="DK"
+        stations_dk = await provider.get_stations_in_radius(
+            coordinate, radius_km=100.0, country_filter="DK"
         )
 
         assert all(s.country == "DE" for s in stations_de)
@@ -121,10 +90,10 @@ class TestGetChargingStationsInRadius:
     @pytest.mark.asyncio
     async def test_empty_result_for_small_radius(self) -> None:
         """Test: Leeres Ergebnis bei sehr kleinem Radius weit weg von Stationen."""
-        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
+        provider = LocalFileChargingStationProvider(FIXTURE_PATH)
         coordinate: Coordinate = (0.0, 0.0)
 
-        stations = await get_charging_stations_in_radius(coordinate, radius_km=1.0)
+        stations = await provider.get_stations_in_radius(coordinate, radius_km=1.0)
 
         assert stations == []
 
@@ -158,24 +127,22 @@ class TestGetChargingStationsAlongRoute:
     @pytest.mark.asyncio
     async def test_auto_initializes_provider(self) -> None:
         """Test: Funktion initialisiert Provider automatisch."""
-        assert ci_module._DEFAULT_PROVIDER is None
 
         route = self._create_test_route()
-        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
+        provider = LocalFileChargingStationProvider(FIXTURE_PATH)
 
-        result = await get_charging_stations_along_route(route, search_radius_km=5.0)
+        result = await provider.get_stations_along_route(route, search_radius_km=5.0)
 
-        assert ci_module._DEFAULT_PROVIDER is not None
         assert isinstance(result, dict)
 
     @pytest.mark.asyncio
     async def test_returns_dict_with_segment_indices(self) -> None:
         """Test: Ergebnis ist Dict mit Segment-Indizes als Keys."""
-        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
+        provider = LocalFileChargingStationProvider(FIXTURE_PATH)
 
         route = self._create_test_route()
 
-        result = await get_charging_stations_along_route(route, search_radius_km=10.0)
+        result = await provider.get_stations_along_route(route, search_radius_km=10.0)
 
         assert isinstance(result, dict)
         for key in result:
@@ -190,12 +157,12 @@ class TestGetChargingStationsAlongRoute:
     @pytest.mark.asyncio
     async def test_different_search_radius(self) -> None:
         """Test: Unterschiedliche Suchradien liefern unterschiedliche Ergebnisse."""
-        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
+        provider = LocalFileChargingStationProvider(FIXTURE_PATH)
 
         route = self._create_test_route()
 
-        result_small = await get_charging_stations_along_route(route, search_radius_km=1.0)
-        result_large = await get_charging_stations_along_route(route, search_radius_km=20.0)
+        result_small = await provider.get_stations_along_route(route, search_radius_km=1.0)
+        result_large = await provider.get_stations_along_route(route, search_radius_km=20.0)
 
         total_small = sum(len(s) for s in result_small.values())
         total_large = sum(len(s) for s in result_large.values())
@@ -204,7 +171,7 @@ class TestGetChargingStationsAlongRoute:
     @pytest.mark.asyncio
     async def test_empty_route_segments(self) -> None:
         """Test: Route ohne Segmente liefert leeres Dict."""
-        init_charging_infrastructure(data_path=FIXTURE_PATH, provider_type="local_file")
+        provider = LocalFileChargingStationProvider(FIXTURE_PATH)
 
         route = Route(
             segments=[],
@@ -212,6 +179,6 @@ class TestGetChargingStationsAlongRoute:
             geometrie=[],
         )
 
-        result = await get_charging_stations_along_route(route)
+        result = await provider.get_stations_along_route(route, 2.0)
 
         assert result == {}

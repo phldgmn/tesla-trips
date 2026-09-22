@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -104,6 +104,9 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
         # Cache-Invalidierungsstelle den Index separat zurücksetzen müsste.
         self._lat_bands: dict[int, list[ChargingStation]] | None = None
         self._lat_bands_source: list[ChargingStation] | None = None
+        # Serialises on-demand Tesla scrapes (browser/curl sessions) triggered
+        # via the API so repeated calls cannot spawn many browsers at once.
+        self.scrape_slot = asyncio.Semaphore(1)
 
     def close(self) -> None:
         """Schließt die zugrunde liegende SQLite-Verbindung.
@@ -349,8 +352,44 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
         records = self._db.load_stations(
             country_filter=self._VALID_COUNTRIES  # type: ignore[arg-type]
         )
-        operational = [r for r in records if str(r.get("status") or "OPEN").upper() == "OPEN"]
-        return [db_record_to_charging_station(r) for r in operational]
+        return [db_record_to_charging_station(r) for r in records if self._is_listed(r)]
+
+    def _is_listed(self, record: dict[str, Any]) -> bool:
+        """True for operational (`status == "OPEN"`) stations in a supported country."""
+        return (
+            record.get("country_code") in self._VALID_COUNTRIES
+            and str(record.get("status") or "OPEN").upper() == "OPEN"
+        )
+
+    def get_station_by_slug(self, slug: str) -> ChargingStation | None:
+        """Looks up one listed station by its `station_id` via an indexed DB query.
+
+        `station_id` is the `tesla_location_id`, or the numeric
+        `supercharge_info_id` for stations without one (see
+        `db_record_to_charging_station`).
+        """
+        record = self._db.find_station_by_slug(slug)
+        if record is None and slug.isdigit():
+            record = self._db.find_station_by_supercharge_info_id(int(slug))
+            if record is not None and record.get("tesla_location_id"):
+                record = None
+        if record is None or not self._is_listed(record):
+            return None
+        return db_record_to_charging_station(record)
+
+    def get_stations_by_country(self, country: str) -> list[ChargingStation]:
+        """Listed stations for one ISO-2 country, filtered in SQL."""
+        if country not in self._VALID_COUNTRIES:
+            return []
+        records = self._db.load_stations(country_filter={country})
+        return [db_record_to_charging_station(r) for r in records if self._is_listed(r)]
+
+    def get_station_last_updated(self, slug: str) -> datetime | None:
+        """`last_updated_utc` of the station row for `slug`, or None if unknown."""
+        record = self._db.find_station_by_slug(slug)
+        if record is None or not record.get("last_updated_utc"):
+            return None
+        return self._db.parse_iso_utc(record["last_updated_utc"])
 
     async def get_stations_in_radius(
         self,

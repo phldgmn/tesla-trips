@@ -7,23 +7,22 @@ Diese Modul implementiert:
 
 from __future__ import annotations
 
+import os
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from typing import Annotated
 
 import httpx
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Path, Response
 from pydantic import ValidationError
 
 from tripplanner.charging_infrastructure import (
     CachedPricing,
     ChargingStationProvider,
     PricingParseError,
-    get_all_charging_stations,
-)
-from tripplanner.charging_infrastructure.client import TeslaLocationsClient
-from tripplanner.charging_infrastructure.providers import (
     TeslaChargingStationProvider,
 )
+from tripplanner.charging_infrastructure.client import TeslaLocationsClient
 from tripplanner.construction.models import ConstructionProvider
 from tripplanner.elevation import ElevationProvider
 from tripplanner.routing import RoutingProvider
@@ -37,8 +36,10 @@ from .app import (
     get_construction_provider,
     get_elevation_provider,
     get_routing_provider,
+    get_supercharger_provider,
     get_weather_provider,
     logger,
+    require_admin_token,
 )
 from .pipeline import create_trip_simulation
 from .schemas import (
@@ -92,32 +93,47 @@ def _opaque_http_error(status_code: int, message: str, exc: BaseException) -> HT
 # ── Supercharger API ─────────────────────────────────────────────────────
 
 
+SlugPath = Annotated[str, Path(pattern=r"^[a-z0-9-]{1,100}$")]
+
+# Minimum age of stored data before an on-demand refresh scrapes Tesla again.
+REFRESH_COOLDOWN = timedelta(
+    minutes=float(os.environ.get("TRIPPLANNER_REFRESH_COOLDOWN_MIN", "10"))
+)
+
+
+def _is_fresh(updated_utc: datetime | None) -> bool:
+    """True if data updated at `updated_utc` is within `REFRESH_COOLDOWN`."""
+    return updated_utc is not None and datetime.now(UTC) - updated_utc < REFRESH_COOLDOWN
+
+
 @app.get("/superchargers")
 async def list_superchargers(
     country: str | None = None,
+    provider: TeslaChargingStationProvider = Depends(get_supercharger_provider),  # noqa: B008
 ) -> list[SuperchargerStationAPI]:
     """Listet alle Supercharger-Stationen aus der Datenbank.
 
     Args:
-        country: Optionaler ISO-2 Laenderfilter.
+        country: Optionaler ISO-2 Laenderfilter (in SQL angewendet).
+        provider: Prozessweiter Tesla-Provider (DI).
 
     Returns:
         Liste von SuperchargerStationAPI.
     """
-    stations = get_all_charging_stations()
-    if country:
-        stations = [s for s in stations if s.country == country]
+    stations = provider.get_stations_by_country(country) if country else provider.get_all_stations()
     return [_station_to_api(s) for s in stations]
 
 
 @app.get("/superchargers/{slug}")
 async def get_supercharger_detail(
-    slug: str,
+    slug: SlugPath,
+    provider: TeslaChargingStationProvider = Depends(get_supercharger_provider),  # noqa: B008
 ) -> SuperchargerStationAPI:
     """Liefert Details zu einer Supercharger-Station.
 
     Args:
         slug: tesla_location_id (location_url_slug).
+        provider: Prozessweiter Tesla-Provider (DI).
 
     Returns:
         SuperchargerStationAPI.
@@ -125,18 +141,18 @@ async def get_supercharger_detail(
     Raises:
         HTTPException: 404 wenn Station nicht gefunden.
     """
-    stations = get_all_charging_stations()
-    station = next(
-        (s for s in stations if _station_to_api(s).slug == slug),
-        None,
-    )
+    station = provider.get_station_by_slug(slug)
     if station is None:
         raise HTTPException(status_code=404, detail="Station nicht gefunden")
     return _station_to_api(station)
 
 
-@app.post("/superchargers/{slug}/refresh")
-async def refresh_supercharger(slug: str) -> SuperchargerStationAPI:
+@app.post("/superchargers/{slug}/refresh", dependencies=[Depends(require_admin_token)])
+async def refresh_supercharger(
+    slug: SlugPath,
+    response: Response,
+    provider: TeslaChargingStationProvider = Depends(get_supercharger_provider),  # noqa: B008
+) -> SuperchargerStationAPI:
     """Aktualisiert eine Supercharger-Station mit frischen Daten von der Tesla API.
 
     Ruft die Tesla API server-seitig ueber `TeslaClient` ab (Default-
@@ -148,30 +164,37 @@ async def refresh_supercharger(slug: str) -> SuperchargerStationAPI:
     Tesla-API liefert keine Access-Control-Allow-Origin-Header, wodurch der
     Browser das Lesen der Antwort unabhaengig vom WAF-Status verweigert.
 
+    Nur ein Scrape laeuft gleichzeitig (`scrape_slot`); wurde die Station
+    vor weniger als `REFRESH_COOLDOWN` aktualisiert, wird der gespeicherte
+    Stand ohne Scrape geliefert (Header `X-Cache: HIT`).
+
     Args:
         slug: tesla_location_id (location_url_slug).
+        response: Response (fuer den `X-Cache`-Header).
+        provider: Prozessweiter Tesla-Provider (DI).
 
     Returns:
         Aktualisierte SuperchargerStationAPI.
 
     Raises:
-        HTTPException: 404 wenn Station unbekannt oder Tesla-API keine Daten
+        HTTPException: 401 ohne gueltiges Admin-Token (falls konfiguriert),
+            404 wenn Station unbekannt oder Tesla-API keine Daten
             liefert, 502 bei WAF-Block, Netzwerkfehlern oder wenn die
             Tesla-Antwort nicht auf ChargingStation abgebildet werden kann
             (z. B. Land ausserhalb DE/DK/SE).
     """
-    provider = TeslaChargingStationProvider()
-    try:
-        station = await provider.refresh_single_station(slug)
-    except TeslaLocationsClient.CurlError as e:
-        raise _opaque_http_error(502, "Tesla API nicht erreichbar", e) from e
-    except ValidationError as e:
-        raise _opaque_http_error(502, "Tesla-Antwort konnte nicht verarbeitet werden", e) from e
-    finally:
-        # Verbindung deterministisch schliessen: verhindert, dass eine
-        # offene Transaktion (z. B. nach einem Fehler) den SQLite-
-        # Schreibsperren-Lock fuer nachfolgende Requests blockiert.
-        provider._db.close()
+    async with provider.scrape_slot:
+        if _is_fresh(provider.get_station_last_updated(slug)):
+            cached_station = provider.get_station_by_slug(slug)
+            if cached_station is not None:
+                response.headers["X-Cache"] = "HIT"
+                return _station_to_api(cached_station)
+        try:
+            station = await provider.refresh_single_station(slug)
+        except TeslaLocationsClient.CurlError as e:
+            raise _opaque_http_error(502, "Tesla API nicht erreichbar", e) from e
+        except ValidationError as e:
+            raise _opaque_http_error(502, "Tesla-Antwort konnte nicht verarbeitet werden", e) from e
     if station is None:
         raise HTTPException(
             status_code=404,
@@ -190,26 +213,29 @@ def _cached_pricing_to_api(slug: str, cached: CachedPricing) -> SuperchargerPric
 
 
 @app.get("/superchargers/{slug}/pricing")
-async def get_supercharger_pricing(slug: str) -> SuperchargerPricingAPI:
+async def get_supercharger_pricing(
+    slug: SlugPath,
+    provider: TeslaChargingStationProvider = Depends(get_supercharger_provider),  # noqa: B008
+) -> SuperchargerPricingAPI:
     """Liest zwischengespeicherte Preisdaten einer Station, ohne sie neu abzurufen.
 
     Args:
         slug: tesla_location_id (location_url_slug).
+        provider: Prozessweiter Tesla-Provider (DI).
 
     Returns:
         SuperchargerPricingAPI mit leeren `tiers` und `updated_utc=None`, wenn
         die Station unbekannt ist oder ihre Preise nie gescraped wurden.
     """
-    provider = TeslaChargingStationProvider()
-    try:
-        cached = provider.get_cached_pricing(slug)
-    finally:
-        provider._db.close()
-    return _cached_pricing_to_api(slug, cached)
+    return _cached_pricing_to_api(slug, provider.get_cached_pricing(slug))
 
 
-@app.post("/superchargers/{slug}/refresh-pricing")
-async def refresh_supercharger_pricing(slug: str) -> SuperchargerPricingAPI:
+@app.post("/superchargers/{slug}/refresh-pricing", dependencies=[Depends(require_admin_token)])
+async def refresh_supercharger_pricing(
+    slug: SlugPath,
+    response: Response,
+    provider: TeslaChargingStationProvider = Depends(get_supercharger_provider),  # noqa: B008
+) -> SuperchargerPricingAPI:
     """Scraped aktuelle Preisdaten einer Station von Tesla und speichert sie.
 
     Ruft dieselbe Tesla-Standort-Detailseite ueber `TeslaClient.fetch_
@@ -219,8 +245,12 @@ async def refresh_supercharger_pricing(slug: str) -> SuperchargerPricingAPI:
     `refresh_supercharger` fuer die Begruendung, warum kein Cross-Origin-
     Fetch aus dem Frontend moeglich ist).
 
+    Gleiche Serialisierung und Cooldown wie `refresh_supercharger`.
+
     Args:
         slug: tesla_location_id (location_url_slug) der Station.
+        response: Response (fuer den `X-Cache`-Header).
+        provider: Prozessweiter Tesla-Provider (DI).
 
     Returns:
         SuperchargerPricingAPI mit den frisch gespeicherten Preisdaten
@@ -228,21 +258,24 @@ async def refresh_supercharger_pricing(slug: str) -> SuperchargerPricingAPI:
         Preise hat).
 
     Raises:
-        HTTPException: 404 wenn `slug` unbekannt ist, 502 bei WAF-Block,
+        HTTPException: 401 ohne gueltiges Admin-Token (falls konfiguriert),
+            404 wenn `slug` unbekannt ist, 502 bei WAF-Block,
             Netzwerkfehlern oder wenn die Tesla-Antwort nicht auswertbar war.
     """
-    provider = TeslaChargingStationProvider()
-    try:
-        await provider.refresh_pricing(slug)
+    async with provider.scrape_slot:
         cached = provider.get_cached_pricing(slug)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail="Station nicht gefunden") from e
-    except TeslaLocationsClient.CurlError as e:
-        raise _opaque_http_error(502, "Tesla API nicht erreichbar", e) from e
-    except PricingParseError as e:
-        raise _opaque_http_error(502, "Preisdaten konnten nicht verarbeitet werden", e) from e
-    finally:
-        provider._db.close()
+        if _is_fresh(cached.updated_utc):
+            response.headers["X-Cache"] = "HIT"
+            return _cached_pricing_to_api(slug, cached)
+        try:
+            await provider.refresh_pricing(slug)
+            cached = provider.get_cached_pricing(slug)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail="Station nicht gefunden") from e
+        except TeslaLocationsClient.CurlError as e:
+            raise _opaque_http_error(502, "Tesla API nicht erreichbar", e) from e
+        except PricingParseError as e:
+            raise _opaque_http_error(502, "Preisdaten konnten nicht verarbeitet werden", e) from e
     return _cached_pricing_to_api(slug, cached)
 
 
