@@ -1,7 +1,7 @@
 import { haversineDistanceM } from "../../utils/geo-utils";
 import {
-  formatZeitpunkt,
-  formatKurzZeitpunkt,
+  formatTimestamp,
+  formatShortDateTime,
 } from "../../utils/datetime-utils";
 import { formatCostOrDash } from "../../utils/currency-utils";
 import { roleToLabel, type StopRole } from "./markers";
@@ -46,7 +46,7 @@ export function formatChargingDuration(seconds: number): string {
 }
 /** Formatiert eine Laenge in Metern: ab 1000 m in km (eine Dezimalstelle),
  *  darunter als ganze Meter. */
-function formatLaenge(m: number): string {
+function formatLength(m: number): string {
   if (m >= 1000) {
     return `${(m / 1000).toLocaleString("de-DE", {
       minimumFractionDigits: 1,
@@ -59,12 +59,12 @@ function formatLaenge(m: number): string {
 /** Popup-HTML fuer einen Ladehalt: Name, Ankunfts-/Ziel-SoC samt Uhrzeit, Dauer, geladene Energie, Preis. */
 export function buildChargingStopPopupHtml(stop: ChargingStop): string {
   const rows: [string, string][] = [
-    ["Ankunft", `${stop.ankunfts_soc_pct.toFixed(0)}% SoC`],
-    ["Ankunftszeit", formatZeitpunkt(stop.ankunftszeit)],
-    ["Abfahrt", `${stop.ziel_soc_pct.toFixed(0)}% SoC`],
-    ["Abfahrtszeit", formatZeitpunkt(stop.abfahrtszeit)],
-    ["Dauer", formatChargingDuration(stop.ladedauer_s)],
-    ["Geladen", `${stop.energie_geladen_kwh.toFixed(1)} kWh`],
+    ["Ankunft", `${stop.arrival_soc_pct.toFixed(0)}% SoC`],
+    ["Ankunftszeit", formatTimestamp(stop.arrival_time)],
+    ["Abfahrt", `${stop.target_soc_pct.toFixed(0)}% SoC`],
+    ["Abfahrtszeit", formatTimestamp(stop.departure_time)],
+    ["Dauer", formatChargingDuration(stop.charging_duration_s)],
+    ["Geladen", `${stop.energy_charged_kwh.toFixed(1)} kWh`],
     ["Preis", formatCostOrDash(stop.estimated_cost, stop.currency)],
   ];
   const rowsHtml = rows
@@ -134,20 +134,17 @@ export function buildStopPopupHtml(
     return `<div style="font-family:system-ui,sans-serif;font-size:13px;">${title}</div>`;
   }
   const rows: [string, string][] = [
-    ["Ankunft", `${waypointStop.ankunfts_soc_pct.toFixed(0)}% SoC`],
-    ["Ankunftszeit", formatZeitpunkt(waypointStop.ankunftszeit)],
-    ["Abfahrt", `${waypointStop.ziel_soc_pct.toFixed(0)}% SoC`],
-    ["Abfahrtszeit", formatZeitpunkt(waypointStop.abfahrtszeit)],
+    ["Ankunft", `${waypointStop.arrival_soc_pct.toFixed(0)}% SoC`],
+    ["Ankunftszeit", formatTimestamp(waypointStop.arrivalTime)],
+    ["Abfahrt", `${waypointStop.target_soc_pct.toFixed(0)}% SoC`],
+    ["Abfahrtszeit", formatTimestamp(waypointStop.departure_time)],
   ];
   if (waypointStop.ladeleistung_kw !== null) {
     rows.push([
       "Ladeleistung",
       `${waypointStop.ladeleistung_kw.toFixed(1)} kW`,
     ]);
-    rows.push([
-      "Geladen",
-      `${waypointStop.energie_geladen_kwh.toFixed(1)} kWh`,
-    ]);
+    rows.push(["Geladen", `${waypointStop.energy_charged_kwh.toFixed(1)} kWh`]);
   }
   const rowsHtml = rows
     .map(
@@ -187,7 +184,7 @@ export function findWaypointStopAt(
  *  (`tripplanner.construction.models.Sperrungstyp`). Unbekannte Werte
  *  (z. B. ein zukuenftiger Backend-Enum-Wert) fallen auf den Rohwert
  *  zurueck statt eine leere Zeile zu erzeugen. */
-const SPERRUNGSTYP_LABELS: Record<string, string> = {
+const CLOSURE_TYPE_LABELS: Record<string, string> = {
   fullyClosed: "Vollsperrung",
   partiallyClosed: "Teilsperrung",
   laneClosed: "Fahrspur gesperrt",
@@ -205,18 +202,16 @@ const SPERRUNGSTYP_LABELS: Record<string, string> = {
 export function buildConstructionZonePopupHtml(zone: ConstructionZone): string {
   function eventRowsHtml(event: ConstructionZoneEvent): string {
     const rows: [string, string][] = [];
-    if (event.tempolimit_kmh !== null) {
-      rows.push(["Tempolimit", `${event.tempolimit_kmh} km/h`]);
+    if (event.speed_limit_kmh !== null) {
+      rows.push(["Tempolimit", `${event.speed_limit_kmh} km/h`]);
     }
-    if (event.umleitungshinweis !== null) {
-      rows.push(["Umleitung", event.umleitungshinweis]);
+    if (event.detourNotice !== null) {
+      rows.push(["Umleitung", event.detourNotice]);
     }
-    rows.push(["Gültig ab", formatZeitpunkt(event.gueltig_von)]);
+    rows.push(["Gültig ab", formatTimestamp(event.valid_from)]);
     rows.push([
       "Gültig bis",
-      event.gueltig_bis !== null
-        ? formatZeitpunkt(event.gueltig_bis)
-        : "unbestimmt",
+      event.valid_to !== null ? formatTimestamp(event.valid_to) : "unbestimmt",
     ]);
     return rows
       .map(
@@ -231,7 +226,7 @@ export function buildConstructionZonePopupHtml(zone: ConstructionZone): string {
   const sections = zone.events
     .map((event, index) => {
       const eventLabel =
-        SPERRUNGSTYP_LABELS[event.sperrungstyp] ?? event.sperrungstyp;
+        CLOSURE_TYPE_LABELS[event.closureType] ?? event.closureType;
       const heading =
         eventCount > 1
           ? `${eventLabel} (${index + 1} von ${eventCount})`
@@ -249,8 +244,8 @@ export function buildConstructionZonePopupHtml(zone: ConstructionZone): string {
     .join("");
 
   const lengthRow =
-    zone.laenge_m !== null
-      ? `<div style="margin-bottom:12px;"><strong style="font-size:14px;">Länge</strong><table style="width:100%;border-collapse:collapse;margin-top:4px;"><tr><td style="padding:2px 4px;color:#666;">Länge</td><td style="padding:2px 4px;text-align:right;">${formatLaenge(zone.laenge_m)}</td></tr></table></div>`
+    zone.length_m !== null
+      ? `<div style="margin-bottom:12px;"><strong style="font-size:14px;">Länge</strong><table style="width:100%;border-collapse:collapse;margin-top:4px;"><tr><td style="padding:2px 4px;color:#666;">Länge</td><td style="padding:2px 4px;text-align:right;">${formatLength(zone.length_m)}</td></tr></table></div>`
       : "";
   return (
     `<div style="font-family:system-ui,sans-serif;font-size:13px;min-width:190px;">` +
@@ -263,8 +258,8 @@ export function buildConstructionZonePopupHtml(zone: ConstructionZone): string {
 /** Wandelt eine Windrichtung in Grad (0° = N, 90° = O) in eine knappe
  *  16-Punkte-Himmelsrichtung um (z. B. "NW") - fuer den Routen-Hover-
  *  Tooltip, kompakter als der rohe Gradwert. */
-function windrichtungZuHimmelsrichtung(deg: number): string {
-  const himmelsrichtungen = [
+function windDirectionToCardinalDirection(deg: number): string {
+  const cardinalDirections = [
     "N",
     "NNO",
     "NO",
@@ -282,8 +277,8 @@ function windrichtungZuHimmelsrichtung(deg: number): string {
     "NW",
     "NNW",
   ];
-  const index = Math.round(deg / 22.5) % himmelsrichtungen.length;
-  return himmelsrichtungen[index];
+  const index = Math.round(deg / 22.5) % cardinalDirections.length;
+  return cardinalDirections[index];
 }
 
 /** Tooltip-Text fuer den Routen-Hover: Datum/Zeit, SoC, Geschwindigkeit und
@@ -299,32 +294,32 @@ function windrichtungZuHimmelsrichtung(deg: number): string {
  * damit der Tooltip vertikal statt horizontal waechst (siehe `whiteSpace:
  * "pre-line"` am Tooltip-Element in `MapVisualization.tsx`). */
 export function buildRouteHoverText(sample: RouteSample): string {
-  const zeilen = [
-    formatKurzZeitpunkt(sample.zeitpunkt ?? null),
+  const lines = [
+    formatShortDateTime(sample.timestamp ?? null),
     `${sample.socPct.toFixed(0)}% SoC`,
   ];
-  if (sample.geschwindigkeitKmh !== undefined) {
-    zeilen.push(`${sample.geschwindigkeitKmh.toFixed(0)} km/h`);
+  if (sample.speedKmh !== undefined) {
+    lines.push(`${sample.speedKmh.toFixed(0)} km/h`);
   }
-  if (sample.temperaturC !== undefined) {
-    zeilen.push(`${sample.temperaturC.toFixed(0)}°C`);
+  if (sample.temperatureC !== undefined) {
+    lines.push(`${sample.temperatureC.toFixed(0)}°C`);
   }
   if (
-    sample.windgeschwindigkeitKmh !== undefined ||
-    sample.windrichtungDeg !== undefined
+    sample.windSpeedKmh !== undefined ||
+    sample.windDirectionDeg !== undefined
   ) {
-    const richtung =
-      sample.windrichtungDeg !== undefined
-        ? `${windrichtungZuHimmelsrichtung(sample.windrichtungDeg)} `
+    const direction =
+      sample.windDirectionDeg !== undefined
+        ? `${windDirectionToCardinalDirection(sample.windDirectionDeg)} `
         : "";
-    const staerke =
-      sample.windgeschwindigkeitKmh !== undefined
-        ? `${sample.windgeschwindigkeitKmh.toFixed(0)} km/h`
+    const speed =
+      sample.windSpeedKmh !== undefined
+        ? `${sample.windSpeedKmh.toFixed(0)} km/h`
         : "";
-    zeilen.push(`Wind ${richtung}${staerke}`.trimEnd());
+    lines.push(`Wind ${direction}${speed}`.trimEnd());
   }
-  if (sample.niederschlagMm !== undefined && sample.niederschlagMm > 0) {
-    zeilen.push(`${sample.niederschlagMm.toFixed(1)} mm/h Regen`);
+  if (sample.precipitationMm !== undefined && sample.precipitationMm > 0) {
+    lines.push(`${sample.precipitationMm.toFixed(1)} mm/h Regen`);
   }
-  return zeilen.join("\n");
+  return lines.join("\n");
 }

@@ -10,7 +10,7 @@ import {
   estimatePositionTiming,
   cumulativeDistancesKm,
   findNearestFrameIndex,
-  berechneFahrsegment,
+  calculateDrivingSegment,
 } from "./timing-utils";
 import type { TripSimulationResult } from "../types";
 import type { Stop } from "../types/trip-request";
@@ -86,7 +86,7 @@ export function buildTimePlan(
   // gelegener Simulationsframe) - Koordinaten sind identisch, da `Stop.
   // position` unveraendert als `Waypoint.koordinate` an das Backend
   // durchgereicht wird.
-  const stopEintraege: TimePlanEntry[] = stops.map((stop, i) => {
+  const stopEntries: TimePlanEntry[] = stops.map((stop, i) => {
     const waypointStop = stop.position
       ? result.waypoint_stops.find(
           (w) =>
@@ -98,45 +98,45 @@ export function buildTimePlan(
       key: `stopp-${stop.id}`,
       art: "Stopp",
       label: stopLabel(stop),
-      arrival: waypointStop?.ankunftszeit ?? timings[i]?.arrival ?? null,
-      departure: waypointStop?.abfahrtszeit ?? timings[i]?.departure ?? null,
+      arrival: waypointStop?.arrivalTime ?? timings[i]?.arrival ?? null,
+      departure: waypointStop?.departure_time ?? timings[i]?.departure ?? null,
       distanceSinceLastKm: null,
       durationSinceLastMin: null,
-      ankunftsSocPct: waypointStop?.ankunfts_soc_pct ?? null,
-      abfahrtsSocPct: waypointStop?.ziel_soc_pct ?? null,
-      energieGeladenKwh: waypointStop?.energie_geladen_kwh ?? null,
+      ankunftsSocPct: waypointStop?.arrival_soc_pct ?? null,
+      abfahrtsSocPct: waypointStop?.target_soc_pct ?? null,
+      energieGeladenKwh: waypointStop?.energy_charged_kwh ?? null,
       estimatedCost: null,
       costCurrency: null,
     };
   });
 
-  const ladehaltEintraege: TimePlanEntry[] = result.charging_stops.map(
+  const chargingStopEntries: TimePlanEntry[] = result.charging_stops.map(
     (stop) => ({
-      key: `ladehalt-${stop.station_id}-${stop.ankunftszeit}`,
+      key: `ladehalt-${stop.station_id}-${stop.arrival_time}`,
       art: "Ladehalt",
       label: stop.name,
-      arrival: stop.ankunftszeit,
-      departure: stop.abfahrtszeit,
+      arrival: stop.arrival_time,
+      departure: stop.departure_time,
       distanceSinceLastKm: null,
       durationSinceLastMin: null,
-      ankunftsSocPct: stop.ankunfts_soc_pct,
-      abfahrtsSocPct: stop.ziel_soc_pct,
-      energieGeladenKwh: stop.energie_geladen_kwh,
+      ankunftsSocPct: stop.arrival_soc_pct,
+      abfahrtsSocPct: stop.target_soc_pct,
+      energieGeladenKwh: stop.energy_charged_kwh,
       estimatedCost: stop.estimated_cost,
       costCurrency: stop.currency,
     }),
   );
 
-  const faehrEintraege: TimePlanEntry[] = result.erkannte_faehren.map(
+  const ferryEntries: TimePlanEntry[] = result.detected_ferries.map(
     (f, idx) => {
       let arrival = f.abfahrt;
       let departure = f.ankunft;
       if (arrival === null || departure === null) {
-        const bboxMitte: [number, number] = [
-          (f.bbox_sw[0] + f.bbox_no[0]) / 2,
-          (f.bbox_sw[1] + f.bbox_no[1]) / 2,
+        const bboxCenter: [number, number] = [
+          (f.bbox_sw[0] + f.bbox_ne[0]) / 2,
+          (f.bbox_sw[1] + f.bbox_ne[1]) / 2,
         ];
-        const estimated = estimatePositionTiming(bboxMitte, frames);
+        const estimated = estimatePositionTiming(bboxCenter, frames);
         arrival = arrival ?? estimated.arrival;
         departure = departure ?? estimated.departure;
       }
@@ -157,15 +157,13 @@ export function buildTimePlan(
     },
   );
 
-  const sorted = [
-    ...stopEintraege,
-    ...ladehaltEintraege,
-    ...faehrEintraege,
-  ].sort((a, b) => {
-    const timeA = a.arrival ?? a.departure ?? "";
-    const timeB = b.arrival ?? b.departure ?? "";
-    return timeA.localeCompare(timeB);
-  });
+  const sorted = [...stopEntries, ...chargingStopEntries, ...ferryEntries].sort(
+    (a, b) => {
+      const timeA = a.arrival ?? a.departure ?? "";
+      const timeB = b.arrival ?? b.departure ?? "";
+      return timeA.localeCompare(timeB);
+    },
+  );
 
   // Zweiter Durchlauf: Strecke/Zeit seit dem vorherigen Eintrag sowie (für
   // Stopp/Fähre) SoC bei Ankunft/Abfahrt anhand der nächstgelegenen
@@ -174,9 +172,9 @@ export function buildTimePlan(
   let prevExitIso: string | null = null;
   let prevExitIdx: number | null = null;
 
-  for (const eintrag of sorted) {
-    const arrivalIso = eintrag.arrival ?? eintrag.departure;
-    const exitIso = eintrag.departure ?? eintrag.arrival;
+  for (const entry of sorted) {
+    const arrivalIso = entry.arrival ?? entry.departure;
+    const exitIso = entry.departure ?? entry.arrival;
     const arrivalIdx = arrivalIso
       ? findNearestFrameIndex(arrivalIso, frames)
       : null;
@@ -188,32 +186,30 @@ export function buildTimePlan(
       arrivalIdx !== null &&
       arrivalIso !== null
     ) {
-      const seg = berechneFahrsegment(
+      const seg = calculateDrivingSegment(
         prevExitIso,
         arrivalIso,
         frames,
         cumulative,
       );
       if (seg !== null) {
-        eintrag.distanceSinceLastKm = seg.distanzKm;
-        eintrag.durationSinceLastMin = seg.dauerMin;
+        entry.distanceSinceLastKm = seg.distanceKm;
+        entry.durationSinceLastMin = seg.durationMin;
       }
     }
 
-    if (eintrag.art !== "Ladehalt") {
+    if (entry.art !== "Ladehalt") {
       // Exakte Werte (aus `result.waypoint_stops`, siehe oben) NICHT durch
       // die nur geschaetzte Frame-Naeherung ueberschreiben.
-      if (eintrag.ankunftsSocPct === null) {
-        eintrag.ankunftsSocPct =
-          eintrag.arrival && arrivalIdx !== null
+      if (entry.ankunftsSocPct === null) {
+        entry.ankunftsSocPct =
+          entry.arrival && arrivalIdx !== null
             ? frames[arrivalIdx].soc_pct
             : null;
       }
-      if (eintrag.abfahrtsSocPct === null) {
-        eintrag.abfahrtsSocPct =
-          eintrag.departure && exitIdx !== null
-            ? frames[exitIdx].soc_pct
-            : null;
+      if (entry.abfahrtsSocPct === null) {
+        entry.abfahrtsSocPct =
+          entry.departure && exitIdx !== null ? frames[exitIdx].soc_pct : null;
       }
     }
 

@@ -10,7 +10,7 @@ python = "3.14"
 # Frontend-Runtime (aktuelle Node.js-LTS-Linie).
 node = "24"
 # Git-Hook-/Lint-Runner (Version muss zu `amends "…hk@X.Y.Z…"` in hk.pkl passen).
-hk = "1.55.0"
+hk = "2.0.1"
 # Von hk.pkl referenzierte externe Linter/Formatter (siehe hk.pkl, Abschnitt `linters`).
 shellcheck = "latest"
 shfmt = "latest"

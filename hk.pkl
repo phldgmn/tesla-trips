@@ -1,5 +1,5 @@
-amends "package://github.com/jdx/hk/releases/download/v1.55.0/hk@1.55.0#/Config.pkl"
-import "package://github.com/jdx/hk/releases/download/v1.55.0/hk@1.55.0#/Builtins.pkl"
+amends "package://github.com/jdx/hk/releases/download/v2.0.1/hk@2.0.1#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.0.1/hk@2.0.1#/Builtins.pkl"
 
 local python_files = List("*.py")
 local frontend_ts_files = List("frontend/**/*.ts", "frontend/**/*.tsx")
@@ -18,8 +18,8 @@ local linters = new Mapping<String, Step> {
     ["mypy"] {
         glob = python_files
         check = "uv run mypy src"
-        // kein fix — Type-Fehler werden nicht automatisch behoben,
-        // sondern blockieren den Commit bewusst
+        // no fix — type errors are not auto-fixed,
+        // they deliberately block the commit
     }
     ["prettier"] = (Builtins.prettier) {
         glob = List("frontend/**/*.ts", "frontend/**/*.tsx", "frontend/**/*.json")
@@ -31,7 +31,7 @@ local linters = new Mapping<String, Step> {
     }
     ["shellcheck"] = Builtins.shellcheck
     ["shfmt"] = (Builtins.shfmt) {
-        // Repo-Konvention: 2-Leerzeichen-Einrückung statt shfmt-Default (Tabs)
+        // Repo convention: 2-space indentation instead of shfmt's default (tabs)
         check_diff = "shfmt -i 2 -d --apply-ignore {{ files }}"
         check_list_files =
             """
@@ -50,8 +50,8 @@ local linters = new Mapping<String, Step> {
 
 hooks {
     ["check"] {
-        // Ermöglicht `hk check --all` gemäß AGENTS.md / docs/05-agent-guidelines.md;
-        // reine Prüfung ohne Auto-Fix (Gegenstück zu `hk fix --all`).
+        // Enables `hk check --all` per AGENTS.md / docs/04-repo-tooling-setup.md;
+        // pure check without auto-fix (counterpart to `hk fix --all`).
         steps = linters
     }
     ["fix"] {
@@ -59,16 +59,15 @@ hooks {
         steps = linters
     }
     ["pre-commit"] {
-        fix = true       // Auto-Fix läuft direkt beim Commit
-        stash = "git"    // unstaged Änderungen werden währenddessen weggesichert
+        fix = true       // auto-fix runs directly on commit
+        stash = "git"    // unstaged changes are stashed away meanwhile
         steps = linters
     }
     ["pre-push"] {
         steps {
-            ["pytest-unit"] {
-                check = "uv run pytest -m 'not integration'"
-            }
-            ["pytest-cov"] {
+            ["pytest"] {
+                // Coverage run already exercises "not integration" tests;
+                // a separate plain pytest step would just rerun the same suite.
                 check = "uv run pytest -m 'not integration' --cov=src/tripplanner --cov-report=term-missing --cov-fail-under=85"
             }
         }

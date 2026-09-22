@@ -108,7 +108,7 @@ export function MapVisualization({
   // je nach Zoom-Level ein-/auszublenden (siehe
   // `updateConstructionZoneVisibility`/`isConstructionZoneVisibleAtZoom`).
   const constructionZoneMarkersRef = useRef<
-    { marker: Marker; laengeM: number | null }[]
+    { marker: Marker; lengthM: number | null }[]
   >([]);
 
   // Supercharger-Overlay
@@ -234,7 +234,10 @@ export function MapVisualization({
     const map = mapRef.current;
     if (!map) return;
     const zoom = map.getZoom();
-    for (const { marker, laengeM } of constructionZoneMarkersRef.current) {
+    for (const {
+      marker,
+      lengthM: laengeM,
+    } of constructionZoneMarkersRef.current) {
       const visible = isConstructionZoneVisibleAtZoom(laengeM, zoom);
       // "flex" statt "" setzen: leerer String entfernt die inline
       // `display:flex`-Deklaration aus `buildConstructionZoneMarkerElement`s
@@ -422,50 +425,48 @@ export function MapVisualization({
     // auf der Karte, unabhaengig davon, wie exakt die zugrundeliegenden
     // SoC-Werte sind). Das Splitting behebt das exakt wie bei Ladehalten.
     const splicedRoute = buildSplicedRoute(
-      simulationResult.route_geometrie,
+      simulationResult.route_geometry,
       [
         ...simulationResult.charging_stops.map((stop) => ({
           position: stop.position,
-          distanzM: stop.distanz_m,
-          detourGeometrie: stop.detour_geometrie,
+          distanzM: stop.distance_m,
+          detourGeometrie: stop.detour_geometry,
           stationIndex: stop.detour_station_index,
-          routeIndexVor: stop.route_index_vor,
-          routeIndexNach: stop.route_index_nach,
-          ankunftsSocPct: stop.ankunfts_soc_pct,
-          zielSocPct: stop.ziel_soc_pct,
-          ankunftszeit: stop.ankunftszeit,
-          abfahrtszeit: stop.abfahrtszeit,
+          routeIndexVor: stop.route_index_before,
+          routeIndexNach: stop.route_index_after,
+          ankunftsSocPct: stop.arrival_soc_pct,
+          zielSocPct: stop.target_soc_pct,
+          ankunftszeit: stop.arrival_time,
+          abfahrtszeit: stop.departure_time,
         })),
         ...simulationResult.waypoint_stops.map((stop) => ({
           position: stop.position,
-          distanzM: stop.distanz_m,
+          distanzM: stop.distance_m,
           detourGeometrie: [],
           stationIndex: null,
           routeIndexVor: null,
           routeIndexNach: null,
-          ankunftsSocPct: stop.ankunfts_soc_pct,
-          zielSocPct: stop.ziel_soc_pct,
-          ankunftszeit: stop.ankunftszeit,
-          abfahrtszeit: stop.abfahrtszeit,
+          ankunftsSocPct: stop.arrival_soc_pct,
+          zielSocPct: stop.target_soc_pct,
+          ankunftszeit: stop.arrivalTime,
+          abfahrtszeit: stop.departure_time,
         })),
       ],
       // Reine Fahr-Frames fuer den Gradienten innerhalb jeder Leg - die
       // Ankunfts-/Abfahrts-Spruenge selbst kommen jetzt ausschliesslich aus
       // den oben uebergebenen Detours (Ladehalte UND Zwischenstopps).
       simulationResult.frames
-        .filter((f) => f.zustand === "FAHREN")
+        .filter((f) => f.state === "FAHREN")
         .map((f) => ({
-          distanzM: f.distanz_m,
+          distanzM: f.distance_m,
           socPct: f.soc_pct,
-          zeitpunkt: f.zeitpunkt,
-          geschwindigkeitKmh: f.geschwindigkeit_kmh,
-          temperaturC: f.temperatur_c ?? undefined,
+          zeitpunkt: f.timestamp,
+          geschwindigkeitKmh: f.speed_kmh,
+          temperaturC: f.temperature_c ?? undefined,
           windgeschwindigkeitKmh:
-            f.windgeschwindigkeit_ms !== null
-              ? f.windgeschwindigkeit_ms * 3.6
-              : undefined,
-          windrichtungDeg: f.windrichtung_deg ?? undefined,
-          niederschlagMm: f.niederschlag_mm ?? undefined,
+            f.wind_speed_ms !== null ? f.wind_speed_ms * 3.6 : undefined,
+          windrichtungDeg: f.wind_direction_deg ?? undefined,
+          niederschlagMm: f.precipitation_mm ?? undefined,
         })),
     );
     const routeCoordinates = splicedRoute.coordinates;
@@ -578,7 +579,7 @@ export function MapVisualization({
         .addTo(map);
       constructionZoneMarkersRef.current.push({
         marker,
-        laengeM: zone.laenge_m,
+        lengthM: zone.length_m,
       });
     }
     // Direkt nach dem Anlegen die Sichtbarkeit fuer den aktuellen Zoom

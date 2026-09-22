@@ -1,56 +1,59 @@
 import type {
   FerryExclusion,
-  FaehrZeitfenster,
-  LadedauerVorgabe,
+  FerryTimeWindow,
+  ChargingDurationTarget,
 } from "@/types/trip-request";
 
-import { sameFaehrAusschluss as sameFaehrAusschlussF } from "./form-helpers";
+import { sameFerryExclusion as sameFerryExclusionF } from "./form-helpers";
 
-export { sameFaehrAusschlussF as sameFaehrAusschluss };
+export { sameFerryExclusionF as sameFaehrAusschluss };
 
 /** Ergänzt oder entfernt eine Fährverbindung aus der Ausschlussliste. */
-export function toggleFaehrAusschluss(
-  liste: FerryExclusion[],
+export function toggleFerryExclusion(
+  list: FerryExclusion[],
   faehre: FerryExclusion,
-  vermeiden: boolean,
+  avoid: boolean,
 ): FerryExclusion[] {
-  const bereitsVorhanden = liste.some((f) => sameFaehrAusschlussF(f, faehre));
-  if (vermeiden) {
-    return bereitsVorhanden ? liste : [...liste, faehre];
+  const alreadyExists = list.some((f) => sameFerryExclusionF(f, faehre));
+  if (avoid) {
+    return alreadyExists ? list : [...list, faehre];
   }
-  return liste.filter((f) => !sameFaehrAusschlussF(f, faehre));
+  return list.filter((f) => !sameFerryExclusionF(f, faehre));
 }
 
 /** Setzt oder entfernt das Zeitfenster für eine Fährverbindung. `zeitfenster`
  *  wird entfernt, wenn `abfahrt`/`ankunft` beide leer sind. */
-export function setFaehrZeitfensterFuer(
-  liste: FaehrZeitfenster[],
-  eintrag: FerryExclusion,
+export function setFerryTimeWindowFor(
+  list: FerryTimeWindow[],
+  entry: FerryExclusion,
   abfahrt: string,
   ankunft: string,
-): FaehrZeitfenster[] {
-  const rest = liste.filter((f) => !sameFaehrAusschlussF(f, eintrag));
+): FerryTimeWindow[] {
+  const rest = list.filter((f) => !sameFerryExclusionF(f, entry));
   if (!abfahrt || !ankunft) return rest;
-  return [...rest, { ...eintrag, abfahrt, ankunft }];
+  return [...rest, { ...entry, abfahrt, ankunft }];
 }
 
 /** Setzt oder entfernt die Ladedauer-Vorgabe für eine Station. Die Vorgabe
  *  wird entfernt, wenn `ladedauerMin` nicht positiv ist. */
-export function setLadedauerVorgabeFuer(
-  liste: LadedauerVorgabe[],
+export function setChargingDurationPresetFor(
+  list: ChargingDurationTarget[],
   stationId: string,
-  ladedauerMin: number,
-): LadedauerVorgabe[] {
-  const rest = liste.filter((v) => v.station_id !== stationId);
-  if (!(ladedauerMin > 0)) return rest;
+  chargingDurationMin: number,
+): ChargingDurationTarget[] {
+  const rest = list.filter((v) => v.station_id !== stationId);
+  if (!(chargingDurationMin > 0)) return rest;
   return [
     ...rest,
-    { station_id: stationId, ladedauer_s: Math.round(ladedauerMin * 60) },
+    {
+      station_id: stationId,
+      charging_duration_s: Math.round(chargingDurationMin * 60),
+    },
   ];
 }
 
 /** Stabiler Identitäts-Schlüssel für eine Fährverbindung (Name + Bounding Box),
  *  zur Indizierung von React-State und -Listen abseits von Array-Index. */
-export function faehrKey(eintrag: FerryExclusion): string {
-  return `${eintrag.name}|${eintrag.bbox_sw.join(",")}|${eintrag.bbox_no.join(",")}`;
+export function ferryKey(entry: FerryExclusion): string {
+  return `${entry.name}|${entry.bbox_sw.join(",")}|${entry.bbox_ne.join(",")}`;
 }

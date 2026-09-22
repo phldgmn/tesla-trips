@@ -4,7 +4,7 @@ import type { Stop, FerryExclusion } from "@/types/trip-request";
 
 import { validateStops } from "@/types/trip-request";
 
-import { formatUhrzeit } from "@/utils/datetime-utils";
+import { formatTime } from "@/utils/datetime-utils";
 
 import { Flag, MapPin, Milestone } from "lucide-react";
 
@@ -52,10 +52,10 @@ export function swapStops(stops: Stop[], from: number, to: number): Stop[] {
 export function validateForm(args: {
   stops: Stop[];
   startSoc: number;
-  mindestAnkunftsSocPct: number;
-  mindestLadezeitMin: number;
-  maxLadeSocPct?: number;
-  zielSoc: number;
+  minArrivalSocPct: number;
+  minChargingTimeMin: number;
+  maxChargeSocPct?: number;
+  targetSoc: number;
 }): string[] {
   const errors: string[] = [];
 
@@ -72,35 +72,35 @@ export function validateForm(args: {
     errors.push("Start-SoC muss zwischen 0 und 100 % liegen.");
   }
   if (
-    typeof args.zielSoc !== "number" ||
-    isNaN(args.zielSoc) ||
-    args.zielSoc < 0 ||
-    args.zielSoc > 100
+    typeof args.targetSoc !== "number" ||
+    isNaN(args.targetSoc) ||
+    args.targetSoc < 0 ||
+    args.targetSoc > 100
   ) {
     errors.push("Ziel-SoC muss zwischen 0 und 100 % liegen.");
   }
   if (
-    typeof args.mindestLadezeitMin !== "number" ||
-    isNaN(args.mindestLadezeitMin) ||
-    args.mindestLadezeitMin < 0 ||
-    args.mindestLadezeitMin > 30
+    typeof args.minChargingTimeMin !== "number" ||
+    isNaN(args.minChargingTimeMin) ||
+    args.minChargingTimeMin < 0 ||
+    args.minChargingTimeMin > 30
   ) {
     errors.push("Min. Ladedauer muss zwischen 0 und 30 Minuten liegen.");
   }
   if (
-    typeof args.mindestAnkunftsSocPct !== "number" ||
-    isNaN(args.mindestAnkunftsSocPct) ||
-    args.mindestAnkunftsSocPct < 0 ||
-    args.mindestAnkunftsSocPct > 100
+    typeof args.minArrivalSocPct !== "number" ||
+    isNaN(args.minArrivalSocPct) ||
+    args.minArrivalSocPct < 0 ||
+    args.minArrivalSocPct > 100
   ) {
     errors.push("Min. SoC an Ladestationen muss zwischen 0 und 100 % liegen.");
   }
   if (
-    args.maxLadeSocPct !== undefined &&
-    (typeof args.maxLadeSocPct !== "number" ||
-      isNaN(args.maxLadeSocPct) ||
-      args.maxLadeSocPct < 0 ||
-      args.maxLadeSocPct > 100)
+    args.maxChargeSocPct !== undefined &&
+    (typeof args.maxChargeSocPct !== "number" ||
+      isNaN(args.maxChargeSocPct) ||
+      args.maxChargeSocPct < 0 ||
+      args.maxChargeSocPct > 100)
   ) {
     errors.push("Max. Lade-SoC muss zwischen 0 und 100 % liegen.");
   }
@@ -109,7 +109,7 @@ export function validateForm(args: {
 }
 
 /** Vergleicht zwei FaehrAusschluss-Einträge auf inhaltliche Gleichheit. */
-export function sameFaehrAusschluss(
+export function sameFerryExclusion(
   a: FerryExclusion,
   b: FerryExclusion,
 ): boolean {
@@ -117,28 +117,28 @@ export function sameFaehrAusschluss(
     a.name === b.name &&
     a.bbox_sw[0] === b.bbox_sw[0] &&
     a.bbox_sw[1] === b.bbox_sw[1] &&
-    a.bbox_no[0] === b.bbox_no[0] &&
-    a.bbox_no[1] === b.bbox_no[1]
+    a.bbox_ne[0] === b.bbox_ne[0] &&
+    a.bbox_ne[1] === b.bbox_ne[1]
   );
 }
 
 /** Ergänzt oder entfernt eine Fährverbindung aus der Ausschlussliste. */
-export function toggleFaehrAusschluss(
-  liste: FerryExclusion[],
+export function toggleFerryExclusion(
+  list: FerryExclusion[],
   faehre: FerryExclusion,
-  vermeiden: boolean,
+  avoid: boolean,
 ): FerryExclusion[] {
-  const bereitsVorhanden = liste.some((f) => sameFaehrAusschluss(f, faehre));
-  if (vermeiden) {
-    return bereitsVorhanden ? liste : [...liste, faehre];
+  const alreadyExists = list.some((f) => sameFerryExclusion(f, faehre));
+  if (avoid) {
+    return alreadyExists ? list : [...list, faehre];
   }
-  return liste.filter((f) => !sameFaehrAusschluss(f, faehre));
+  return list.filter((f) => !sameFerryExclusion(f, faehre));
 }
 
 /** Stabiler Identitäts-Schlüssel für eine Fährverbindung (Name + Bounding Box),
  *  zur Indizierung von React-State und -Listen abseits von Array-Index. */
-export function faehrKey(eintrag: FerryExclusion): string {
-  return `${eintrag.name}|${eintrag.bbox_sw.join(",")}|${eintrag.bbox_no.join(",")}`;
+export function ferryKey(entry: FerryExclusion): string {
+  return `${entry.name}|${entry.bbox_sw.join(",")}|${entry.bbox_ne.join(",")}`;
 }
 
 /** Icon + Hintergrundfarbe des Timeline-Markers für einen Stopp, abhängig
@@ -163,33 +163,30 @@ export function getStopTimelineIcon(
  *  also identisch sein können. `null` gilt immer als unterscheidbar (der
  *  Aufrufer entscheidet anhand von `null` bereits, ob überhaupt ein Badge
  *  gerendert wird). */
-export function unterscheidetSichAlsUhrzeit(
-  a: string | null,
-  b: string | null,
-): boolean {
+export function differsAsTime(a: string | null, b: string | null): boolean {
   if (a === null || b === null) return true;
-  return formatUhrzeit(a) !== formatUhrzeit(b);
+  return formatTime(a) !== formatTime(b);
 }
 
 /** Präfix, unter dem alle Tesla-Supercharger-Stationen in `data/superchargers.ts`
  *  benannt sind (z. B. "Tesla Supercharger - Berlin Alexanderplatz"). In der
  *  kompakten Routen-Timeline redundant, da das Zap-Icon des Ladehalts bereits
  *  eindeutig als Ladestopp erkennbar ist. */
-const SUPERCHARGER_NAME_PRAEFIX = "Tesla Supercharger - ";
+const SUPERCHARGER_NAME_PREFIX = "Tesla Supercharger - ";
 
 /** Kürzt den Anzeigenamen einer Ladestation um den redundanten
  *  "Tesla Supercharger - "-Präfix (siehe `SUPERCHARGER_NAME_PRAEFIX`). Namen
  *  ohne diesen Präfix (z. B. andere Anbieter) bleiben unverändert. */
-export function formatLadestationName(name: string): string {
-  return name.startsWith(SUPERCHARGER_NAME_PRAEFIX)
-    ? name.slice(SUPERCHARGER_NAME_PRAEFIX.length)
+export function formatChargingStationName(name: string): string {
+  return name.startsWith(SUPERCHARGER_NAME_PREFIX)
+    ? name.slice(SUPERCHARGER_NAME_PREFIX.length)
     : name;
 }
 
 /** Formatiert eine Fahrsegment-Distanz in km, eine Nachkommastelle,
  *  deutsches Zahlenformat (Komma statt Punkt). */
-export function formatFahrsegmentStrecke(distanzKm: number): string {
-  return `${distanzKm.toLocaleString("de-DE", {
+export function formatDrivingSegmentDistance(distanceKm: number): string {
+  return `${distanceKm.toLocaleString("de-DE", {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   })} km`;
@@ -197,9 +194,9 @@ export function formatFahrsegmentStrecke(distanzKm: number): string {
 
 /** Formatiert eine Fahrsegment-Dauer in Minuten als "Xh Ymin" bzw. "Ymin"
  *  (gleiches Format wie `formatChargingDuration` in `Map.tsx`). */
-export function formatFahrsegmentDauer(dauerMin: number): string {
-  const gesamtMinuten = Math.round(dauerMin);
-  const stunden = Math.floor(gesamtMinuten / 60);
-  const minuten = gesamtMinuten % 60;
-  return stunden > 0 ? `${stunden}h ${minuten}min` : `${minuten}min`;
+export function formatDrivingSegmentDuration(durationMin: number): string {
+  const totalMinutes = Math.round(durationMin);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours}h ${minutes}min` : `${minutes}min`;
 }

@@ -15,7 +15,7 @@ import {
   cumulativeDistancesKm,
   findNearestFrameIndex,
 } from "../utils/timing-utils";
-import { formatDatumKurz, formatUhrzeit } from "../utils/datetime-utils";
+import { formatShortDate, formatTime } from "../utils/datetime-utils";
 import { formatCost, formatCostOrDash } from "../utils/currency-utils";
 import { Modal } from "./Modal";
 import { convertAllToEUR } from "../utils/currency-conversion";
@@ -99,7 +99,7 @@ export function buildTimePlan(
   // gelegener Simulationsframe) - Koordinaten sind identisch, da `Stop.
   // position` unveraendert als `Waypoint.koordinate` an das Backend
   // durchgereicht wird.
-  const stopEintraege: TimePlanEntry[] = stops.map((stop, i) => {
+  const stopEntries: TimePlanEntry[] = stops.map((stop, i) => {
     const waypointStop = stop.position
       ? result.waypoint_stops.find(
           (w) =>
@@ -111,45 +111,45 @@ export function buildTimePlan(
       key: `stopp-${stop.id}`,
       art: "Stopp",
       label: stopLabel(stop),
-      arrival: waypointStop?.ankunftszeit ?? timings[i]?.arrival ?? null,
-      departure: waypointStop?.abfahrtszeit ?? timings[i]?.departure ?? null,
+      arrival: waypointStop?.arrivalTime ?? timings[i]?.arrival ?? null,
+      departure: waypointStop?.departure_time ?? timings[i]?.departure ?? null,
       distanceSinceLastKm: null,
       durationSinceLastMin: null,
-      ankunftsSocPct: waypointStop?.ankunfts_soc_pct ?? null,
-      abfahrtsSocPct: waypointStop?.ziel_soc_pct ?? null,
-      energieGeladenKwh: waypointStop?.energie_geladen_kwh ?? null,
+      ankunftsSocPct: waypointStop?.arrival_soc_pct ?? null,
+      abfahrtsSocPct: waypointStop?.target_soc_pct ?? null,
+      energieGeladenKwh: waypointStop?.energy_charged_kwh ?? null,
       estimatedCost: null,
       costCurrency: null,
     };
   });
 
-  const ladehaltEintraege: TimePlanEntry[] = result.charging_stops.map(
+  const chargingStopEntries: TimePlanEntry[] = result.charging_stops.map(
     (stop) => ({
-      key: `ladehalt-${stop.station_id}-${stop.ankunftszeit}`,
+      key: `ladehalt-${stop.station_id}-${stop.arrival_time}`,
       art: "Ladehalt",
       label: stop.name,
-      arrival: stop.ankunftszeit,
-      departure: stop.abfahrtszeit,
+      arrival: stop.arrival_time,
+      departure: stop.departure_time,
       distanceSinceLastKm: null,
       durationSinceLastMin: null,
-      ankunftsSocPct: stop.ankunfts_soc_pct,
-      abfahrtsSocPct: stop.ziel_soc_pct,
-      energieGeladenKwh: stop.energie_geladen_kwh,
+      ankunftsSocPct: stop.arrival_soc_pct,
+      abfahrtsSocPct: stop.target_soc_pct,
+      energieGeladenKwh: stop.energy_charged_kwh,
       estimatedCost: stop.estimated_cost,
       costCurrency: stop.currency,
     }),
   );
 
-  const faehrEintraege: TimePlanEntry[] = result.erkannte_faehren.map(
+  const ferryEntries: TimePlanEntry[] = result.detected_ferries.map(
     (f, idx) => {
       let arrival = f.abfahrt;
       let departure = f.ankunft;
       if (arrival === null || departure === null) {
-        const bboxMitte: [number, number] = [
-          (f.bbox_sw[0] + f.bbox_no[0]) / 2,
-          (f.bbox_sw[1] + f.bbox_no[1]) / 2,
+        const bboxCenter: [number, number] = [
+          (f.bbox_sw[0] + f.bbox_ne[0]) / 2,
+          (f.bbox_sw[1] + f.bbox_ne[1]) / 2,
         ];
-        const estimated = estimatePositionTiming(bboxMitte, frames);
+        const estimated = estimatePositionTiming(bboxCenter, frames);
         arrival = arrival ?? estimated.arrival;
         departure = departure ?? estimated.departure;
       }
@@ -170,15 +170,13 @@ export function buildTimePlan(
     },
   );
 
-  const sorted = [
-    ...stopEintraege,
-    ...ladehaltEintraege,
-    ...faehrEintraege,
-  ].sort((a, b) => {
-    const timeA = a.arrival ?? a.departure ?? "";
-    const timeB = b.arrival ?? b.departure ?? "";
-    return timeA.localeCompare(timeB);
-  });
+  const sorted = [...stopEntries, ...chargingStopEntries, ...ferryEntries].sort(
+    (a, b) => {
+      const timeA = a.arrival ?? a.departure ?? "";
+      const timeB = b.arrival ?? b.departure ?? "";
+      return timeA.localeCompare(timeB);
+    },
+  );
 
   // Zweiter Durchlauf: Strecke/Zeit seit dem vorherigen Eintrag sowie (für
   // Stopp/Fähre) SoC bei Ankunft/Abfahrt anhand der nächstgelegenen
@@ -187,9 +185,9 @@ export function buildTimePlan(
   let prevExitIso: string | null = null;
   let prevExitIdx: number | null = null;
 
-  for (const eintrag of sorted) {
-    const arrivalIso = eintrag.arrival ?? eintrag.departure;
-    const exitIso = eintrag.departure ?? eintrag.arrival;
+  for (const entry of sorted) {
+    const arrivalIso = entry.arrival ?? entry.departure;
+    const exitIso = entry.departure ?? entry.arrival;
     const arrivalIdx = arrivalIso
       ? findNearestFrameIndex(arrivalIso, frames)
       : null;
@@ -201,31 +199,29 @@ export function buildTimePlan(
       arrivalIdx !== null &&
       arrivalIso !== null
     ) {
-      eintrag.distanceSinceLastKm = Math.max(
+      entry.distanceSinceLastKm = Math.max(
         0,
         cumulative[arrivalIdx] - cumulative[prevExitIdx],
       );
-      eintrag.durationSinceLastMin = Math.max(
+      entry.durationSinceLastMin = Math.max(
         0,
         (new Date(arrivalIso).getTime() - new Date(prevExitIso).getTime()) /
           60000,
       );
     }
 
-    if (eintrag.art !== "Ladehalt") {
+    if (entry.art !== "Ladehalt") {
       // Exakte Werte (aus `result.waypoint_stops`, siehe oben) NICHT durch
       // die nur geschaetzte Frame-Naeherung ueberschreiben.
-      if (eintrag.ankunftsSocPct === null) {
-        eintrag.ankunftsSocPct =
-          eintrag.arrival && arrivalIdx !== null
+      if (entry.ankunftsSocPct === null) {
+        entry.ankunftsSocPct =
+          entry.arrival && arrivalIdx !== null
             ? frames[arrivalIdx].soc_pct
             : null;
       }
-      if (eintrag.abfahrtsSocPct === null) {
-        eintrag.abfahrtsSocPct =
-          eintrag.departure && exitIdx !== null
-            ? frames[exitIdx].soc_pct
-            : null;
+      if (entry.abfahrtsSocPct === null) {
+        entry.abfahrtsSocPct =
+          entry.departure && exitIdx !== null ? frames[exitIdx].soc_pct : null;
       }
     }
 
@@ -237,7 +233,7 @@ export function buildTimePlan(
 }
 
 function TripSummary({ result, stops }: TripSummaryProps) {
-  const [zeitplanOpen, setZeitplanOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [eurTotal, setEurTotal] = useState<number | null>(null);
   const [eurBreakdown, setEurBreakdown] = useState<
     Array<{ currency: string; originalAmount: number; eurAmount: number }>
@@ -283,33 +279,33 @@ function TripSummary({ result, stops }: TripSummaryProps) {
         <tbody>
           <tr>
             <td style={labelCellStyle}>Distanz</td>
-            <td style={valueCellStyle}>{formatKm(result.gesamt_distanz_km)}</td>
+            <td style={valueCellStyle}>{formatKm(result.total_distance_km)}</td>
           </tr>
           <tr>
             <td style={labelCellStyle}>Fahrzeit</td>
             <td style={valueCellStyle}>
-              {formatMinuten(result.gesamt_fahrzeit_min)}
+              {formatMinutes(result.total_driving_time_min)}
             </td>
           </tr>
           <tr>
             <td style={labelCellStyle}>Ladezeit</td>
             <td style={valueCellStyle}>
-              {formatMinuten(result.gesamt_ladezeit_min)}
+              {formatMinutes(result.total_charging_time_min)}
             </td>
           </tr>
           <tr>
             <td style={labelCellStyle}>Reisezeit</td>
             <td style={valueCellStyle}>
-              {formatMinuten(
-                result.gesamt_fahrzeit_min + result.gesamt_ladezeit_min,
+              {formatMinutes(
+                result.total_driving_time_min + result.total_charging_time_min,
               )}
             </td>
           </tr>
-          {result.gesamt_wartezeit_min > 0 && (
+          {result.total_waiting_time_min > 0 && (
             <tr>
               <td style={labelCellStyle}>Wartezeit</td>
               <td style={valueCellStyle}>
-                {formatMinuten(result.gesamt_wartezeit_min)}
+                {formatMinutes(result.total_waiting_time_min)}
               </td>
             </tr>
           )}
@@ -319,13 +315,13 @@ function TripSummary({ result, stops }: TripSummaryProps) {
           </tr>
           <tr>
             <td style={labelCellStyle}>Ziel-SoC</td>
-            <td style={valueCellStyle}>{formatSoc(result.ziel_soc_pct)}</td>
+            <td style={valueCellStyle}>{formatSoc(result.target_soc_pct)}</td>
           </tr>
-          {result.erkannte_faehren.length > 0 && (
+          {result.detected_ferries.length > 0 && (
             <tr>
               <td style={labelCellStyle}>Fähren</td>
               <td style={valueCellStyle}>
-                {result.erkannte_faehren.map((f) => f.name).join(", ")}
+                {result.detected_ferries.map((f) => f.name).join(", ")}
               </td>
             </tr>
           )}
@@ -398,7 +394,7 @@ function TripSummary({ result, stops }: TripSummaryProps) {
 
       <button
         type="button"
-        onClick={() => setZeitplanOpen(true)}
+        onClick={() => setScheduleOpen(true)}
         style={{
           width: "100%",
           padding: "0.5rem",
@@ -414,8 +410,8 @@ function TripSummary({ result, stops }: TripSummaryProps) {
       </button>
 
       <Modal
-        open={zeitplanOpen}
-        onClose={() => setZeitplanOpen(false)}
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
         title="Zeitplan"
         size="fullscreen"
       >
@@ -438,38 +434,33 @@ function TripSummary({ result, stops }: TripSummaryProps) {
             </tr>
           </thead>
           <tbody>
-            {schedule.map((eintrag) => (
-              <tr key={eintrag.key}>
+            {schedule.map((entry) => (
+              <tr key={entry.key}>
                 <td style={cellStyle}>
-                  {eintrag.label.replace("Tesla Supercharger - ", "")}
+                  {entry.label.replace("Tesla Supercharger - ", "")}
                 </td>
-                <td style={cellStyle}>{formatDatumKurz(eintrag.arrival)}</td>
-                <td style={rightCellStyle}>{formatUhrzeit(eintrag.arrival)}</td>
+                <td style={cellStyle}>{formatShortDate(entry.arrival)}</td>
+                <td style={rightCellStyle}>{formatTime(entry.arrival)}</td>
                 <td style={rightCellStyle}>
-                  {formatSocOrDash(eintrag.ankunftsSocPct)}
+                  {formatSocOrDash(entry.ankunftsSocPct)}
                 </td>
-                <td style={cellStyle}>{formatDatumKurz(eintrag.departure)}</td>
+                <td style={cellStyle}>{formatShortDate(entry.departure)}</td>
+                <td style={rightCellStyle}>{formatTime(entry.departure)}</td>
                 <td style={rightCellStyle}>
-                  {formatUhrzeit(eintrag.departure)}
-                </td>
-                <td style={rightCellStyle}>
-                  {formatSocOrDash(eintrag.abfahrtsSocPct)}
+                  {formatSocOrDash(entry.abfahrtsSocPct)}
                 </td>
                 <td style={rightCellStyle}>
-                  {formatKmOrDash(eintrag.distanceSinceLastKm)}
+                  {formatKmOrDash(entry.distanceSinceLastKm)}
                 </td>
                 <td style={rightCellStyle}>
-                  {formatMinutenOrDash(eintrag.durationSinceLastMin)}
+                  {formatMinutesOrDash(entry.durationSinceLastMin)}
                 </td>
                 <td style={rightCellStyle}>
-                  {formatKwhOrDash(eintrag.energieGeladenKwh)}
+                  {formatKwhOrDash(entry.energieGeladenKwh)}
                 </td>
                 <td style={rightCellStyle}>
-                  {eintrag.art === "Ladehalt"
-                    ? formatCostOrDash(
-                        eintrag.estimatedCost,
-                        eintrag.costCurrency,
-                      )
+                  {entry.art === "Ladehalt"
+                    ? formatCostOrDash(entry.estimatedCost, entry.costCurrency)
                     : "–"}
                 </td>
               </tr>
@@ -495,15 +486,15 @@ function formatSoc(pct: number): string {
   return `${Math.round(pct).toLocaleString("de-DE")} %`;
 }
 
-function formatMinuten(min: number): string {
+function formatMinutes(min: number): string {
   const h = Math.floor(min / 60);
   const m = Math.round(min % 60);
   if (h > 0) return `${h} h ${m} min`;
   return `${m} min`;
 }
 
-function formatMinutenOrDash(min: number | null): string {
-  return min === null ? "–" : formatMinuten(min);
+function formatMinutesOrDash(min: number | null): string {
+  return min === null ? "–" : formatMinutes(min);
 }
 
 function formatKmOrDash(km: number | null): string {

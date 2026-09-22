@@ -14,16 +14,16 @@
  */
 
 import type { Stop } from "../types/trip-request";
-import type { ChargingStop, FaehrSegment, SimulationFrame } from "../types";
+import type { ChargingStop, FerrySegment, SimulationFrame } from "../types";
 import type { FerryExclusion } from "../types/trip-request";
 import type { PositionTiming } from "./timing-utils";
 import {
   estimateWaypointTimings,
   estimatePositionTiming,
   cumulativeDistancesKm,
-  berechneFahrsegment,
+  calculateDrivingSegment,
 } from "./timing-utils";
-import { istTageswechsel } from "./datetime-utils";
+import { isDayChange } from "./datetime-utils";
 
 /**
  * Vergleicht zwei FaehrAusschluss-Einträge auf inhaltliche Gleichheit.
@@ -33,8 +33,8 @@ function sameFerryExclusion(a: FerryExclusion, b: FerryExclusion): boolean {
     a.name === b.name &&
     a.bbox_sw[0] === b.bbox_sw[0] &&
     a.bbox_sw[1] === b.bbox_sw[1] &&
-    a.bbox_no[0] === b.bbox_no[0] &&
-    a.bbox_no[1] === b.bbox_no[1]
+    a.bbox_ne[0] === b.bbox_ne[0] &&
+    a.bbox_ne[1] === b.bbox_ne[1]
   );
 }
 
@@ -42,11 +42,11 @@ function sameFerryExclusion(a: FerryExclusion, b: FerryExclusion): boolean {
  *  davon liegen zwei Einträge praktisch am selben Ort/Zeitpunkt (z. B. eine
  *  Ladestation direkt an einem Zwischenstopp), ein "0 min · 0,0 km"-Eintrag
  *  wäre nur Rauschen in der Timeline. */
-const MIN_FAHRSEGMENT_DAUER_MIN = 1;
+const MIN_DRIVING_SEGMENT_DURATION_MIN = 1;
 
 /** Route-Eintrag mit Zeitpunkt-Bezug (Stopp, Ladehalt oder Fähre) - alles
  *  außer den verbindenden `Fahrsegment`-Einträgen. */
-export type PunktEintrag =
+export type PointEntry =
   | {
       art: "Stopp";
       sortKey: string | null;
@@ -64,7 +64,7 @@ export type PunktEintrag =
       art: "Fähre";
       sortKey: string | null;
       timing: PositionTiming;
-      faehre: FaehrSegment;
+      faehre: FerrySegment;
     };
 
 /** Verbindender Eintrag zwischen zwei `PunktEintrag`en: gefahrene Strecke/
@@ -73,13 +73,13 @@ export type PunktEintrag =
  *  direkt, um Strecke/Zeit/beide Daten in einer Zeile zu kombinieren (siehe
  *  `FahrsegmentZeile` in `TripPlannerForm.tsx`), statt separat einen
  *  `Tagestrenner` zu rendern. */
-export interface FahrsegmentEintrag {
+export interface DrivingSegmentEntry {
   art: "Fahrsegment";
   sortKey: string | null;
   vonIso: string;
   bisIso: string;
-  distanzKm: number;
-  dauerMin: number;
+  distanceKm: number;
+  durationMin: number;
 }
 
 /** Tageswechsel-Trenner zwischen zwei `PunktEintrag`en OHNE Fahrsegment
@@ -91,28 +91,27 @@ export interface FahrsegmentEintrag {
  *  Mitternacht - dafür zeigen die Zeit-Badges des jeweiligen Eintrags
  *  selbst das Datum an, siehe `Zeitbadge`/`istTageswechsel`-Aufruf in
  *  `TripPlannerForm.tsx`). */
-export interface TagestrennerEintrag {
+export interface DaySeparatorEntry {
   art: "Tagestrenner";
   sortKey: string | null;
   vonIso: string;
   bisIso: string;
 }
 
-export type RouteEintrag =
-  PunktEintrag | FahrsegmentEintrag | TagestrennerEintrag;
+export type RouteEntry = PointEntry | DrivingSegmentEntry | DaySeparatorEntry;
 
 /** Zeitpunkt, an dem ein `PunktEintrag` mit einem angrenzenden Fahrsegment
  *  verbunden wird: "anfang" bevorzugt die Ankunft (Fahrsegment endet hier),
  *  "ende" bevorzugt die Abfahrt (Fahrsegment beginnt hier) - mit Fallback
  *  auf den jeweils anderen Zeitpunkt, falls nicht vorhanden (z. B. Start
  *  ohne Ankunft, Ziel ohne Abfahrt). */
-function verbindungsZeitpunkt(
-  eintrag: PunktEintrag,
-  seite: "anfang" | "ende",
+function connectionTime(
+  entry: PointEntry,
+  side: "anfang" | "ende",
 ): string | null {
-  return seite === "anfang"
-    ? (eintrag.timing.arrival ?? eintrag.timing.departure)
-    : (eintrag.timing.departure ?? eintrag.timing.arrival);
+  return side === "anfang"
+    ? (entry.timing.arrival ?? entry.timing.departure)
+    : (entry.timing.departure ?? entry.timing.arrival);
 }
 
 /** Baut eine chronologisch sortierte Liste von Route-Einträgen.
@@ -128,15 +127,20 @@ function verbindungsZeitpunkt(
  * wobei null-Werte ans Ende sortiert werden. Die native Array.sort() ist spec-stabil,
  * sodass Einträge mit gleichen/null Keys ihre Konstruktionsreihenfolge behalten.
  */
-export function buildRouteEintraege(args: {
+export function buildRouteEntries(args: {
   stops: Stop[];
   frames: SimulationFrame[] | undefined;
   chargingStops: ChargingStop[] | undefined;
-  erkannteFaehren: FaehrSegment[] | undefined;
-  vermiedeneFaehren: FerryExclusion[];
-}): RouteEintrag[] {
-  const { stops, frames, chargingStops, erkannteFaehren, vermiedeneFaehren } =
-    args;
+  erkannteFaehren: FerrySegment[] | undefined;
+  avoidedFerries: FerryExclusion[];
+}): RouteEntry[] {
+  const {
+    stops,
+    frames,
+    chargingStops,
+    erkannteFaehren,
+    avoidedFerries: vermiedeneFaehren,
+  } = args;
 
   // Keine Simulation: nur Stops in Originalreihenfolge
   if (!frames || frames.length === 0) {
@@ -156,7 +160,7 @@ export function buildRouteEintraege(args: {
 
   // Stops: sortKey = Ankunftszeit (falls vorhanden, sonst Abfahrt)
   const waypointTimings = estimateWaypointTimings(frames, stops);
-  const stopEintraege: PunktEintrag[] = stops.map((stop, idx) => {
+  const stopEntries: PointEntry[] = stops.map((stop, idx) => {
     const { arrival, departure, arrivalSocPct, departureSocPct } =
       waypointTimings[idx];
     const sortKey = arrival ?? departure ?? null;
@@ -170,15 +174,15 @@ export function buildRouteEintraege(args: {
   });
 
   // Ladehalte: sortKey = ankunftszeit
-  const ladehaltEintraege: PunktEintrag[] = (chargingStops ?? []).map(
+  const chargingStopEntries: PointEntry[] = (chargingStops ?? []).map(
     (chargingStop) => ({
       art: "Ladehalt" as const,
-      sortKey: chargingStop.ankunftszeit,
+      sortKey: chargingStop.arrival_time,
       timing: {
-        arrival: chargingStop.ankunftszeit,
-        departure: chargingStop.abfahrtszeit,
-        arrivalSocPct: chargingStop.ankunfts_soc_pct,
-        departureSocPct: chargingStop.ziel_soc_pct,
+        arrival: chargingStop.arrival_time,
+        departure: chargingStop.departure_time,
+        arrivalSocPct: chargingStop.arrival_soc_pct,
+        departureSocPct: chargingStop.target_soc_pct,
       },
       chargingStop,
     }),
@@ -187,24 +191,24 @@ export function buildRouteEintraege(args: {
   // Fähren (nur nicht-vermiedene): sortKey = Ankunftszeit (BBox-Mitte)
   const recognizedFerriesWithoutAvoided = erkannteFaehren?.filter(
     (faehre) =>
-      !vermiedeneFaehren.some((vermieden) =>
-        sameFerryExclusion(vermieden, {
+      !vermiedeneFaehren.some((avoidedFerry) =>
+        sameFerryExclusion(avoidedFerry, {
           name: faehre.name,
           bbox_sw: faehre.bbox_sw,
-          bbox_no: faehre.bbox_no,
+          bbox_ne: faehre.bbox_ne,
         }),
       ),
   );
 
-  const faehreEintraege: PunktEintrag[] = (
+  const ferryEntries: PointEntry[] = (
     recognizedFerriesWithoutAvoided ?? []
   ).map((faehre) => {
     // BBox-Mitte berechnen
     const bbox_sw = faehre.bbox_sw;
-    const bbox_no = faehre.bbox_no;
+    const bbox_ne = faehre.bbox_ne;
     const bboxCenter: [number, number] = [
-      (bbox_sw[0] + bbox_no[0]) / 2,
-      (bbox_sw[1] + bbox_no[1]) / 2,
+      (bbox_sw[0] + bbox_ne[0]) / 2,
+      (bbox_sw[1] + bbox_ne[1]) / 2,
     ];
     const timing = estimatePositionTiming(bboxCenter, frames);
     const sortKey = timing.arrival ?? timing.departure ?? null;
@@ -217,14 +221,14 @@ export function buildRouteEintraege(args: {
   });
 
   // Alle Einträge kombinieren und sortieren
-  const alleEintraege: PunktEintrag[] = [
-    ...stopEintraege,
-    ...ladehaltEintraege,
-    ...faehreEintraege,
+  const allEntries: PointEntry[] = [
+    ...stopEntries,
+    ...chargingStopEntries,
+    ...ferryEntries,
   ];
 
   // Stabile Sortierung: null sortiert ans Ende, andernfalls ISO-String-Vergleich
-  alleEintraege.sort((a, b) => {
+  allEntries.sort((a, b) => {
     if (a.sortKey === null && b.sortKey === null) return 0;
     if (a.sortKey === null) return 1;
     if (b.sortKey === null) return -1;
@@ -236,40 +240,41 @@ export function buildRouteEintraege(args: {
   // `berechneFahrsegment`. `cumulativeKm` einmalig für die gesamte Route
   // gebildet statt pro Segment neu (siehe `berechneFahrsegment`-Docstring).
   const cumulativeKm = cumulativeDistancesKm(frames);
-  const ergebnis: RouteEintrag[] = [];
-  alleEintraege.forEach((eintrag, idx) => {
-    ergebnis.push(eintrag);
-    const naechster = alleEintraege[idx + 1];
-    if (!naechster) return;
+  const result: RouteEntry[] = [];
+  allEntries.forEach((entry, idx) => {
+    result.push(entry);
+    const next = allEntries[idx + 1];
+    if (!next) return;
 
-    const von = verbindungsZeitpunkt(eintrag, "ende");
-    const bis = verbindungsZeitpunkt(naechster, "anfang");
-    if (von === null || bis === null || von === bis) return;
+    const von = connectionTime(entry, "ende");
+    const to = connectionTime(next, "anfang");
+    if (von === null || to === null || von === to) return;
 
-    const segment = berechneFahrsegment(von, bis, frames, cumulativeKm);
-    const hatFahrsegment =
-      segment !== null && segment.dauerMin >= MIN_FAHRSEGMENT_DAUER_MIN;
+    const segment = calculateDrivingSegment(von, to, frames, cumulativeKm);
+    const hasDrivingSegment =
+      segment !== null &&
+      segment.durationMin >= MIN_DRIVING_SEGMENT_DURATION_MIN;
 
-    if (hatFahrsegment) {
-      ergebnis.push({
+    if (hasDrivingSegment) {
+      result.push({
         art: "Fahrsegment" as const,
         sortKey: von,
         vonIso: von,
-        bisIso: bis,
+        bisIso: to,
         ...segment,
       });
       return;
     }
 
-    if (istTageswechsel(von, bis)) {
-      ergebnis.push({
+    if (isDayChange(von, to)) {
+      result.push({
         art: "Tagestrenner" as const,
         sortKey: von,
         vonIso: von,
-        bisIso: bis,
+        bisIso: to,
       });
     }
   });
 
-  return ergebnis;
+  return result;
 }
