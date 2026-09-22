@@ -3,7 +3,8 @@ services:
     image: israelhikingmap/graphhopper:11.0
     container_name: tesla-trips-graphhopper
     ports:
-      - "8989:8989"
+      # Loopback only: not reachable from the LAN.
+      - "127.0.0.1:8989:8989"
     volumes:
       # Cached Graph-Import ueberlebt Container-Neustarts (kein erneuter
       # Download/Import bei jedem `docker compose up`). Bereits via
@@ -40,23 +41,29 @@ services:
       # unbenutztes Environment-Var, weil der kleine Berlin-Extrakt auch
       # mit dem Default-Heap von 1g funktionierte).
       - JAVA_OPTS=-Xms2g -Xmx8g
+    # `run.sh` polls `.State.Health.Status`, which is empty without a
+    # healthcheck. 240 x 15s covers the ~1h first-start graph import.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8989/health"]
+      interval: 15s
+      retries: 240
     restart: unless-stopped
 
   tiles:
-    image: protomaps/go-pmtiles:latest
+    image: protomaps/go-pmtiles:v1.31.2@sha256:06574f01f55a78f78f887bc7ebf729a5c093c0d6e17d9876300cfcb0758b59d3
     container_name: tesla-trips-tiles
     ports:
-      - "8081:8080"
+      - "127.0.0.1:8081:8080"
     volumes:
       # data/tiles/basemap.pmtiles wird von scripts/build_basemap_tiles.sh
       # aus demselben DE+DK+SE-OSM-Extrakt erzeugt, den auch GraphHopper
-      # nutzt (siehe data/de-dk-se.osm.pbf). `--cors=*` ist fuer lokale
-      # Entwicklung angemessen (Frontend laeuft auf localhost:3000); siehe
+      # nutzt (siehe data/de-dk-se.osm.pbf). CORS ist auf das lokale
+      # Frontend (localhost:3000) beschraenkt; siehe
       # https://docs.protomaps.com/pmtiles/cli#serve.
       - ./data/tiles:/data:ro
     command:
       - serve
       - /data
-      - --cors=*
+      - --cors=http://localhost:3000
       - --public-url=http://localhost:8081
     restart: unless-stopped

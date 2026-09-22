@@ -16,7 +16,7 @@ export default defineConfig({
       // (`uv run uvicorn tripplanner.trip_input.api:app --reload`, Port 8000).
       // Vermeidet CORS-Konfiguration im Backend für die lokale Entwicklung.
       "/api": {
-        target: "http://localhost:8000",
+        target: "http://127.0.0.1:8000",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
       },

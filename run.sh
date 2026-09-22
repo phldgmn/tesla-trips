@@ -314,7 +314,7 @@ start_backend() {
   # file outside the app source (tests/, .worktrees/, …) does not
   # trigger a backend reload.
   uv run uvicorn tripplanner.trip_input.api:app \
-    --host 0.0.0.0 --port "$PORT_BACKEND" \
+    --host 127.0.0.1 --port "$PORT_BACKEND" \
     --reload \
     --reload-dir src/tripplanner \
     >"$LOG_BACKEND" 2>&1 &
