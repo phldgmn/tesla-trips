@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 from pathlib import Path
@@ -405,13 +406,11 @@ class TestSQLiteDatabase:
         tmp_db.upsert_pricing(5678, [tier])  # scraped after 3506 too, but we
         # overwrite 3506's timestamp below to be clearly the newest, so 5678
         # (older) sorts first.
-        conn = tmp_db._conn
-        assert conn is not None
-        conn.execute(
-            "UPDATE charging_pricing SET last_updated_utc = ? WHERE supercharge_info_id = ?",
-            ("2020-01-01T00:00:00+00:00", 5678),
-        )
-        conn.commit()
+        with tmp_db._connect() as conn, conn:
+            conn.execute(
+                "UPDATE charging_pricing SET last_updated_utc = ? WHERE supercharge_info_id = ?",
+                ("2020-01-01T00:00:00+00:00", 5678),
+            )
         tmp_db.enqueue_pricing_refresh([3506, 5678])
 
         queue = tmp_db.load_pricing_queue()
@@ -447,3 +446,33 @@ class TestSQLiteDatabase:
         parsed = SQLiteDatabase.parse_iso_utc("2024-01-01T00:00:00Z")
         assert parsed.tzinfo is not None
         assert parsed.year == 2024
+
+
+def test_concurrent_update_from_worker_thread_and_load(
+    tmp_db: SQLiteDatabase, sample_db_records: list[dict[str, Any]]
+) -> None:
+    """DB calls work from worker threads concurrently with main-thread reads."""
+    tmp_db.replace_all_stations(sample_db_records)
+    station = dict(sample_db_records[0])
+
+    async def run() -> None:
+        results = await asyncio.gather(
+            *(asyncio.to_thread(tmp_db.update_station, dict(station)) for _ in range(5)),
+            *(asyncio.to_thread(tmp_db.load_stations) for _ in range(5)),
+        )
+        assert all(r is True for r in results[:5])
+        assert all(len(r) == len(sample_db_records) for r in results[5:])
+
+    asyncio.run(run())
+    assert tmp_db.load_stations() == tmp_db.load_stations()
+
+
+def test_failed_write_rolls_back(
+    tmp_db: SQLiteDatabase, sample_db_records: list[dict[str, Any]]
+) -> None:
+    """A failing bulk replace leaves the previous data intact."""
+    tmp_db.replace_all_stations(sample_db_records)
+    broken = [*sample_db_records, {"supercharge_info_id": 999}]  # missing keys
+    with pytest.raises(KeyError):
+        tmp_db.replace_all_stations(broken)
+    assert tmp_db.station_count == len(sample_db_records)

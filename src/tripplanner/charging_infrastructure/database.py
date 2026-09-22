@@ -8,7 +8,8 @@ Transaktionslogik für Stations- und Pricing-Daten.
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -50,7 +51,15 @@ _COUNTRY_MAP: dict[str, str] = {
 
 
 class SQLiteDatabase:
-    """Verwaltet eine lokale SQLite-Datenbank für Supercharger-Daten."""
+    """Verwaltet eine lokale SQLite-Datenbank für Supercharger-Daten.
+
+    Threading model: every public method opens its own short-lived
+    connection (`_connect`) and closes it before returning, so instances are
+    safe to call from any thread (e.g. via `asyncio.to_thread`). Writes run
+    inside `with conn:` and are therefore atomic (commit on success, rollback
+    on error). WAL mode lets readers proceed while a writer holds the lock;
+    concurrent writers wait up to `busy_timeout`.
+    """
 
     def __init__(self, db_path: Path) -> None:
         """Initialisiert die Datenbank mit dem Pfad zur Datei.
@@ -59,26 +68,36 @@ class SQLiteDatabase:
             db_path: Pfad zur SQLite-Datenbankdatei.
         """
         self._db_path = db_path
-        self._conn: sqlite3.Connection | None = None
-        self._cursor: sqlite3.Cursor | None = None
         self._initialized: bool = False
 
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        """Opens a per-operation connection with pragmas and `row_factory` set."""
+        conn = sqlite3.connect(str(self._db_path), timeout=5)
+        try:
+            conn.row_factory = sqlite3.Row
+            _ = conn.execute("PRAGMA busy_timeout=5000")
+            _ = conn.execute("PRAGMA foreign_keys=ON")
+            yield conn
+        finally:
+            conn.close()
+
     def initialize(self) -> None:
-        """Öffnet die Datenbankverbindung und erstellt Tabellen.
+        """Erstellt Tabellen und Indizes (idempotent).
 
         Erstellt die Tabellen charging_stations, charging_pricing und db_meta
-        sofern sie nicht existieren. Setzt WAL-Modus und Foreign Keys.
+        sofern sie nicht existieren. Setzt den (persistenten) WAL-Modus.
         """
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self._db_path))
-        assert self._conn is not None
-        self._conn.row_factory = sqlite3.Row
-        _ = self._conn.execute("PRAGMA journal_mode=WAL")
-        _ = self._conn.execute("PRAGMA busy_timeout=5000")
-        _ = self._conn.execute("PRAGMA foreign_keys=ON")
-        self._cursor = self._conn.cursor()
+        with self._connect() as conn, conn:
+            _ = conn.execute("PRAGMA journal_mode=WAL")
+            self._create_schema(conn)
+        self._initialized = True
 
-        _ = self._conn.execute("""
+    @staticmethod
+    def _create_schema(conn: sqlite3.Connection) -> None:
+        """Legt alle Tabellen und Indizes an, sofern sie fehlen."""
+        _ = conn.execute("""
             CREATE TABLE IF NOT EXISTS charging_stations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 supercharge_info_id INTEGER UNIQUE NOT NULL,
@@ -101,7 +120,7 @@ class SQLiteDatabase:
             )
         """)
 
-        _ = self._conn.execute("""
+        _ = conn.execute("""
             CREATE TABLE IF NOT EXISTS charging_pricing (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 supercharge_info_id INTEGER NOT NULL,
@@ -117,14 +136,14 @@ class SQLiteDatabase:
             )
         """)
 
-        _ = self._conn.execute("""
+        _ = conn.execute("""
             CREATE TABLE IF NOT EXISTS db_meta (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             )
         """)
 
-        _ = self._conn.execute("""
+        _ = conn.execute("""
             CREATE TABLE IF NOT EXISTS charging_pricing_queue (
                 supercharge_info_id INTEGER PRIMARY KEY,
                 enqueued_utc TEXT NOT NULL,
@@ -133,28 +152,30 @@ class SQLiteDatabase:
             )
         """)
 
-        _ = self._conn.execute("""
+        _ = conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_stations_coord
             ON charging_stations (latitude, longitude)
         """)
-        _ = self._conn.execute("""
+        _ = conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_stations_country
             ON charging_stations (country_code)
         """)
-        _ = self._conn.execute("""
+        _ = conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_stations_status
             ON charging_stations (status)
         """)
-        _ = self._conn.execute("""
+        _ = conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_stations_slug
+            ON charging_stations (tesla_location_id)
+        """)
+        _ = conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_pricing_station
             ON charging_pricing (supercharge_info_id)
         """)
-        _ = self._conn.execute("""
+        _ = conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_pricing_queue_enqueued
             ON charging_pricing_queue (enqueued_utc)
         """)
-
-        self._initialized = True
 
     def _ensure_initialized(self) -> None:
         """Stellt sicher, dass die Datenbank initialisiert ist."""
@@ -171,19 +192,18 @@ class SQLiteDatabase:
             Liste von Station-Dicts mit allen Spalten.
         """
         self._ensure_initialized()
-        assert self._cursor is not None
+        with self._connect() as conn:
+            if country_filter:
+                placeholders = ",".join("?" * len(country_filter))
+                cur = conn.execute(
+                    f"SELECT * FROM charging_stations WHERE country_code IN ({placeholders})",
+                    list(country_filter),
+                )
+            else:
+                cur = conn.execute("SELECT * FROM charging_stations")
 
-        if country_filter:
-            placeholders = ",".join("?" * len(country_filter))
-            _ = self._cursor.execute(
-                f"SELECT * FROM charging_stations WHERE country_code IN ({placeholders})",
-                list(country_filter),
-            )
-        else:
-            _ = self._cursor.execute("SELECT * FROM charging_stations")
-
-        rows = self._cursor.fetchall()
-        return [dict(row) for row in rows]
+            rows = cur.fetchall()
+            return [dict(row) for row in rows]
 
     def load_pricing(
         self, supercharge_info_ids: set[int] | None = None
@@ -197,26 +217,25 @@ class SQLiteDatabase:
             Dict mapping supercharge_info_id auf Liste von Pricing-Dicts.
         """
         self._ensure_initialized()
-        assert self._cursor is not None
+        with self._connect() as conn:
+            if supercharge_info_ids:
+                placeholders = ",".join("?" * len(supercharge_info_ids))
+                cur = conn.execute(
+                    f"SELECT * FROM charging_pricing WHERE supercharge_info_id IN ({placeholders})",
+                    list(supercharge_info_ids),
+                )
+            else:
+                cur = conn.execute("SELECT * FROM charging_pricing")
 
-        if supercharge_info_ids:
-            placeholders = ",".join("?" * len(supercharge_info_ids))
-            _ = self._cursor.execute(
-                f"SELECT * FROM charging_pricing WHERE supercharge_info_id IN ({placeholders})",
-                list(supercharge_info_ids),
-            )
-        else:
-            _ = self._cursor.execute("SELECT * FROM charging_pricing")
-
-        rows = self._cursor.fetchall()
-        result: dict[int, list[dict[str, Any]]] = {}
-        for row in rows:
-            data = dict(row)
-            sid = data["supercharge_info_id"]
-            if sid not in result:
-                result[sid] = []
-            result[sid].append(data)
-        return result
+            rows = cur.fetchall()
+            result: dict[int, list[dict[str, Any]]] = {}
+            for row in rows:
+                data = dict(row)
+                sid = data["supercharge_info_id"]
+                if sid not in result:
+                    result[sid] = []
+                result[sid].append(data)
+            return result
 
     def replace_all_stations(self, stations: list[dict[str, Any]]) -> int:
         """Ersetzt alle Stationen durch neue Daten.
@@ -230,18 +249,14 @@ class SQLiteDatabase:
             Anzahl der eingefügten Stationen.
         """
         self._ensure_initialized()
-        assert self._conn is not None
-
-        try:
-            _ = self._conn.execute("BEGIN")
-
+        with self._connect() as conn, conn:
             # Clear pricing first (due to FK)
-            _ = self._conn.execute("DELETE FROM charging_pricing")
+            _ = conn.execute("DELETE FROM charging_pricing")
             # Then stations
-            _ = self._conn.execute("DELETE FROM charging_stations")
+            _ = conn.execute("DELETE FROM charging_stations")
 
             for station in stations:
-                _ = self._conn.execute(
+                _ = conn.execute(
                     """
                     INSERT INTO charging_stations (
                         supercharge_info_id, tesla_location_id, site_name,
@@ -274,7 +289,7 @@ class SQLiteDatabase:
 
             # Update meta
             now_utc = datetime.now(UTC).isoformat()
-            _ = self._conn.execute(
+            _ = conn.execute(
                 """
                 INSERT OR REPLACE INTO db_meta (key, value)
                 VALUES ('last_full_refresh_utc', ?)
@@ -282,12 +297,7 @@ class SQLiteDatabase:
                 (now_utc,),
             )
 
-            _ = self._conn.execute("COMMIT")
-        except Exception:
-            _ = self._conn.execute("ROLLBACK")
-            raise
-
-        return len(stations)
+            return len(stations)
 
     def update_station(self, station: dict[str, Any]) -> bool:
         """Aktualisiert eine einzelne Station anhand ihrer tesla_location_id.
@@ -301,23 +311,21 @@ class SQLiteDatabase:
             True wenn aktualisiert, False wenn eingefuegt.
         """
         self._ensure_initialized()
-        assert self._conn is not None
+        with self._connect() as conn, conn:
+            now_utc = datetime.now(UTC).isoformat()
+            station["last_updated_utc"] = now_utc
+            slug = station.get("tesla_location_id", "")
 
-        now_utc = datetime.now(UTC).isoformat()
-        station["last_updated_utc"] = now_utc
-        slug = station.get("tesla_location_id", "")
+            # Pruefen ob vorhanden
+            cursor = conn.execute(
+                "SELECT id, supercharge_info_id FROM charging_stations WHERE tesla_location_id = ?",
+                (slug,),
+            )
+            row = cursor.fetchone()
+            exists = row is not None
 
-        # Pruefen ob vorhanden
-        cursor = self._conn.execute(
-            "SELECT id, supercharge_info_id FROM charging_stations WHERE tesla_location_id = ?",
-            (slug,),
-        )
-        row = cursor.fetchone()
-        exists = row is not None
-
-        try:
             if exists:
-                _ = self._conn.execute(
+                _ = conn.execute(
                     """
                     UPDATE charging_stations SET
                         supercharge_info_id = ?,
@@ -359,7 +367,7 @@ class SQLiteDatabase:
                     ),
                 )
             else:
-                _ = self._conn.execute(
+                _ = conn.execute(
                     """
                     INSERT INTO charging_stations (
                         supercharge_info_id, tesla_location_id, site_name,
@@ -389,12 +397,7 @@ class SQLiteDatabase:
                         now_utc,
                     ),
                 )
-        except Exception:
-            self._conn.rollback()
-            raise
-
-        self._conn.commit()
-        return exists
+            return exists
 
     def update_tesla_location_id(self, supercharge_info_id: int, slug: str) -> None:
         """Ueberschreibt die `tesla_location_id` (Slug) einer bestehenden Station.
@@ -412,13 +415,12 @@ class SQLiteDatabase:
             slug: Der neue, aufgeloeste `location_url_slug`.
         """
         self._ensure_initialized()
-        assert self._conn is not None
-        _ = self._conn.execute(
-            "UPDATE charging_stations SET tesla_location_id = ?, last_updated_utc = ? "
-            "WHERE supercharge_info_id = ?",
-            (slug, datetime.now(UTC).isoformat(), supercharge_info_id),
-        )
-        self._conn.commit()
+        with self._connect() as conn, conn:
+            _ = conn.execute(
+                "UPDATE charging_stations SET tesla_location_id = ?, last_updated_utc = ? "
+                "WHERE supercharge_info_id = ?",
+                (slug, datetime.now(UTC).isoformat(), supercharge_info_id),
+            )
 
     def find_station_by_slug(self, slug: str) -> dict[str, Any] | None:
         """Findet eine Station anhand ihrer tesla_location_id.
@@ -430,13 +432,13 @@ class SQLiteDatabase:
             Station-Dict oder None.
         """
         self._ensure_initialized()
-        assert self._cursor is not None
-        _ = self._cursor.execute(
-            "SELECT * FROM charging_stations WHERE tesla_location_id = ?",
-            (slug,),
-        )
-        row = self._cursor.fetchone()
-        return dict(row) if row else None
+        with self._connect() as conn:
+            cur = conn.execute(
+                "SELECT * FROM charging_stations WHERE tesla_location_id = ?",
+                (slug,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
 
     def find_station_by_supercharge_info_id(
         self, supercharge_info_id: int
@@ -456,13 +458,13 @@ class SQLiteDatabase:
             Station-Dict oder None.
         """
         self._ensure_initialized()
-        assert self._cursor is not None
-        _ = self._cursor.execute(
-            "SELECT * FROM charging_stations WHERE supercharge_info_id = ?",
-            (supercharge_info_id,),
-        )
-        row = self._cursor.fetchone()
-        return dict(row) if row else None
+        with self._connect() as conn:
+            cur = conn.execute(
+                "SELECT * FROM charging_stations WHERE supercharge_info_id = ?",
+                (supercharge_info_id,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
 
     def upsert_pricing(self, supercharge_info_id: int, tiers: list[dict[str, Any]]) -> None:
         """Fügt oder ersetzt Preisdaten für eine Station.
@@ -472,35 +474,32 @@ class SQLiteDatabase:
             tiers: Liste von Pricing-Dicts.
         """
         self._ensure_initialized()
-        assert self._conn is not None
-
-        _ = self._conn.execute(
-            "DELETE FROM charging_pricing WHERE supercharge_info_id = ?",
-            (supercharge_info_id,),
-        )
-
-        now_utc = datetime.now(UTC).isoformat()
-        for tier in tiers:
-            _ = self._conn.execute(
-                """
-                INSERT INTO charging_pricing (
-                    supercharge_info_id, tier_label, time_label,
-                    currency, amount, unit, idle_fee_text, last_updated_utc
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    supercharge_info_id,
-                    tier["tier_label"],
-                    tier.get("time_label"),
-                    tier["currency"],
-                    tier["amount"],
-                    tier["unit"],
-                    tier.get("idle_fee_text"),
-                    now_utc,
-                ),
+        with self._connect() as conn, conn:
+            _ = conn.execute(
+                "DELETE FROM charging_pricing WHERE supercharge_info_id = ?",
+                (supercharge_info_id,),
             )
 
-        self._conn.commit()
+            now_utc = datetime.now(UTC).isoformat()
+            for tier in tiers:
+                _ = conn.execute(
+                    """
+                    INSERT INTO charging_pricing (
+                        supercharge_info_id, tier_label, time_label,
+                        currency, amount, unit, idle_fee_text, last_updated_utc
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        supercharge_info_id,
+                        tier["tier_label"],
+                        tier.get("time_label"),
+                        tier["currency"],
+                        tier["amount"],
+                        tier["unit"],
+                        tier.get("idle_fee_text"),
+                        now_utc,
+                    ),
+                )
 
     @staticmethod
     def parse_iso_utc(value: str) -> datetime:
@@ -529,31 +528,30 @@ class SQLiteDatabase:
             Preiszeile (ueber alle Tiers dieser Station).
         """
         self._ensure_initialized()
-        assert self._cursor is not None
-
-        if supercharge_info_ids:
-            placeholders = ",".join("?" * len(supercharge_info_ids))
-            _ = self._cursor.execute(
-                f"""
-                SELECT supercharge_info_id, MAX(last_updated_utc) AS last_updated_utc
-                FROM charging_pricing
-                WHERE supercharge_info_id IN ({placeholders})
-                GROUP BY supercharge_info_id
-                """,
-                list(supercharge_info_ids),
-            )
-        else:
-            _ = self._cursor.execute(
-                """
-                SELECT supercharge_info_id, MAX(last_updated_utc) AS last_updated_utc
-                FROM charging_pricing
-                GROUP BY supercharge_info_id
-                """
-            )
-        return {
-            row["supercharge_info_id"]: self.parse_iso_utc(row["last_updated_utc"])
-            for row in self._cursor.fetchall()
-        }
+        with self._connect() as conn:
+            if supercharge_info_ids:
+                placeholders = ",".join("?" * len(supercharge_info_ids))
+                cur = conn.execute(
+                    f"""
+                    SELECT supercharge_info_id, MAX(last_updated_utc) AS last_updated_utc
+                    FROM charging_pricing
+                    WHERE supercharge_info_id IN ({placeholders})
+                    GROUP BY supercharge_info_id
+                    """,
+                    list(supercharge_info_ids),
+                )
+            else:
+                cur = conn.execute(
+                    """
+                    SELECT supercharge_info_id, MAX(last_updated_utc) AS last_updated_utc
+                    FROM charging_pricing
+                    GROUP BY supercharge_info_id
+                    """
+                )
+            return {
+                row["supercharge_info_id"]: self.parse_iso_utc(row["last_updated_utc"])
+                for row in cur.fetchall()
+            }
 
     def enqueue_pricing_refresh(self, supercharge_info_ids: Iterable[int]) -> int:
         """Fuegt Stationen zur Preis-Scrape-Warteschlange hinzu (idempotent).
@@ -569,21 +567,19 @@ class SQLiteDatabase:
             Anzahl der tatsaechlich neu hinzugefuegten Eintraege.
         """
         self._ensure_initialized()
-        assert self._conn is not None
-
-        now_utc = datetime.now(UTC).isoformat()
-        added = 0
-        for supercharge_info_id in supercharge_info_ids:
-            cursor = self._conn.execute(
-                """
-                INSERT OR IGNORE INTO charging_pricing_queue (supercharge_info_id, enqueued_utc)
-                VALUES (?, ?)
-                """,
-                (supercharge_info_id, now_utc),
-            )
-            added += cursor.rowcount
-        self._conn.commit()
-        return added
+        with self._connect() as conn, conn:
+            now_utc = datetime.now(UTC).isoformat()
+            added = 0
+            for supercharge_info_id in supercharge_info_ids:
+                cursor = conn.execute(
+                    """
+                    INSERT OR IGNORE INTO charging_pricing_queue (supercharge_info_id, enqueued_utc)
+                    VALUES (?, ?)
+                    """,
+                    (supercharge_info_id, now_utc),
+                )
+                added += cursor.rowcount
+            return added
 
     def dequeue_pricing_refresh(self, supercharge_info_id: int) -> None:
         """Entfernt eine Station aus der Preis-Scrape-Warteschlange.
@@ -598,12 +594,11 @@ class SQLiteDatabase:
             supercharge_info_id: Die zu entfernende Station-ID.
         """
         self._ensure_initialized()
-        assert self._conn is not None
-        _ = self._conn.execute(
-            "DELETE FROM charging_pricing_queue WHERE supercharge_info_id = ?",
-            (supercharge_info_id,),
-        )
-        self._conn.commit()
+        with self._connect() as conn, conn:
+            _ = conn.execute(
+                "DELETE FROM charging_pricing_queue WHERE supercharge_info_id = ?",
+                (supercharge_info_id,),
+            )
 
     def load_pricing_queue(self, limit: int | None = None) -> list[dict[str, Any]]:
         """Liefert die Preis-Scrape-Warteschlange in Prioritaets-Reihenfolge.
@@ -622,29 +617,28 @@ class SQLiteDatabase:
             None).
         """
         self._ensure_initialized()
-        assert self._cursor is not None
-
-        sql = """
-            SELECT
-                q.supercharge_info_id AS supercharge_info_id,
-                s.tesla_location_id AS tesla_location_id,
-                s.site_name AS site_name,
-                s.country_code AS country_code,
-                (
-                    SELECT MAX(p.last_updated_utc)
-                    FROM charging_pricing p
-                    WHERE p.supercharge_info_id = q.supercharge_info_id
-                ) AS pricing_last_updated_utc
-            FROM charging_pricing_queue q
-            JOIN charging_stations s ON s.supercharge_info_id = q.supercharge_info_id
-            ORDER BY (pricing_last_updated_utc IS NOT NULL), pricing_last_updated_utc ASC,
-                q.enqueued_utc ASC
-        """
-        if limit is not None:
-            _ = self._cursor.execute(sql + " LIMIT ?", (limit,))
-        else:
-            _ = self._cursor.execute(sql)
-        return [dict(row) for row in self._cursor.fetchall()]
+        with self._connect() as conn:
+            sql = """
+                SELECT
+                    q.supercharge_info_id AS supercharge_info_id,
+                    s.tesla_location_id AS tesla_location_id,
+                    s.site_name AS site_name,
+                    s.country_code AS country_code,
+                    (
+                        SELECT MAX(p.last_updated_utc)
+                        FROM charging_pricing p
+                        WHERE p.supercharge_info_id = q.supercharge_info_id
+                    ) AS pricing_last_updated_utc
+                FROM charging_pricing_queue q
+                JOIN charging_stations s ON s.supercharge_info_id = q.supercharge_info_id
+                ORDER BY (pricing_last_updated_utc IS NOT NULL), pricing_last_updated_utc ASC,
+                    q.enqueued_utc ASC
+            """
+            if limit is not None:
+                cur = conn.execute(sql + " LIMIT ?", (limit,))
+            else:
+                cur = conn.execute(sql)
+            return [dict(row) for row in cur.fetchall()]
 
     def get_meta(self, key: str) -> str | None:
         """Liest einen Meta-Wert aus der Datenbank.
@@ -656,11 +650,10 @@ class SQLiteDatabase:
             Der Meta-Wert oder None, wenn nicht gefunden.
         """
         self._ensure_initialized()
-        assert self._cursor is not None
-
-        _ = self._cursor.execute("SELECT value FROM db_meta WHERE key = ?", (key,))
-        row = self._cursor.fetchone()
-        return row[0] if row else None
+        with self._connect() as conn:
+            cur = conn.execute("SELECT value FROM db_meta WHERE key = ?", (key,))
+            row = cur.fetchone()
+            return row[0] if row else None
 
     def set_meta(self, key: str, value: str) -> None:
         """Speichert einen Meta-Wert in der Datenbank.
@@ -670,31 +663,23 @@ class SQLiteDatabase:
             value: Der Meta-Wert.
         """
         self._ensure_initialized()
-        assert self._conn is not None
-
-        _ = self._conn.execute(
-            "INSERT OR REPLACE INTO db_meta (key, value) VALUES (?, ?)",
-            (key, value),
-        )
-        self._conn.commit()
+        with self._connect() as conn, conn:
+            _ = conn.execute(
+                "INSERT OR REPLACE INTO db_meta (key, value) VALUES (?, ?)",
+                (key, value),
+            )
 
     def close(self) -> None:
-        """Schließt die Datenbankverbindung."""
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
-            self._cursor = None
-            self._initialized = False
+        """No-op kept for API compatibility: connections are per operation."""
 
     @property
     def station_count(self) -> int:
         """Gibt die Anzahl der Stationen in der Datenbank zurück."""
         self._ensure_initialized()
-        assert self._cursor is not None
-
-        _ = self._cursor.execute("SELECT COUNT(*) FROM charging_stations")
-        row = self._cursor.fetchone()
-        return row[0] if row else 0
+        with self._connect() as conn:
+            cur = conn.execute("SELECT COUNT(*) FROM charging_stations")
+            row = cur.fetchone()
+            return row[0] if row else 0
 
     @property
     def last_refresh_utc(self) -> datetime | None:

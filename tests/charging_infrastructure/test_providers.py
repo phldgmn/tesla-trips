@@ -1180,13 +1180,11 @@ class TestTeslaChargingStationProviderPricing:
                 }
             ],
         )
-        conn = tesla_provider_seeded._db._conn
-        assert conn is not None
-        conn.execute(
-            "UPDATE charging_pricing SET last_updated_utc = ? WHERE supercharge_info_id = ?",
-            ("2000-01-01T00:00:00+00:00", 5678),
-        )
-        conn.commit()
+        with tesla_provider_seeded._db._connect() as conn, conn:
+            conn.execute(
+                "UPDATE charging_pricing SET last_updated_utc = ? WHERE supercharge_info_id = ?",
+                ("2000-01-01T00:00:00+00:00", 5678),
+            )
 
         count = tesla_provider_seeded.enqueue_stations_for_pricing_refresh(
             ["kopenhagensupercharger"], max_age=timedelta(days=14)

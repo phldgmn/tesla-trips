@@ -3362,13 +3362,11 @@ class TestAttachChargingPricing:
                 }
             ],
         )
-        conn = provider._db._conn
-        assert conn is not None
-        conn.execute(
-            "UPDATE charging_pricing SET last_updated_utc = ? WHERE supercharge_info_id = ?",
-            ("2000-01-01T00:00:00+00:00", 3506),
-        )
-        conn.commit()
+        with provider._db._connect() as conn, conn:
+            conn.execute(
+                "UPDATE charging_pricing SET last_updated_utc = ? WHERE supercharge_info_id = ?",
+                ("2000-01-01T00:00:00+00:00", 3506),
+            )
         result = _make_simulation_result([_make_charging_stop_summary()])
 
         attached = trip_pipeline._attach_charging_pricing(result, provider)
