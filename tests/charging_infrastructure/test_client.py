@@ -42,6 +42,12 @@ def mock_client() -> SuperchargeInfoClient:
 
     def get_side_effect(url: str, **kwargs: Any) -> Mock:
         mock_response = Mock()
+        mock_response.text = ""
+        mock_response.content = b""
+        mock_response.headers = {}
+        mock_response.request.method = "GET"
+        mock_response.url = url
+        mock_response.status_code = 200
         if "allSites" in url:
             mock_response.json.return_value = [
                 {
