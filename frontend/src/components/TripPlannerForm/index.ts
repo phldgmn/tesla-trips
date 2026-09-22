@@ -5,25 +5,25 @@ export {
   swapStops,
   validateForm,
   getStopTimelineIcon,
-  unterscheidetSichAlsUhrzeit,
-  formatLadestationName,
-  formatFahrsegmentStrecke,
-  formatFahrsegmentDauer,
+  differsAsTime as unterscheidetSichAlsUhrzeit,
+  formatChargingStationName as formatLadestationName,
+  formatDrivingSegmentDistance as formatFahrsegmentStrecke,
+  formatDrivingSegmentDuration as formatFahrsegmentDauer,
 } from "./form-helpers";
 
 export {
   sameFaehrAusschluss,
-  toggleFaehrAusschluss,
-  setFaehrZeitfensterFuer,
-  setLadedauerVorgabeFuer,
-  faehrKey,
+  toggleFerryExclusion as toggleFaehrAusschluss,
+  setFerryTimeWindowFor as setFaehrZeitfensterFuer,
+  setChargingDurationPresetFor as setLadedauerVorgabeFuer,
+  ferryKey as faehrKey,
 } from "./ferry-helpers";
 
 export {
   TimelineRow,
-  Zeitbadge,
-  Tagestrenner,
-  FahrsegmentZeile,
+  TimeBadge as Zeitbadge,
+  DaySeparator as Tagestrenner,
+  DriveSegmentRow as FahrsegmentZeile,
 } from "./timeline-rows";
 
 export type {

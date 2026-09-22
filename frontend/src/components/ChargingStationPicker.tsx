@@ -98,7 +98,7 @@ export function ChargingStationPicker({
             >
               <div style={{ fontWeight: 600 }}>{station.name}</div>
               <div style={{ fontSize: 13, color: "#4b5563" }}>
-                {station.country} · {station.maxLadeleistungKw} kW
+                {station.country} · {station.maxChargingPowerKw} kW
               </div>
             </button>
           </li>

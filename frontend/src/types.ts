@@ -13,30 +13,30 @@ export type TripState = "FAHREN" | "LADEN" | "PAUSE";
 /** Ein einzelner Zeitpunkt in der Reisesimulation. */
 export interface SimulationFrame {
   /** Zeitpunkt als ISO-8601 String */
-  zeitpunkt: string;
+  timestamp: string;
   /** Position als [lat, lon] Tuple in WGS84 */
   position: [number, number];
   /** Kumulierte Distanz vom Reisebeginn entlang der Route in Metern */
-  distanz_m: number;
+  distance_m: number;
   /** Ladestand in Prozent */
   soc_pct: number;
   /** Zustand des Fahrzeugs */
-  zustand: TripState;
+  state: TripState;
   /** Geschwindigkeit in km/h */
-  geschwindigkeit_kmh: number;
+  speed_kmh: number;
   /** Fuer diesen Streckenpunkt angenommene Temperatur in Grad Celsius,
    *  `null` wenn Wetter bei der Berechnung nicht beruecksichtigt wurde
    *  (siehe `WeatherDetailLevel` "off"). */
-  temperatur_c: number | null;
+  temperature_c: number | null;
   /** Fuer diesen Streckenpunkt angenommene Windgeschwindigkeit in m/s,
    *  `null` wie `temperatur_c`. */
-  windgeschwindigkeit_ms: number | null;
+  wind_speed_ms: number | null;
   /** Fuer diesen Streckenpunkt angenommene Windrichtung in Grad
    *  (0° = N, 90° = O), `null` wie `temperatur_c`. */
-  windrichtung_deg: number | null;
+  wind_direction_deg: number | null;
   /** Fuer diesen Streckenpunkt angenommener Niederschlag in mm/h,
    *  `null` wie `temperatur_c`. */
-  niederschlag_mm: number | null;
+  precipitation_mm: number | null;
 }
 
 /** Vollständige Zeitreihe einer Reise. */
@@ -44,18 +44,18 @@ export interface TripSimulationResult {
   /** Liste der Simulationsframes */
   frames: SimulationFrame[];
   /** Gesamtdistanz in km */
-  gesamt_distanz_km: number;
+  total_distance_km: number;
   /** Gesamtfahrzeit in Minuten */
-  gesamt_fahrzeit_min: number;
+  total_driving_time_min: number;
   /** Gesamtladezeit in Minuten */
-  gesamt_ladezeit_min: number;
+  total_charging_time_min: number;
   /** Erzwungene Wartezeit an Zwischenstopps OHNE Ladung, in Minuten (nicht in
    *  gesamt_fahrzeit_min/gesamt_ladezeit_min enthalten) */
-  gesamt_wartezeit_min: number;
+  total_waiting_time_min: number;
   /** Start-SoC in % */
   start_soc_pct: number;
   /** Ziel-SoC in % */
-  ziel_soc_pct: number;
+  target_soc_pct: number;
   /** Ladehalte (ein Eintrag pro tatsächlichem Halt, nicht pro Frame) */
   charging_stops: ChargingStop[];
   /** Zwischenstopp-Aufenthalte (ein Eintrag pro Aufenthalt, nicht pro Frame) */
@@ -63,9 +63,9 @@ export interface TripSimulationResult {
   /** Vollstaendige Streckengeometrie der Route als Liste von [lat, lon]-Punkten
    *  (dichte GraphHopper-Polyline, nicht auf `frames` reduziert - fuer eine
    *  winkeltreue Kartendarstellung, siehe route-line.ts::buildSplicedRoute()) */
-  route_geometrie: [number, number][];
+  route_geometry: [number, number][];
   /** In der berechneten Route erkannte Fährverbindungen */
-  erkannte_faehren: FaehrSegment[];
+  detected_ferries: FerrySegment[];
   /** Sum of estimated charging costs across all charging stops, grouped by
    *  currency (empty if no stop has cached pricing data; multiple entries if
    *  stops span several currencies, e.g. a DE-DK-SE trip) */
@@ -81,17 +81,17 @@ export interface TripSimulationResult {
 export interface ConstructionZoneEvent {
   /** Art der Sperrung: "fullyClosed" | "partiallyClosed" | "laneClosed" |
    *  "temporarySpeedLimit" | "reducedLanes" | "detrourRequired" */
-  sperrungstyp: string;
+  closureType: string;
   /** Reduziertes Tempolimit in km/h (null wenn keine Beschraenkung) */
-  tempolimit_kmh: number | null;
+  speed_limit_kmh: number | null;
   /** Freitext-Information zur Umleitung (optional) */
-  umleitungshinweis: string | null;
+  detourNotice: string | null;
   /** Land, in dem die Baustelle liegt: "DE" | "DK" | "SE" */
-  land: string;
+  state: string;
   /** ISO-8601 Startzeitpunkt der Baustelle */
-  gueltig_von: string;
+  valid_from: string;
   /** ISO-8601 Endzeitpunkt der Baustelle (null wenn unbestimmt) */
-  gueltig_bis: string | null;
+  valid_to: string | null;
 }
 
 /** Eine Baustelle/Sperrung entlang der Route (`ConstructionZoneAPI`).
@@ -102,7 +102,7 @@ export interface ConstructionZone {
   /** Liste aller Baustellen-Ereignisse, die zu dieser Marker-Position gemergt wurden */
   events: ConstructionZoneEvent[];
   /** Laenge der Baustelle in Metern (null wenn nicht bekannt) */
-  laenge_m: number | null;
+  length_m: number | null;
 }
 
 /** Aggregated estimated charging cost in a single currency
@@ -123,32 +123,32 @@ export interface ChargingStop {
   /** Position der Ladestation als [lat, lon] */
   position: [number, number];
   /** Kumulierte Distanz entlang der Route, an der zur Ladestation abgebogen wird */
-  distanz_m: number;
+  distance_m: number;
   /** Echte, ueber GraphHopper geroutete Geometrie von der Route zur Ladestation
    *  und zurueck als Liste von [lat, lon]-Punkten (leer, falls nicht ermittelbar
    *  - siehe route-line.ts::buildSplicedRoute()) */
-  detour_geometrie: [number, number][];
+  detour_geometry: [number, number][];
   /** Index in `route_geometrie`, ab dem `detour_geometrie` die Hauptroute ersetzt
    *  (null, falls `detour_geometrie` leer ist) */
-  route_index_vor: number | null;
+  route_index_before: number | null;
   /** Index in `route_geometrie`, bis zu dem (inklusive) `detour_geometrie` die
    *  Hauptroute ersetzt (null, falls `detour_geometrie` leer ist) */
-  route_index_nach: number | null;
+  route_index_after: number | null;
   /** Index in `detour_geometrie`, an dem die Ladestation tatsaechlich erreicht
    *  wird (null, falls `detour_geometrie` leer ist) */
   detour_station_index: number | null;
   /** Ankunfts-SoC in % */
-  ankunfts_soc_pct: number;
+  arrival_soc_pct: number;
   /** Ziel-SoC in % */
-  ziel_soc_pct: number;
+  target_soc_pct: number;
   /** Ladedauer in Sekunden */
-  ladedauer_s: number;
+  charging_duration_s: number;
   /** Waehrend des Ladehalts geladene Energiemenge in kWh */
-  energie_geladen_kwh: number;
+  energy_charged_kwh: number;
   /** ISO-8601 Ankunftszeitpunkt an der Station */
-  ankunftszeit: string;
+  arrival_time: string;
   /** ISO-8601 Abfahrtszeitpunkt von der Station */
-  abfahrtszeit: string;
+  departure_time: string;
   /** Applicable Tesla-owner rate per kWh at arrival time, from cached pricing
    *  data (null if no pricing data is cached yet for this station) */
   price_per_kwh: number | null;
@@ -169,19 +169,19 @@ export interface WaypointStop {
   /** Position des Zwischenstopps als [lat, lon] */
   position: [number, number];
   /** Kumulierte Distanz entlang der Route bei diesem Zwischenstopp */
-  distanz_m: number;
+  distance_m: number;
   /** ISO-8601 Ankunftszeitpunkt am Zwischenstopp */
-  ankunftszeit: string;
+  arrivalTime: string;
   /** ISO-8601 Zeitpunkt der (erzwungenen) Abfahrt */
-  abfahrtszeit: string;
+  departure_time: string;
   /** Genutzte Ladeleistung in kW, null falls nicht geladen wurde */
   ladeleistung_kw: number | null;
   /** SoC bei Ankunft in % */
-  ankunfts_soc_pct: number;
+  arrival_soc_pct: number;
   /** SoC bei Abfahrt in % */
-  ziel_soc_pct: number;
+  target_soc_pct: number;
   /** Waehrend des Aufenthalts geladene Energiemenge in kWh */
-  energie_geladen_kwh: number;
+  energy_charged_kwh: number;
 }
 
 /** Ein Zwischenstopp (Waypoint) mit optionaler Aufenthaltsdauer. */
@@ -189,15 +189,15 @@ export interface Waypoint {
   /** Position des Zwischenstopps als [lat, lon] */
   position: [number, number];
   /** Aufenthaltsdauer in Sekunden (null = kein Zwischenstopp) */
-  aufenthaltsdauer_s: number | null;
+  dwell_time_s: number | null;
 }
 
 /** Eine in der berechneten Route erkannte Fährverbindung (`FaehrSegmentAPI`). */
-export interface FaehrSegment {
+export interface FerrySegment {
   name: string;
-  laenge_m: number;
+  length_m: number;
   bbox_sw: [number, number];
-  bbox_no: [number, number];
+  bbox_ne: [number, number];
   /** Vom Nutzer vorgegebene Abfahrtszeit (ISO-8601), oder null falls ungeplant. */
   abfahrt: string | null;
   /** Vom Nutzer vorgegebene Ankunftszeit (ISO-8601), oder null falls ungeplant. */

@@ -37,7 +37,7 @@ export function getDefaultDepartureIso(): string {
 /** Formatiert einen ISO-Zeitstempel für die deutsche Locale, oder "unbekannt"/
  *  "ungültig" bei fehlendem/ungültigem Wert. Gemeinsam genutzt von
  *  `TripSummary` (Zeitplan) und `TripPlannerForm` (Route/Fähren/Ladehalte). */
-export function formatZeitpunkt(iso: string | null): string {
+export function formatTimestamp(iso: string | null): string {
   if (iso === null) return "–";
   try {
     return new Date(iso).toLocaleString("de-DE", {
@@ -53,7 +53,7 @@ export function formatZeitpunkt(iso: string | null): string {
  *  Datum - für die überhängenden Zeit-Badges in `TripPlannerForm` (siehe
  *  Route-Timeline), die dank des Tageswechsel-Trenners (`istTageswechsel`)
  *  kein Datum mehr pro Eintrag benötigen. */
-export function formatUhrzeit(iso: string | null): string {
+export function formatTime(iso: string | null): string {
   if (iso === null) return "–";
   try {
     return new Date(iso).toLocaleTimeString("de-DE", { timeStyle: "short" });
@@ -65,7 +65,7 @@ export function formatUhrzeit(iso: string | null): string {
 /** Formatiert einen ISO-Zeitstempel als knappes Datum mit Wochentag (z. B.
  *  "So., 16.08.") - für den Tageswechsel-Trenner in der Route-Timeline, der
  *  bewusst klein gehalten wird (siehe `istTageswechsel`). */
-export function formatDatumKurz(iso: string | null): string {
+export function formatShortDate(iso: string | null): string {
   try {
     if (iso === null) return "–";
     return new Date(iso).toLocaleDateString("de-DE", {
@@ -83,7 +83,7 @@ export function formatDatumKurz(iso: string | null): string {
  *  einem Zeit-Badge, wenn Ankunft und Abfahrt DESSELBEN Eintrags auf
  *  unterschiedliche Kalendertage fallen (siehe `istTageswechsel`). Steht
  *  dort inline neben Uhrzeit und SoC, ein voller Wochentag wäre zu lang. */
-export function formatTagMonat(iso: string): string {
+export function formatDayMonth(iso: string): string {
   try {
     return new Date(iso).toLocaleDateString("de-DE", {
       day: "2-digit",
@@ -99,18 +99,18 @@ export function formatTagMonat(iso: string): string {
  *  in `popups.ts`), der als knapper Cursor-Tooltip absichtlich kein volles
  *  Datum (`formatZeitpunkt`) traegt. `null` (kein bekannter Zeitpunkt am
  *  Streckenpunkt) ergibt "unbekannt", analog zu `formatUhrzeit`. */
-export function formatKurzZeitpunkt(iso: string | null): string {
+export function formatShortDateTime(iso: string | null): string {
   if (iso === null) return "unbekannt";
-  const datum = formatTagMonat(iso);
-  const uhrzeit = formatUhrzeit(iso);
-  return datum ? `${datum} ${uhrzeit}` : uhrzeit;
+  const date = formatDayMonth(iso);
+  const time = formatTime(iso);
+  return date ? `${date} ${time}` : time;
 }
 
 /** Extrahiert den Kalendertag-Schlüssel (YYYY-MM-DD) aus einem naiven,
  *  zeitzonenlosen ISO-Zeitstempel. Reines String-Slicing statt
  *  `Date`-Parsing, um Zeitzonen-Verschiebungen bei der Tagesgrenze
  *  auszuschließen (siehe Datei-Docstring: naive lokale ISO-Strings). */
-export function isoDatumSchluessel(iso: string): string {
+export function isoDateKey(iso: string): string {
   return iso.slice(0, 10);
 }
 
@@ -119,10 +119,10 @@ export function isoDatumSchluessel(iso: string): string {
  *  Route-Timeline (`TripPlannerForm`). `null` (kein bekannter Zeitpunkt)
  *  ergibt nie einen Tageswechsel, damit unbekannte Zeiten keine
  *  Trenner-Flut auslösen. */
-export function istTageswechsel(
-  vorherigeIso: string | null,
-  aktuelleIso: string | null,
+export function isDayChange(
+  previousIso: string | null,
+  currentIso: string | null,
 ): boolean {
-  if (vorherigeIso === null || aktuelleIso === null) return false;
-  return isoDatumSchluessel(vorherigeIso) !== isoDatumSchluessel(aktuelleIso);
+  if (previousIso === null || currentIso === null) return false;
+  return isoDateKey(previousIso) !== isoDateKey(currentIso);
 }

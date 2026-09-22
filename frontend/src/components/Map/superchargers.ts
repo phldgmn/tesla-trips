@@ -263,7 +263,7 @@ export function buildSuperchargerPopoverElement(
       `${station.total_stalls} (V2:${station.stalls_v2} V3:${station.stalls_v3} V4:${station.stalls_v4})`,
     ],
     ["Leistung", `${station.power_kilowatt} kW`],
-    ["24/7", station.ist_24_7 ? "Ja" : "Nein"],
+    ["24/7", station.is_24_7 ? "Ja" : "Nein"],
     ["Eroeffnet", station.date_opened || "Unbekannt"],
   ];
   for (const [label, value] of rows) {

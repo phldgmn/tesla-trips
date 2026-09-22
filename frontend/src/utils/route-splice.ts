@@ -64,8 +64,8 @@ export interface ChargingDetourInput {
    *  Ladehalt liegt statt am naechstgelegenen (raeumlich verwechselbaren)
    *  Fahr-Frame. Optional, da nicht jeder Aufrufer (z. B. reine SoC-
    *  Gradient-Tests) ihn benoetigt. */
-  ankunftszeit?: string;
-  abfahrtszeit?: string;
+  arrivalTime?: string;
+  departureTime?: string;
 }
 
 export interface SplicedRoute {
@@ -134,12 +134,12 @@ interface ResolvedDetour {
   chargeDistanzM: number;
   ankunftsSocPct: number;
   zielSocPct: number;
-  ankunftszeit?: string;
-  abfahrtszeit?: string;
+  arrivalTime?: string;
+  departureTime?: string;
 }
 
 function resolveDetours(
-  routeGeometrie: [number, number][],
+  routeGeometry: [number, number][],
   routeCum: number[],
   stops: ChargingDetourInput[],
 ): ResolvedDetour[] {
@@ -159,8 +159,8 @@ function resolveDetours(
         chargeDistanzM: stop.distanzM,
         ankunftsSocPct: stop.ankunftsSocPct,
         zielSocPct: stop.zielSocPct,
-        ankunftszeit: stop.ankunftszeit,
-        abfahrtszeit: stop.abfahrtszeit,
+        ankunftszeit: stop.arrivalTime,
+        abfahrtszeit: stop.departureTime,
       };
     }
     // Fallback: keine geroutete Geometrie verfuegbar (siehe
@@ -169,15 +169,15 @@ function resolveDetours(
     return {
       startIdx: idx,
       endIdx: idx,
-      detour: [routeGeometrie[idx], stop.position, routeGeometrie[idx]],
+      detour: [routeGeometry[idx], stop.position, routeGeometry[idx]],
       // Der mittlere Punkt IST die Station - hier bekannt, keine Suche noetig.
       stationIndex: 1,
       stationPosition: stop.position,
       chargeDistanzM: stop.distanzM,
       ankunftsSocPct: stop.ankunftsSocPct,
       zielSocPct: stop.zielSocPct,
-      ankunftszeit: stop.ankunftszeit,
-      abfahrtszeit: stop.abfahrtszeit,
+      ankunftszeit: stop.arrivalTime,
+      abfahrtszeit: stop.departureTime,
     };
   });
 }
@@ -185,20 +185,20 @@ function resolveDetours(
 export interface FrameSampleInput {
   distanzM: number;
   socPct: number;
-  zeitpunkt?: string;
-  geschwindigkeitKmh?: number;
-  temperaturC?: number;
-  windgeschwindigkeitKmh?: number;
-  windrichtungDeg?: number;
-  niederschlagMm?: number;
+  timestamp?: string;
+  speedKmh?: number;
+  temperatureC?: number;
+  windSpeedKmh?: number;
+  windDirectionDeg?: number;
+  precipitationMm?: number;
 }
 
 export function buildSplicedRoute(
-  routeGeometrie: [number, number][],
+  routeGeometry: [number, number][],
   chargingStops: ChargingDetourInput[],
   frameSamples: FrameSampleInput[],
 ): SplicedRoute {
-  if (routeGeometrie.length === 0) {
+  if (routeGeometry.length === 0) {
     return {
       coordinates: [],
       totalDistanceM: 0,
@@ -207,8 +207,8 @@ export function buildSplicedRoute(
     };
   }
 
-  const routeCum = cumulativeDistancesM(routeGeometrie);
-  const detours = resolveDetours(routeGeometrie, routeCum, chargingStops);
+  const routeCum = cumulativeDistancesM(routeGeometry);
+  const detours = resolveDetours(routeGeometry, routeCum, chargingStops);
   const sortedFrames = [...frameSamples].sort(
     (a, b) => a.distanzM - b.distanzM,
   );
@@ -227,16 +227,16 @@ export function buildSplicedRoute(
     samples.push({
       distanzM: frame.distanzM + offset,
       socPct: frame.socPct,
-      zeitpunkt: frame.zeitpunkt,
-      geschwindigkeitKmh: frame.geschwindigkeitKmh,
-      temperaturC: frame.temperaturC,
-      windgeschwindigkeitKmh: frame.windgeschwindigkeitKmh,
-      windrichtungDeg: frame.windrichtungDeg,
-      niederschlagMm: frame.niederschlagMm,
+      timestamp: frame.timestamp,
+      speedKmh: frame.speedKmh,
+      temperatureC: frame.temperatureC,
+      windSpeedKmh: frame.windSpeedKmh,
+      windDirectionDeg: frame.windDirectionDeg,
+      precipitationMm: frame.precipitationMm,
     });
   };
 
-  while (i < routeGeometrie.length) {
+  while (i < routeGeometry.length) {
     // Ueberlappende/bereits ueberholte Detours (sollte bei realistischem
     // Ladehalt-Abstand nicht vorkommen) sicherheitshalber ueberspringen,
     // statt die Kartendarstellung zu verlieren.
@@ -280,7 +280,7 @@ export function buildSplicedRoute(
           }
         }
       }
-      const stationDetourDistanzM = detourCum[splitIdx];
+      const stationDetourDistanceM = detourCum[splitIdx];
 
       // Erkennen, ob der Ladehalt am Abzweigpunkt (routeIndexVor) liegt.
       // In diesem Fall entspricht der gesamte ersetzte Hauptroutensegment
@@ -314,19 +314,19 @@ export function buildSplicedRoute(
       // Sonderfall: Ladehalt am Abzweigpunkt (isChargeAtBranchPoint).
       // Dann ist der gesamte Bereich [rangeStartOriginal, rangeEndOriginal]
       // Phantom-Bereich - alle Frames darin werden uebersprungen.
-      const ankunftsZeit = detour.ankunftszeit
-        ? new Date(detour.ankunftszeit).getTime()
+      const arrivalTime = detour.arrivalTime
+        ? new Date(detour.arrivalTime).getTime()
         : null;
-      const abfahrtsZeit = detour.abfahrtszeit
-        ? new Date(detour.abfahrtszeit).getTime()
+      const departureTime = detour.departureTime
+        ? new Date(detour.departureTime).getTime()
         : null;
       while (
         frameIdx < sortedFrames.length &&
         sortedFrames[frameIdx].distanzM <= rangeEndOriginal
       ) {
         const frame = sortedFrames[frameIdx];
-        const frameZeit = frame.zeitpunkt
-          ? new Date(frame.zeitpunkt).getTime()
+        const frameTime = frame.timestamp
+          ? new Date(frame.timestamp).getTime()
           : null;
 
         // Sonderfall: Ladehalt am Abzweigpunkt -> gesamter Pufferbereich ist Phantom
@@ -343,13 +343,13 @@ export function buildSplicedRoute(
         const CLASSIFICATION_THRESHOLD_M = 5000;
         const distFromCharge = frame.distanzM - detour.chargeDistanzM;
         const useTimeClassification =
-          frameZeit !== null &&
+          frameTime !== null &&
           Math.abs(distFromCharge) <= CLASSIFICATION_THRESHOLD_M;
         const isPreCharge = useTimeClassification
-          ? frameZeit < (ankunftsZeit ?? Infinity)
+          ? frameTime < (arrivalTime ?? Infinity)
           : frame.distanzM <= detour.chargeDistanzM;
         const isPostCharge = useTimeClassification
-          ? frameZeit > (abfahrtsZeit ?? -Infinity)
+          ? frameTime > (departureTime ?? -Infinity)
           : frame.distanzM > detour.chargeDistanzM;
         // Schwelle für Nach-Ladehalt-Frames auf dem Rueckweg: nur Frames nah an
         // chargeDistanzM (innerhalb von ~5 km) werden auf den Rueckweg interpoliert;
@@ -373,8 +373,8 @@ export function buildSplicedRoute(
           // Phantom-Frames (Simulation lief auf Hauptroute weiter, waehrend
           // Auto schon abbiegt/laedt) und werden uebersprungen.
           const isAfterArrival =
-            frameZeit !== null && ankunftsZeit !== null
-              ? frameZeit > ankunftsZeit
+            frameTime !== null && arrivalTime !== null
+              ? frameTime > arrivalTime
               : false;
           if (isPostCharge || isAfterArrival) {
             frameIdx++;
@@ -395,12 +395,12 @@ export function buildSplicedRoute(
           samples.push({
             distanzM: rangeStartOriginal + offset,
             socPct: frame.socPct,
-            zeitpunkt: frame.zeitpunkt,
-            geschwindigkeitKmh: frame.geschwindigkeitKmh,
-            temperaturC: frame.temperaturC,
-            windgeschwindigkeitKmh: frame.windgeschwindigkeitKmh,
-            windrichtungDeg: frame.windrichtungDeg,
-            niederschlagMm: frame.niederschlagMm,
+            timestamp: frame.timestamp,
+            speedKmh: frame.speedKmh,
+            temperatureC: frame.temperatureC,
+            windSpeedKmh: frame.windSpeedKmh,
+            windDirectionDeg: frame.windDirectionDeg,
+            precipitationMm: frame.precipitationMm,
           });
           frameIdx++;
         } else if (isPostChargeNear) {
@@ -414,15 +414,15 @@ export function buildSplicedRoute(
             distanzM:
               rangeStartOriginal +
               offset +
-              stationDetourDistanzM +
-              frac * (detourLen - stationDetourDistanzM),
+              stationDetourDistanceM +
+              frac * (detourLen - stationDetourDistanceM),
             socPct: frame.socPct,
-            zeitpunkt: frame.zeitpunkt,
-            geschwindigkeitKmh: frame.geschwindigkeitKmh,
-            temperaturC: frame.temperaturC,
-            windgeschwindigkeitKmh: frame.windgeschwindigkeitKmh,
-            windrichtungDeg: frame.windrichtungDeg,
-            niederschlagMm: frame.niederschlagMm,
+            timestamp: frame.timestamp,
+            speedKmh: frame.speedKmh,
+            temperatureC: frame.temperatureC,
+            windSpeedKmh: frame.windSpeedKmh,
+            windDirectionDeg: frame.windDirectionDeg,
+            precipitationMm: frame.precipitationMm,
           });
           frameIdx++;
         } else if (isPostCharge) {
@@ -431,7 +431,7 @@ export function buildSplicedRoute(
           // Rueckweg sehr kurz ist (detourLen - stationDetourDistanzM < 100 m),
           // ist es kein echter Lade-Detour, sondern ein Stopover, und Frames
           // sollen direkt emittiert werden (siehe Issue mit 100% SoC nach Stop).
-          const returnLegLen = detourLen - stationDetourDistanzM;
+          const returnLegLen = detourLen - stationDetourDistanceM;
           if (returnLegLen < 100) {
             // Stopover ohne echten Rueckweg: Frame direkt emittieren
             emitPlainFrame(frame);
@@ -453,22 +453,22 @@ export function buildSplicedRoute(
         }
       }
       coordinates.push(toLngLat(detour.detour[0]));
-      const arrivalDistanzM =
-        rangeStartOriginal + offset + stationDetourDistanzM;
+      const arrivalDistanceM =
+        rangeStartOriginal + offset + stationDetourDistanceM;
       const emitChargeJump = (coordinateIndex: number) => {
         samples.push({
-          distanzM: arrivalDistanzM,
+          distanzM: arrivalDistanceM,
           socPct: detour.ankunftsSocPct,
-          zeitpunkt: detour.ankunftszeit,
+          timestamp: detour.arrivalTime,
           critical: true,
         });
         samples.push({
-          distanzM: arrivalDistanzM + CHARGE_JUMP_EPSILON_M,
+          distanzM: arrivalDistanceM + CHARGE_JUMP_EPSILON_M,
           socPct: detour.zielSocPct,
-          zeitpunkt: detour.abfahrtszeit,
+          timestamp: detour.departureTime,
           critical: true,
         });
-        legBoundaries.push({ coordinateIndex, distanzM: arrivalDistanzM });
+        legBoundaries.push({ coordinateIndex, distanzM: arrivalDistanceM });
       };
       if (splitIdx === 0) {
         emitChargeJump(coordinates.length - 1);
@@ -486,7 +486,7 @@ export function buildSplicedRoute(
       continue;
     }
 
-    coordinates.push(toLngLat(routeGeometrie[i]));
+    coordinates.push(toLngLat(routeGeometry[i]));
     while (
       frameIdx < sortedFrames.length &&
       sortedFrames[frameIdx].distanzM <= routeCum[i]

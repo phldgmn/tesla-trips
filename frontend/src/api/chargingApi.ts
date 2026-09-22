@@ -13,7 +13,7 @@ export interface SuperchargerStation {
   stalls_v3: number;
   stalls_v3_ultra: number;
   stalls_v4: number;
-  ist_24_7: boolean;
+  is_24_7: boolean;
   date_opened: string | null;
 }
 

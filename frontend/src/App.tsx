@@ -116,7 +116,7 @@ export function App() {
         onSubmit={handleSubmit}
         isSubmitting={isSubmitting}
         submitError={submitError}
-        erkannteFaehren={simulationResult?.erkannte_faehren}
+        detectedFerries={simulationResult?.detected_ferries}
         chargingStops={simulationResult?.charging_stops}
         frames={simulationResult?.frames}
       />

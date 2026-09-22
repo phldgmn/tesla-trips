@@ -16,23 +16,23 @@ export interface RouteSample {
    *  (siehe `findNearestRouteSample`/`buildRouteHoverText` in `Map.tsx`).
    *  Optional, da nicht jeder Aufrufer (z. B. reine SoC-Gradient-Tests) ihn
    *  benoetigt. */
-  zeitpunkt?: string;
+  timestamp?: string;
   /** Ladehalt-Ankunft/-Abfahrt: wird beim Downsampling nie uebersprungen, damit
    *  der SoC-Sprung an der Ladestation sichtbar bleibt. */
   critical?: boolean;
   /** Geschwindigkeit in km/h an diesem Stuetzpunkt - fuer den Routen-Hover-
    *  Tooltip (`buildRouteHoverText`). Optional, da Ladehalt-Sprungpunkte
    *  (siehe `emitChargeJump` in `route-splice.ts`) keine tragen. */
-  geschwindigkeitKmh?: number;
+  speedKmh?: number;
   /** Angenommene Temperatur/Windgeschwindigkeit/Niederschlag an diesem
    *  Stuetzpunkt, `undefined` wenn Wetter nicht beruecksichtigt wurde
    *  (siehe `SimulationFrame.temperatur_c` im Backend) oder der Stuetzpunkt
    *  ein Ladehalt-Sprungpunkt ist. */
-  temperaturC?: number;
-  windgeschwindigkeitKmh?: number;
+  temperatureC?: number;
+  windSpeedKmh?: number;
   /** Windrichtung in Grad (0° = N, 90° = O), woher der Wind kommt. */
-  windrichtungDeg?: number;
-  niederschlagMm?: number;
+  windDirectionDeg?: number;
+  precipitationMm?: number;
 }
 
 /** Meter pro Breitengrad - konstant genug fuer die kurzen Segmentabstaende

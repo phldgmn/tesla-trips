@@ -1,15 +1,15 @@
 import { type ReactNode } from "react";
 import { CalendarDays, Car, type LucideIcon } from "lucide-react";
 import {
-  formatFahrsegmentStrecke,
-  formatFahrsegmentDauer,
+  formatDrivingSegmentDistance,
+  formatDrivingSegmentDuration,
 } from "./form-helpers";
-import { formatDatumKurz, formatUhrzeit } from "@/utils/datetime-utils";
+import { formatShortDate, formatTime } from "@/utils/datetime-utils";
 
 /** Timeline row sub-components for the route timeline display.
  *  These are pure presentational components used by TripPlannerForm.
  */
-const ZEILEN_ABSTAND = "0.85rem";
+const ROW_GAP = "0.85rem";
 
 /** Ein Eintrag der vertikalen Routen-Timeline: Icon-Marker links (auf der
  *  durchgehenden Linie, analog gängiger "Tracking-Timeline"-Komponenten) +
@@ -28,7 +28,7 @@ export function TimelineRow({
       style={{
         position: "relative",
         marginLeft: "1.5rem",
-        paddingBottom: ZEILEN_ABSTAND,
+        paddingBottom: ROW_GAP,
       }}
     >
       <span
@@ -63,18 +63,18 @@ export function TimelineRow({
  *  ergänzt bei Bedarf das Datum (z. B. wenn Ankunft und Abfahrt DESSELBEN
  *  Eintrags auf unterschiedliche Kalendertage fallen, siehe
  *  `istTageswechsel`-Aufrufe in den Aufrufern). */
-export function Zeitbadge({
-  kante,
+export function TimeBadge({
+  edge: kante,
   iso,
   socPct,
-  datumKurz,
+  shortDate: datumKurz,
 }: {
-  kante: "oben" | "unten";
+  edge: "oben" | "unten";
   iso: string;
   socPct?: number;
-  datumKurz?: string;
+  shortDate?: string;
 }) {
-  const kantenStyle =
+  const edgeStyle =
     kante === "oben"
       ? { top: 0, left: "0.75rem", transform: "translateY(-50%)" }
       : { bottom: 0, right: "0.75rem", transform: "translateY(50%)" };
@@ -82,7 +82,7 @@ export function Zeitbadge({
     <span
       style={{
         position: "absolute",
-        ...kantenStyle,
+        ...edgeStyle,
         background: "white",
         border: "1px solid #d1d5db",
         borderRadius: "999px",
@@ -94,7 +94,7 @@ export function Zeitbadge({
         zIndex: 1,
       }}
     >
-      {formatUhrzeit(iso)}
+      {formatTime(iso)}
       {socPct !== undefined ? ` · ${Math.round(socPct)}%` : ""}
       {datumKurz !== undefined ? ` · ${datumKurz}` : ""}
     </span>
@@ -111,12 +111,12 @@ export function Zeitbadge({
  *  dazwischen gerendert (siehe `TagestrennerEintrag`-Docstring in
  *  `route-eintraege.ts` - mit Fahrsegment wird der Tageswechsel stattdessen
  *  in dessen Zeile kombiniert, siehe `FahrsegmentZeile`). */
-export function Tagestrenner({
-  vorherigeIso,
-  aktuelleIso,
+export function DaySeparator({
+  previousIso: vorherigeIso,
+  currentIso: aktuelleIso,
 }: {
-  vorherigeIso: string;
-  aktuelleIso: string;
+  previousIso: string;
+  currentIso: string;
 }) {
   return (
     <li
@@ -124,7 +124,7 @@ export function Tagestrenner({
         position: "relative",
         listStyle: "none",
         marginLeft: "1.5rem",
-        paddingBottom: ZEILEN_ABSTAND,
+        paddingBottom: ROW_GAP,
       }}
     >
       <span
@@ -156,11 +156,11 @@ export function Tagestrenner({
         }}
       >
         <span style={{ fontSize: "0.65rem", lineHeight: 1, color: "#9ca3af" }}>
-          {formatDatumKurz(vorherigeIso)}
+          {formatShortDate(vorherigeIso)}
         </span>
         <div style={{ width: "100%", height: "1px", background: "#e5e7eb" }} />
         <span style={{ fontSize: "0.65rem", lineHeight: 1, color: "#9ca3af" }}>
-          {formatDatumKurz(aktuelleIso)}
+          {formatShortDate(aktuelleIso)}
         </span>
       </div>
     </li>
@@ -177,14 +177,14 @@ export function Tagestrenner({
  *  (`tageswechsel` gesetzt), werden Strecke, Zeit UND beide Kalendertage in
  *  dieser einen Zeile kombiniert, statt zusätzlich einen separaten
  *  `Tagestrenner` zu rendern. */
-export function FahrsegmentZeile({
-  distanzKm,
-  dauerMin,
-  tageswechsel,
+export function DriveSegmentRow({
+  distanceKm: distanzKm,
+  durationMin: dauerMin,
+  dayChange: tageswechsel,
 }: {
-  distanzKm: number;
-  dauerMin: number;
-  tageswechsel?: { vonIso: string; bisIso: string };
+  distanceKm: number;
+  durationMin: number;
+  dayChange?: { vonIso: string; bisIso: string };
 }) {
   return (
     <li
@@ -192,7 +192,7 @@ export function FahrsegmentZeile({
         position: "relative",
         listStyle: "none",
         marginLeft: "1.5rem",
-        paddingBottom: ZEILEN_ABSTAND,
+        paddingBottom: ROW_GAP,
       }}
     >
       <span
@@ -211,13 +211,13 @@ export function FahrsegmentZeile({
       </span>
       <div style={{ lineHeight: 1 }}>
         <span style={{ fontSize: "0.7rem", color: "#9ca3af" }}>
-          {formatFahrsegmentStrecke(distanzKm)} ·{" "}
-          {formatFahrsegmentDauer(dauerMin)}
+          {formatDrivingSegmentDistance(distanzKm)} ·{" "}
+          {formatDrivingSegmentDuration(dauerMin)}
           {tageswechsel && (
             <>
               {" · "}
-              {formatDatumKurz(tageswechsel.vonIso)} →{" "}
-              {formatDatumKurz(tageswechsel.bisIso)}
+              {formatShortDate(tageswechsel.vonIso)} →{" "}
+              {formatShortDate(tageswechsel.bisIso)}
             </>
           )}
         </span>

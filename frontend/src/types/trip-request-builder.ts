@@ -2,13 +2,13 @@ import { getDefaultDepartureIso } from "../utils/datetime-utils";
 
 import type {
   FerryExclusion,
-  FaehrZeitfenster,
-  LadedauerVorgabe,
+  FerryTimeWindow,
+  ChargingDurationTarget,
   Stop,
   TripRequestPayload,
   VehicleProfileInput,
   WeatherDetailLevel,
-  AutobahnPreferenceLevel,
+  HighwayPreferenceLevel,
 } from "./trip-request";
 
 /** Fehler beim Aufbau des Requests aus dem aktuellen Formularzustand
@@ -27,20 +27,20 @@ export function createEmptyStop(): Stop {
  *  bereits verhindert sein). */
 export function buildTripRequestPayload(args: {
   stops: Stop[];
-  fahrzeugprofil: VehicleProfileInput;
+  vehicleProfile: VehicleProfileInput;
   startSocPct: number;
   mindestAnkunftsSocPct: number;
   zielSocPct: number;
-  praeferenzen?: Record<string, unknown>;
-  alleFaehrenVermeiden?: boolean;
-  autobahnPraeferenz?: AutobahnPreferenceLevel;
-  vermiedeneFaehren?: FerryExclusion[];
-  faehrZeitfenster?: FaehrZeitfenster[];
-  ladedauerVorgaben?: LadedauerVorgabe[];
-  wetterDetailgrad?: WeatherDetailLevel;
-  mindestLadezeitS: number;
+  preferences?: Record<string, unknown>;
+  avoidAllFerries?: boolean;
+  highwayPreference?: HighwayPreferenceLevel;
+  avoidedFerries?: FerryExclusion[];
+  ferryTimeWindows?: FerryTimeWindow[];
+  chargingDurationTargets?: ChargingDurationTarget[];
+  weatherDetailLevel?: WeatherDetailLevel;
+  minChargeDurationS: number;
   maxLadeSocPct?: number;
-  baustellenBeruecksichtigen?: boolean;
+  considerConstructionSites?: boolean;
 }): TripRequestPayload {
   const { stops } = args;
   if (stops.length < 2) {
@@ -49,7 +49,7 @@ export function buildTripRequestPayload(args: {
     );
   }
   const start = stops[0];
-  const ziel = stops[stops.length - 1];
+  const destination = stops[stops.length - 1];
   const between = stops.slice(1, -1);
 
   if (!start.position) {
@@ -57,7 +57,7 @@ export function buildTripRequestPayload(args: {
       "Der Startpunkt hat keine aufgelöste Adresse.",
     );
   }
-  if (!ziel.position) {
+  if (!destination.position) {
     throw new TripRequestBuildError(
       "Der Zielpunkt hat keine aufgelöste Adresse.",
     );
@@ -71,28 +71,28 @@ export function buildTripRequestPayload(args: {
 
   return {
     start: start.position,
-    ziel: ziel.position,
-    zwischenstopps: between.map((s) => ({
+    destination: destination.position,
+    waypoints: between.map((s) => ({
       koordinate: s.position as [number, number],
       aufenthaltsdauer_s: null,
       geplante_abfahrt: s.leaveAt ?? null,
       ladeleistung_kw: s.chargingPowerKw ?? null,
     })),
-    abfahrtszeit: start.leaveAt ?? getDefaultDepartureIso(),
-    fahrzeugprofil: args.fahrzeugprofil,
-    praeferenzen: args.praeferenzen ?? {},
+    departureTime: start.leaveAt ?? getDefaultDepartureIso(),
+    vehicleProfile: args.vehicleProfile,
+    preferences: args.preferences ?? {},
     start_soc_pct: args.startSocPct,
-    ziel_soc_pct: args.zielSocPct,
-    mindest_ankunfts_soc_pct: args.mindestAnkunftsSocPct,
-    alle_faehren_vermeiden: args.alleFaehrenVermeiden ?? false,
-    autobahn_praeferenz: args.autobahnPraeferenz ?? "off",
-    vermiedene_faehren: args.vermiedeneFaehren ?? [],
-    faehr_zeitfenster: args.faehrZeitfenster ?? [],
-    ladedauer_vorgaben: args.ladedauerVorgaben ?? [],
-    wetter_detailgrad: args.wetterDetailgrad ?? "high",
-    mindest_ladezeit_s: args.mindestLadezeitS,
-    max_lade_soc_pct: args.maxLadeSocPct ?? 100,
-    baustellen_beruecksichtigen: args.baustellenBeruecksichtigen ?? true,
+    target_soc_pct: args.zielSocPct,
+    min_arrival_soc_pct: args.mindestAnkunftsSocPct,
+    avoid_all_ferries: args.avoidAllFerries ?? false,
+    highway_preference: args.highwayPreference ?? "off",
+    avoided_ferries: args.avoidedFerries ?? [],
+    ferry_time_windows: args.ferryTimeWindows ?? [],
+    charging_duration_specifications: args.chargingDurationTargets ?? [],
+    weather_detail_level: args.weatherDetailLevel ?? "high",
+    min_charging_time_s: args.minChargeDurationS,
+    max_charge_soc_pct: args.maxLadeSocPct ?? 100,
+    consider_construction_sites: args.considerConstructionSites ?? true,
   };
 }
 
@@ -108,9 +108,9 @@ export function validateStops(stops: Stop[]): string[] {
   }
   stops.forEach((stop, idx) => {
     if (!stop.position) {
-      const rolle =
+      const role =
         idx === 0 ? "Start" : idx === stops.length - 1 ? "Ziel" : `Stop ${idx}`;
-      errors.push(`${rolle}: Adresse noch nicht ausgewählt.`);
+      errors.push(`${role}: Adresse noch nicht ausgewählt.`);
     }
   });
   return errors;

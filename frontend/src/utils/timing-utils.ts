@@ -68,7 +68,7 @@ export function estimateWaypointTimings(
       return {
         stopId: stop.id,
         arrival: null,
-        departure: frames[0].zeitpunkt,
+        departure: frames[0].timestamp,
         arrivalSocPct: null,
         departureSocPct: frames[0].soc_pct,
       };
@@ -76,12 +76,12 @@ export function estimateWaypointTimings(
 
     // Ziel (letzter Index): Ankunft = letzter Frame, Abfahrt null
     if (idx === stops.length - 1) {
-      const letzterFrame = frames[frames.length - 1];
+      const lastFrame = frames[frames.length - 1];
       return {
         stopId: stop.id,
-        arrival: letzterFrame.zeitpunkt,
+        arrival: lastFrame.timestamp,
         departure: null,
-        arrivalSocPct: letzterFrame.soc_pct,
+        arrivalSocPct: lastFrame.soc_pct,
         departureSocPct: null,
       };
     }
@@ -164,8 +164,8 @@ export function estimatePositionTiming(
   }
 
   return {
-    arrival: frames[leftIdx].zeitpunkt,
-    departure: frames[rightIdx].zeitpunkt,
+    arrival: frames[leftIdx].timestamp,
+    departure: frames[rightIdx].timestamp,
     arrivalSocPct: frames[leftIdx].soc_pct,
     departureSocPct: frames[rightIdx].soc_pct,
   };
@@ -196,7 +196,7 @@ export function findNearestFrameIndex(
   let bestIdx = 0;
   let bestDiff = Infinity;
   for (let i = 0; i < frames.length; i++) {
-    const diff = Math.abs(new Date(frames[i].zeitpunkt).getTime() - target);
+    const diff = Math.abs(new Date(frames[i].timestamp).getTime() - target);
     if (diff < bestDiff) {
       bestDiff = diff;
       bestIdx = i;
@@ -206,9 +206,9 @@ export function findNearestFrameIndex(
 }
 
 /** Fahrzeit und -distanz zwischen zwei Zeitpunkten. */
-export interface Fahrsegment {
-  distanzKm: number;
-  dauerMin: number;
+export interface DrivingSegment {
+  distanceKm: number;
+  durationMin: number;
 }
 
 /** Berechnet Fahrzeit und -distanz zwischen zwei Zeitpunkten anhand der
@@ -220,18 +220,18 @@ export interface Fahrsegment {
  *  einmal für die gesamte Route bilden statt einmal pro Segment.
  *  Liefert `null`, wenn sich einer der beiden Zeitpunkte keinem Frame
  *  zuordnen lässt (z. B. leeres `frames`-Array). */
-export function berechneFahrsegment(
+export function calculateDrivingSegment(
   vonIso: string,
   bisIso: string,
   frames: SimulationFrame[],
   cumulativeKm: number[],
-): Fahrsegment | null {
-  const vonIdx = findNearestFrameIndex(vonIso, frames);
-  const bisIdx = findNearestFrameIndex(bisIso, frames);
-  if (vonIdx === null || bisIdx === null) return null;
+): DrivingSegment | null {
+  const fromIdx = findNearestFrameIndex(vonIso, frames);
+  const toIdx = findNearestFrameIndex(bisIso, frames);
+  if (fromIdx === null || toIdx === null) return null;
   return {
-    distanzKm: Math.max(0, cumulativeKm[bisIdx] - cumulativeKm[vonIdx]),
-    dauerMin: Math.max(
+    distanceKm: Math.max(0, cumulativeKm[toIdx] - cumulativeKm[fromIdx]),
+    durationMin: Math.max(
       0,
       (new Date(bisIso).getTime() - new Date(vonIso).getTime()) / 60000,
     ),

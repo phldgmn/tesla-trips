@@ -45,7 +45,7 @@ export interface Stop {
 }
 
 /** Reifentyp – siehe `tripplanner.trip_input.models.VehicleProfile.reifentyp`. */
-export type ReifenTyp =
+export type TireType =
   "standard" | "winter" | "low_rolling_resistance" | "performance";
 
 /** Wetter-Detailgrad – siehe `tripplanner.weather.models.WeatherDetailLevel`. */
@@ -54,7 +54,7 @@ export type WeatherDetailLevel = "off" | "low" | "medium" | "high";
 /** Autobahnpräferenz-Stufe – siehe `tripplanner.trip_input.models.TripRequest.autobahn_praeferenz`.
  *  'off' = keine Präferenz, 'low'/'medium'/'high' = priority-Boost *1.1/*1.2/*1.3
  *  für road_class == MOTORWAY (Nudge, keine Erzwingung). */
-export type AutobahnPreferenceLevel = "off" | "low" | "medium" | "high";
+export type HighwayPreferenceLevel = "off" | "low" | "medium" | "high";
 
 /** Fahrzeugprofil-Payload (`VehicleProfile`). */
 export interface VehicleProfileInput {
@@ -64,7 +64,7 @@ export interface VehicleProfileInput {
   rollwiderstandsbeiwert: number;
   batteriekapazitaet_kwh: number;
   nebenverbraucher_baseline_kw: number;
-  reifentyp: ReifenTyp;
+  reifentyp: TireType;
   dachbox: boolean;
 }
 
@@ -96,16 +96,16 @@ export interface WaypointInput {
 export interface FerryExclusion {
   name: string;
   bbox_sw: [number, number];
-  bbox_no: [number, number];
+  bbox_ne: [number, number];
 }
 
 /** Eine vom Nutzer vorgegebene Abfahrts-/Ankunftszeit für eine zuvor erkannte
  *  Fährverbindung (`FaehrZeitfensterAPI`), zur Abstimmung mit dem tatsächlichen
  *  Fährfahrplan. */
-export interface FaehrZeitfenster {
+export interface FerryTimeWindow {
   name: string;
   bbox_sw: [number, number];
-  bbox_no: [number, number];
+  bbox_ne: [number, number];
   /** ISO-8601, lokal (ohne Zeitzone). */
   abfahrt: string;
   /** ISO-8601, lokal (ohne Zeitzone). */
@@ -114,39 +114,39 @@ export interface FaehrZeitfenster {
 
 /** Eine vom Nutzer vorgegebene feste Ladedauer für eine bestimmte Ladestation
  *  (`LadedauerVorgabeAPI`), identifiziert über die stabile `station_id`. */
-export interface LadedauerVorgabe {
+export interface ChargingDurationTarget {
   station_id: string;
-  ladedauer_s: number;
+  charging_duration_s: number;
 }
 
 /** Vollständiger Request-Body für `POST /trips` (`TripRequestAPI`). */
 export interface TripRequestPayload {
   start: [number, number];
-  ziel: [number, number];
-  zwischenstopps: WaypointInput[];
+  destination: [number, number];
+  waypoints: WaypointInput[];
   /** ISO-8601, z. B. "2026-08-15T08:30:00". */
-  abfahrtszeit: string;
-  fahrzeugprofil: VehicleProfileInput;
-  praeferenzen: Record<string, unknown>;
+  departureTime: string;
+  vehicleProfile: VehicleProfileInput;
+  preferences: Record<string, unknown>;
   start_soc_pct: number;
-  ziel_soc_pct: number;
-  mindest_ladezeit_s: number;
-  mindest_ankunfts_soc_pct: number;
-  max_lade_soc_pct: number;
-  alle_faehren_vermeiden: boolean;
+  target_soc_pct: number;
+  min_charging_time_s: number;
+  min_arrival_soc_pct: number;
+  max_charge_soc_pct: number;
+  avoid_all_ferries: boolean;
   /** Grad der Autobahnpräferenz bei der Berechnung: 'off' (keine Präferenz),
    *  'low'/'medium'/'high' (Nudge, keine Erzwingung; Toggle "Autobahn"). */
-  autobahn_praeferenz: AutobahnPreferenceLevel;
-  vermiedene_faehren: FerryExclusion[];
-  faehr_zeitfenster: FaehrZeitfenster[];
-  ladedauer_vorgaben: LadedauerVorgabe[];
+  highway_preference: HighwayPreferenceLevel;
+  avoided_ferries: FerryExclusion[];
+  ferry_time_windows: FerryTimeWindow[];
+  charging_duration_specifications: ChargingDurationTarget[];
   /** Steuert die räumliche/zeitliche Auflösung der Wetterabfrage
    *  (siehe `TripPlannerForm`-Kontrolle "Routendetails"). `"off"` entspricht
    *  dem alten `wetter_beruecksichtigen: false`, `"high"` dem alten `true`. */
-  wetter_detailgrad: WeatherDetailLevel;
+  weather_detail_level: WeatherDetailLevel;
   /** Falls false, wird der Baustellen-Provider für diese Berechnung
    *  übersprungen, um sie zu beschleunigen (Toggle "Baustellen"). */
-  baustellen_beruecksichtigen: boolean;
+  consider_construction_sites: boolean;
 }
 
 /** Re-exports payload-builder and validation logic. */

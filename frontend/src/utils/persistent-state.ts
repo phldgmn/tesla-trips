@@ -66,7 +66,7 @@ export function usePersistentState<T>(
  *  `true` -> `"high"`, `false` -> `"off"`, und entfernt danach den
  *  alten Schlüssel. Fällt bei fehlendem/beschädigtem Wert auf
  *  `"high"` zurück (Standard aus dem Plan §4.2). */
-export function migrateWetterBeruecksichtigen(): WeatherDetailLevel {
+export function migrateConsiderWeather(): WeatherDetailLevel {
   if (typeof window === "undefined") return "high";
   try {
     const raw = window.localStorage.getItem(
