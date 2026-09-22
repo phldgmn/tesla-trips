@@ -173,8 +173,8 @@ class ConstructionProviderImpl(ConstructionProvider):
                     (country, self._de_provider.fetch_construction_zones(route, [country]))
                 )
             else:
-                assert strtree is not None
-                assert segment_geoms is not None
+                if strtree is None or segment_geoms is None:
+                    raise RuntimeError(f"STRtree not built for country {country}")
                 tasks.append(
                     (country, self._fetch_landscape_zones(route, country, strtree, segment_geoms))
                 )

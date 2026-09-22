@@ -52,14 +52,14 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "PL", "RUF"]
-extend-select = ["D"]
+extend-select = ["D", "S101"]
 ignore = ["D102", "D203", "D213", "PLC0415"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["D", "PLR2004", "PLR0913", "PLR0917"]
+"tests/*" = ["D", "PLR2004", "PLR0913", "PLR0917", "S101"]
 "src/tripplanner/construction/*" = ["D105", "D107", "PLR0912", "PLR0915", "PLR2004"]
 "src/tripplanner/energy/*" = ["PLR0913", "PLR0917", "PLR0915", "E501"]
 [tool.ruff.format]
