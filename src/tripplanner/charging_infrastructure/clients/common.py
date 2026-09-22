@@ -6,12 +6,28 @@ import asyncio
 import importlib
 import json
 import logging
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar, Protocol, runtime_checkable
 from urllib.parse import quote
 
 _logger = logging.getLogger(__name__)
+
+
+DEBUG_BODY_PREVIEW_CHARS: int = 200
+"""Maximum response-body characters included in scrape debug lines."""
+
+
+def default_debug_log_path() -> Path:
+    """Default file for ``--debug`` scrape logs: ``$TRIPPLANNER_CACHE_DIR/logs/``.
+
+    Lives under the git-ignored cache directory so raw WAF tokens and request
+    URLs never end up in the working tree root.
+    """
+    log_dir = Path(os.environ.get("TRIPPLANNER_CACHE_DIR", ".cache")) / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / "charger_debug.log"
 
 
 def _debug_log(log_path: Path | None, msg: str, label: str = "DEBUG") -> None:
@@ -156,7 +172,7 @@ class TeslaJsonEndpointsMixin:
         except json.JSONDecodeError as e:
             _debug_log(
                 self._debug_log,
-                f"JSON parse error: {e}\nbody preview: {body[:300]}",
+                f"JSON parse error: {e}\nbody preview: {body[:DEBUG_BODY_PREVIEW_CHARS]}",
                 label="ERROR",
             )
             raise self.CurlError(f"invalid JSON: {e}"[:200]) from e

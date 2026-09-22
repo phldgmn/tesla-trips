@@ -31,6 +31,7 @@ import contextlib
 from pathlib import Path
 
 from .common import (
+    DEBUG_BODY_PREVIEW_CHARS,
     WAF_RETRY_MAX_ATTEMPTS,
     CurlError,
     TeslaJsonEndpointsMixin,
@@ -324,7 +325,7 @@ class SafariTeslaClient(TeslaJsonEndpointsMixin):
                 _debug_log(
                     self._debug_log,
                     f"SAFARI GET {url} -> {len(body)} bytes\n"
-                    f"  Body ({len(body)} bytes): {body[:2000]}",
+                    f"  Body ({len(body)} bytes): {body[:DEBUG_BODY_PREVIEW_CHARS]}",
                     label="SAFARI",
                 )
                 if is_waf_block(body):

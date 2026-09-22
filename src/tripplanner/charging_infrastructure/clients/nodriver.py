@@ -14,7 +14,14 @@ from pathlib import Path
 from typing import Any, TypeVar
 from urllib.parse import quote
 
-from .common import WAF_RETRY_MAX_ATTEMPTS, CurlError, _debug_log, is_waf_block, waf_retry_delay_s
+from .common import (
+    DEBUG_BODY_PREVIEW_CHARS,
+    WAF_RETRY_MAX_ATTEMPTS,
+    CurlError,
+    _debug_log,
+    is_waf_block,
+    waf_retry_delay_s,
+)
 
 _T = TypeVar("_T")
 
@@ -473,7 +480,8 @@ class NodriverTeslaClient:
 
             _debug_log(
                 self._debug_log,
-                f"NODRIVER GET {url} -> {status}\n  Body ({len(body)} bytes): {body[:2000]}",
+                f"NODRIVER GET {url} -> {status}\n"
+                f"  Body ({len(body)} bytes): {body[:DEBUG_BODY_PREVIEW_CHARS]}",
                 label="NODRIVER",
             )
 
@@ -517,7 +525,7 @@ class NodriverTeslaClient:
         except json.JSONDecodeError as e:
             _debug_log(
                 self._debug_log,
-                f"JSON parse error: {e}\nbody preview: {body[:300]}",
+                f"JSON parse error: {e}\nbody preview: {body[:DEBUG_BODY_PREVIEW_CHARS]}",
                 label="ERROR",
             )
             raise CurlError(f"invalid JSON: {e}"[:200]) from e

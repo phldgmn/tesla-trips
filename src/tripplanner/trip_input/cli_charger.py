@@ -17,6 +17,7 @@ from typing import Annotated
 import typer
 
 from tripplanner.charging_infrastructure.client import TeslaLocationsClient
+from tripplanner.charging_infrastructure.clients.common import default_debug_log_path
 from tripplanner.charging_infrastructure.providers import (
     TeslaChargingStationProvider,
 )
@@ -48,7 +49,7 @@ def refresh(  # noqa: PLR0913, PLR0917
     ] = None,
     debug: Annotated[
         bool,
-        typer.Option("--debug", help="Request/Response-Debug-Log in charger_debug.log"),
+        typer.Option("--debug", help="Request/Response-Debug-Log in .cache/logs/charger_debug.log"),
     ] = False,
 ) -> None:
     """Aktualisiert Supercharger-Daten von einer externen Quelle.
@@ -88,7 +89,7 @@ def refresh(  # noqa: PLR0913, PLR0917
 
     debug_log: Path | None = None
     if debug:
-        debug_log = Path.cwd() / "charger_debug.log"
+        debug_log = default_debug_log_path()
         # Leere Datei anlegen (vorherigen Inhalt verwerfen)
         debug_log.write_text(f"=== charger refresh {source} {datetime.now(UTC).isoformat()} ===\n")
         typer.echo(f"Debug-Log: {debug_log}")
@@ -198,7 +199,7 @@ def scrape_pricing(
     ] = None,
     debug: Annotated[
         bool,
-        typer.Option("--debug", help="Request/Response-Debug-Log in charger_debug.log"),
+        typer.Option("--debug", help="Request/Response-Debug-Log in .cache/logs/charger_debug.log"),
     ] = False,
     retry_failed: Annotated[
         bool,
@@ -223,7 +224,7 @@ def scrape_pricing(
     db_path_obj = Path(db_path) if db_path else None
     debug_log: Path | None = None
     if debug:
-        debug_log = Path.cwd() / "charger_debug.log"
+        debug_log = default_debug_log_path()
         debug_log.write_text(f"=== charger scrape-pricing {datetime.now(UTC).isoformat()} ===\n")
         typer.echo(f"Debug-Log: {debug_log}")
 

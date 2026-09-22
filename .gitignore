@@ -34,3 +34,5 @@ frontend/.vite/
 
 *.local
 *.local.*
+# Logs (scrape debug logs go to .cache/logs/)
+*.log

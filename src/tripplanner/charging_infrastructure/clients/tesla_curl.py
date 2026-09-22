@@ -11,6 +11,7 @@ from typing import Any, ClassVar
 from curl_cffi import AsyncSession
 
 from .common import (
+    DEBUG_BODY_PREVIEW_CHARS,
     WAF_RETRY_MAX_ATTEMPTS,
     CurlError,
     TeslaJsonEndpointsMixin,
@@ -159,7 +160,7 @@ class TeslaLocationsClient(TeslaJsonEndpointsMixin):
                 raise self.CurlError(f"request failed: {e}") from e
 
             body = response.text
-            await self._log_response(response, body[:2000])
+            await self._log_response(response, body[:DEBUG_BODY_PREVIEW_CHARS])
 
             if is_waf_block(body):
                 last_error = self.CurlError("Tesla API: WAF-Block (Access Denied)")

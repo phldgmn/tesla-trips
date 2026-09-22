@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from .common import CurlError, _debug_log, is_waf_block, waf_retry_delay_s
+from .common import DEBUG_BODY_PREVIEW_CHARS, CurlError, _debug_log, is_waf_block, waf_retry_delay_s
 from .nodriver import NodriverBrowserFetcher, NodriverTeslaClient
 
 _SEARCH_INPUT_SELECTOR = "input.tds-form-input-search"
@@ -258,7 +258,8 @@ async def _run_search(browser: Any, base_url: str, query: str, locale: str, debu
     body = bodies["search"]
     _debug_log(
         debug_log,
-        f"HUMANFLOW search '{query}'\n  Body ({len(body)} bytes): {body[:2000]}",
+        f"HUMANFLOW search '{query}'\n"
+        f"  Body ({len(body)} bytes): {body[:DEBUG_BODY_PREVIEW_CHARS]}",
         label="HUMANFLOW",
     )
     return body
@@ -333,7 +334,7 @@ async def _run_location_and_charger_details(
     for name, body in bodies.items():
         _debug_log(
             debug_log,
-            f"HUMANFLOW {name}\n  Body ({len(body)} bytes): {body[:2000]}",
+            f"HUMANFLOW {name}\n  Body ({len(body)} bytes): {body[:DEBUG_BODY_PREVIEW_CHARS]}",
             label="HUMANFLOW",
         )
     return bodies
