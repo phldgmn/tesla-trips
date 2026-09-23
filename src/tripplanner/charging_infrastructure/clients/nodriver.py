@@ -101,7 +101,13 @@ class NodriverBrowserFetcher:
 
     async def _ensure_browser(self) -> Any:
         if self._browser is None:
-            import nodriver as uc
+            try:
+                import nodriver as uc
+            except ImportError as exc:
+                raise ImportError(
+                    "nodriver is not installed. Install the scraping extra: "
+                    "`uv sync --extra scraping`"
+                ) from exc
 
             self._browser = await uc.start(headless=self._headless)  # type: ignore[attr-defined]
         return self._browser

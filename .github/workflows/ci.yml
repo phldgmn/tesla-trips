@@ -6,34 +6,38 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
       - name: Set up mise-managed tools (Python, uv, hk, shellcheck, shfmt, …)
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac  # v2.4.4
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --locked --all-extras
 
       - name: Run linters (ruff check, ruff format, mypy)
         run: uv run hk check --all
 
       - name: Run unit tests with coverage
-        run: uv run pytest -m "not integration" --cov=src/tripplanner --cov-report=term-missing --cov-fail-under=85
+        # Coverage flags come from [tool.pytest.ini_options].addopts.
+        run: uv run pytest -m "not integration"
 
   integration-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
       - name: Set up mise-managed tools (Python, uv)
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac  # v2.4.4
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --locked --all-extras
 
       # GitHub Actions `services:`-Container koennen keine zusaetzlichen
       # CLI-Argumente (z. B. `--url`) an den Entrypoint uebergeben. Das
@@ -73,10 +77,10 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
       - name: Set up mise-managed tools (Node.js)
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac  # v2.4.4
 
       - name: Install dependencies
         working-directory: frontend
@@ -93,3 +97,20 @@ jobs:
       - name: Run tests
         working-directory: frontend
         run: npm test
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+
+      - name: Set up mise-managed tools (Python, uv, Node.js)
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac  # v2.4.4
+
+      - name: Audit Python dependencies (runtime, all extras)
+        run: |
+          uv export --locked --all-extras --no-dev --no-emit-project -o requirements-audit.txt
+          uvx pip-audit --disable-pip -r requirements-audit.txt
+
+      - name: Audit npm dependencies (production)
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high

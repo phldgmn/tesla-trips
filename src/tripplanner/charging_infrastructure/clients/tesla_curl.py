@@ -6,9 +6,10 @@ import asyncio
 import contextlib
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from curl_cffi import AsyncSession
+if TYPE_CHECKING:
+    from curl_cffi import AsyncSession
 
 from .common import (
     DEBUG_BODY_PREVIEW_CHARS,
@@ -88,11 +89,7 @@ class TeslaLocationsClient(TeslaJsonEndpointsMixin):
         self._delay = rate_limit_delay_s
         self._debug_log = debug_log
         if client is None:
-            self._client: AsyncSession = AsyncSession(
-                impersonate=self._IMPERSONATE,
-                timeout=30.0,
-                headers=dict(self._BASE_HEADERS),
-            )
+            self._client: AsyncSession = self._new_session()
             self._owns_client: bool = True
         else:
             self._client = client
@@ -124,11 +121,7 @@ class TeslaLocationsClient(TeslaJsonEndpointsMixin):
         if not self._owns_client:
             return
         old_client = self._client
-        self._client = AsyncSession(
-            impersonate=self._IMPERSONATE,
-            timeout=30.0,
-            headers=dict(self._BASE_HEADERS),
-        )
+        self._client = self._new_session()
         with contextlib.suppress(Exception):
             await old_client.close()
 
@@ -180,6 +173,20 @@ class TeslaLocationsClient(TeslaJsonEndpointsMixin):
                 await asyncio.sleep(waf_retry_delay_s(attempt))
 
         raise last_error
+
+    def _new_session(self) -> AsyncSession:
+        """Create an owned curl_cffi session (imported lazily: optional extra)."""
+        try:
+            from curl_cffi import AsyncSession
+        except ImportError as exc:
+            raise ImportError(
+                "curl_cffi is not installed. Install the scraping extra: `uv sync --extra scraping`"
+            ) from exc
+        return AsyncSession(
+            impersonate=self._IMPERSONATE,
+            timeout=30.0,
+            headers=dict(self._BASE_HEADERS),
+        )
 
     async def close(self) -> None:
         """Close the underlying curl_cffi session if owned by this instance."""

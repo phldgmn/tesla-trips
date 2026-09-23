@@ -1826,12 +1826,10 @@ name = "tripplanner"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "curl-cffi" },
     { name = "fastapi" },
     { name = "geographiclib" },
     { name = "httpx" },
     { name = "networkx" },
-    { name = "nodriver" },
     { name = "ortools" },
     { name = "polyline" },
     { name = "pydantic" },
@@ -1843,6 +1841,12 @@ dependencies = [
     { name = "typer" },
     { name = "uvicorn" },
     { name = "xmlschema" },
+]
+
+[package.optional-dependencies]
+scraping = [
+    { name = "curl-cffi" },
+    { name = "nodriver" },
 ]
 
 [package.dev-dependencies]
@@ -1859,12 +1863,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "curl-cffi", specifier = ">=0.16.0" },
+    { name = "curl-cffi", marker = "extra == 'scraping'", specifier = ">=0.16.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "geographiclib", specifier = ">=2.0" },
     { name = "httpx", specifier = ">=0.26.0" },
     { name = "networkx", specifier = ">=3.3.0" },
-    { name = "nodriver", specifier = ">=0.50" },
+    { name = "nodriver", marker = "extra == 'scraping'", specifier = ">=0.50" },
     { name = "ortools", specifier = ">=9.10.0" },
     { name = "polyline", specifier = ">=2.0.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
@@ -1877,6 +1881,7 @@ requires-dist = [
     { name = "uvicorn", specifier = ">=0.30.0" },
     { name = "xmlschema", specifier = ">=3.3.0" },
 ]
+provides-extras = ["scraping"]
 
 [package.metadata.requires-dev]
 dev = [

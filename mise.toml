@@ -27,7 +27,7 @@ UV_PYTHON_PREFERENCE = "only-system"
 
 [tasks.install]
 description = "Alle Abhängigkeiten installieren (Backend + Frontend)"
-run = ["uv sync", "npm --prefix frontend ci"]
+run = ["uv sync --all-extras", "npm --prefix frontend ci"]
 
 [tasks.lint]
 description = "Alle Linter/Formatter prüfen (entspricht CI)"

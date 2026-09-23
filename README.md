@@ -22,7 +22,7 @@ own IP address.
 
 ```bash
 mise install   # installs Python/uv/node/hk/linters in pinned versions (see mise.toml)
-uv sync
+uv sync --all-extras   # incl. the `scraping` extra (nodriver, curl-cffi) the tests need
 uv run hk check --all
 uv run pytest -m "not integration"
 ```
@@ -70,7 +70,7 @@ Daily development uses a central script that manages both services:
 #### Backend (FastAPI)
 
 ```bash
-uv sync
+uv sync   # add --extra scraping for the Supercharger scrape endpoints
 uv run uvicorn tripplanner.trip_input.api:app --reload
 ```
 
