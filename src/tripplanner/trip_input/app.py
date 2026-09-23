@@ -14,6 +14,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from tripplanner.charging_infrastructure import (
     ChargingStationProvider,
@@ -93,6 +96,17 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Tesla Trip Planner API", version="0.1.0", lifespan=_lifespan)
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
+    """422 without echoing the rejected input.
+
+    FastAPI's default handler returns each error's ``input``; a NaN/inf
+    coordinate is not JSON-serializable and would turn the 422 into a 500.
+    """
+    errors = [{k: v for k, v in e.items() if k not in {"input", "ctx"}} for e in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(errors)})
 
 
 def get_routing_provider(request: Request) -> RoutingProvider:

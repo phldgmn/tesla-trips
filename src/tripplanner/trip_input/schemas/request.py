@@ -2,28 +2,39 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from datetime import datetime
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tripplanner.trip_input.models import VehicleProfile
 from tripplanner.trip_input.schemas.base import CamelCaseAPI
+
+Lat = Annotated[float, Field(ge=-90, le=90, allow_inf_nan=False)]
+Lon = Annotated[float, Field(ge=-180, le=180, allow_inf_nan=False)]
+LatLon = tuple[Lat, Lon]
+
+MAX_WAYPOINTS = 25
+MAX_LIST_ITEMS = 50
 
 
 class WaypointAPI(BaseModel):
     """API-Request für Zwischenstopp."""
 
-    koordinate: tuple[float, float] = Field(..., description="(lat, lon) Koordinate in Dezimalgrad")
+    model_config = ConfigDict(extra="forbid")
+
+    koordinate: LatLon = Field(..., description="(lat, lon) Koordinate in Dezimalgrad")
     aufenthaltsdauer_s: int | None = Field(
         None, ge=0, description="Mindestaufenthaltsdauer in Sekunden"
     )
-    geplante_abfahrt: str | None = Field(
+    geplante_abfahrt: datetime | None = Field(
         None,
         description="Gewünschter frühester Abfahrtszeitpunkt (ISO-8601)",
     )
     ladeleistung_kw: float | None = Field(
         None,
         ge=0.0,
+        le=350.0,
         description=("Vor Ort verfügbare Ladeleistung an diesem Zwischenstopp in kW, optional"),
     )
 
@@ -32,18 +43,18 @@ class FaehrAusschlussAPI(CamelCaseAPI):
     """API-Request für eine zu vermeidende, zuvor erkannte Fährverbindung."""
 
     name: str = Field(..., description="Anzeigename der Fährverbindung")
-    bbox_sw: tuple[float, float] = Field(..., description="Südwest-Ecke der Bounding Box")
-    bbox_ne: tuple[float, float] = Field(..., description="Nordost-Ecke der Bounding Box")
+    bbox_sw: LatLon = Field(..., description="Südwest-Ecke der Bounding Box")
+    bbox_ne: LatLon = Field(..., description="Nordost-Ecke der Bounding Box")
 
 
 class FaehrZeitfensterAPI(CamelCaseAPI):
     """API-Request für einen vorgegebenen Fährfahrplan (Abfahrt/Ankunft)."""
 
     name: str = Field(..., description="Anzeigename der Fährverbindung")
-    bbox_sw: tuple[float, float] = Field(..., description="Südwest-Ecke der Bounding Box")
-    bbox_ne: tuple[float, float] = Field(..., description="Nordost-Ecke der Bounding Box")
-    abfahrt: str = Field(..., description="Vorgegebene Abfahrtszeit (ISO-8601)")
-    ankunft: str = Field(..., description="Vorgegebene Ankunftszeit (ISO-8601)")
+    bbox_sw: LatLon = Field(..., description="Südwest-Ecke der Bounding Box")
+    bbox_ne: LatLon = Field(..., description="Nordost-Ecke der Bounding Box")
+    abfahrt: datetime = Field(..., description="Vorgegebene Abfahrtszeit (ISO-8601)")
+    ankunft: datetime = Field(..., description="Vorgegebene Ankunftszeit (ISO-8601)")
 
 
 class LadedauerVorgabeAPI(CamelCaseAPI):
@@ -55,15 +66,19 @@ class LadedauerVorgabeAPI(CamelCaseAPI):
     )
 
 
+class PreferencesAPI(CamelCaseAPI):
+    """Nutzerpräferenzen. Derzeit ohne Felder; unbekannte Schlüssel werden abgelehnt."""
+
+
 class TripRequestAPI(CamelCaseAPI):
     """API-Request für /trips-Endpunkt."""
 
-    start: tuple[float, float] = Field(..., description="(lat, lon) Startkoordinate")
-    destination: tuple[float, float] = Field(..., description="(lat, lon) Zielkoordinate")
+    start: LatLon = Field(..., description="(lat, lon) Startkoordinate")
+    destination: LatLon = Field(..., description="(lat, lon) Zielkoordinate")
     waypoints: list[WaypointAPI] = Field(
-        default_factory=list, description="Liste von Zwischenstopps"
+        default_factory=list, max_length=MAX_WAYPOINTS, description="Liste von Zwischenstopps"
     )
-    departure_time: str = Field(
+    departure_time: datetime = Field(
         ..., description="ISO-8601 Abfahrtszeit (z. B. '2026-08-15T08:30:00')"
     )
     vehicle_profile: VehicleProfile = Field(..., description="Physikalisches Fahrzeugprofil")
@@ -98,7 +113,9 @@ class TripRequestAPI(CamelCaseAPI):
             "(Supercharger stations) in percent. 100.0 = disabled."
         ),
     )
-    preferences: dict[str, object] = Field(default_factory=dict, description="Nutzerpräferenzen")
+    preferences: PreferencesAPI = Field(
+        default_factory=PreferencesAPI, description="Nutzerpräferenzen (derzeit keine)"
+    )
     avoid_all_ferries: bool = Field(
         default=False, description="Falls True, werden alle Fährverbindungen vermieden"
     )
@@ -112,18 +129,21 @@ class TripRequestAPI(CamelCaseAPI):
     )
     avoided_ferries: list[FaehrAusschlussAPI] = Field(
         default_factory=list,
+        max_length=MAX_LIST_ITEMS,
         description=(
             "Liste spezifischer, zuvor erkannter Fährverbindungen, die vermieden werden sollen"
         ),
     )
     ferry_time_windows: list[FaehrZeitfensterAPI] = Field(
         default_factory=list,
+        max_length=MAX_LIST_ITEMS,
         description=(
             "Vom Nutzer vorgegebene Abfahrts-/Ankunftszeiten für zuvor erkannte Fährverbindungen"
         ),
     )
     charging_duration_specifications: list[LadedauerVorgabeAPI] = Field(
         default_factory=list,
+        max_length=MAX_LIST_ITEMS,
         description="Vom Nutzer vorgegebene feste Ladedauern für einzelne Ladehalte",
     )
     weather_detail_level: Literal["off", "low", "medium", "high"] = Field(

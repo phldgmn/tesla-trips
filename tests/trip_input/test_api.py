@@ -76,6 +76,7 @@ from tripplanner.trip_input.models import (
     Waypoint,
 )
 from tripplanner.trip_input.pipeline import _log_step
+from tripplanner.trip_input.schemas.request import MAX_WAYPOINTS
 from tripplanner.weather.models import WeatherQuery, WeatherSample
 from tripplanner.weather.providers import (
     FakeWeatherProvider,
@@ -4079,3 +4080,73 @@ def test_refresh_routes_require_admin_token_when_configured(
     )
     ok = client.post("/superchargers/berlin/refresh", headers={"X-Admin-Token": "s3cret"})
     assert ok.status_code == 200
+
+
+# =============================================================================
+# Request-Validierung (Report-Item 3)
+# =============================================================================
+
+
+def _minimal_api_request(valid_trip_request: dict) -> dict:
+    return {
+        "start": list(valid_trip_request["start"]),
+        "destination": list(valid_trip_request["ziel"]),
+        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("start", [91.0, 13.4]),
+        ("start", [52.5, -181.0]),
+        ("destination", [float("nan"), 11.5]),
+        ("destination", [48.1, float("inf")]),
+    ],
+)
+def test_request_rejects_invalid_coordinates(
+    client: TestClient, valid_trip_request: dict, field: str, value: list[float]
+) -> None:
+    """Coordinates outside lat/lon range, NaN and ±inf are rejected with 422."""
+    api_request = _minimal_api_request(valid_trip_request)
+    api_request[field] = value
+    # NaN/inf are not valid JSON, so send the body raw.
+    body = json.dumps(api_request, allow_nan=True)
+    response = client.post("/trips", content=body, headers={"Content-Type": "application/json"})
+    assert response.status_code == 422
+
+
+def test_request_rejects_too_many_waypoints(client: TestClient, valid_trip_request: dict) -> None:
+    """More than MAX_WAYPOINTS waypoints are rejected before any routing happens."""
+    api_request = _minimal_api_request(valid_trip_request)
+    api_request["waypoints"] = [{"koordinate": [50.0, 10.0]}] * (MAX_WAYPOINTS + 1)
+    response = client.post("/trips", json=api_request)
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"unknownField": 1},
+        {"target_soc_pct": 30.0},  # snake_case is no longer accepted
+        {"preferences": {"foo": "bar"}},
+    ],
+)
+def test_request_rejects_unknown_fields(
+    client: TestClient, valid_trip_request: dict, extra: dict
+) -> None:
+    """Misspelled or unknown fields fail loudly instead of being ignored."""
+    api_request = {**_minimal_api_request(valid_trip_request), **extra}
+    response = client.post("/trips", json=api_request)
+    assert response.status_code == 422
+
+
+def test_request_rejects_malformed_departure_time(
+    client: TestClient, valid_trip_request: dict
+) -> None:
+    """A malformed timestamp is a 422 at the boundary, not an error deep in the pipeline."""
+    api_request = _minimal_api_request(valid_trip_request)
+    api_request["departureTime"] = "morgen früh"
+    response = client.post("/trips", json=api_request)
+    assert response.status_code == 422

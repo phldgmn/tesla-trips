@@ -316,16 +316,14 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
                 "aufenthaltsdauer": timedelta(seconds=wp.aufenthaltsdauer_s)
                 if wp.aufenthaltsdauer_s
                 else None,
-                "geplante_abfahrt": datetime.fromisoformat(wp.geplante_abfahrt)
-                if wp.geplante_abfahrt
-                else None,
+                "geplante_abfahrt": wp.geplante_abfahrt,
                 "ladeleistung_kw": wp.ladeleistung_kw,
             }
             for wp in request.waypoints
         ],
         "abfahrtszeit": request.departure_time,
         "fahrzeugprofil": request.vehicle_profile.model_dump(),
-        "praeferenzen": request.preferences,
+        "praeferenzen": request.preferences.model_dump(),
         "alle_faehren_vermeiden": request.avoid_all_ferries,
         "autobahn_praeferenz": request.highway_preference,
         "vermiedene_faehren": [
@@ -337,8 +335,8 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
                 "name": f.name,
                 "bbox_sw": f.bbox_sw,
                 "bbox_no": f.bbox_ne,
-                "abfahrt": datetime.fromisoformat(f.abfahrt),
-                "ankunft": datetime.fromisoformat(f.ankunft),
+                "abfahrt": f.abfahrt,
+                "ankunft": f.ankunft,
             }
             for f in request.ferry_time_windows
         ],
