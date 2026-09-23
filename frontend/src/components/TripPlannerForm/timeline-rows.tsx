@@ -109,7 +109,7 @@ export function TimeBadge({
  *  damit der Tageswechsel dort selbst sofort erkennbar ist statt nur an der
  *  kleinen Schrift. Wird nur zwischen zwei Einträgen OHNE Fahrsegment
  *  dazwischen gerendert (siehe `TagestrennerEintrag`-Docstring in
- *  `route-eintraege.ts` - mit Fahrsegment wird der Tageswechsel stattdessen
+ *  `route-entries.ts` - mit Fahrsegment wird der Tageswechsel stattdessen
  *  in dessen Zeile kombiniert, siehe `FahrsegmentZeile`). */
 export function DaySeparator({
   previousIso: vorherigeIso,
@@ -169,7 +169,7 @@ export function DaySeparator({
 
 /** Kompakte "Fahrt dazwischen"-Zeile in der Routen-Timeline: gefahrene
  *  Strecke und Zeit zwischen zwei Stopp-/Ladehalt-/Fähren-Karten (siehe
- *  `Fahrsegment` in `route-eintraege.ts`). Bewusst deutlich unauffälliger
+ *  `Fahrsegment` in `route-entries.ts`). Bewusst deutlich unauffälliger
  *  als ein "echter" Halt - kein Kartenrahmen, kein farbiger Icon-Kreis
  *  (nur das blasse Icon direkt auf der Timeline-Linie), einzeilig statt
  *  mehrzeilig - repräsentiert schließlich nur die Verbindung dazwischen,
@@ -178,8 +178,8 @@ export function DaySeparator({
  *  dieser einen Zeile kombiniert, statt zusätzlich einen separaten
  *  `Tagestrenner` zu rendern. */
 export function DriveSegmentRow({
-  distanceKm: distanzKm,
-  durationMin: dauerMin,
+  distanceKm: distanceKm,
+  durationMin: durationMin,
   dayChange: tageswechsel,
 }: {
   distanceKm: number;
@@ -211,8 +211,8 @@ export function DriveSegmentRow({
       </span>
       <div style={{ lineHeight: 1 }}>
         <span style={{ fontSize: "0.7rem", color: "#9ca3af" }}>
-          {formatDrivingSegmentDistance(distanzKm)} ·{" "}
-          {formatDrivingSegmentDuration(dauerMin)}
+          {formatDrivingSegmentDistance(distanceKm)} ·{" "}
+          {formatDrivingSegmentDuration(durationMin)}
           {tageswechsel && (
             <>
               {" · "}

@@ -142,8 +142,11 @@ export function buildStopPopupHtml(
     ["Abfahrt", `${waypointStop.targetSocPct.toFixed(0)}% SoC`],
     ["Abfahrtszeit", formatTimestamp(waypointStop.departureTime)],
   ];
-  if (waypointStop.ladeleistungKw !== null) {
-    rows.push(["Ladeleistung", `${waypointStop.ladeleistungKw.toFixed(1)} kW`]);
+  if (waypointStop.chargingPowerKw !== null) {
+    rows.push([
+      "Ladeleistung",
+      `${waypointStop.chargingPowerKw.toFixed(1)} kW`,
+    ]);
     rows.push(["Geladen", `${waypointStop.energyChargedKwh.toFixed(1)} kWh`]);
   }
   const rowsHtml = rows.map(renderRow).join("");

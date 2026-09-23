@@ -144,7 +144,7 @@ def waypoint_to_segment(
     Returns:
         Der Segment-Index des Waypoints.
     """
-    wp_coord = waypoint.koordinate
+    wp_coord = waypoint.coordinate
 
     min_dist = float("inf")
     closest_seg_idx = min_seg_idx

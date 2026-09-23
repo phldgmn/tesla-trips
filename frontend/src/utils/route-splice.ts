@@ -39,7 +39,7 @@ export interface ChargingDetourInput {
   /** Kumulierte Distanz entlang der Hauptroute, an der abgebogen wird -
    *  bestimmt nur die REIHENFOLGE der Ladehalte, nicht die Spleiss-Position
    *  (dafuer werden `routeIndexVor`/`routeIndexNach` genutzt) */
-  distanzM: number;
+  distanceM: number;
   /** Echte, ueber GraphHopper geroutete Geometrie von `routeIndexVor` ueber die
    *  Station zu `routeIndexNach` (leer = Fallback auf eine Luftlinie zur Station) */
   detourGeometrie: [number, number][];
@@ -56,8 +56,8 @@ export interface ChargingDetourInput {
   /** Index in `routeGeometrie`, bis zu dem (inklusive) `detourGeometrie` die
    *  Hauptroute ersetzt (null, falls `detourGeometrie` leer ist) */
   routeIndexNach: number | null;
-  ankunftsSocPct: number;
-  zielSocPct: number;
+  arrivalSocPct: number;
+  targetSocPct: number;
   /** Zeitpunkt (ISO), an dem der Ladehalt tatsaechlich erreicht/verlassen wird -
    *  fuer den Routen-Hover-Tooltip (siehe `findNearestRouteSample` in
    *  `Map.tsx`), damit der Sprung von Ankunfts- zu Abfahrtszeit exakt am
@@ -76,8 +76,8 @@ export interface SplicedRoute {
   samples: RouteSample[];
   /** Ein Eintrag pro Ladehalt, an der Stelle (Koordinaten-Index + kumulierte
    *  Distanz), an der die Ladestation tatsaechlich erreicht wird - Grundlage
-   *  fuer `splitRouteIntoLegs()`. Sortiert nach `distanzM`. */
-  legBoundaries: { coordinateIndex: number; distanzM: number }[];
+   *  fuer `splitRouteIntoLegs()`. Sortiert nach `distanceM`. */
+  legBoundaries: { coordinateIndex: number; distanceM: number }[];
 }
 
 /** Kumulierte Distanz (m) je Punkt einer (lat, lon)-Polyline; `result[0] === 0`. */
@@ -125,15 +125,15 @@ interface ResolvedDetour {
   stationIndex: number | null;
   stationPosition: [number, number];
   /** Kumulierte Distanz entlang der (ungespliceten) Hauptroute, an der
-   *  tatsaechlich abgebogen/geladen wird (`ChargingDetourInput.distanzM`) -
+   *  tatsaechlich abgebogen/geladen wird (`ChargingDetourInput.distanceM`) -
    *  NICHT identisch mit `startIdx`/`endIdx`, die per `margin_m`-Puffer
    *  (siehe `_finde_klammerpunkte`) bis zu 3 km VOR/NACH diesem Punkt
    *  liegen. Trennt beim Einspleissen Vor-Ladehalt- von Nach-Ladehalt-
    *  Fahr-Frames, die beide noch innerhalb dieses Puffers liegen koennen -
    *  siehe `buildSplicedRoute`. */
-  chargeDistanzM: number;
-  ankunftsSocPct: number;
-  zielSocPct: number;
+  chargeDistanceM: number;
+  arrivalSocPct: number;
+  targetSocPct: number;
   arrivalTime?: string;
   departureTime?: string;
 }
@@ -143,7 +143,7 @@ function resolveDetours(
   routeCum: number[],
   stops: ChargingDetourInput[],
 ): ResolvedDetour[] {
-  const sorted = [...stops].sort((a, b) => a.distanzM - b.distanzM);
+  const sorted = [...stops].sort((a, b) => a.distanceM - b.distanceM);
   return sorted.map((stop) => {
     if (
       stop.routeIndexVor !== null &&
@@ -156,16 +156,16 @@ function resolveDetours(
         detour: stop.detourGeometrie,
         stationIndex: stop.stationIndex,
         stationPosition: stop.position,
-        chargeDistanzM: stop.distanzM,
-        ankunftsSocPct: stop.ankunftsSocPct,
-        zielSocPct: stop.zielSocPct,
+        chargeDistanceM: stop.distanceM,
+        arrivalSocPct: stop.arrivalSocPct,
+        targetSocPct: stop.targetSocPct,
         arrivalTime: stop.arrivalTime,
         departureTime: stop.departureTime,
       };
     }
     // Fallback: keine geroutete Geometrie verfuegbar (siehe
     // `_step_lade_detours_routen`) - einzelner Punkt als Luftlinien-Abstecher.
-    const idx = nearestIndexByDistance(routeCum, stop.distanzM);
+    const idx = nearestIndexByDistance(routeCum, stop.distanceM);
     return {
       startIdx: idx,
       endIdx: idx,
@@ -173,9 +173,9 @@ function resolveDetours(
       // Der mittlere Punkt IST die Station - hier bekannt, keine Suche noetig.
       stationIndex: 1,
       stationPosition: stop.position,
-      chargeDistanzM: stop.distanzM,
-      ankunftsSocPct: stop.ankunftsSocPct,
-      zielSocPct: stop.zielSocPct,
+      chargeDistanceM: stop.distanceM,
+      arrivalSocPct: stop.arrivalSocPct,
+      targetSocPct: stop.targetSocPct,
       arrivalTime: stop.arrivalTime,
       departureTime: stop.departureTime,
     };
@@ -183,7 +183,7 @@ function resolveDetours(
 }
 
 export interface FrameSampleInput {
-  distanzM: number;
+  distanceM: number;
   socPct: number;
   timestamp?: string;
   speedKmh?: number;
@@ -210,12 +210,12 @@ export function buildSplicedRoute(
   const routeCum = cumulativeDistancesM(routeGeometry);
   const detours = resolveDetours(routeGeometry, routeCum, chargingStops);
   const sortedFrames = [...frameSamples].sort(
-    (a, b) => a.distanzM - b.distanzM,
+    (a, b) => a.distanceM - b.distanceM,
   );
 
   const coordinates: [number, number][] = [];
   const samples: RouteSample[] = [];
-  const legBoundaries: { coordinateIndex: number; distanzM: number }[] = [];
+  const legBoundaries: { coordinateIndex: number; distanceM: number }[] = [];
   let frameIdx = 0;
   let detourIdx = 0;
   // Kumulierte Differenz (gesplicete Distanz - urspruengliche Routendistanz)
@@ -225,7 +225,7 @@ export function buildSplicedRoute(
 
   const emitPlainFrame = (frame: FrameSampleInput) => {
     samples.push({
-      distanzM: frame.distanzM + offset,
+      distanceM: frame.distanceM + offset,
       socPct: frame.socPct,
       timestamp: frame.timestamp,
       speedKmh: frame.speedKmh,
@@ -289,7 +289,7 @@ export function buildSplicedRoute(
       // Bereich sind Phantom-Frames und werden uebersprungen.
       const BRANCH_POINT_THRESHOLD_M = 3000;
       const isChargeAtBranchPoint =
-        Math.abs(detour.chargeDistanzM - rangeStartOriginal) <=
+        Math.abs(detour.chargeDistanceM - rangeStartOriginal) <=
         BRANCH_POINT_THRESHOLD_M;
 
       // Frames, die (durch die Zeit-Diskretisierung der Simulation) noch VOR
@@ -298,7 +298,7 @@ export function buildSplicedRoute(
       // `_finde_klammerpunkte`, bis zu 3 km VOR/NACH dem eigentlichen
       // Ladehalt), anteilig auf die Detour-Laenge legen statt sie fallen zu
       // lassen. WICHTIG: getrennt nach Vor-/Nach-Ladehalt anhand
-      // `chargeDistanzM` (dem tatsaechlichen Abzweigpunkt) interpolieren -
+      // `chargeDistanceM` (dem tatsaechlichen Abzweigpunkt) interpolieren -
       // eine einzige Interpolation ueber den GESAMTEN (bis zu 6 km breiten)
       // Puffer wuerde Vor-Ladehalt-Frames mit niedrigem SoC teils HINTER den
       // SoC-Sprung an der Station projizieren (sichtbar als falsche SoC-
@@ -306,10 +306,10 @@ export function buildSplicedRoute(
       //
       // Klassifizierung per `zeitpunkt`: Frames mit zeitpunkt < ankunftszeit
       // sind Vor-Ladehalt-Frames (gehen auf den Hinweg). Frames mit
-      // zeitpunkt > abfahrtszeit sind Nach-Ladehalt-Frames (gehen auf den
+      // zeitpunkt > departure_time sind Nach-Ladehalt-Frames (gehen auf den
       // Rueckweg oder werden nach dem Detour verarbeitet). Frames ohne
-      // zeitpunkt fallen fallback-maessig auf die distanzM-Klassifizierung
-      // zurueck (<= chargeDistanzM = Hinweg, > chargeDistanzM = Rueckweg).
+      // zeitpunkt fallen fallback-maessig auf die distanceM-Klassifizierung
+      // zurueck (<= chargeDistanceM = Hinweg, > chargeDistanceM = Rueckweg).
       //
       // Sonderfall: Ladehalt am Abzweigpunkt (isChargeAtBranchPoint).
       // Dann ist der gesamte Bereich [rangeStartOriginal, rangeEndOriginal]
@@ -322,7 +322,7 @@ export function buildSplicedRoute(
         : null;
       while (
         frameIdx < sortedFrames.length &&
-        sortedFrames[frameIdx].distanzM <= rangeEndOriginal
+        sortedFrames[frameIdx].distanceM <= rangeEndOriginal
       ) {
         const frame = sortedFrames[frameIdx];
         const frameTime = frame.timestamp
@@ -330,46 +330,46 @@ export function buildSplicedRoute(
           : null;
 
         // Sonderfall: Ladehalt am Abzweigpunkt -> gesamter Pufferbereich ist Phantom
-        if (isChargeAtBranchPoint && frame.distanzM >= rangeStartOriginal) {
+        if (isChargeAtBranchPoint && frame.distanceM >= rangeStartOriginal) {
           // Frame im ersetzten Segment -> ueberspringen (Phantom-Frame)
           frameIdx++;
           continue;
         }
 
-        // Nur Frames in der Naehe von chargeDistanzM (margin_m ~ 3 km) per zeitpunkt
-        // klassifizieren. Weiter entfernte Frames werden rein per distanzM
+        // Nur Frames in der Naehe von chargeDistanceM (margin_m ~ 3 km) per zeitpunkt
+        // klassifizieren. Weiter entfernte Frames werden rein per distanceM
         // einsortiert, da ihre zeitpunkt-Daten auf dem ersetzten Hauptroutensegment
         // nicht verlässlich sind (Phantom-Frames).
         const CLASSIFICATION_THRESHOLD_M = 5000;
-        const distFromCharge = frame.distanzM - detour.chargeDistanzM;
+        const distFromCharge = frame.distanceM - detour.chargeDistanceM;
         const useTimeClassification =
           frameTime !== null &&
           Math.abs(distFromCharge) <= CLASSIFICATION_THRESHOLD_M;
         const isPreCharge = useTimeClassification
           ? frameTime < (arrivalTime ?? Infinity)
-          : frame.distanzM <= detour.chargeDistanzM;
+          : frame.distanceM <= detour.chargeDistanceM;
         const isPostCharge = useTimeClassification
           ? frameTime > (departureTime ?? -Infinity)
-          : frame.distanzM > detour.chargeDistanzM;
+          : frame.distanceM > detour.chargeDistanceM;
         // Schwelle für Nach-Ladehalt-Frames auf dem Rueckweg: nur Frames nah an
-        // chargeDistanzM (innerhalb von ~5 km) werden auf den Rueckweg interpoliert;
+        // chargeDistanceM (innerhalb von ~5 km) werden auf den Rueckweg interpoliert;
         // weiter entfernte Frames sind Phantom-Frames und werden uebersprungen.
         // Schwelle für Nach-Ladehalt-Frames auf dem Rueckweg: nur Frames nah an
-        // chargeDistanzM (innerhalb von ~5 km NACH dem Ladehalt) werden auf den
-        // Rueckweg interpoliert; Frames VOR chargeDistanzM mit post-charging
+        // chargeDistanceM (innerhalb von ~5 km NACH dem Ladehalt) werden auf den
+        // Rueckweg interpoliert; Frames VOR chargeDistanceM mit post-charging
         // zeitpunkt sind Phantom-Frames (Simulation lief auf Hauptroute weiter)
         // Schwelle fuer Nach-Ladehalt-Frames auf dem Rueckweg: nur Frames nah an
-        // chargeDistanzM (innerhalb von ~5 km) werden auf den Rueckweg interpoliert;
+        // chargeDistanceM (innerhalb von ~5 km) werden auf den Rueckweg interpoliert;
         // weiter entfernte Frames sind Phantom-Frames und werden uebersprungen.
         const POST_CHARGE_THRESHOLD_M = 5000;
         const isPostChargeNear =
           isPostCharge &&
-          distFromCharge > 0 && // exclude exact chargeDistanzM to avoid duplicate arrival sample
+          distFromCharge > 0 && // exclude exact chargeDistanceM to avoid duplicate arrival sample
           distFromCharge <= POST_CHARGE_THRESHOLD_M;
 
-        if (frame.distanzM < rangeStartOriginal) {
+        if (frame.distanceM < rangeStartOriginal) {
           // Frame liegt vor dem Pufferbereich -> normal emittieren, aber
-          // Frames mit zeitpunkt NACH Ankunft (ankunftsZeit) sind
+          // Frames mit zeitpunkt NACH Ankunft (arrivalTime) sind
           // Phantom-Frames (Simulation lief auf Hauptroute weiter, waehrend
           // Auto schon abbiegt/laedt) und werden uebersprungen.
           const isAfterArrival =
@@ -385,7 +385,7 @@ export function buildSplicedRoute(
         } else if (
           isPreCharge &&
           !isPostCharge &&
-          frame.distanzM < detour.chargeDistanzM
+          frame.distanceM < detour.chargeDistanceM
         ) {
           // Pre-Ladehalt-Frame: alle auf den Start des Detours legen, damit die
           // vorherige, niedrige SoC-Spanne bis zur Station korrekt angezeigt wird.
@@ -393,7 +393,7 @@ export function buildSplicedRoute(
           // falschen hoch-SoC-Segmenten direkt vor der Ladestation führen würde
           // (siehe Issue mit 44% SoC vor dem Charger).
           samples.push({
-            distanzM: rangeStartOriginal + offset,
+            distanceM: rangeStartOriginal + offset,
             socPct: frame.socPct,
             timestamp: frame.timestamp,
             speedKmh: frame.speedKmh,
@@ -405,13 +405,13 @@ export function buildSplicedRoute(
           frameIdx++;
         } else if (isPostChargeNear) {
           // Nach-Ladehalt-Frame nahe am Ladehalt: auf Rueckweg interpolieren
-          const inboundSpan = rangeEndOriginal - detour.chargeDistanzM;
+          const inboundSpan = rangeEndOriginal - detour.chargeDistanceM;
           const frac =
             inboundSpan > 0
-              ? (frame.distanzM - detour.chargeDistanzM) / inboundSpan
+              ? (frame.distanceM - detour.chargeDistanceM) / inboundSpan
               : 0;
           samples.push({
-            distanzM:
+            distanceM:
               rangeStartOriginal +
               offset +
               stationDetourDistanceM +
@@ -428,7 +428,7 @@ export function buildSplicedRoute(
         } else if (isPostCharge) {
           // Post-Stop-Frame: entweder auf Rueckweg (echter Lade-Detour) oder direkt
           // emittieren (Stopover ohne echten Detour). Unterscheidung: Wenn der
-          // Rueckweg sehr kurz ist (detourLen - stationDetourDistanzM < 100 m),
+          // Rueckweg sehr kurz ist (detourLen - stationDetourDistanceM < 100 m),
           // ist es kein echter Lade-Detour, sondern ein Stopover, und Frames
           // sollen direkt emittiert werden (siehe Issue mit 100% SoC nach Stop).
           const returnLegLen = detourLen - stationDetourDistanceM;
@@ -457,18 +457,18 @@ export function buildSplicedRoute(
         rangeStartOriginal + offset + stationDetourDistanceM;
       const emitChargeJump = (coordinateIndex: number) => {
         samples.push({
-          distanzM: arrivalDistanceM,
-          socPct: detour.ankunftsSocPct,
+          distanceM: arrivalDistanceM,
+          socPct: detour.arrivalSocPct,
           timestamp: detour.arrivalTime,
           critical: true,
         });
         samples.push({
-          distanzM: arrivalDistanceM + CHARGE_JUMP_EPSILON_M,
-          socPct: detour.zielSocPct,
+          distanceM: arrivalDistanceM + CHARGE_JUMP_EPSILON_M,
+          socPct: detour.targetSocPct,
           timestamp: detour.departureTime,
           critical: true,
         });
-        legBoundaries.push({ coordinateIndex, distanzM: arrivalDistanceM });
+        legBoundaries.push({ coordinateIndex, distanceM: arrivalDistanceM });
       };
       if (splitIdx === 0) {
         emitChargeJump(coordinates.length - 1);
@@ -489,7 +489,7 @@ export function buildSplicedRoute(
     coordinates.push(toLngLat(routeGeometry[i]));
     while (
       frameIdx < sortedFrames.length &&
-      sortedFrames[frameIdx].distanzM <= routeCum[i]
+      sortedFrames[frameIdx].distanceM <= routeCum[i]
     ) {
       emitPlainFrame(sortedFrames[frameIdx]);
       frameIdx++;
@@ -504,13 +504,13 @@ export function buildSplicedRoute(
     frameIdx++;
   }
 
-  // `samples` wird NICHT zwangslaeufig in aufsteigender `distanzM`-Reihenfolge
+  // `samples` wird NICHT zwangslaeufig in aufsteigender `distanceM`-Reihenfolge
   // befuellt: die Ankunfts-/Abfahrts-Stuetzpunkte eines Ladehalts (siehe
   // `emitChargeJump` oben) werden erst NACH den innerhalb des margin_m-
   // Puffers interpolierten Vor-/Nach-Ladehalt-Frames gepusht, liegen
-  // distanzM-maessig aber DAZWISCHEN. Ohne diese Sortierung waere jede
+  // distanceM-maessig aber DAZWISCHEN. Ohne diese Sortierung waere jede
   // binaere Suche ueber `samples` (siehe `findNearestRouteSample`) undefiniert.
-  samples.sort((a, b) => a.distanzM - b.distanzM);
+  samples.sort((a, b) => a.distanceM - b.distanceM);
 
   return {
     coordinates,

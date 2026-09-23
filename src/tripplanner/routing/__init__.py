@@ -11,15 +11,15 @@ Exportiert:
 - RoutingProvider: Interface für Routing-Anbieter
 - GraphHopperRoutingProvider: Implementierung über GraphHopper HTTP API
 - GraphHopperClient: HTTP-Client für GraphHopper API
-- FaehrSegment: Erkannte, zusammenhängende Fährverbindung in einer Route
-- erkenne_faehren: Gruppiert FERRY-Segmente einer Route zu FaehrSegment-Einträgen
+- FerrySegment: Erkannte, zusammenhängende Fährverbindung in einer Route
+- detect_ferries: Gruppiert FERRY-Segmente einer Route zu FerrySegment-Einträgen
 """
 
 from tripplanner.routing.client import GraphHopperClient
-from tripplanner.routing.faehren import erkenne_faehren
+from tripplanner.routing.ferries import detect_ferries
 from tripplanner.routing.models import (
     Coordinate,
-    FaehrSegment,
+    FerrySegment,
     GraphHopperPath,
     GraphHopperResponse,
     Route,
@@ -33,8 +33,8 @@ from tripplanner.routing.providers import (
 
 __all__ = [
     "Coordinate",
-    "FaehrSegment",
     "FakeRoutingProvider",
+    "FerrySegment",
     "GraphHopperClient",
     "GraphHopperPath",
     "GraphHopperResponse",
@@ -42,5 +42,5 @@ __all__ = [
     "Route",
     "RouteSegment",
     "RoutingProvider",
-    "erkenne_faehren",
+    "detect_ferries",
 ]

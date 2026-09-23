@@ -52,7 +52,7 @@ from tripplanner.elevation.providers import FakeDataSource
 from tripplanner.energy.models import SegmentEnergyResult
 from tripplanner.geo import haversine_distance_m
 from tripplanner.routing import FakeRoutingProvider, GraphHopperClient, GraphHopperRoutingProvider
-from tripplanner.routing.models import FaehrSegment, Route, RouteSegment
+from tripplanner.routing.models import FerrySegment, Route, RouteSegment
 from tripplanner.simulation.models import (
     ChargingCostByCurrency,
     ChargingStopSummary,
@@ -72,15 +72,15 @@ from tripplanner.trip_input.api import (
 )
 from tripplanner.trip_input.cli import parse_coord, parse_waypoint
 from tripplanner.trip_input.models import (
-    FaehrZeitfenster,
-    LadedauerVorgabe,
+    ChargingDurationSpecification,
+    FerryTimeWindow,
     TripInfeasibleError,
     TripRequest,
     VehicleProfile,
     Waypoint,
 )
 from tripplanner.trip_input.pipeline import _log_step
-from tripplanner.trip_input.schemas.request import MAX_WAYPOINTS
+from tripplanner.trip_input.schemas.request import MAX_WAYPOINTS, VehicleProfileAPI
 from tripplanner.weather.models import WeatherQuery, WeatherSample
 from tripplanner.weather.providers import (
     FakeWeatherProvider,
@@ -92,6 +92,11 @@ from tripplanner.weather.providers import (
 # =============================================================================
 # Fixtures
 # =============================================================================
+
+
+def _vehicle_payload(trip_request: dict) -> dict:
+    """camelCase `vehicleProfile` payload for a domain trip-request fixture."""
+    return VehicleProfileAPI.from_domain(trip_request["vehicle_profile"]).model_dump()
 
 
 @pytest.fixture
@@ -156,20 +161,20 @@ def valid_trip_request() -> dict:
     """Erstelle ein gültiges TripRequest-Beispiel."""
     return {
         "start": (52.52, 13.405),  # Berlin
-        "ziel": (48.135, 11.582),  # München
-        "zwischenstopps": [],
-        "abfahrtszeit": datetime(2026, 8, 15, 8, 30, 0),
-        "fahrzeugprofil": VehicleProfile(
-            masse_kg=1800.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.2,
-            rollwiderstandsbeiwert=0.01,
-            batteriekapazitaet_kwh=60.0,
-            nebenverbraucher_baseline_kw=0.34,
-            reifentyp="standard",
-            dachbox=False,
+        "destination": (48.135, 11.582),  # München
+        "waypoints": [],
+        "departure_time": datetime(2026, 8, 15, 8, 30, 0),
+        "vehicle_profile": VehicleProfile(
+            mass_kg=1800.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.2,
+            rolling_resistance_coefficient=0.01,
+            battery_capacity_kwh=60.0,
+            auxiliary_baseline_kw=0.34,
+            tire_type="standard",
+            roof_box=False,
         ),
-        "praeferenzen": {},
+        "preferences": {},
     }
 
 
@@ -310,7 +315,7 @@ async def test_create_trip_simulation_complete_run(
     assert result.gesamt_fahrzeit_min > 0
     assert result.gesamt_ladezeit_min >= 0
     assert 0 <= result.start_soc_pct <= 100
-    assert 0 <= result.ziel_soc_pct <= 100
+    assert 0 <= result.target_soc_pct <= 100
     assert len(result.frames) > 0
 
     # Prüfe Frames
@@ -335,7 +340,7 @@ async def test_create_trip_simulation_e2e_regression_departure_time_and_soc(
     "vollstaendiger_durchlauf"-Test NICHT erkannt wurden, weil `0 <= soc_pct <= 100` auch
     bei physikalisch falschem Verhalten (SoC-Crash auf 0%, Zeitstempel auf Unix-Epoch 1970)
     technisch gueltig waere:
-    1. Frame-Zeitstempel muessen auf der tatsaechlichen `abfahrtszeit` basieren, nicht auf
+    1. Frame-Zeitstempel muessen auf der tatsaechlichen `departure_time` basieren, nicht auf
        Unix-Epoch (1970-01-01).
     2. Der End-SoC darf nicht unrealistisch auf nahe 0% abstuerzen, wenn der Energiebedarf
        relativ zur Batteriekapazitaet moderat ist.
@@ -350,13 +355,13 @@ async def test_create_trip_simulation_e2e_regression_departure_time_and_soc(
         destination_soc_pct=20.0,
     )
 
-    abfahrtszeit = valid_trip_request["abfahrtszeit"]
-    assert result.frames[0].zeitpunkt.year == abfahrtszeit.year
-    assert result.frames[0].zeitpunkt.date() == abfahrtszeit.date()
+    departure_time = valid_trip_request["departure_time"]
+    assert result.frames[0].zeitpunkt.year == departure_time.year
+    assert result.frames[0].zeitpunkt.date() == departure_time.date()
     assert all(f.zeitpunkt.year != 1970 for f in result.frames)
 
-    # Zeitstempel muessen monoton steigen und mit abfahrtszeit beginnen
-    assert result.frames[0].zeitpunkt >= abfahrtszeit
+    # Zeitstempel muessen monoton steigen und mit departure_time beginnen
+    assert result.frames[0].zeitpunkt >= departure_time
     for a, b in zip(result.frames, result.frames[1:], strict=False):
         assert b.zeitpunkt >= a.zeitpunkt
 
@@ -414,25 +419,25 @@ async def test_create_trip_simulation_with_stop(
     """Test: Reise mit Zwischenstopp wird korrekt verarbeitet."""
     request = {
         "start": (52.52, 13.405),  # Berlin
-        "ziel": (53.551, 9.994),  # Hamburg
-        "zwischenstopps": [
+        "destination": (53.551, 9.994),  # Hamburg
+        "waypoints": [
             Waypoint(
-                koordinate=(51.23, 6.78),  # Aachen als Zwischenstopp
-                aufenthaltsdauer=timedelta(minutes=30),
+                coordinate=(51.23, 6.78),  # Aachen als Zwischenstopp
+                stay_duration=timedelta(minutes=30),
             )
         ],
-        "abfahrtszeit": datetime(2026, 8, 15, 8, 30, 0),
-        "fahrzeugprofil": VehicleProfile(
-            masse_kg=1800.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.2,
-            rollwiderstandsbeiwert=0.01,
-            batteriekapazitaet_kwh=200.0,
-            nebenverbraucher_baseline_kw=0.34,
-            reifentyp="standard",
-            dachbox=False,
+        "departure_time": datetime(2026, 8, 15, 8, 30, 0),
+        "vehicle_profile": VehicleProfile(
+            mass_kg=1800.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.2,
+            rolling_resistance_coefficient=0.01,
+            battery_capacity_kwh=200.0,
+            auxiliary_baseline_kw=0.34,
+            tire_type="standard",
+            roof_box=False,
         ),
-        "praeferenzen": {},
+        "preferences": {},
     }
 
     result = await create_trip_simulation(
@@ -457,20 +462,20 @@ async def test_create_trip_simulation_different_vehicle_profiles(
     """Test: Unterschiedliche Fahrzeugprofile werden korrekt verarbeitet."""
     request = {
         "start": (52.52, 13.405),
-        "ziel": (48.135, 11.582),
-        "zwischenstopps": [],
-        "abfahrtszeit": datetime(2026, 8, 15, 8, 30, 0),
-        "fahrzeugprofil": VehicleProfile(
-            masse_kg=1900.0,  # Schwereres Fahrzeug (max 1900)
-            cw_wert=0.25,
-            stirnflaeche_m2=2.4,
-            rollwiderstandsbeiwert=0.012,
-            batteriekapazitaet_kwh=75.0,
-            nebenverbraucher_baseline_kw=0.4,
-            reifentyp="winter",
-            dachbox=True,
+        "destination": (48.135, 11.582),
+        "waypoints": [],
+        "departure_time": datetime(2026, 8, 15, 8, 30, 0),
+        "vehicle_profile": VehicleProfile(
+            mass_kg=1900.0,  # Schwereres Fahrzeug (max 1900)
+            drag_coefficient=0.25,
+            frontal_area_m2=2.4,
+            rolling_resistance_coefficient=0.012,
+            battery_capacity_kwh=75.0,
+            auxiliary_baseline_kw=0.4,
+            tire_type="winter",
+            roof_box=True,
         ),
-        "praeferenzen": {},
+        "preferences": {},
     }
 
     result = await create_trip_simulation(
@@ -605,7 +610,7 @@ async def test_create_trip_simulation_start_soc_100(
     )
 
     assert result.start_soc_pct == 100.0
-    assert result.ziel_soc_pct >= 10.0
+    assert result.target_soc_pct >= 10.0
 
 
 @pytest.mark.asyncio
@@ -615,9 +620,9 @@ async def test_create_trip_simulation_mindest_ankunfts_soc_pct_erlaubt_niedriger
     fake_weather_provider: FakeWeatherProvider,
     fake_charging_provider_berlin_munich: FakeChargingStationProvider,
 ) -> None:
-    """`mindest_ankunfts_soc_pct` steuert, wie tief der SoC beim Ankommen an
+    """`min_arrival_soc_pct` steuert, wie tief der SoC beim Ankommen an
     einer Ladestation sinken darf (siehe `OptimizationConstraints.
-    mindest_ankunfts_soc_pct`) - im Gegensatz zur allgemeinen Sicherheits-
+    min_arrival_soc_pct`) - im Gegensatz zur allgemeinen Sicherheits-
     reserve auf offener Strecke.
 
     Mit dem niedrigen Default (5.0) MUSS die Gesamtladezeit fuer die Berlin
@@ -636,12 +641,12 @@ async def test_create_trip_simulation_mindest_ankunfts_soc_pct_erlaubt_niedriger
         charging_provider=fake_charging_provider_berlin_munich,
         start_soc_pct=80.0,
         destination_soc_pct=20.0,
-        mindest_ankunfts_soc_pct=5.0,
+        min_arrival_soc_pct=5.0,
         # Isoliert von der SEPARATEN Mindestladedauer-Funktionalitaet (siehe
         # `test_create_trip_simulation_mindest_ladezeit_s_verhindert_kurze_ladehalte`),
         # die mit ihrem eigenen Produktions-Default (600s) sonst die Anzahl/
         # Reihenfolge der Ladehalte in diesem Szenario mitveraendern wuerde.
-        mindest_ladezeit_s=0,
+        min_charging_time_s=0,
     )
     streng = await create_trip_simulation(
         valid_trip_request,
@@ -650,13 +655,13 @@ async def test_create_trip_simulation_mindest_ankunfts_soc_pct_erlaubt_niedriger
         charging_provider=fake_charging_provider_berlin_munich,
         start_soc_pct=80.0,
         destination_soc_pct=20.0,
-        mindest_ankunfts_soc_pct=20.0,
-        mindest_ladezeit_s=0,
+        min_arrival_soc_pct=20.0,
+        min_charging_time_s=0,
     )
 
     assert grosszuegig.gesamt_ladezeit_min < streng.gesamt_ladezeit_min
-    assert min(s.ankunfts_soc_pct for s in grosszuegig.charging_stops) < 20.0
-    assert all(s.ankunfts_soc_pct >= 20.0 for s in streng.charging_stops)
+    assert min(s.arrival_soc_pct for s in grosszuegig.charging_stops) < 20.0
+    assert all(s.arrival_soc_pct >= 20.0 for s in streng.charging_stops)
 
 
 @pytest.mark.asyncio
@@ -666,8 +671,8 @@ async def test_create_trip_simulation_mindest_ladezeit_s_verhindert_kurze_ladeha
     fake_weather_provider: FakeWeatherProvider,
     fake_charging_provider_berlin_munich: FakeChargingStationProvider,
 ) -> None:
-    """`mindest_ladezeit_s` steuert die Mindestdauer eines Ladehalts, WENN
-    geladen wird (siehe `OptimizationConstraints.mindest_ladezeit_s`).
+    """`min_charging_time_s` steuert die Mindestdauer eines Ladehalts, WENN
+    geladen wird (siehe `OptimizationConstraints.min_charging_time_s`).
 
     Mit deaktivierter Mindestladedauer (0s) kann ein einzelner Ladehalt
     kürzer als die Produktions-Default-Mindestdauer (600s) ausfallen. Mit
@@ -682,9 +687,9 @@ async def test_create_trip_simulation_mindest_ladezeit_s_verhindert_kurze_ladeha
         charging_provider=fake_charging_provider_berlin_munich,
         start_soc_pct=80.0,
         destination_soc_pct=20.0,
-        mindest_ladezeit_s=0,
+        min_charging_time_s=0,
     )
-    assert any(stop.ladedauer_s < 600 for stop in ohne_mindestdauer.charging_stops), (
+    assert any(stop.charging_duration_s < 600 for stop in ohne_mindestdauer.charging_stops), (
         "Testpraemisse nicht erfuellt: Szenario muss ohne Mindestladedauer "
         "einen kurzen Ladehalt erzeugen, sonst testet dieser Test nichts."
     )
@@ -696,11 +701,11 @@ async def test_create_trip_simulation_mindest_ladezeit_s_verhindert_kurze_ladeha
         charging_provider=fake_charging_provider_berlin_munich,
         start_soc_pct=80.0,
         destination_soc_pct=20.0,
-        mindest_ladezeit_s=600,
+        min_charging_time_s=600,
     )
     # `int()`-Rundung der Ladedauer (siehe `_extract_charging_stops`) kann bis
     # zu 1s unter der exakten Mindestdauer liegen - kein Bug.
-    assert all(stop.ladedauer_s >= 599 for stop in mit_mindestdauer.charging_stops)
+    assert all(stop.charging_duration_s >= 599 for stop in mit_mindestdauer.charging_stops)
 
 
 @pytest.mark.asyncio
@@ -710,8 +715,8 @@ async def test_create_trip_simulation_max_lade_soc_pct_begrenzt_ladeziele(
     fake_weather_provider: FakeWeatherProvider,
     fake_charging_provider_berlin_munich: FakeChargingStationProvider,
 ) -> None:
-    """`max_lade_soc_pct` deckelt das Ziel-SoC an allen regelhaften Ladehalten
-    (siehe `OptimizationConstraints.max_lade_soc_pct`).
+    """`max_charge_soc_pct` deckelt das Ziel-SoC an allen regelhaften Ladehalten
+    (siehe `OptimizationConstraints.max_charge_soc_pct`).
 
     Praemisse: OHNE Cap (Default 100.0) erzeugt das Berlin -> Muenchen-
     Szenario mindestens einen Ladehalt mit Ziel-SoC > 60%; MIT Cap 60.0
@@ -724,9 +729,9 @@ async def test_create_trip_simulation_max_lade_soc_pct_begrenzt_ladeziele(
         charging_provider=fake_charging_provider_berlin_munich,
         start_soc_pct=80.0,
         destination_soc_pct=20.0,
-        mindest_ladezeit_s=0,
+        min_charging_time_s=0,
     )
-    assert any(stop.ziel_soc_pct > 60.0 for stop in ohne_cap.charging_stops), (
+    assert any(stop.target_soc_pct > 60.0 for stop in ohne_cap.charging_stops), (
         "Testpraemisse nicht erfuellt: ohne Cap muss mindestens ein "
         "Ladehalt ueber 60% aufladen, sonst testet dieser Test nichts."
     )
@@ -738,11 +743,11 @@ async def test_create_trip_simulation_max_lade_soc_pct_begrenzt_ladeziele(
         charging_provider=fake_charging_provider_berlin_munich,
         start_soc_pct=80.0,
         destination_soc_pct=20.0,
-        mindest_ladezeit_s=0,
-        max_lade_soc_pct=60.0,
+        min_charging_time_s=0,
+        max_charge_soc_pct=60.0,
     )
     assert len(mit_cap.charging_stops) > 0
-    assert all(stop.ziel_soc_pct <= 60.0 + 1e-6 for stop in mit_cap.charging_stops)
+    assert all(stop.target_soc_pct <= 60.0 + 1e-6 for stop in mit_cap.charging_stops)
 
 
 @pytest.mark.asyncio
@@ -753,20 +758,20 @@ async def test_create_trip_simulation_kurze_reise(
     """Test: Kurze Reise (nur ein paar km) wird korrekt verarbeitet."""
     request = {
         "start": (52.52, 13.405),  # Berlin-Mitte
-        "ziel": (52.525, 13.41),  # Etwa 1 km entfernt
-        "zwischenstopps": [],
-        "abfahrtszeit": datetime(2026, 8, 15, 12, 0, 0),
-        "fahrzeugprofil": VehicleProfile(
-            masse_kg=1800.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.2,
-            rollwiderstandsbeiwert=0.01,
-            batteriekapazitaet_kwh=60.0,
-            nebenverbraucher_baseline_kw=0.34,
-            reifentyp="standard",
-            dachbox=False,
+        "destination": (52.525, 13.41),  # Etwa 1 km entfernt
+        "waypoints": [],
+        "departure_time": datetime(2026, 8, 15, 12, 0, 0),
+        "vehicle_profile": VehicleProfile(
+            mass_kg=1800.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.2,
+            rolling_resistance_coefficient=0.01,
+            battery_capacity_kwh=60.0,
+            auxiliary_baseline_kw=0.34,
+            tire_type="standard",
+            roof_box=False,
         ),
-        "praeferenzen": {},
+        "preferences": {},
     }
 
     result = await create_trip_simulation(
@@ -885,14 +890,14 @@ class TestElevationGradientAffectsEnergy:
 
     def _make_vehicle_profile(self) -> VehicleProfile:
         return VehicleProfile(
-            masse_kg=1800.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.2,
-            rollwiderstandsbeiwert=0.01,
-            batteriekapazitaet_kwh=60.0,
-            nebenverbraucher_baseline_kw=0.34,
-            reifentyp="standard",
-            dachbox=False,
+            mass_kg=1800.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.2,
+            rolling_resistance_coefficient=0.01,
+            battery_capacity_kwh=60.0,
+            auxiliary_baseline_kw=0.34,
+            tire_type="standard",
+            roof_box=False,
         )
 
     async def _energy_for_elevations(
@@ -904,10 +909,10 @@ class TestElevationGradientAffectsEnergy:
             segments=[segment], gesamtlaenge_m=segment.laenge_m, geometrie=segment.geometrie
         )
         elevation_points = await elevation_provider.get_elevation_profile(route)
-        abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0)
+        departure_time = datetime(2026, 8, 15, 8, 0, 0)
         weather = WeatherSample(
-            koordinate=segment.geometrie[0],
-            zeitpunkt=abfahrtszeit,
+            coordinate=segment.geometrie[0],
+            zeitpunkt=departure_time,
             temperatur_c=20.0,
             windgeschwindigkeit_ms=0.0,
             windrichtung_deg=0.0,
@@ -925,7 +930,7 @@ class TestElevationGradientAffectsEnergy:
             [weather],
             self._make_vehicle_profile(),
             [],
-            abfahrtszeit,
+            departure_time,
             elevation_provider,
             elevation_points,
         )
@@ -961,54 +966,54 @@ class TestElevationGradientAffectsEnergy:
 # =============================================================================
 
 
-def _make_fahrzeugprofil_dict() -> dict:
-    """Erzeuge ein Standard-Fahrzeugprofil als Dict für API-Requests.
+def _make_vehicle_profile_dict() -> dict:
+    """Build a default camelCase vehicle profile for API requests.
 
-    Verwendet 200 kWh Batterie für lange Test-Routen (Berlin→Hamburg via Aachen).
+    Uses a 200 kWh battery for long test routes (Berlin→Hamburg via Aachen).
     """
     return {
-        "masse_kg": 1800.0,
-        "cw_wert": 0.23,
-        "stirnflaeche_m2": 2.2,
-        "rollwiderstandsbeiwert": 0.01,
-        "batteriekapazitaet_kwh": 200.0,
-        "nebenverbraucher_baseline_kw": 0.34,
-        "reifentyp": "standard",
-        "dachbox": False,
+        "massKg": 1800.0,
+        "dragCoefficient": 0.23,
+        "frontalAreaM2": 2.2,
+        "rollingResistanceCoefficient": 0.01,
+        "batteryCapacityKwh": 200.0,
+        "auxiliaryBaselineKw": 0.34,
+        "tireType": "standard",
+        "roofBox": False,
     }
 
 
 # =============================================================================
-# Testfälle für _match_ferry_time_window, faehren_observer, ladedauer_vorgaben
+# Testfälle für _match_ferry_time_window, ferries_observer, charging_duration_specifications
 # =============================================================================
 
 
 def test_match_ferry_time_window_expanded_when_same_name() -> None:
     """Ein Zeitfenster mit passendem Namen reichert die erkannte Fähre um
-    abfahrt/ankunft an."""
-    faehre = FaehrSegment(
+    departure/arrival an."""
+    ferry = FerrySegment(
         name="Rødby (DK) - Puttgarden (D)",
         laenge_m=22000.0,
         bbox_sw=(54.50, 11.22),
-        bbox_no=(54.66, 11.36),
+        bbox_ne=(54.66, 11.36),
         segment_index_start=3,
         segment_index_end=7,
     )
-    abfahrt = datetime(2026, 8, 15, 10, 0, 0)
-    ankunft = datetime(2026, 8, 15, 11, 9, 0)
-    zeitfenster = FaehrZeitfenster(
+    departure = datetime(2026, 8, 15, 10, 0, 0)
+    arrival = datetime(2026, 8, 15, 11, 9, 0)
+    zeitfenster = FerryTimeWindow(
         name="Rødby (DK) - Puttgarden (D)",
         bbox_sw=(54.50, 11.22),
-        bbox_no=(54.66, 11.36),
-        abfahrt=abfahrt,
-        ankunft=ankunft,
+        bbox_ne=(54.66, 11.36),
+        departure=departure,
+        arrival=arrival,
     )
 
-    ergebnis = trip_pipeline._match_ferry_time_window([faehre], [zeitfenster])
+    ergebnis = trip_pipeline._match_ferry_time_window([ferry], [zeitfenster])
 
     assert len(ergebnis) == 1
-    assert ergebnis[0].abfahrt == abfahrt
-    assert ergebnis[0].ankunft == ankunft
+    assert ergebnis[0].departure == departure
+    assert ergebnis[0].arrival == arrival
     # Identitaets-/sonstige Felder bleiben unveraendert.
     assert ergebnis[0].segment_index_start == 3
     assert ergebnis[0].segment_index_end == 7
@@ -1016,58 +1021,58 @@ def test_match_ferry_time_window_expanded_when_same_name() -> None:
 
 def test_match_ferry_time_window_ignore_not_matching_names() -> None:
     """Ein Zeitfenster fuer eine nicht (mehr) vorhandene Fähre wird stillschweigend
-    ignoriert - die erkannte Fähre bleibt ohne abfahrt/ankunft."""
-    faehre = FaehrSegment(
+    ignoriert - die erkannte Fähre bleibt ohne departure/arrival."""
+    ferry = FerrySegment(
         name="Andere Fähre",
         laenge_m=5000.0,
         bbox_sw=(1.0, 1.0),
-        bbox_no=(2.0, 2.0),
+        bbox_ne=(2.0, 2.0),
         segment_index_start=0,
         segment_index_end=2,
     )
-    zeitfenster = FaehrZeitfenster(
+    zeitfenster = FerryTimeWindow(
         name="Rødby (DK) - Puttgarden (D)",
         bbox_sw=(54.50, 11.22),
-        bbox_no=(54.66, 11.36),
-        abfahrt=datetime(2026, 8, 15, 10, 0, 0),
-        ankunft=datetime(2026, 8, 15, 11, 0, 0),
+        bbox_ne=(54.66, 11.36),
+        departure=datetime(2026, 8, 15, 10, 0, 0),
+        arrival=datetime(2026, 8, 15, 11, 0, 0),
     )
 
-    ergebnis = trip_pipeline._match_ferry_time_window([faehre], [zeitfenster])
+    ergebnis = trip_pipeline._match_ferry_time_window([ferry], [zeitfenster])
 
     assert len(ergebnis) == 1
-    assert ergebnis[0].abfahrt is None
-    assert ergebnis[0].ankunft is None
+    assert ergebnis[0].departure is None
+    assert ergebnis[0].arrival is None
 
 
 def test_match_ferry_time_window_select_next_bbox_for_multiple_matching_names() -> None:
     """Bei mehreren gleichnamigen Zeitfenstern gewinnt die naehere Bounding-Box-Mitte."""
-    faehre = FaehrSegment(
+    ferry = FerrySegment(
         name="Fähre X",
         laenge_m=1000.0,
         bbox_sw=(10.0, 10.0),
-        bbox_no=(10.1, 10.1),
+        bbox_ne=(10.1, 10.1),
         segment_index_start=0,
         segment_index_end=1,
     )
-    nah = FaehrZeitfenster(
+    nah = FerryTimeWindow(
         name="Fähre X",
         bbox_sw=(10.0, 10.0),
-        bbox_no=(10.1, 10.1),
-        abfahrt=datetime(2026, 8, 15, 10, 0, 0),
-        ankunft=datetime(2026, 8, 15, 11, 0, 0),
+        bbox_ne=(10.1, 10.1),
+        departure=datetime(2026, 8, 15, 10, 0, 0),
+        arrival=datetime(2026, 8, 15, 11, 0, 0),
     )
-    fern = FaehrZeitfenster(
+    fern = FerryTimeWindow(
         name="Fähre X",
         bbox_sw=(50.0, 50.0),
-        bbox_no=(50.1, 50.1),
-        abfahrt=datetime(2026, 8, 15, 20, 0, 0),
-        ankunft=datetime(2026, 8, 15, 21, 0, 0),
+        bbox_ne=(50.1, 50.1),
+        departure=datetime(2026, 8, 15, 20, 0, 0),
+        arrival=datetime(2026, 8, 15, 21, 0, 0),
     )
 
-    ergebnis = trip_pipeline._match_ferry_time_window([faehre], [fern, nah])
+    ergebnis = trip_pipeline._match_ferry_time_window([ferry], [fern, nah])
 
-    assert ergebnis[0].abfahrt == nah.abfahrt
+    assert ergebnis[0].departure == nah.departure
 
 
 class _FerryRoutingProvider(FakeRoutingProvider):
@@ -1096,7 +1101,7 @@ class _FerryRoutingProvider(FakeRoutingProvider):
             ),
             RouteSegment(
                 segment_index=2,
-                geometrie=[(54.66, 11.36), anfrage.ziel],
+                geometrie=[(54.66, 11.36), anfrage.destination],
                 laenge_m=30_000.0,
                 strassenklasse="MOTORWAY",
                 bearing_deg=0.0,
@@ -1114,37 +1119,37 @@ async def test_create_trip_simulation_ferry_observer_receives_pinned_times(
     fake_weather_provider: FakeWeatherProvider,
     fake_charging_provider_berlin_munich: FakeChargingStationProvider,
 ) -> None:
-    """Ein zur erkannten Fähre passendes `faehr_zeitfenster` wird über
-    `faehren_observer` mit abfahrt/ankunft angereichert zurückgegeben und fließt
+    """Ein zur erkannten Fähre passendes `ferry_time_windows` wird über
+    `ferries_observer` mit departure/arrival angereichert zurückgegeben und fließt
     in die Gesamtreisezeit ein (statt physikalisch unfahrbar durch die Fähre
     zu 'fahren')."""
-    abfahrt = datetime(2026, 8, 15, 9, 0, 0)
-    ankunft = datetime(2026, 8, 15, 9, 45, 0)
+    departure = datetime(2026, 8, 15, 9, 0, 0)
+    arrival = datetime(2026, 8, 15, 9, 45, 0)
     request = dict(valid_trip_request)
-    request["faehr_zeitfenster"] = [
-        FaehrZeitfenster(
+    request["ferry_time_windows"] = [
+        FerryTimeWindow(
             name="Rødby (DK) - Puttgarden (D)",
             bbox_sw=(54.50, 11.22),
-            bbox_no=(54.66, 11.36),
-            abfahrt=abfahrt,
-            ankunft=ankunft,
+            bbox_ne=(54.66, 11.36),
+            departure=departure,
+            arrival=arrival,
         )
     ]
 
-    erfasste_faehren: list[FaehrSegment] = []
+    recorded_ferries: list[FerrySegment] = []
 
     result = await create_trip_simulation(
         request,
         routing_provider=_FerryRoutingProvider(),
         weather_provider=fake_weather_provider,
         charging_provider=fake_charging_provider_berlin_munich,
-        ferry_observer=erfasste_faehren.extend,
+        ferry_observer=recorded_ferries.extend,
     )
 
-    assert len(erfasste_faehren) == 1
-    assert erfasste_faehren[0].name == "Rødby (DK) - Puttgarden (D)"
-    assert erfasste_faehren[0].abfahrt == abfahrt
-    assert erfasste_faehren[0].ankunft == ankunft
+    assert len(recorded_ferries) == 1
+    assert recorded_ferries[0].name == "Rødby (DK) - Puttgarden (D)"
+    assert recorded_ferries[0].departure == departure
+    assert recorded_ferries[0].arrival == arrival
     # Erfolgreiche Simulation beweist, dass die Fähre uebersprungen wurde -
     # Segment 1 haette sonst (siehe `_FerryRoutingProvider`) einen SoC-Bedarf
     # weit jenseits jeder realistischen Batteriekapazitaet.
@@ -1191,11 +1196,11 @@ async def test_create_trip_simulation_charge_duration_specification_applies_to_c
     )
     assert len(baseline.charging_stops) == 1
     assert baseline.charging_stops[0].station_id == "einzige-station"
-    vorgabe_s = baseline.charging_stops[0].ladedauer_s + 900  # deutlich abweichender Wert
+    vorgabe_s = baseline.charging_stops[0].charging_duration_s + 900  # deutlich abweichender Wert
 
     request = dict(valid_trip_request)
-    request["ladedauer_vorgaben"] = [
-        LadedauerVorgabe(station_id="einzige-station", ladedauer_s=vorgabe_s)
+    request["charging_duration_specifications"] = [
+        ChargingDurationSpecification(station_id="einzige-station", charging_duration_s=vorgabe_s)
     ]
 
     result = await create_trip_simulation(
@@ -1209,7 +1214,7 @@ async def test_create_trip_simulation_charge_duration_specification_applies_to_c
 
     assert len(result.charging_stops) == 1
     assert result.charging_stops[0].station_id == "einzige-station"
-    assert result.charging_stops[0].ladedauer_s == vorgabe_s
+    assert result.charging_stops[0].charging_duration_s == vorgabe_s
 
 
 async def test_create_trip_simulation_populates_charging_stop_distanz_m_and_detour_geometrie(
@@ -1282,7 +1287,7 @@ async def test_create_trip_simulation_handles_unreachable_charging_detour_gracef
         _STATION_KOORDINATE = (50.3275, 12.4935)
 
         async def berechne_route(self, anfrage: TripRequest) -> Route:
-            if self._STATION_KOORDINATE in (anfrage.start, anfrage.ziel):
+            if self._STATION_KOORDINATE in (anfrage.start, anfrage.destination):
                 raise httpx.HTTPError("Ladestation nicht erreichbar")
             return await fake_routing_provider.berechne_route(anfrage)
 
@@ -1396,15 +1401,15 @@ async def test_create_trip_simulation_findet_station_ausserhalb_des_alten_2km_ra
 def test_fastapi_endpoint_akzeptiert_faehr_zeitfenster_und_ladedauer_vorgaben(
     client: TestClient,
 ) -> None:
-    """Der `/trips`-Endpunkt akzeptiert `faehr_zeitfenster`/`ladedauer_vorgaben` im
+    """Der `/trips`-Endpunkt akzeptiert `ferry_time_windows`/`charging_duration_specifications` im
     Request und liefert die neuen Antwortfelder (`ChargingStopAPI.station_id` /
-    `.ankunftszeit`/`.abfahrtszeit`, `FaehrSegmentAPI.abfahrt`/`.ankunft`)."""
+    `.ankunftszeit`/`.departure_time`, `FerrySegmentAPI.departure`/`.arrival`)."""
     api_request = {
         "start": (52.52, 13.405),
         "destination": (48.135, 11.582),
         "waypoints": [],
         "departureTime": "2026-08-15T08:30:00",
-        "vehicleProfile": _make_fahrzeugprofil_dict(),
+        "vehicleProfile": _make_vehicle_profile_dict(),
         "startSocPct": 80.0,
         "targetSocPct": 20.0,
         "ferryTimeWindows": [
@@ -1412,8 +1417,8 @@ def test_fastapi_endpoint_akzeptiert_faehr_zeitfenster_und_ladedauer_vorgaben(
                 "name": "Nicht in dieser Route vorhanden",
                 "bboxSw": (0.0, 0.0),
                 "bboxNe": (1.0, 1.0),
-                "abfahrt": "2026-08-15T10:00:00",
-                "ankunft": "2026-08-15T11:00:00",
+                "departure": "2026-08-15T10:00:00",
+                "arrival": "2026-08-15T11:00:00",
             }
         ],
         "chargingDurationSpecifications": [
@@ -1433,25 +1438,25 @@ def test_fastapi_endpoint_akzeptiert_faehr_zeitfenster_und_ladedauer_vorgaben(
 
 
 def test_fastapi_endpoint_mit_geplanter_abfahrt_verzoegert_ankunft(client: TestClient) -> None:
-    """Regressionstest: `geplante_abfahrt` an einem Zwischenstopp MUSS die
+    """Regressionstest: `planned_departure` an einem Zwischenstopp MUSS die
     Reise tatsaechlich bis dahin verzoegern - nicht nur fehlerfrei akzeptiert,
     aber im A*-Suchpfad umgangen werden (Bug: eine gesetzte Abfahrtszeit an
     einem Zwischenstopp wurde bei der Ankunftszeit am Ziel ignoriert, siehe
     `tripplanner.optimization.optimizer._required_departure`).
     """
-    geplante_abfahrt = "2026-08-15T09:00:00"
+    planned_departure = "2026-08-15T09:00:00"
     api_request = {
         "start": (52.52, 13.405),
         "destination": (53.5511, 9.9937),
         "waypoints": [
             {
-                "koordinate": (52.6, 13.5),
-                "aufenthaltsdauer_s": None,
-                "geplante_abfahrt": geplante_abfahrt,
+                "coordinate": (52.6, 13.5),
+                "stayDurationS": None,
+                "plannedDeparture": planned_departure,
             }
         ],
         "departureTime": "2026-08-15T08:30:00",
-        "vehicleProfile": _make_fahrzeugprofil_dict(),
+        "vehicleProfile": _make_vehicle_profile_dict(),
         "preferences": {},
     }
 
@@ -1464,19 +1469,19 @@ def test_fastapi_endpoint_mit_geplanter_abfahrt_verzoegert_ankunft(client: TestC
     # Zwischenstopp liegen - eine umgangene Wartezeit wuerde stattdessen weit
     # davor ankommen (reine Fahrzeit ohne Wartezeit).
     letzter_zeitpunkt = data["frames"][-1]["timestamp"]
-    assert letzter_zeitpunkt > geplante_abfahrt
+    assert letzter_zeitpunkt > planned_departure
     assert len(data["waypointStops"]) == 1
-    assert data["waypointStops"][0]["departureTime"] == geplante_abfahrt
+    assert data["waypointStops"][0]["departureTime"] == planned_departure
 
 
 def test_fastapi_endpoint_creates_trip(client: TestClient, valid_trip_request: dict) -> None:
     """Test: FastAPI-Endpunkt liefert 201 mit gültigem Response-Body."""
     api_request = {
         "start": valid_trip_request["start"],
-        "destination": valid_trip_request["ziel"],
+        "destination": valid_trip_request["destination"],
         "waypoints": [],
-        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "departureTime": valid_trip_request["departure_time"].isoformat(),
+        "vehicleProfile": _vehicle_payload(valid_trip_request),
         "preferences": {},
     }
 
@@ -1497,14 +1502,14 @@ def test_fastapi_endpoint_creates_trip(client: TestClient, valid_trip_request: d
 def test_fastapi_endpoint_response_includes_erkannte_faehren_key(
     client: TestClient, valid_trip_request: dict
 ) -> None:
-    """Response enthält den Schlüssel erkannte_faehren (leer, da FakeRoutingProvider
+    """Response enthält den Schlüssel detected_ferries (leer, da FakeRoutingProvider
     keine road_environment-Daten liefert)."""
     api_request = {
         "start": valid_trip_request["start"],
-        "destination": valid_trip_request["ziel"],
+        "destination": valid_trip_request["destination"],
         "waypoints": [],
-        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "departureTime": valid_trip_request["departure_time"].isoformat(),
+        "vehicleProfile": _vehicle_payload(valid_trip_request),
         "preferences": {},
     }
 
@@ -1518,13 +1523,13 @@ def test_fastapi_endpoint_response_includes_erkannte_faehren_key(
 def test_fastapi_endpoint_accepts_ferry_avoidance_fields(
     client: TestClient, valid_trip_request: dict
 ) -> None:
-    """Endpunkt akzeptiert alle_faehren_vermeiden und vermiedene_faehren fehlerfrei."""
+    """Endpunkt akzeptiert avoid_all_ferries und avoided_ferries fehlerfrei."""
     api_request = {
         "start": valid_trip_request["start"],
-        "destination": valid_trip_request["ziel"],
+        "destination": valid_trip_request["destination"],
         "waypoints": [],
-        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "departureTime": valid_trip_request["departure_time"].isoformat(),
+        "vehicleProfile": _vehicle_payload(valid_trip_request),
         "preferences": {},
         "avoidAllFerries": True,
         "avoidedFerries": [{"name": "Testfähre", "bboxSw": [54.0, 11.0], "bboxNe": [55.0, 12.0]}],
@@ -1538,13 +1543,13 @@ def test_fastapi_endpoint_accepts_ferry_avoidance_fields(
 def test_fastapi_endpoint_accepts_autobahn_praeferenz_field(
     client: TestClient, valid_trip_request: dict
 ) -> None:
-    """Endpunkt akzeptiert autobahn_praeferenz fehlerfrei."""
+    """Endpunkt akzeptiert highway_preference fehlerfrei."""
     api_request = {
         "start": valid_trip_request["start"],
-        "destination": valid_trip_request["ziel"],
+        "destination": valid_trip_request["destination"],
         "waypoints": [],
-        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "departureTime": valid_trip_request["departure_time"].isoformat(),
+        "vehicleProfile": _vehicle_payload(valid_trip_request),
         "preferences": {},
         "highwayPreference": "high",
     }
@@ -1567,9 +1572,9 @@ def test_fastapi_endpoint_wetter_detailgrad_off_skips_weather_provider(
     try:
         api_request = {
             "start": valid_trip_request["start"],
-            "destination": valid_trip_request["ziel"],
-            "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-            "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "destination": valid_trip_request["destination"],
+            "departureTime": valid_trip_request["departure_time"].isoformat(),
+            "vehicleProfile": _vehicle_payload(valid_trip_request),
             "weatherDetailLevel": "off",
         }
         response = client.post("/trips", json=api_request)
@@ -1593,9 +1598,9 @@ def test_fastapi_endpoint_wetter_detailgrad_default_is_high(
     try:
         api_request = {
             "start": valid_trip_request["start"],
-            "destination": valid_trip_request["ziel"],
-            "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-            "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "destination": valid_trip_request["destination"],
+            "departureTime": valid_trip_request["departure_time"].isoformat(),
+            "vehicleProfile": _vehicle_payload(valid_trip_request),
         }
         response = client.post("/trips", json=api_request)
         assert response.status_code == 201
@@ -1608,55 +1613,6 @@ def test_fastapi_endpoint_wetter_detailgrad_default_is_high(
         app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
 
 
-def test_fastapi_endpoint_wetter_beruecksichtigen_legacy_boolean(
-    client: TestClient, valid_trip_request: dict
-) -> None:
-    """Legacy 'wetter_beruecksichtigen' boolean maps to detail levels."""
-    # false -> off (no provider calls)
-    spy = FakeWeatherProvider()
-    app.dependency_overrides[get_weather_provider] = lambda: spy
-    try:
-        api_request = {
-            "start": valid_trip_request["start"],
-            "destination": valid_trip_request["ziel"],
-            "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-            "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
-            "wetter_beruecksichtigen": False,
-        }
-        response = client.post("/trips", json=api_request)
-        assert response.status_code == 201
-        assert spy.fetch_weather_calls == []
-    finally:
-        app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
-
-    # true -> high (provider called)
-    spy2 = FakeWeatherProvider()
-    app.dependency_overrides[get_weather_provider] = lambda: spy2
-    try:
-        api_request["wetter_beruecksichtigen"] = True
-        response = client.post("/trips", json=api_request)
-        assert response.status_code == 201
-        assert len(spy2.fetch_weather_calls) > 0
-    finally:
-        app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
-
-
-def test_fastapi_endpoint_legacy_non_bool_rejected(
-    client: TestClient, valid_trip_request: dict
-) -> None:
-    """A non-bool legacy 'wetter_beruecksichtigen' is not silently coerced;
-    it produces a 422 validation error."""
-    api_request = {
-        "start": valid_trip_request["start"],
-        "destination": valid_trip_request["ziel"],
-        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
-        "wetter_beruecksichtigen": "yes",
-    }
-    response = client.post("/trips", json=api_request)
-    assert response.status_code == 422
-
-
 def test_fastapi_endpoint_wetter_detailgrad_low_one_fetch(
     client: TestClient, valid_trip_request: dict
 ) -> None:
@@ -1666,9 +1622,9 @@ def test_fastapi_endpoint_wetter_detailgrad_low_one_fetch(
     try:
         api_request = {
             "start": valid_trip_request["start"],
-            "destination": valid_trip_request["ziel"],
-            "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-            "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "destination": valid_trip_request["destination"],
+            "departureTime": valid_trip_request["departure_time"].isoformat(),
+            "vehicleProfile": _vehicle_payload(valid_trip_request),
             "weatherDetailLevel": "low",
         }
         response = client.post("/trips", json=api_request)
@@ -1693,9 +1649,9 @@ def test_fastapi_endpoint_wetter_detailgrad_medium_one_fetch(
     try:
         api_request = {
             "start": valid_trip_request["start"],
-            "destination": valid_trip_request["ziel"],
-            "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-            "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "destination": valid_trip_request["destination"],
+            "departureTime": valid_trip_request["departure_time"].isoformat(),
+            "vehicleProfile": _vehicle_payload(valid_trip_request),
             "weatherDetailLevel": "medium",
         }
         response = client.post("/trips", json=api_request)
@@ -1721,10 +1677,10 @@ def test_fastapi_endpoint_baustellen_beruecksichtigen_false_skips_construction_p
     try:
         api_request = {
             "start": valid_trip_request["start"],
-            "destination": valid_trip_request["ziel"],
+            "destination": valid_trip_request["destination"],
             "waypoints": [],
-            "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-            "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "departureTime": valid_trip_request["departure_time"].isoformat(),
+            "vehicleProfile": _vehicle_payload(valid_trip_request),
             "preferences": {},
             "considerConstructionSites": False,
         }
@@ -1749,10 +1705,10 @@ def test_fastapi_endpoint_baustellen_beruecksichtigen_default_true_calls_constru
     try:
         api_request = {
             "start": valid_trip_request["start"],
-            "destination": valid_trip_request["ziel"],
+            "destination": valid_trip_request["destination"],
             "waypoints": [],
-            "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-            "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "departureTime": valid_trip_request["departure_time"].isoformat(),
+            "vehicleProfile": _vehicle_payload(valid_trip_request),
             "preferences": {},
         }
 
@@ -1787,10 +1743,10 @@ def test_fastapi_endpoint_construction_zone_with_segments_has_position(
     try:
         api_request = {
             "start": valid_trip_request["start"],
-            "destination": valid_trip_request["ziel"],
+            "destination": valid_trip_request["destination"],
             "waypoints": [],
-            "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-            "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "departureTime": valid_trip_request["departure_time"].isoformat(),
+            "vehicleProfile": _vehicle_payload(valid_trip_request),
             "preferences": {},
         }
 
@@ -1833,10 +1789,10 @@ def test_fastapi_endpoint_construction_zone_without_segments_is_skipped(
     try:
         api_request = {
             "start": valid_trip_request["start"],
-            "destination": valid_trip_request["ziel"],
+            "destination": valid_trip_request["destination"],
             "waypoints": [],
-            "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-            "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "departureTime": valid_trip_request["departure_time"].isoformat(),
+            "vehicleProfile": _vehicle_payload(valid_trip_request),
             "preferences": {},
         }
 
@@ -1857,10 +1813,10 @@ def test_fastapi_endpoint_no_construction_zones_defaults_to_empty_list(
     eine leere Liste (bestehendes Verhalten bleibt unverändert)."""
     api_request = {
         "start": valid_trip_request["start"],
-        "destination": valid_trip_request["ziel"],
+        "destination": valid_trip_request["destination"],
         "waypoints": [],
-        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "departureTime": valid_trip_request["departure_time"].isoformat(),
+        "vehicleProfile": _vehicle_payload(valid_trip_request),
         "preferences": {},
     }
 
@@ -1874,10 +1830,10 @@ def test_fastapi_endpoint_custom_soc(client: TestClient, valid_trip_request: dic
     """Test: FastAPI-Endpunkt akzeptiert benutzerdefinierte Start-/Ziel-SoC."""
     api_request = {
         "start": valid_trip_request["start"],
-        "destination": valid_trip_request["ziel"],
+        "destination": valid_trip_request["destination"],
         "waypoints": [],
-        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "departureTime": valid_trip_request["departure_time"].isoformat(),
+        "vehicleProfile": _vehicle_payload(valid_trip_request),
         "preferences": {},
         "startSocPct": 95.0,
         "targetSocPct": 15.0,
@@ -1896,15 +1852,15 @@ def test_fastapi_endpoint_custom_soc(client: TestClient, valid_trip_request: dic
 def test_fastapi_endpoint_custom_mindest_ankunfts_soc_pct(
     client: TestClient, valid_trip_request: dict
 ) -> None:
-    """Test: FastAPI-Endpunkt akzeptiert `mindest_ankunfts_soc_pct` und
+    """Test: FastAPI-Endpunkt akzeptiert `min_arrival_soc_pct` und
     reicht ihn bis zur Optimierung durch (siehe `TripRequestAPI.
-    mindest_ankunfts_soc_pct`, Default 5.0)."""
+    min_arrival_soc_pct`, Default 5.0)."""
     api_request = {
         "start": valid_trip_request["start"],
-        "destination": valid_trip_request["ziel"],
+        "destination": valid_trip_request["destination"],
         "waypoints": [],
-        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "departureTime": valid_trip_request["departure_time"].isoformat(),
+        "vehicleProfile": _vehicle_payload(valid_trip_request),
         "preferences": {},
         "minArrivalSocPct": 12.5,
     }
@@ -1919,13 +1875,13 @@ def test_fastapi_endpoint_custom_mindest_ankunfts_soc_pct(
 def test_fastapi_endpoint_mindest_ankunfts_soc_pct_out_of_range_rejected(
     client: TestClient, valid_trip_request: dict
 ) -> None:
-    """Test: `mindest_ankunfts_soc_pct` außerhalb [0, 100] liefert 422."""
+    """Test: `min_arrival_soc_pct` außerhalb [0, 100] liefert 422."""
     api_request = {
         "start": valid_trip_request["start"],
-        "destination": valid_trip_request["ziel"],
+        "destination": valid_trip_request["destination"],
         "waypoints": [],
-        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "departureTime": valid_trip_request["departure_time"].isoformat(),
+        "vehicleProfile": _vehicle_payload(valid_trip_request),
         "preferences": {},
         "minArrivalSocPct": 150.0,
     }
@@ -1938,15 +1894,15 @@ def test_fastapi_endpoint_mindest_ankunfts_soc_pct_out_of_range_rejected(
 def test_fastapi_endpoint_custom_mindest_ladezeit_s(
     client: TestClient, valid_trip_request: dict
 ) -> None:
-    """Test: FastAPI-Endpunkt akzeptiert `mindest_ladezeit_s` und reicht ihn
-    bis zur Optimierung durch (siehe `TripRequestAPI.mindest_ladezeit_s`,
+    """Test: FastAPI-Endpunkt akzeptiert `min_charging_time_s` und reicht ihn
+    bis zur Optimierung durch (siehe `TripRequestAPI.min_charging_time_s`,
     Default 600)."""
     api_request = {
         "start": valid_trip_request["start"],
-        "destination": valid_trip_request["ziel"],
+        "destination": valid_trip_request["destination"],
         "waypoints": [],
-        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "departureTime": valid_trip_request["departure_time"].isoformat(),
+        "vehicleProfile": _vehicle_payload(valid_trip_request),
         "preferences": {},
         "minChargingTimeS": 300,
     }
@@ -1961,13 +1917,13 @@ def test_fastapi_endpoint_custom_mindest_ladezeit_s(
 def test_fastapi_endpoint_mindest_ladezeit_s_out_of_range_rejected(
     client: TestClient, valid_trip_request: dict
 ) -> None:
-    """Test: `mindest_ladezeit_s` außerhalb [0, 1800] liefert 422."""
+    """Test: `min_charging_time_s` außerhalb [0, 1800] liefert 422."""
     api_request = {
         "start": valid_trip_request["start"],
-        "destination": valid_trip_request["ziel"],
+        "destination": valid_trip_request["destination"],
         "waypoints": [],
-        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "departureTime": valid_trip_request["departure_time"].isoformat(),
+        "vehicleProfile": _vehicle_payload(valid_trip_request),
         "preferences": {},
         "minChargingTimeS": 5000,
     }
@@ -1980,15 +1936,15 @@ def test_fastapi_endpoint_mindest_ladezeit_s_out_of_range_rejected(
 def test_fastapi_endpoint_custom_max_lade_soc_pct(
     client: TestClient, valid_trip_request: dict
 ) -> None:
-    """Test: FastAPI-Endpunkt akzeptiert `max_lade_soc_pct` und deckelt damit
+    """Test: FastAPI-Endpunkt akzeptiert `max_charge_soc_pct` und deckelt damit
     das Ziel-SoC aller regelhaften Ladehalte (siehe
-    `TripRequestAPI.max_lade_soc_pct`, Default 100.0)."""
+    `TripRequestAPI.max_charge_soc_pct`, Default 100.0)."""
     api_request = {
         "start": valid_trip_request["start"],
-        "destination": valid_trip_request["ziel"],
+        "destination": valid_trip_request["destination"],
         "waypoints": [],
-        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "departureTime": valid_trip_request["departure_time"].isoformat(),
+        "vehicleProfile": _vehicle_payload(valid_trip_request),
         "preferences": {},
         "maxChargeSocPct": 60.0,
     }
@@ -2005,13 +1961,13 @@ def test_fastapi_endpoint_custom_max_lade_soc_pct(
 def test_fastapi_endpoint_max_lade_soc_pct_out_of_range_rejected(
     client: TestClient, valid_trip_request: dict
 ) -> None:
-    """Test: `max_lade_soc_pct` außerhalb [0, 100] liefert 422."""
+    """Test: `max_charge_soc_pct` außerhalb [0, 100] liefert 422."""
     api_request = {
         "start": valid_trip_request["start"],
-        "destination": valid_trip_request["ziel"],
+        "destination": valid_trip_request["destination"],
         "waypoints": [],
-        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "departureTime": valid_trip_request["departure_time"].isoformat(),
+        "vehicleProfile": _vehicle_payload(valid_trip_request),
         "preferences": {},
         "maxChargeSocPct": 150.0,
     }
@@ -2028,7 +1984,7 @@ def test_fastapi_endpoint_invalid_coordinates(client: TestClient) -> None:
         "destination": (52.52, 13.405),
         "waypoints": [],
         "departureTime": "2026-08-15T08:30:00",
-        "vehicleProfile": _make_fahrzeugprofil_dict(),
+        "vehicleProfile": _make_vehicle_profile_dict(),
         "preferences": {},
     }
 
@@ -2045,7 +2001,7 @@ def test_fastapi_endpoint_invalid_date(client: TestClient) -> None:
         "destination": (48.135, 11.582),
         "waypoints": [],
         "departureTime": "ungueltiges-datum",  # Ungültig
-        "vehicleProfile": _make_fahrzeugprofil_dict(),
+        "vehicleProfile": _make_vehicle_profile_dict(),
         "preferences": {},
     }
 
@@ -2061,12 +2017,12 @@ def test_fastapi_endpoint_mit_zwischenstopp(client: TestClient) -> None:
         "destination": (53.551, 9.994),
         "waypoints": [
             {
-                "koordinate": (51.23, 6.78),
-                "aufenthaltsdauer_s": 1800,  # 30 Minuten
+                "coordinate": (51.23, 6.78),
+                "stayDurationS": 1800,  # 30 Minuten
             }
         ],
         "departureTime": "2026-08-15T08:30:00",
-        "vehicleProfile": _make_fahrzeugprofil_dict(),
+        "vehicleProfile": _make_vehicle_profile_dict(),
         "preferences": {},
     }
 
@@ -2266,7 +2222,7 @@ def test_fastapi_endpoint_preserves_curved_graphhopper_geometry() -> None:
                 "destination": (52.5300, 13.5200),
                 "waypoints": [],
                 "departureTime": "2026-08-15T08:30:00",
-                "vehicleProfile": _make_fahrzeugprofil_dict(),
+                "vehicleProfile": _make_vehicle_profile_dict(),
                 "preferences": {},
             }
             response = test_client.post("/trips", json=api_request)
@@ -2344,7 +2300,7 @@ def test_fastapi_endpoint_exposes_full_resolution_route_geometrie() -> None:
                 "destination": detour_points[-1],
                 "waypoints": [],
                 "departureTime": "2026-08-15T08:30:00",
-                "vehicleProfile": _make_fahrzeugprofil_dict(),
+                "vehicleProfile": _make_vehicle_profile_dict(),
                 "preferences": {},
             }
             response = test_client.post("/trips", json=api_request)
@@ -2376,10 +2332,10 @@ def test_fastapi_endpoint_frame_distanz_m_ist_monoton_und_erreicht_gesamtstrecke
     """
     api_request = {
         "start": valid_trip_request["start"],
-        "destination": valid_trip_request["ziel"],
+        "destination": valid_trip_request["destination"],
         "waypoints": [],
-        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "departureTime": valid_trip_request["departure_time"].isoformat(),
+        "vehicleProfile": _vehicle_payload(valid_trip_request),
         "preferences": {},
     }
 
@@ -2412,7 +2368,7 @@ def test_fastapi_endpoint_graphhopper_unreachable_returns_502() -> None:
                 "destination": (48.1351, 11.582),
                 "waypoints": [],
                 "departureTime": "2026-08-15T08:30:00",
-                "vehicleProfile": _make_fahrzeugprofil_dict(),
+                "vehicleProfile": _make_vehicle_profile_dict(),
                 "preferences": {},
             }
             response = test_client.post("/trips", json=api_request)
@@ -2538,7 +2494,7 @@ def test_create_trip_endpoint_uses_open_meteo_provider_for_real_weather(
                 "destination": (48.135, 11.582),
                 "waypoints": [],
                 "departureTime": "2026-08-15T08:30:00",
-                "vehicleProfile": _make_fahrzeugprofil_dict(),
+                "vehicleProfile": _make_vehicle_profile_dict(),
                 "preferences": {},
             }
             response = test_client.post("/trips", json=api_request)
@@ -2616,7 +2572,7 @@ def test_fastapi_endpoint_weather_provider_failure_degrades_gracefully(
                 "destination": (48.135, 11.582),
                 "waypoints": [],
                 "departureTime": "2026-08-15T08:30:00",
-                "vehicleProfile": _make_fahrzeugprofil_dict(),
+                "vehicleProfile": _make_vehicle_profile_dict(),
                 "preferences": {},
             }
             response = test_client.post("/trips", json=api_request)
@@ -2946,13 +2902,13 @@ def test_cli_parse_coord_valid() -> None:
 
 def test_cli_parse_coord_invalid_format() -> None:
     """Test: CLI wirft Fehler bei ungültigem Format."""
-    with pytest.raises(ValueError, match="Ungültige Koordinate"):
+    with pytest.raises(ValueError, match="Invalid coordinate"):
         parse_coord("52.52")  # Nur eine Komponente
 
 
 def test_cli_parse_coord_invalid_number() -> None:
     """Test: CLI wirft Fehler bei nicht-numerischen Werten."""
-    with pytest.raises(ValueError, match="Ungültige Koordinate"):
+    with pytest.raises(ValueError, match="Invalid coordinate"):
         parse_coord("abc,def")
 
 
@@ -2983,20 +2939,20 @@ async def test_create_trip_simulation_selbe_start_ziel_position(
     """Test: Identische Start/Ziel-Position wird behandelt (Randfall)."""
     request = {
         "start": (52.52, 13.405),
-        "ziel": (52.52, 13.405),  # Selbe Position
-        "zwischenstopps": [],
-        "abfahrtszeit": datetime(2026, 8, 15, 8, 30, 0),
-        "fahrzeugprofil": VehicleProfile(
-            masse_kg=1800.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.2,
-            rollwiderstandsbeiwert=0.01,
-            batteriekapazitaet_kwh=60.0,
-            nebenverbraucher_baseline_kw=0.34,
-            reifentyp="standard",
-            dachbox=False,
+        "destination": (52.52, 13.405),  # Selbe Position
+        "waypoints": [],
+        "departure_time": datetime(2026, 8, 15, 8, 30, 0),
+        "vehicle_profile": VehicleProfile(
+            mass_kg=1800.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.2,
+            rolling_resistance_coefficient=0.01,
+            battery_capacity_kwh=60.0,
+            auxiliary_baseline_kw=0.34,
+            tire_type="standard",
+            roof_box=False,
         ),
-        "praeferenzen": {},
+        "preferences": {},
     }
 
     # Erwartet: Minimale Route oder Fehler je nach FakeRoutingProvider
@@ -3196,12 +3152,12 @@ def _make_charging_stop_summary(
         station_id=station_id,
         position=(51.947, 10.140),
         distanz_m=12000.0,
-        ankunfts_soc_pct=30.0,
-        ziel_soc_pct=80.0,
-        ladedauer_s=1500,
+        arrival_soc_pct=30.0,
+        target_soc_pct=80.0,
+        charging_duration_s=1500,
         energie_geladen_kwh=energie_geladen_kwh,
         ankunftszeit=ankunftszeit,
-        abfahrtszeit=ankunftszeit + timedelta(minutes=25),
+        departure_time=ankunftszeit + timedelta(minutes=25),
     )
 
 
@@ -3212,7 +3168,7 @@ def _make_simulation_result(charging_stops: list[ChargingStopSummary]) -> TripSi
         gesamt_fahrzeit_min=60.0,
         gesamt_ladezeit_min=25.0,
         start_soc_pct=80.0,
-        ziel_soc_pct=30.0,
+        target_soc_pct=30.0,
         charging_stops=charging_stops,
     )
 
@@ -3516,7 +3472,7 @@ def test_fastapi_endpoint_logs_valueerror_as_422_warning(
                 "destination": (48.1351, 11.582),
                 "waypoints": [],
                 "departureTime": "2026-08-15T08:30:00",
-                "vehicleProfile": _make_fahrzeugprofil_dict(),
+                "vehicleProfile": _make_vehicle_profile_dict(),
                 "preferences": {},
             }
             response = test_client.post("/trips", json=api_request)
@@ -3556,7 +3512,7 @@ def test_fastapi_endpoint_logs_httpx_error_as_502_warning(
                 "destination": (48.1351, 11.582),
                 "waypoints": [],
                 "departureTime": "2026-08-15T08:30:00",
-                "vehicleProfile": _make_fahrzeugprofil_dict(),
+                "vehicleProfile": _make_vehicle_profile_dict(),
                 "preferences": {},
             }
             response = test_client.post("/trips", json=api_request)
@@ -3993,7 +3949,7 @@ def test_fastapi_endpoint_hides_internal_error_details(
                 "destination": (48.1351, 11.582),
                 "waypoints": [],
                 "departureTime": "2026-08-15T08:30:00",
-                "vehicleProfile": _make_fahrzeugprofil_dict(),
+                "vehicleProfile": _make_vehicle_profile_dict(),
                 "preferences": {},
             }
             response = test_client.post("/trips", json=api_request)
@@ -4094,9 +4050,9 @@ def test_refresh_routes_require_admin_token_when_configured(
 def _minimal_api_request(valid_trip_request: dict) -> dict:
     return {
         "start": list(valid_trip_request["start"]),
-        "destination": list(valid_trip_request["ziel"]),
-        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "destination": list(valid_trip_request["destination"]),
+        "departureTime": valid_trip_request["departure_time"].isoformat(),
+        "vehicleProfile": _vehicle_payload(valid_trip_request),
     }
 
 
@@ -4124,7 +4080,7 @@ def test_request_rejects_invalid_coordinates(
 def test_request_rejects_too_many_waypoints(client: TestClient, valid_trip_request: dict) -> None:
     """More than MAX_WAYPOINTS waypoints are rejected before any routing happens."""
     api_request = _minimal_api_request(valid_trip_request)
-    api_request["waypoints"] = [{"koordinate": [50.0, 10.0]}] * (MAX_WAYPOINTS + 1)
+    api_request["waypoints"] = [{"coordinate": [50.0, 10.0]}] * (MAX_WAYPOINTS + 1)
     response = client.post("/trips", json=api_request)
     assert response.status_code == 422
 
@@ -4177,9 +4133,9 @@ async def test_health_responds_while_optimizer_runs(
     del client  # only needed for its dependency overrides
     payload = {
         "start": list(valid_trip_request["start"]),
-        "destination": list(valid_trip_request["ziel"]),
-        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
-        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "destination": list(valid_trip_request["destination"]),
+        "departureTime": valid_trip_request["departure_time"].isoformat(),
+        "vehicleProfile": _vehicle_payload(valid_trip_request),
     }
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:

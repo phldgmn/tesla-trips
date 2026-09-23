@@ -134,7 +134,7 @@ class FaehrSegment(BaseModel):
     """A detected, contiguous ferry connection found in a computed `Route`. 
 
     Produced by `tripplanner.routing.faehren.erkenne_faehren()`. `bbox_sw`/`bbox_no`
-    describe a bounding box buffered by `FAEHR_PUFFER_GRAD` around the exact 
+    describe a bounding box buffered by `FERRY_BUFFER_DEG` around the exact 
     segment geometry - for reuse as `FaehrAusschluss`
     (`tripplanner.trip_input.models`) in einer nachfolgenden Routenberechnung, die
     intended to avoid exactly this ferry connection. 
@@ -710,7 +710,7 @@ server (Puttgarden<->Rødby)."
 **Interfaces:**
 
 - Consumes: `Route`, `RouteSegment.road_environment`/`strassenname`/`geometrie`/`laenge_m` (Task 1).
-- Produces: `erkenne_faehren(route: Route) -> list[FaehrSegment]`, `FAEHR_PUFFER_GRAD: float` — consumed by Task 9 (API layer).
+- Produces: `erkenne_faehren(route: Route) -> list[FaehrSegment]`, `FERRY_BUFFER_DEG: float` — consumed by Task 9 (API layer).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -723,7 +723,7 @@ from __future__ import annotations
 
 import pytest
 
-from tripplanner.routing.faehren import FAEHR_PUFFER_GRAD, erkenne_faehren
+from tripplanner.routing.faehren import FERRY_BUFFER_DEG, erkenne_faehren
 from tripplanner.routing.models import Route, RouteSegment
 
 
@@ -793,7 +793,7 @@ class TestErkenneFaehren:
         assert faehren[0].laenge_m == 2000.0
 
     def test_ferry_bbox_buffered_around_segment_geometry(self) -> None:
-        """The bounding box encloses the ferry geometry buffered by FAEHR_PUFFER_GRAD."""
+        """The bounding box encloses the ferry geometry buffered by FERRY_BUFFER_DEG."""
         route = Route(
             segments=[_segment(0, (54.50, 11.22), (54.60, 11.30), "FERRY", "Testfähre")],
             gesamtlaenge_m=1000.0,
@@ -803,10 +803,10 @@ class TestErkenneFaehren:
         faehren = erkenne_faehren(route)
 
         assert faehren[0].bbox_sw == pytest.approx(
-            (54.50 - FAEHR_PUFFER_GRAD, 11.22 - FAEHR_PUFFER_GRAD)
+            (54.50 - FERRY_BUFFER_DEG, 11.22 - FERRY_BUFFER_DEG)
         )
         assert faehren[0].bbox_no == pytest.approx(
-            (54.60 + FAEHR_PUFFER_GRAD, 11.30 + FAEHR_PUFFER_GRAD)
+            (54.60 + FERRY_BUFFER_DEG, 11.30 + FERRY_BUFFER_DEG)
         )
 
     def test_ferry_without_strassenname_falls_back_to_default_name(self) -> None:
@@ -876,7 +876,7 @@ from __future__ import annotations
 
 from tripplanner.routing.models import Coordinate, FaehrSegment, Route, RouteSegment
 
-FAEHR_PUFFER_GRAD: float = 0.005
+FERRY_BUFFER_DEG: float = 0.005
 "Buffering (in decimal degrees, approx. 500 m at the latitudes DE/DK/SE) around the
 exact segment geometry of a detected ferry connection, so that the Custom Model Area built from it
 covers the entire ferry line reliably."
@@ -891,7 +891,7 @@ def erkenne_faehren(route: Route) -> list[FaehrSegment]:
     segments with `road_environment == "FERRY"` into one `FaehrSegment` each
     (name from the first available `strassenname` of the run, else 
     "Unbenannte Fähre"; length as the sum of `laenge_m`; bounding box from all
-    involved `geometry` coordinates, buffered by `FAEHR_PUFFER_GRAD`. 
+    involved `geometry` coordinates, buffered by `FERRY_BUFFER_DEG`. 
 
     Args:
         route: Eine bereits berechnete Route (z. B. aus `RoutingProvider.berechne_route()`).
@@ -931,8 +931,8 @@ def _lauf_zu_faehrsegment(lauf: list[RouteSegment]) -> FaehrSegment:
     return FaehrSegment(
         name=name,
         laenge_m=laenge_m,
-        bbox_sw=(min(lats) - FAEHR_PUFFER_GRAD, min(lons) - FAEHR_PUFFER_GRAD),
-        bbox_no=(max(lats) + FAEHR_PUFFER_GRAD, max(lons) + FAEHR_PUFFER_GRAD),
+        bbox_sw=(min(lats) - FERRY_BUFFER_DEG, min(lons) - FERRY_BUFFER_DEG),
+        bbox_no=(max(lats) + FERRY_BUFFER_DEG, max(lons) + FERRY_BUFFER_DEG),
     )
 ```
 

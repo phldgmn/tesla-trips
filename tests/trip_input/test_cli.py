@@ -42,7 +42,7 @@ def mock_trip_result() -> MagicMock:
     mock_result.gesamt_fahrzeit_min = 180
     mock_result.gesamt_ladezeit_min = 30
     mock_result.start_soc_pct = 80.0
-    mock_result.ziel_soc_pct = 25.0
+    mock_result.target_soc_pct = 25.0
     mock_result.frames = [mock_frame]
     return mock_result
 
@@ -59,20 +59,20 @@ class TestCliParseFunctions:
 
     def test_parse_coord_invalid_format(self) -> None:
         """Test: Ungültiges Format wirft ValueError."""
-        with pytest.raises(ValueError, match="Ungültige Koordinate"):
+        with pytest.raises(ValueError, match="Invalid coordinate"):
             parse_coord("52.52")  # nur eine Komponente
-        with pytest.raises(ValueError, match="Ungültige Koordinate"):
+        with pytest.raises(ValueError, match="Invalid coordinate"):
             parse_coord("52.52,13.4050,extra")  # drei Komponenten
-        with pytest.raises(ValueError, match="Ungültige Koordinate"):
+        with pytest.raises(ValueError, match="Invalid coordinate"):
             parse_coord("")  # leer
-        with pytest.raises(ValueError, match="Ungültige Koordinate"):
+        with pytest.raises(ValueError, match="Invalid coordinate"):
             parse_coord("lat,lon")  # keine Zahlen
 
     def test_parse_coord_invalid_number(self) -> None:
         """Test: Nicht-numerische Werte werfen ValueError."""
-        with pytest.raises(ValueError, match="Ungültige Koordinate"):
+        with pytest.raises(ValueError, match="Invalid coordinate"):
             parse_coord("abc,def")
-        with pytest.raises(ValueError, match="Ungültige Koordinate"):
+        with pytest.raises(ValueError, match="Invalid coordinate"):
             parse_coord("52.52,abc")
 
     def test_parse_waypoint_valid_with_duration(self) -> None:
@@ -88,12 +88,12 @@ class TestCliParseFunctions:
         assert duration is None
 
     def test_parse_waypoint_invalid_coord(self) -> None:
-        """Test: Ungültige Koordinate im Waypoint wirft ValueError.
+        """An invalid waypoint coordinate raises ValueError.
 
-        Implementation fängt parse_coord-Fehler ab und wirft 'Ungültige Dauer' Error.
-        Das ist das aktuelle Verhalten (Bug in der Implementierung).
+        The implementation catches the parse_coord error and re-raises it as an
+        'Invalid duration' error (current behavior, a known implementation bug).
         """
-        with pytest.raises(ValueError, match="Ungültige Dauer"):
+        with pytest.raises(ValueError, match="Invalid duration"):
             parse_waypoint("invalid:30")
 
 
@@ -128,7 +128,7 @@ class TestCliCommand:
             assert output["gesamt_fahrzeit_min"] == 180
             assert output["gesamt_ladezeit_min"] == 30
             assert output["start_soc_pct"] == 80.0
-            assert output["ziel_soc_pct"] == 25.0
+            assert output["target_soc_pct"] == 25.0
             assert len(output["frames"]) == 1
 
     def test_cli_with_all_options(self, mock_trip_result: MagicMock) -> None:
@@ -164,7 +164,7 @@ class TestCliCommand:
             assert result.exit_code == 0, f"Exit code {result.exit_code}, stderr: {result.stderr}"
             output = json.loads(result.stdout)
             assert output["start_soc_pct"] == 80.0  # vom Mock
-            assert output["ziel_soc_pct"] == 25.0
+            assert output["target_soc_pct"] == 25.0
 
     def test_cli_with_output_json_file(self, mock_trip_result: MagicMock, tmp_path: Path) -> None:
         """Test: JSON-Ausgabe in Datei."""
@@ -341,7 +341,7 @@ class TestCliCommand:
                 "53.5511,9.9937",
                 "--departure-time",
                 "2026-08-15T08:00:00",
-                "--mindest-ladezeit-s",
+                "--min-charging-time-s",
                 "5000",  # > 1800
             ],
         )
@@ -360,7 +360,7 @@ class TestCliCommand:
                 "53.5511,9.9937",
                 "--departure-time",
                 "2026-08-15T08:00:00",
-                "--max-lade-soc-pct",
+                "--max-charge-soc-pct",
                 "150.0",  # > 100
             ],
         )
@@ -386,7 +386,7 @@ class TestCliCommand:
                     "--departure-time",
                     "2026-08-15T08:00:00",
                     "--offline",
-                    "--max-lade-soc-pct",
+                    "--max-charge-soc-pct",
                     "75.0",
                 ],
             )
@@ -394,7 +394,7 @@ class TestCliCommand:
             assert result.exit_code == 0, (
                 f"Unerwarteter Exit Code: {result.exit_code}, stderr: {result.stderr}"
             )
-            assert mock_sim.call_args.kwargs["max_lade_soc_pct"] == 75.0
+            assert mock_sim.call_args.kwargs["max_charge_soc_pct"] == 75.0
 
     def test_cli_missing_required_args(self) -> None:
         """Test: Fehlende Pflichtargumente -> Exit Code != 0 (Typer usage error)."""
@@ -652,11 +652,11 @@ class TestCliOfflineFlag:
             assert call_kwargs["routing_provider"] is mock_providers.routing
 
 
-class TestCliWetterDetailgrad:
-    """Tests for --wetter-detailgrad CLI option."""
+class TestCliWeatherDetailLevel:
+    """Tests for --weather-detail-level CLI option."""
 
-    def test_cli_wetter_detailgrad_off_exits_zero(self, mock_trip_result: MagicMock) -> None:
-        """Test: --wetter-detailgrad off with --offline yields exit code 0."""
+    def test_cli_weather_detail_level_off_exits_zero(self, mock_trip_result: MagicMock) -> None:
+        """Test: --weather-detail-level off with --offline yields exit code 0."""
         with patch(
             "tripplanner.trip_input.cli.create_trip_simulation",
             new_callable=AsyncMock,
@@ -673,15 +673,15 @@ class TestCliWetterDetailgrad:
                     "--departure-time",
                     "2026-08-15T08:00:00",
                     "--offline",
-                    "--wetter-detailgrad",
+                    "--weather-detail-level",
                     "off",
                 ],
             )
             assert result.exit_code == 0, f"stderr: {result.stderr}"
             assert mock_simulate.call_args.kwargs["weather_detail"] == "off"
 
-    def test_cli_wetter_detailgrad_low_exits_zero(self, mock_trip_result: MagicMock) -> None:
-        """Test: --wetter-detailgrad low with --offline yields exit code 0."""
+    def test_cli_weather_detail_level_low_exits_zero(self, mock_trip_result: MagicMock) -> None:
+        """Test: --weather-detail-level low with --offline yields exit code 0."""
         with patch(
             "tripplanner.trip_input.cli.create_trip_simulation",
             new_callable=AsyncMock,
@@ -698,15 +698,15 @@ class TestCliWetterDetailgrad:
                     "--departure-time",
                     "2026-08-15T08:00:00",
                     "--offline",
-                    "--wetter-detailgrad",
+                    "--weather-detail-level",
                     "low",
                 ],
             )
             assert result.exit_code == 0, f"stderr: {result.stderr}"
             assert mock_simulate.call_args.kwargs["weather_detail"] == "low"
 
-    def test_cli_wetter_detailgrad_medium_exits_zero(self, mock_trip_result: MagicMock) -> None:
-        """Test: --wetter-detailgrad medium with --offline yields exit code 0."""
+    def test_cli_weather_detail_level_medium_exits_zero(self, mock_trip_result: MagicMock) -> None:
+        """Test: --weather-detail-level medium with --offline yields exit code 0."""
         with patch(
             "tripplanner.trip_input.cli.create_trip_simulation",
             new_callable=AsyncMock,
@@ -723,15 +723,15 @@ class TestCliWetterDetailgrad:
                     "--departure-time",
                     "2026-08-15T08:00:00",
                     "--offline",
-                    "--wetter-detailgrad",
+                    "--weather-detail-level",
                     "medium",
                 ],
             )
             assert result.exit_code == 0, f"stderr: {result.stderr}"
             assert mock_simulate.call_args.kwargs["weather_detail"] == "medium"
 
-    def test_cli_wetter_detailgrad_high_exits_zero(self, mock_trip_result: MagicMock) -> None:
-        """Test: --wetter-detailgrad high with --offline yields exit code 0."""
+    def test_cli_weather_detail_level_high_exits_zero(self, mock_trip_result: MagicMock) -> None:
+        """Test: --weather-detail-level high with --offline yields exit code 0."""
         with patch(
             "tripplanner.trip_input.cli.create_trip_simulation",
             new_callable=AsyncMock,
@@ -748,15 +748,15 @@ class TestCliWetterDetailgrad:
                     "--departure-time",
                     "2026-08-15T08:00:00",
                     "--offline",
-                    "--wetter-detailgrad",
+                    "--weather-detail-level",
                     "high",
                 ],
             )
             assert result.exit_code == 0, f"stderr: {result.stderr}"
             assert mock_simulate.call_args.kwargs["weather_detail"] == "high"
 
-    def test_cli_wetter_detailgrad_invalid_rejects(self) -> None:
-        """Test: invalid value (--wetter-detailgrad bogus) yields non-zero exit code."""
+    def test_cli_weather_detail_level_invalid_rejects(self) -> None:
+        """Test: invalid value (--weather-detail-level bogus) yields non-zero exit code."""
         result = runner.invoke(
             app,
             [
@@ -768,21 +768,21 @@ class TestCliWetterDetailgrad:
                 "--departure-time",
                 "2026-08-15T08:00:00",
                 "--offline",
-                "--wetter-detailgrad",
+                "--weather-detail-level",
                 "bogus",
             ],
         )
         assert result.exit_code != 0
-        assert "Ungültiges Wetter-Detailgrad" in (result.stderr + result.stdout)
+        assert "Invalid weather detail level" in (result.stderr + result.stdout)
 
-    def test_cli_wetter_detailgrad_help_shows_option(self) -> None:
-        """Test: --help shows the --wetter-detailgrad option."""
+    def test_cli_weather_detail_level_help_shows_option(self) -> None:
+        """Test: --help shows the --weather-detail-level option."""
         result = runner.invoke(app, ["trips", "--help"], env={"COLUMNS": "200"})
         assert result.exit_code == 0
-        assert "--wetter-detailgrad" in result.stdout
+        assert "--weather-detail-level" in result.stdout
 
-    def test_cli_wetter_detailgrad_default_is_high(self, mock_trip_result: MagicMock) -> None:
-        """Test: without --wetter-detailgrad the default 'high' is used."""
+    def test_cli_weather_detail_level_default_is_high(self, mock_trip_result: MagicMock) -> None:
+        """Test: without --weather-detail-level the default 'high' is used."""
         with patch(
             "tripplanner.trip_input.cli.create_trip_simulation",
             new_callable=AsyncMock,

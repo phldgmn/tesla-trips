@@ -77,11 +77,11 @@ describe("MapVisualization utilities", () => {
 
   describe("buildSocGradientExpression", () => {
     function sample(
-      distanzM: number,
+      distanceM: number,
       socPct: number,
       critical = false,
     ): RouteSample {
-      return critical ? { distanzM, socPct, critical } : { distanzM, socPct };
+      return critical ? { distanceM, socPct, critical } : { distanceM, socPct };
     }
 
     it("returns a flat fallback expression for an empty sample list", () => {
@@ -129,7 +129,7 @@ describe("MapVisualization utilities", () => {
       }
     });
 
-    it("positions stops by distanzM against the given totalDistanceM", () => {
+    it("positions stops by distanceM against the given totalDistanceM", () => {
       const samples = [sample(0, 90), sample(9000, 50)];
       const expr = buildSocGradientExpression(samples, 10000);
       const stops = expr.slice(3);
@@ -137,7 +137,7 @@ describe("MapVisualization utilities", () => {
       expect(stops[2]).toBe(0.9);
     });
 
-    it("dedupes samples at an identical distanzM (e.g. a charging pause)", () => {
+    it("dedupes samples at an identical distanceM (e.g. a charging pause)", () => {
       const samples = [
         sample(0, 80),
         sample(5000, 50),
@@ -388,7 +388,7 @@ describe("MapVisualization utilities", () => {
       distanceM: 12345,
       arrivalTime: "2024-05-01T10:00:00Z",
       departureTime: "2024-05-01T10:30:00Z",
-      ladeleistungKw: 11,
+      chargingPowerKw: 11,
       arrivalSocPct: 40,
       targetSocPct: 80,
       energyChargedKwh: 8,
@@ -433,7 +433,7 @@ describe("MapVisualization utilities", () => {
         distanceM: 12345,
         arrivalTime: "2024-05-01T10:00:00Z",
         departureTime: "2024-05-01T10:30:00Z",
-        ladeleistungKw: null,
+        chargingPowerKw: null,
         arrivalSocPct: 40,
         targetSocPct: 45,
         energyChargedKwh: 0,
@@ -452,7 +452,7 @@ describe("MapVisualization utilities", () => {
         distanceM: 12345,
         arrivalTime: "2024-05-01T10:00:00Z",
         departureTime: "2024-05-01T10:30:00Z",
-        ladeleistungKw: 11,
+        chargingPowerKw: 11,
         arrivalSocPct: 40,
         targetSocPct: 80,
         energyChargedKwh: 8,
@@ -851,7 +851,7 @@ describe("MapVisualization utilities", () => {
 
   describe("buildRouteHoverText", () => {
     const sample: RouteSample = {
-      distanzM: 1000,
+      distanceM: 1000,
       timestamp: "2026-08-15T14:05:00",
       socPct: 63.4,
     };
@@ -873,7 +873,7 @@ describe("MapVisualization utilities", () => {
     });
 
     it("should render 'unbekannt' when the sample has no timestamp", () => {
-      expect(buildRouteHoverText({ distanzM: 0, socPct: 50 })).toContain(
+      expect(buildRouteHoverText({ distanceM: 0, socPct: 50 })).toContain(
         "unbekannt",
       );
     });

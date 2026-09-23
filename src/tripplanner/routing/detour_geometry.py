@@ -17,7 +17,7 @@ def find_bracket_points(
 ) -> tuple[int, int]:
     """Finds two points on `route.geometrie` well BEFORE/AFTER `segment_index`.
 
-    A detour request with `start == ziel` (the same point) is direction-
+    A detour request with `start == destination` (the same point) is direction-
     ambiguous for GraphHopper: the router snaps the point onto the nearest
     road WITHOUT knowing which way the trip actually goes, and can end up
     driving past the correct exit to the next one just to turn around. Two

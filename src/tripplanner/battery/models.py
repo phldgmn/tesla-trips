@@ -102,7 +102,7 @@ class ChargingCurvePoint(BaseModel):
     """
 
     soc_pct: float = Field(..., ge=0.0, le=100.0)
-    ladeleistung_kw: float = Field(..., ge=0.0)
+    charging_power_kw: float = Field(..., ge=0.0)
 
     @field_validator("soc_pct")
     @classmethod
@@ -112,12 +112,12 @@ class ChargingCurvePoint(BaseModel):
             raise ValueError("soc_pct muss endlich sein")
         return v
 
-    @field_validator("ladeleistung_kw")
+    @field_validator("charging_power_kw")
     @classmethod
     def validate_power(cls, v: float) -> float:
-        """Stellt sicher, dass ladeleistung_kw endlich und nichtnegativ ist."""
+        """Stellt sicher, dass charging_power_kw endlich und nichtnegativ ist."""
         if not isfinite(v) or v < 0:
-            raise ValueError("ladeleistung_kw muss endlich und nichtnegativ sein")
+            raise ValueError("charging_power_kw muss endlich und nichtnegativ sein")
         return v
 
 
@@ -188,7 +188,7 @@ class ChargingCurve(BaseModel):
     def model_post_init(self, __context: object) -> None:
         """Berechnet Interpolations-Koeffizienten und baut das Hot-Path-Bündel."""
         soc = tuple(p.soc_pct for p in self.points)
-        power = tuple(p.ladeleistung_kw for p in self.points)
+        power = tuple(p.charging_power_kw for p in self.points)
 
         slopes = []
         intercepts = []
@@ -277,7 +277,7 @@ class VehicleBatteryParameters(BaseModel):
     Default-Werte basierend auf typischem Model 3 LR Verhalten.
     """
 
-    batteriekapazitaet_kwh: float = Field(
+    battery_capacity_kwh: float = Field(
         default=75.0,
         ge=50.0,
         le=100.0,
@@ -307,8 +307,8 @@ class ChargingStop(BaseModel):
     """Resultat einer Ladevorgangs-Berechnung für einen Station-Halt."""
 
     station_id: str
-    ankunfts_soc_pct: float
-    ziel_soc_pct: float
+    arrival_soc_pct: float
+    target_soc_pct: float
     geschaetzte_ladedauer_s: float
     ankunftszeit_s: float  # seit Reisebeginn
     abfahrtszeit_s: float  # seit Reisebeginn

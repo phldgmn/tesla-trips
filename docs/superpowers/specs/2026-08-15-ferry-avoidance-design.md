@@ -92,7 +92,7 @@ class FaehrSegment(BaseModel):
     bbox_no: Coordinate  # buffered bounding box, northeast corner
 
 
-FAEHR_PUFFER_GRAD: float = 0.005  # ~500 m buffer around the exact segment geometry
+FERRY_BUFFER_DEG: float = 0.005  # ~500 m buffer around the exact segment geometry
 
 
 def erkenne_faehren(route: Route) -> list[FaehrSegment]:

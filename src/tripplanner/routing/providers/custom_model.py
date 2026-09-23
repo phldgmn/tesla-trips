@@ -11,7 +11,7 @@ def ferry_exclusion_to_geojson_feature(ausschluss: FerryExclusion) -> dict[str, 
     drei dokumentierten GeoJSON-Konversionsstellen des Projekts).
     """
     sw_lat, sw_lon = ausschluss.bbox_sw
-    no_lat, no_lon = ausschluss.bbox_no
+    no_lat, no_lon = ausschluss.bbox_ne
     ring = [
         [sw_lon, sw_lat],
         [no_lon, sw_lat],
@@ -30,8 +30,8 @@ def build_custom_model(use_custom_model: bool, anfrage: TripRequest) -> dict[str
     """Baut das optionale GraphHopper `custom_model` aus Tempolimit-, Fähr- und Autobahnpräferenz.
 
     Gibt `None` zurück, wenn weder `use_custom_model` (Tempolimit-Profil) noch
-    Fährvermeidung (`anfrage.alle_faehren_vermeiden`/`anfrage.vermiedene_faehren`)
-    noch Autobahnpräferenz (`anfrage.autobahn_praeferenz`) angefordert wurde -
+    Fährvermeidung (`anfrage.avoid_all_ferries`/`anfrage.avoided_ferries`)
+    noch Autobahnpräferenz (`anfrage.highway_preference`) angefordert wurde -
     identisch zum bisherigen Verhalten ohne benutzerdefiniertes Modell (kein
     custom_model-Feld im GraphHopper-Request).
     """
@@ -47,15 +47,15 @@ def build_custom_model(use_custom_model: bool, anfrage: TripRequest) -> dict[str
         priority.append({"if": "road_class == MOTORWAY", "multiply_by": 1.0})
         distance_influence = 0.0
 
-    if anfrage.alle_faehren_vermeiden:
+    if anfrage.avoid_all_ferries:
         priority.append({"if": "road_environment == FERRY", "multiply_by": 0.0})
 
-    autobahn_multiplier = {"low": 1.1, "medium": 1.2, "high": 1.3}.get(anfrage.autobahn_praeferenz)
+    autobahn_multiplier = {"low": 1.1, "medium": 1.2, "high": 1.3}.get(anfrage.highway_preference)
     if autobahn_multiplier is not None:
         priority.append({"if": "road_class == MOTORWAY", "multiply_by": autobahn_multiplier})
 
     areas: dict[str, object] = {}
-    for index, ausschluss in enumerate(anfrage.vermiedene_faehren):
+    for index, ausschluss in enumerate(anfrage.avoided_ferries):
         area_id = f"faehre_{index}"
         areas[area_id] = ferry_exclusion_to_geojson_feature(ausschluss)
         priority.append({"if": f"in_{area_id} && road_environment == FERRY", "multiply_by": 0.0})

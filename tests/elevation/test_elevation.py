@@ -69,8 +69,8 @@ class TestElevationProvider:
         route = MockRoute(segments=[MockSegment([(47.0, 8.0), (47.0001, 8.0001)])])
         profile = await elevation_provider.get_elevation_profile(route)
         assert len(profile) == 2
-        assert profile[0].koordinate == (47.0, 8.0)
-        assert profile[1].koordinate == (47.0001, 8.0001)
+        assert profile[0].coordinate == (47.0, 8.0)
+        assert profile[1].coordinate == (47.0001, 8.0001)
 
     @pytest.mark.asyncio
     async def test_get_elevation_profile_multiple_segments(
@@ -83,8 +83,8 @@ class TestElevationProvider:
     def test_calculate_segment_gradients_basic(self, elevation_provider: ElevationProvider) -> None:
         """Steigungsberechnung mit einfachen Werten."""
         points = [
-            ElevationPoint(koordinate=(47.0, 8.0), hoehe_m=100.0),
-            ElevationPoint(koordinate=(47.0001, 8.0001), hoehe_m=110.0),
+            ElevationPoint(coordinate=(47.0, 8.0), hoehe_m=100.0),
+            ElevationPoint(coordinate=(47.0001, 8.0001), hoehe_m=110.0),
         ]
         route = MockRoute(segments=[MockSegment([(47.0, 8.0), (47.0001, 8.0001)])])
         gradients = elevation_provider.calculate_segment_gradients(points, route)
@@ -97,8 +97,8 @@ class TestElevationProvider:
     ) -> None:
         """Negativ-Steigung (Gefälle) wird korrekt berechnet."""
         points = [
-            ElevationPoint(koordinate=(47.0, 8.0), hoehe_m=100.0),
-            ElevationPoint(koordinate=(47.0001, 8.0001), hoehe_m=90.0),
+            ElevationPoint(coordinate=(47.0, 8.0), hoehe_m=100.0),
+            ElevationPoint(coordinate=(47.0001, 8.0001), hoehe_m=90.0),
         ]
         route = MockRoute(segments=[MockSegment([(47.0, 8.0), (47.0001, 8.0001)])])
         gradients = elevation_provider.calculate_segment_gradients(points, route)
@@ -111,8 +111,8 @@ class TestElevationProvider:
     ) -> None:
         """Steigung ist 0 wenn horizontale Distanz 0 ist."""
         points = [
-            ElevationPoint(koordinate=(47.0, 8.0), hoehe_m=100.0),
-            ElevationPoint(koordinate=(47.0, 8.0), hoehe_m=120.0),
+            ElevationPoint(coordinate=(47.0, 8.0), hoehe_m=100.0),
+            ElevationPoint(coordinate=(47.0, 8.0), hoehe_m=120.0),
         ]
         route = MockRoute(segments=[MockSegment([(47.0, 8.0), (47.0, 8.0)])])
         gradients = elevation_provider.calculate_segment_gradients(points, route)
@@ -130,7 +130,7 @@ class TestElevationProvider:
         self, elevation_provider: ElevationProvider
     ) -> None:
         """Nicht genug Punkte raises ValueError."""
-        points = [ElevationPoint(koordinate=(47.0, 8.0), hoehe_m=100.0)]
+        points = [ElevationPoint(coordinate=(47.0, 8.0), hoehe_m=100.0)]
         route = MockRoute(segments=[MockSegment([(47.0, 8.0), (47.0001, 8.0001)])])
         with pytest.raises(ValueError, match="Nicht genug"):
             elevation_provider.calculate_segment_gradients(points, route)
@@ -212,8 +212,8 @@ class TestIntegrationWithRealDem:
     def test_segment_gradient_with_fake_dem(self, real_dem_provider: ElevationProvider) -> None:
         """Steigungsberechnung mit synthetischem DEM."""
         points = [
-            ElevationPoint(koordinate=(47.00014, 8.00001), hoehe_m=100.0),
-            ElevationPoint(koordinate=(47.00001, 8.00014), hoehe_m=120.0),
+            ElevationPoint(coordinate=(47.00014, 8.00001), hoehe_m=100.0),
+            ElevationPoint(coordinate=(47.00001, 8.00014), hoehe_m=120.0),
         ]
         route = MockRoute(segments=[MockSegment([(47.00014, 8.00001), (47.00001, 8.00014)])])
         gradients = real_dem_provider.calculate_segment_gradients(points, route)

@@ -33,7 +33,7 @@ class WeatherProvider(Protocol):
         """Neuabfrage bereits abgefragter Punkte mit aktualisiertem Zeitpunkt.
 
         Diese Methode ist zentral für die iterative Zeit-/Wetterauflösung.
-        Die Implementierung darf intern Caching nutzen (z. B. auf `koordinate` + `zeitpunkt`-Tupel),
+        Die Implementierung darf intern Caching nutzen (z. B. auf `coordinate` + `zeitpunkt`-Tupel),
         um unnötige API-Calls zu vermeiden.
 
         Args:
@@ -76,7 +76,7 @@ class FakeWeatherProvider:
         # Dummy-Daten generieren
         return [
             WeatherSample(
-                koordinate=q.koordinate,
+                coordinate=q.coordinate,
                 zeitpunkt=q.zeitpunkt,
                 temperatur_c=20.0,
                 windgeschwindigkeit_ms=5.0,

@@ -38,20 +38,20 @@ app.add_typer(charger_app, name="charger")
 
 
 def parse_coord(s: str) -> tuple[float, float]:
-    """Parse Koordinate aus 'lat,lon' Format."""
+    """Parse a coordinate in 'lat,lon' format."""
     parts = s.split(_COORD_SEPARATOR)
     if len(parts) != _EXPECTED_PARTS_COUNT:
-        raise ValueError(f"Ungültige Koordinate: {s}. Erwartet 'lat,lon'.")
+        raise ValueError(f"Invalid coordinate: {s}. Expected 'lat,lon'.")
     try:
         lat = float(parts[0])
         lon = float(parts[1])
         return (lat, lon)
     except ValueError as e:
-        raise ValueError(f"Ungültige Koordinate: {s}. Muss numerisch sein.") from e
+        raise ValueError(f"Invalid coordinate: {s}. Must be numeric.") from e
 
 
 def parse_waypoint(s: str) -> tuple[tuple[float, float], timedelta | None]:
-    """Parse Waypoint aus 'lat,lon:duration_min' Format."""
+    """Parse a waypoint in 'lat,lon:duration_min' format."""
     if _DURATION_SEPARATOR in s:
         coord_part, dur_part = s.split(_DURATION_SEPARATOR, 1)
         try:
@@ -59,79 +59,79 @@ def parse_waypoint(s: str) -> tuple[tuple[float, float], timedelta | None]:
             duration_min = int(dur_part)
             return coord, timedelta(minutes=duration_min)
         except ValueError as e:
-            raise ValueError(f"Ungültige Dauer: {dur_part}. Muss integer sein.") from e
+            raise ValueError(f"Invalid duration: {dur_part}. Must be an integer.") from e
     coord = parse_coord(s)
     return coord, None
 
 
 @app.command()
 def trips(  # noqa: PLR0913, PLR0917
-    start: Annotated[str, typer.Option(help="Start-Koordinate als lat,lon")],
-    destination: Annotated[str, typer.Option(help="Ziel-Koordinate als lat,lon")],
+    start: Annotated[str, typer.Option(help="Start coordinate as lat,lon")],
+    destination: Annotated[str, typer.Option(help="Destination coordinate as lat,lon")],
     departure_time: Annotated[
-        str, typer.Option(help="Abfahrtszeit im ISO-Format z. B. 2026-08-15T08:30:00")
+        str, typer.Option(help="Departure time in ISO format, e.g. 2026-08-15T08:30:00")
     ],
     waypoints: Annotated[
         list[str] | None,
-        typer.Option(help="Zwischenstopps als lat,lon oder lat,lon:duration_min"),
+        typer.Option(help="Waypoints as lat,lon or lat,lon:duration_min"),
     ] = None,
     start_soc_pct: Annotated[
-        float, typer.Option(min=0.0, max=100.0, help="Start-SoC in Prozent")
+        float, typer.Option(min=0.0, max=100.0, help="Start SoC in percent")
     ] = 80.0,
     destination_soc_pct: Annotated[
-        float, typer.Option(min=0.0, max=100.0, help="Ziel-SoC in Prozent")
+        float, typer.Option(min=0.0, max=100.0, help="Target SoC at the destination in percent")
     ] = 20.0,
-    mindest_ankunfts_soc_pct: Annotated[
+    min_arrival_soc_pct: Annotated[
         float,
         typer.Option(
             min=0.0,
             max=100.0,
-            help="Minimal zulässiger SoC beim Ankommen an einer Ladestation",
+            help="Minimum allowed SoC when arriving at a charging station",
         ),
     ] = 5.0,
-    mindest_ladezeit_s: Annotated[
+    min_charging_time_s: Annotated[
         int,
         typer.Option(
             min=0,
             max=1800,
-            help="Minimale Dauer eines Ladevorgangs in Sekunden, wenn geladen wird",
+            help="Minimum charging session duration in seconds",
         ),
     ] = 600,
-    max_lade_soc_pct: Annotated[
+    max_charge_soc_pct: Annotated[
         float,
         typer.Option(
             min=0.0,
             max=100.0,
-            help="Maximaler Ladeziel-SoC an regulären Ladehalten in Prozent (100 = deaktiviert)",
+            help="Maximum target SoC at regular charging stops in percent (100 = disabled)",
         ),
     ] = 100.0,
     vehicle_profile: Annotated[
         str,
-        typer.Option(help="Fahrzeugprofilname currently unused"),
+        typer.Option(help="Vehicle profile name (currently unused)"),
     ] = "model3_standard",
     output_json: Annotated[
-        Path | None, typer.Option(help="Pfad zur JSON-Ausgabe default stdout")
+        Path | None, typer.Option(help="Path for JSON output (default: stdout)")
     ] = None,
-    offline: Annotated[bool, typer.Option(help="Offline-Modus ohne Produktionsserver")] = False,
-    wetter_detailgrad: Annotated[
+    offline: Annotated[bool, typer.Option(help="Offline mode without production servers")] = False,
+    weather_detail_level: Annotated[
         str,
-        typer.Option(help="Wetter-Detailgrad: off, low, medium oder high"),
+        typer.Option(help="Weather detail level: off, low, medium or high"),
     ] = "high",
 ) -> None:
-    """Berechnet eine Reise und simuliert sie vollständig (inkl. Ladeplanung).
+    """Plan a trip and simulate it end to end, including charging.
 
-    Die 11 Datenfluss-Schritte werden in korrekter Reihenfolge ausgeführt:
-    1. OSM-Routing berechnen
-    2. Höhenprofil extrahieren
-    3. Route in Segmente unterteilen
-    4. Initiale ETA-Schätzung
-    5. Wetterdaten abrufen
-    6. Baustellen einbeziehen
-    7. Energieverbrauch berechnen
-    8. Ladeplan optimieren
-    9. ETA aktualisieren
-    10. Reise simulieren
-    11. Ergebnis zurückgeben
+    The 11 data-flow steps run in order:
+    1. Compute OSM routing
+    2. Extract the elevation profile
+    3. Split the route into segments
+    4. Initial ETA estimate
+    5. Fetch weather data
+    6. Include construction sites
+    7. Compute energy consumption
+    8. Optimize the charging plan
+    9. Update the ETA
+    10. Simulate the trip
+    11. Return the result
     """
     try:
         start_coord = parse_coord(start)
@@ -141,32 +141,32 @@ def trips(  # noqa: PLR0913, PLR0917
         if waypoints:
             for wp in waypoints:
                 coord, duration = parse_waypoint(wp)
-                waypoints_list.append({"koordinate": coord, "aufenthaltsdauer": duration})
+                waypoints_list.append({"coordinate": coord, "stay_duration": duration})
 
         departure_time_dt = datetime.fromisoformat(departure_time)
-        if wetter_detailgrad not in {"off", "low", "medium", "high"}:
+        if weather_detail_level not in {"off", "low", "medium", "high"}:
             raise ValueError(
-                f"Ungültiges Wetter-Detailgrad: {wetter_detailgrad}. "
-                "Muss 'off', 'low', 'medium' oder 'high' sein.",
+                f"Invalid weather detail level: {weather_detail_level}. "
+                "Must be 'off', 'low', 'medium' or 'high'.",
             )
-        weather_detail: WeatherDetailLevel = cast(WeatherDetailLevel, wetter_detailgrad)
+        weather_detail: WeatherDetailLevel = cast(WeatherDetailLevel, weather_detail_level)
 
         request = {
             "start": start_coord,
-            "ziel": destination_coord,
-            "zwischenstopps": waypoints_list,
-            "abfahrtszeit": departure_time_dt,
-            "fahrzeugprofil": {
-                "masse_kg": 1800.0,
-                "cw_wert": 0.23,
-                "stirnflaeche_m2": 2.2,
-                "rollwiderstandsbeiwert": 0.01,
-                "batteriekapazitaet_kwh": 60.0,
-                "nebenverbraucher_baseline_kw": 0.34,
-                "reifentyp": "standard",
-                "dachbox": False,
+            "destination": destination_coord,
+            "waypoints": waypoints_list,
+            "departure_time": departure_time_dt,
+            "vehicle_profile": {
+                "mass_kg": 1800.0,
+                "drag_coefficient": 0.23,
+                "frontal_area_m2": 2.2,
+                "rolling_resistance_coefficient": 0.01,
+                "battery_capacity_kwh": 60.0,
+                "auxiliary_baseline_kw": 0.34,
+                "tire_type": "standard",
+                "roof_box": False,
             },
-            "praeferenzen": {},
+            "preferences": {},
         }
 
         async def _run_trip() -> TripSimulationResult:
@@ -180,9 +180,9 @@ def trips(  # noqa: PLR0913, PLR0917
                     charging_provider=FakeChargingStationProvider(),
                     start_soc_pct=start_soc_pct,
                     destination_soc_pct=destination_soc_pct,
-                    mindest_ankunfts_soc_pct=mindest_ankunfts_soc_pct,
-                    mindest_ladezeit_s=mindest_ladezeit_s,
-                    max_lade_soc_pct=max_lade_soc_pct,
+                    min_arrival_soc_pct=min_arrival_soc_pct,
+                    min_charging_time_s=min_charging_time_s,
+                    max_charge_soc_pct=max_charge_soc_pct,
                     weather_detail=weather_detail,
                 )
             providers = await build_production_providers()
@@ -195,9 +195,9 @@ def trips(  # noqa: PLR0913, PLR0917
                 charging_provider=providers.charging,
                 start_soc_pct=start_soc_pct,
                 destination_soc_pct=destination_soc_pct,
-                mindest_ankunfts_soc_pct=mindest_ankunfts_soc_pct,
-                mindest_ladezeit_s=mindest_ladezeit_s,
-                max_lade_soc_pct=max_lade_soc_pct,
+                min_arrival_soc_pct=min_arrival_soc_pct,
+                min_charging_time_s=min_charging_time_s,
+                max_charge_soc_pct=max_charge_soc_pct,
                 weather_detail=weather_detail,
             )
 
@@ -208,7 +208,7 @@ def trips(  # noqa: PLR0913, PLR0917
             "gesamt_fahrzeit_min": result.gesamt_fahrzeit_min,
             "gesamt_ladezeit_min": result.gesamt_ladezeit_min,
             "start_soc_pct": result.start_soc_pct,
-            "ziel_soc_pct": result.ziel_soc_pct,
+            "target_soc_pct": result.target_soc_pct,
             "frames": [
                 {
                     "zeitpunkt": f.zeitpunkt.isoformat(),

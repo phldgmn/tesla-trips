@@ -93,7 +93,7 @@ def _extract_smhi_sample(by_time: dict[Any, Any], query: WeatherQuery) -> Weathe
     frozen_fraction = _clamp(frozen_part_pct, 0.0, 100.0) / 100.0 if frozen_part_pct >= 0 else 0.0
 
     return WeatherSample(
-        koordinate=query.koordinate,
+        coordinate=query.coordinate,
         zeitpunkt=query.zeitpunkt,
         temperatur_c=float(data.get("air_temperature", 0.0)),
         windgeschwindigkeit_ms=float(data.get("wind_speed", 0.0)),

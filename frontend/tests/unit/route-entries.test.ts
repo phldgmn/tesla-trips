@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildRouteEntries } from "@/utils/route-eintraege";
+import { buildRouteEntries } from "@/utils/route-entries";
 import { cumulativeDistancesKm } from "@/utils/timing-utils";
 import type { Stop } from "@/types/trip-request";
 import type { TripSimulationResult, ChargingStop, FerrySegment } from "@/types";
@@ -47,19 +47,19 @@ function makeChargingStop(overrides: Partial<ChargingStop> = {}): ChargingStop {
   };
 }
 
-function makeFaehre(overrides: Partial<FerrySegment> = {}): FerrySegment {
+function makeFerry(overrides: Partial<FerrySegment> = {}): FerrySegment {
   return {
     name: "Fähre Hela",
     lengthM: 5000,
     bboxSw: [52.51, 13.39],
     bboxNe: [52.54, 13.42],
-    abfahrt: null,
-    ankunft: null,
+    departure: null,
+    arrival: null,
     ...overrides,
   };
 }
 
-function makeVermiedeneFaehre(
+function makeAvoidedFerry(
   name: string,
   bboxSw: [number, number],
   bboxNe: [number, number],
@@ -83,7 +83,7 @@ describe("buildRouteEntries", () => {
         stops,
         frames: undefined,
         chargingStops: undefined,
-        erkannteFaehren: undefined,
+        detectedFerries: undefined,
         avoidedFerries: [],
       });
 
@@ -125,13 +125,13 @@ describe("buildRouteEntries", () => {
         makeChargingStop({ arrivalTime: "2025-01-01T08:45:00" }),
       ];
 
-      const recognizedFerries = [makeFaehre({ name: "Fähre A" })];
+      const recognizedFerries = [makeFerry({ name: "Fähre A" })];
 
       const result = buildRouteEntries({
         stops,
         frames,
         chargingStops,
-        erkannteFaehren: recognizedFerries,
+        detectedFerries: recognizedFerries,
         avoidedFerries: [],
       });
 
@@ -143,7 +143,7 @@ describe("buildRouteEntries", () => {
       expect(result[0].stopIndex).toBe(0); // Start
 
       expect(result[1].art).toBe("Fähre");
-      expect(result[1].faehre.name).toBe("Fähre A");
+      expect(result[1].ferry.name).toBe("Fähre A");
 
       expect(result[2].art).toBe("Ladehalt");
       expect(result[2].chargingStop.arrivalTime).toBe("2025-01-01T08:45:00");
@@ -152,7 +152,7 @@ describe("buildRouteEntries", () => {
       expect(result[3].stopIndex).toBe(1); // Ziel
     });
 
-    it("schliesst Fähren aus, die in vermiedeneFaehren sind", () => {
+    it("schliesst Fähren aus, die in avoidedFerries sind", () => {
       const frames = [
         makeFrame("2025-01-01T08:00:00", 52.52, 13.405),
         makeFrame("2025-01-01T09:00:00", 52.53, 13.41),
@@ -163,19 +163,19 @@ describe("buildRouteEntries", () => {
         makeStop("2", "Ziel", [52.53, 13.41]),
       ];
 
-      const recognizedFerries = [makeFaehre({ name: "Fähre A" })];
+      const recognizedFerries = [makeFerry({ name: "Fähre A" })];
 
-      // Die Fähre ist in vermiedeneFaehren
-      const vermiedeneFaehren = [
-        makeVermiedeneFaehre("Fähre A", [52.51, 13.39], [52.54, 13.42]),
+      // Die Fähre ist in avoidedFerries
+      const avoidedFerries = [
+        makeAvoidedFerry("Fähre A", [52.51, 13.39], [52.54, 13.42]),
       ];
 
       const result = buildRouteEntries({
         stops,
         frames,
         chargingStops: undefined,
-        erkannteFaehren: recognizedFerries,
-        avoidedFerries: vermiedeneFaehren,
+        detectedFerries: recognizedFerries,
+        avoidedFerries: avoidedFerries,
       });
 
       // 2 Stops + 1 DrivingSegment dazwischen (1h Fahrzeit), keine Fähre!
@@ -185,7 +185,7 @@ describe("buildRouteEntries", () => {
       expect(result[2].art).toBe("Stopp");
     });
 
-    it("inkludiert Fähren, die NICHT in vermiedeneFaehren sind", () => {
+    it("inkludiert Fähren, die NICHT in avoidedFerries sind", () => {
       const frames = [
         makeFrame("2025-01-01T08:00:00", 52.52, 13.405),
         makeFrame("2025-01-01T09:00:00", 52.53, 13.41),
@@ -196,26 +196,24 @@ describe("buildRouteEntries", () => {
         makeStop("2", "Ziel", [52.53, 13.41]),
       ];
 
-      const recognizedFerries = [makeFaehre({ name: "Fähre A" })];
+      const recognizedFerries = [makeFerry({ name: "Fähre A" })];
 
       // ANDERE Fähre ist vermieden, aber "Fähre A" ist nicht enthalten
-      const vermiedeneFaehren = [
-        makeVermiedeneFaehre("Andere Fähre", [54.0, 12.0], [54.5, 12.5]),
+      const avoidedFerries = [
+        makeAvoidedFerry("Andere Fähre", [54.0, 12.0], [54.5, 12.5]),
       ];
 
       const result = buildRouteEntries({
         stops,
         frames,
         chargingStops: undefined,
-        erkannteFaehren: recognizedFerries,
-        avoidedFerries: vermiedeneFaehren,
+        detectedFerries: recognizedFerries,
+        avoidedFerries: avoidedFerries,
       });
 
       // 2 Stops + 1 Fähre = 3 Einträge
       expect(result).toHaveLength(3);
-      expect(result.find((e) => e.art === "Fähre")?.faehre.name).toBe(
-        "Fähre A",
-      );
+      expect(result.find((e) => e.art === "Fähre")?.ferry.name).toBe("Fähre A");
     });
   });
 
@@ -234,12 +232,14 @@ describe("buildRouteEntries", () => {
         stops,
         frames,
         chargingStops: undefined,
-        erkannteFaehren: undefined,
+        detectedFerries: undefined,
         avoidedFerries: [],
       });
 
       const start = result.find((e) => e.art === "Stopp" && e.stopIndex === 0);
-      const ziel = result.find((e) => e.art === "Stopp" && e.stopIndex === 1);
+      const destination = result.find(
+        (e) => e.art === "Stopp" && e.stopIndex === 1,
+      );
       // Start hat keine Ankunft (erster Frame ist die Abfahrt)
       expect(start?.timing).toEqual({
         arrival: null,
@@ -248,7 +248,7 @@ describe("buildRouteEntries", () => {
         departureSocPct: 80,
       });
       // Ziel hat keine Abfahrt (letzter Frame ist die Ankunft)
-      expect(ziel?.timing).toEqual({
+      expect(destination?.timing).toEqual({
         arrival: "2025-01-01T09:00:00",
         departure: null,
         arrivalSocPct: 80,
@@ -276,7 +276,7 @@ describe("buildRouteEntries", () => {
         stops,
         frames,
         chargingStops,
-        erkannteFaehren: undefined,
+        detectedFerries: undefined,
         avoidedFerries: [],
       });
 
@@ -300,7 +300,7 @@ describe("buildRouteEntries", () => {
         makeStop("2", "Ziel", [52.53, 13.41]),
       ];
       const recognizedFerries = [
-        makeFaehre({
+        makeFerry({
           name: "Fähre A",
           bboxSw: [52.51, 13.395],
           bboxNe: [52.54, 13.415],
@@ -311,13 +311,13 @@ describe("buildRouteEntries", () => {
         stops,
         frames,
         chargingStops: undefined,
-        erkannteFaehren: recognizedFerries,
+        detectedFerries: recognizedFerries,
         avoidedFerries: [],
       });
 
-      const faehre = result.find((e) => e.art === "Fähre");
-      expect(faehre?.timing.arrival ?? faehre?.timing.departure).toBe(
-        faehre?.sortKey,
+      const ferry = result.find((e) => e.art === "Fähre");
+      expect(ferry?.timing.arrival ?? ferry?.timing.departure).toBe(
+        ferry?.sortKey,
       );
     });
   });
@@ -338,7 +338,7 @@ describe("buildRouteEntries", () => {
         stops,
         frames,
         chargingStops: undefined,
-        erkannteFaehren: undefined,
+        detectedFerries: undefined,
         avoidedFerries: [],
       });
 
@@ -353,8 +353,8 @@ describe("buildRouteEntries", () => {
       expect(fahrsegment.bisIso).toBe("2025-01-01T09:00:00");
       expect(fahrsegment.sortKey).toBe("2025-01-01T08:00:00");
       expect(fahrsegment.durationMin).toBe(60);
-      const erwarteteDistanzKm = cumulativeDistancesKm(frames)[2];
-      expect(fahrsegment.distanceKm).toBeCloseTo(erwarteteDistanzKm, 5);
+      const expectedDistanceKm = cumulativeDistancesKm(frames)[2];
+      expect(fahrsegment.distanceKm).toBeCloseTo(expectedDistanceKm, 5);
     });
 
     it("überspringt ein DrivingSegment, wenn beide Verbindungszeitpunkte identisch sind", () => {
@@ -380,7 +380,7 @@ describe("buildRouteEntries", () => {
         stops,
         frames,
         chargingStops,
-        erkannteFaehren: undefined,
+        detectedFerries: undefined,
         avoidedFerries: [],
       });
 
@@ -412,7 +412,7 @@ describe("buildRouteEntries", () => {
         stops,
         frames,
         chargingStops: undefined,
-        erkannteFaehren: undefined,
+        detectedFerries: undefined,
         avoidedFerries: [],
       });
 
@@ -436,7 +436,7 @@ describe("buildRouteEntries", () => {
         stops,
         frames,
         chargingStops: undefined,
-        erkannteFaehren: undefined,
+        detectedFerries: undefined,
         avoidedFerries: [],
       });
 
@@ -466,7 +466,7 @@ describe("buildRouteEntries", () => {
         stops,
         frames,
         chargingStops: undefined,
-        erkannteFaehren: undefined,
+        detectedFerries: undefined,
         avoidedFerries: [],
       });
 
@@ -486,8 +486,8 @@ describe("buildRouteEntries", () => {
     it("erzeugt keinen Connector-Eintrag für einen Tageswechsel INNERHALB eines Ladehalts", () => {
       // Ladehalt beginnt 23:50 und endet 00:10 (nächster Tag) - der
       // Tageswechsel liegt hier INNERHALB des Ladehalts selbst, nicht
-      // zwischen zwei verschiedenen Einträgen. route-eintraege.ts vergleicht
-      // für Connectoren nur `verbindungsZeitpunkt`e VERSCHIEDENER Einträge,
+      // zwischen zwei verschiedenen Einträgen. route-entries.ts vergleicht
+      // für Connectoren nur `connectionTime`e VERSCHIEDENER Einträge,
       // nie Ankunft/Abfahrt DESSELBEN Eintrags - hier darf also kein
       // Tagestrenner/DrivingSegment entstehen (die Zeit-Badges des Ladehalts
       // selbst zeigen das Datum an, siehe TripPlannerForm.tsx).
@@ -510,7 +510,7 @@ describe("buildRouteEntries", () => {
         stops,
         frames,
         chargingStops,
-        erkannteFaehren: undefined,
+        detectedFerries: undefined,
         avoidedFerries: [],
       });
 

@@ -64,14 +64,14 @@ def _make_charging_plan(stops: list[ChargingStop]) -> ChargingPlan:
 
 
 VEHICLE_PROFILE = VehicleProfile(
-    masse_kg=1800.0,
-    cw_wert=0.23,
-    stirnflaeche_m2=2.2,
-    rollwiderstandsbeiwert=0.01,
-    batteriekapazitaet_kwh=60.0,
-    nebenverbraucher_baseline_kw=0.34,
-    reifentyp="standard",
-    dachbox=False,
+    mass_kg=1800.0,
+    drag_coefficient=0.23,
+    frontal_area_m2=2.2,
+    rolling_resistance_coefficient=0.01,
+    battery_capacity_kwh=60.0,
+    auxiliary_baseline_kw=0.34,
+    tire_type="standard",
+    roof_box=False,
 )
 
 
@@ -85,11 +85,11 @@ class TestChargingDetourConcurrency:
             ChargingStop(
                 station=s,
                 segment_index=1,
-                ankunfts_soc_pct=20.0,
-                ziel_soc_pct=80.0,
+                arrival_soc_pct=20.0,
+                target_soc_pct=80.0,
                 geschaetzte_ladedauer_s=1800,
                 ankunftszeit=datetime(2025, 6, 15, 10, 0, 0),
-                abfahrtszeit=datetime(2025, 6, 15, 10, 30, 0),
+                departure_time=datetime(2025, 6, 15, 10, 30, 0),
             )
             for s in stations
         ]
@@ -125,11 +125,11 @@ class TestChargingDetourConcurrency:
             ChargingStop(
                 station=stations[0],
                 segment_index=1,
-                ankunfts_soc_pct=20.0,
-                ziel_soc_pct=80.0,
+                arrival_soc_pct=20.0,
+                target_soc_pct=80.0,
                 geschaetzte_ladedauer_s=1800,
                 ankunftszeit=datetime(2025, 6, 15, 10, 0, 0),
-                abfahrtszeit=datetime(2025, 6, 15, 10, 30, 0),
+                departure_time=datetime(2025, 6, 15, 10, 30, 0),
             )
         ]
         plan = _make_charging_plan(charges)
@@ -172,11 +172,11 @@ class TestChargingDetourErrorHandling:
             ChargingStop(
                 station=stations[0],
                 segment_index=1,
-                ankunfts_soc_pct=20.0,
-                ziel_soc_pct=80.0,
+                arrival_soc_pct=20.0,
+                target_soc_pct=80.0,
                 geschaetzte_ladedauer_s=1800,
                 ankunftszeit=datetime(2025, 6, 15, 10, 0, 0),
-                abfahrtszeit=datetime(2025, 6, 15, 10, 30, 0),
+                departure_time=datetime(2025, 6, 15, 10, 30, 0),
             )
         ]
         plan = _make_charging_plan(charges)
@@ -212,11 +212,11 @@ class TestChargingDetourErrorHandling:
             ChargingStop(
                 station=s,
                 segment_index=1,
-                ankunfts_soc_pct=20.0,
-                ziel_soc_pct=80.0,
+                arrival_soc_pct=20.0,
+                target_soc_pct=80.0,
                 geschaetzte_ladedauer_s=1800,
                 ankunftszeit=datetime(2025, 6, 15, 10, 0, 0),
-                abfahrtszeit=datetime(2025, 6, 15, 10, 30, 0),
+                departure_time=datetime(2025, 6, 15, 10, 30, 0),
             )
             for s in stations
         ]
@@ -259,11 +259,11 @@ class TestChargingDetourErrorHandling:
             ChargingStop(
                 station=s,
                 segment_index=1,
-                ankunfts_soc_pct=20.0,
-                ziel_soc_pct=80.0,
+                arrival_soc_pct=20.0,
+                target_soc_pct=80.0,
                 geschaetzte_ladedauer_s=1800,
                 ankunftszeit=datetime(2025, 6, 15, 10, 0, 0),
-                abfahrtszeit=datetime(2025, 6, 15, 10, 30, 0),
+                departure_time=datetime(2025, 6, 15, 10, 30, 0),
             )
             for s in stations
         ]
@@ -305,11 +305,11 @@ class TestChargingDetourErrorHandling:
             ChargingStop(
                 station=s,
                 segment_index=1,
-                ankunfts_soc_pct=20.0,
-                ziel_soc_pct=80.0,
+                arrival_soc_pct=20.0,
+                target_soc_pct=80.0,
                 geschaetzte_ladedauer_s=1800,
                 ankunftszeit=datetime(2025, 6, 15, 10, 0, 0),
-                abfahrtszeit=datetime(2025, 6, 15, 10, 30, 0),
+                departure_time=datetime(2025, 6, 15, 10, 30, 0),
             )
             for s in stations
         ]

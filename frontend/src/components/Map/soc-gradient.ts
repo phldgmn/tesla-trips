@@ -81,7 +81,7 @@ export function buildSocGradientExpression(
     ];
   }
 
-  const sorted = [...samples].sort((a, b) => a.distanzM - b.distanzM);
+  const sorted = [...samples].sort((a, b) => a.distanceM - b.distanceM);
   const critical = sorted.filter((s) => s.critical);
   const regular = sorted.filter((s) => !s.critical);
 
@@ -96,13 +96,16 @@ export function buildSocGradientExpression(
   }
 
   const merged = [...sampledRegular, ...critical].sort(
-    (a, b) => a.distanzM - b.distanzM,
+    (a, b) => a.distanceM - b.distanceM,
   );
 
   const stops: (number | string)[] = [];
   let lastProgress = -1;
   for (const sample of merged) {
-    const progress = Math.min(1, Math.max(0, sample.distanzM / totalDistanceM));
+    const progress = Math.min(
+      1,
+      Math.max(0, sample.distanceM / totalDistanceM),
+    );
     if (progress <= lastProgress) continue;
     stops.push(progress, socToColor(sample.socPct));
     lastProgress = progress;

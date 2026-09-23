@@ -429,27 +429,27 @@ export function MapVisualization({
       [
         ...simulationResult.chargingStops.map((stop) => ({
           position: stop.position,
-          distanzM: stop.distanceM,
+          distanceM: stop.distanceM,
           detourGeometrie: stop.detourGeometry,
           stationIndex: stop.detourStationIndex,
           routeIndexVor: stop.routeIndexBefore,
           routeIndexNach: stop.routeIndexAfter,
-          ankunftsSocPct: stop.arrivalSocPct,
-          zielSocPct: stop.targetSocPct,
+          arrivalSocPct: stop.arrivalSocPct,
+          targetSocPct: stop.targetSocPct,
           ankunftszeit: stop.arrivalTime,
-          abfahrtszeit: stop.departureTime,
+          departure_time: stop.departureTime,
         })),
         ...simulationResult.waypointStops.map((stop) => ({
           position: stop.position,
-          distanzM: stop.distanceM,
+          distanceM: stop.distanceM,
           detourGeometrie: [],
           stationIndex: null,
           routeIndexVor: null,
           routeIndexNach: null,
-          ankunftsSocPct: stop.arrivalSocPct,
-          zielSocPct: stop.targetSocPct,
+          arrivalSocPct: stop.arrivalSocPct,
+          targetSocPct: stop.targetSocPct,
           ankunftszeit: stop.arrivalTime,
-          abfahrtszeit: stop.departureTime,
+          departure_time: stop.departureTime,
         })),
       ],
       // Reine Fahr-Frames fuer den Gradienten innerhalb jeder Leg - die
@@ -458,7 +458,7 @@ export function MapVisualization({
       simulationResult.frames
         .filter((f) => f.state === "FAHREN")
         .map((f) => ({
-          distanzM: f.distanceM,
+          distanceM: f.distanceM,
           socPct: f.socPct,
           zeitpunkt: f.timestamp,
           geschwindigkeitKmh: f.speedKmh,

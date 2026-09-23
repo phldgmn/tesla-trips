@@ -88,10 +88,10 @@ class NetworkXOptimizer(OptimizerInterface):
         vehicle_profile: VehicleProfile,
         constraints: OptimizationConstraints,
         start_soc_pct: float,
-        abfahrtszeit: datetime,
+        departure_time: datetime,
         iteration: int = 1,
-        ladedauer_vorgaben: dict[str, int] | None = None,
-        faehr_zeitfenster: dict[int, tuple[int, datetime, datetime]] | None = None,
+        charging_duration_specifications: dict[str, int] | None = None,
+        ferry_time_windows: dict[int, tuple[int, datetime, datetime]] | None = None,
         detour_kosten: dict[str, DetourKosten] | None = None,
     ) -> ChargingPlan:
         """Optimiert Ladeplan unter Verwendung eines diskretisierten Zustandsgraphen.
@@ -110,11 +110,11 @@ class NetworkXOptimizer(OptimizerInterface):
             vehicle_profile: Physikalisches Fahrzeugprofil.
             constraints: Optimierungs-Constraints (Min-SoC, Ziel-SoC, etc.).
             start_soc_pct: Start-SoC des Fahrzeugs in Prozent.
-            abfahrtszeit: Geplante Abfahrtszeit.
+            departure_time: Geplante Abfahrtszeit.
             iteration: Iterationsnummer für spätere Wetter-Iter.
-            ladedauer_vorgaben: Optionale feste Ladedauern (Sekunden) je Stations-ID.
-            faehr_zeitfenster: Optionale feste Fährfahrpläne je
-                `segment_index_start -> (segment_index_end, abfahrt, ankunft)`.
+            charging_duration_specifications: Optionale feste Ladedauern (Sekunden) je Stations-ID.
+            ferry_time_windows: Optionale feste Fährfahrpläne je
+                `segment_index_start -> (segment_index_end, departure, arrival)`.
             detour_kosten: Optionale real routed detour costs per station, see
                 `optimization.detour_routing.precompute_detour_costs`.
 
@@ -137,28 +137,30 @@ class NetworkXOptimizer(OptimizerInterface):
         # Zielknoten: letztes Segment, Ziel-SoC (inkl. Sicherheitsreserve).
         # Am Ziel endet die Fahrt - das allgemeine `min_soc_pct` (Reserve fuer
         # WEITERFAHRT auf offener Strecke, siehe `OptimizationConstraints`)
-        # ist hier nicht einschlaegig (analog zu `mindest_ankunfts_soc_pct`
+        # ist hier nicht einschlaegig (analog zu `min_arrival_soc_pct`
         # an einer Ladestation: dort droht ebenfalls kein Liegenbleiben MEHR,
         # weil ohnehin nicht weitergefahren wird, bevor geladen wurde). Ein
-        # vom Nutzer bewusst niedrig gewaehltes `ziel_soc_pct` (z. B. 5%) darf
+        # vom Nutzer bewusst niedrig gewaehltes `target_soc_pct` (z. B. 5%) darf
         # daher nicht durch den default-15%-Sicherheitsreserve-Floor
         # ueberschrieben werden (siehe Nutzer-Report: Ziel-SoC 5% gesetzt,
         # Optimierung plante dennoch auf 15% - inkl. Folgefehler bei
-        # nachgelagerten Ladehalt-Kandidaten, die sich an `ziel_soc_target`
+        # nachgelagerten Ladehalt-Kandidaten, die sich an `target_soc_target`
         # orientieren).
-        ziel_soc_target = max(constraints.ziel_soc_pct - constraints.sicherheitsreserve_pct, 0.0)
-        ziel_soc_bucket = soc_to_bucket(ziel_soc_target, self.soc_step_pct)
+        target_soc_target = max(
+            constraints.target_soc_pct - constraints.sicherheitsreserve_pct, 0.0
+        )
+        ziel_soc_bucket = soc_to_bucket(target_soc_target, self.soc_step_pct)
 
-        # Erstelle Startknoten (segment_index=0, soc=start_soc, zeit=abfahrtszeit)
+        # Erstelle Startknoten (segment_index=0, soc=start_soc, zeit=departure_time)
         start_soc_bucket = soc_to_bucket(start_soc_pct, self.soc_step_pct)
-        start_zeit_bucket = time_to_bucket(abfahrtszeit, abfahrtszeit, self.time_step_min)
+        start_zeit_bucket = time_to_bucket(departure_time, departure_time, self.time_step_min)
 
         start_node = (0, start_soc_bucket, start_zeit_bucket)
         G.add_node(
             start_node,
             type="start",
             soc_pct=start_soc_pct,
-            zeitpunkt=abfahrtszeit,
+            zeitpunkt=departure_time,
             segment_index=0,
         )
 
@@ -179,7 +181,7 @@ class NetworkXOptimizer(OptimizerInterface):
         ladekurve = LadekurveReferenz.model_3_sr()
 
         # Setze Basiszeit für Zeit-Bucket Berechnungen
-        self._base_time = abfahrtszeit
+        self._base_time = departure_time
 
         # Kumulative Energie-/Fahrzeit-Praefixsummen ueber die Roh-Segmente,
         # aus den TATSAECHLICHEN, je Segment via `SegmentEnergyResult.fahrzeit_s`
@@ -194,7 +196,7 @@ class NetworkXOptimizer(OptimizerInterface):
         # Punktpaar), siehe docs/plans/07-optimization.md, Risiko
         # "Skalierbarkeit der NetworkX-Lösung". Nur mit dieser echten
         # Zeitbasis stimmen Ankunfts-/Abfahrtszeiten an Ladehalten
-        # (`ChargingStop.ankunftszeit`/`abfahrtszeit`) sowie `gesamtreisezeit_s`
+        # (`ChargingStop.ankunftszeit`/`departure_time`) sowie `gesamtreisezeit_s`
         # mit dem tatsaechlichen, je Segment unterschiedlichen Tempo ueberein -
         # eine pauschale Durchschnittsgeschwindigkeit fuehrt sonst dazu, dass
         # die Ankunft an einem Ladehalt (bzw. dessen `segment_index`) und die
@@ -242,23 +244,23 @@ class NetworkXOptimizer(OptimizerInterface):
             constraints=constraints,
             start_node=start_node,
             ziel_soc_bucket=ziel_soc_bucket,
-            ziel_soc_target=ziel_soc_target,
+            target_soc_target=target_soc_target,
             max_time_buckets=self._estimate_max_time_buckets(
                 total_time_s=cum_time_s[-1],
                 total_energy_kwh=cum_energy_kwh[-1],
                 vehicle_profile=vehicle_profile,
                 constraints=constraints,
                 waypoints=waypoints,
-                abfahrtszeit=abfahrtszeit,
+                departure_time=departure_time,
             ),
-            ladedauer_vorgaben=ladedauer_vorgaben or {},
-            ferry_pins=faehr_zeitfenster or {},
+            charging_duration_specifications=charging_duration_specifications or {},
+            ferry_pins=ferry_time_windows or {},
             detour_kosten=detour_kosten,
         )
 
         # A*-Suche zum Zielknoten
         try:
-            # Zielknoten: beliebiger SoC ≥ ziel_soc_target im letzten Segment
+            # Zielknoten: beliebiger SoC ≥ target_soc_target im letzten Segment
             # Wir wählen den Knoten mit niedrigster Kosten
             target_candidates = [
                 (seg_idx, soc_b, zeit_b)
@@ -311,7 +313,7 @@ class NetworkXOptimizer(OptimizerInterface):
             len(ladehalte),
             [
                 f"{s.station.station_id} ({s.station.name}) seg={s.segment_index} "
-                f"{s.ankunfts_soc_pct:.1f}%->{s.ziel_soc_pct:.1f}% "
+                f"{s.arrival_soc_pct:.1f}%->{s.target_soc_pct:.1f}% "
                 f"{s.geschaetzte_ladedauer_s:.0f}s"
                 for s in ladehalte
             ],
@@ -326,14 +328,14 @@ class NetworkXOptimizer(OptimizerInterface):
         last_node = path[-1]
         last_zeitpunkt = G.nodes[last_node]["zeitpunkt"]
 
-        gesamtreisezeit = int((last_zeitpunkt - abfahrtszeit).total_seconds())
+        gesamtreisezeit = int((last_zeitpunkt - departure_time).total_seconds())
 
         # Mindestankunftszeit für Zwischenstopps berechnen
         min_zwischenstopp_ankunftszeit = self._compute_waypoint_times(
             path=path,
             waypoints=waypoints,
             waypoint_segment_indices=waypoint_segment_indices,
-            abfahrtszeit=abfahrtszeit,
+            departure_time=departure_time,
         )
 
         return ChargingPlan(
@@ -481,7 +483,7 @@ class NetworkXOptimizer(OptimizerInterface):
         vehicle_profile: VehicleProfile,
         constraints: OptimizationConstraints,
         waypoints: list[Waypoint],
-        abfahrtszeit: datetime,
+        departure_time: datetime,
     ) -> int:
         """Schätze die maximale Anzahl an Zeit-Buckets für die gesamte Route.
 
@@ -502,27 +504,27 @@ class NetworkXOptimizer(OptimizerInterface):
             total_energy_kwh: Gesamtenergiebedarf der Route in kWh.
             vehicle_profile: Physikalisches Fahrzeugprofil.
             constraints: Optimierungs-Constraints (u. a. `max_ladezeit_s`).
-            waypoints: Zwischenstopps, deren `aufenthaltsdauer`/`geplante_abfahrt`
+            waypoints: Zwischenstopps, deren `stay_duration`/`planned_departure`
                 zusaetzliche, erzwungene Wartezeit ins Budget einbringen kann -
                 ohne das koennte ein ueber Nacht geplanter Zwischenstopp das
                 Zeitbudget sprengen und die Route faelschlich als "nicht
                 fahrbar" verwerfen, obwohl nur gewartet werden muss.
-            abfahrtszeit: Abfahrtszeitpunkt der gesamten Reise, Referenz fuer
-                eine absolute `geplante_abfahrt` an einem Zwischenstopp.
+            departure_time: Abfahrtszeitpunkt der gesamten Reise, Referenz fuer
+                eine absolute `planned_departure` an einem Zwischenstopp.
         """
         total_time_min = total_time_s / 60.0
 
         # Worst-Case-Anzahl Ladestopps: Gesamtenergiebedarf geteilt durch die
         # nutzbare Kapazität je Ladezyklus (konservativ: halbe Batteriekapazität
         # je Stopp, da praktisch selten von 0% auf 100% geladen wird).
-        nutzbare_kapazitaet_je_stopp_kwh = max(vehicle_profile.batteriekapazitaet_kwh * 0.5, 1.0)
+        nutzbare_kapazitaet_je_stopp_kwh = max(vehicle_profile.battery_capacity_kwh * 0.5, 1.0)
         geschaetzte_ladestopps = max(
             math.ceil(total_energy_kwh / nutzbare_kapazitaet_je_stopp_kwh) - 1, 0
         )
         ladezeit_puffer_min = geschaetzte_ladestopps * (constraints.max_ladezeit_s / 60.0)
 
         # Worst-Case-Wartezeit je Zwischenstopp: die groessere von Mindest-
-        # aufenthaltsdauer und (absoluter) geplanter Abfahrt relativ zur
+        # stay_duration und (absoluter) geplanter Abfahrt relativ zur
         # Gesamt-Abfahrtszeit - eine grobe, bewusst grosszuegige obere
         # Schranke (keine Simulation der tatsaechlichen Ankunftszeit noetig,
         # da ein zu grosses Budget nur die Zustandsgraph-Groesse, nie die
@@ -530,12 +532,12 @@ class NetworkXOptimizer(OptimizerInterface):
         wartezeit_puffer_min = 0.0
         for wp in waypoints:
             kandidaten_min = 0.0
-            if wp.aufenthaltsdauer:
-                kandidaten_min = wp.aufenthaltsdauer.total_seconds() / 60.0
-            if wp.geplante_abfahrt:
+            if wp.stay_duration:
+                kandidaten_min = wp.stay_duration.total_seconds() / 60.0
+            if wp.planned_departure:
                 kandidaten_min = max(
                     kandidaten_min,
-                    (wp.geplante_abfahrt - abfahrtszeit).total_seconds() / 60.0,
+                    (wp.planned_departure - departure_time).total_seconds() / 60.0,
                 )
             wartezeit_puffer_min += max(kandidaten_min, 0.0)
 
@@ -558,7 +560,7 @@ class NetworkXOptimizer(OptimizerInterface):
             vehicle_profile: Fahrzeugprofil (liefert die Batteriekapazität).
         """
         return charging_math.calc_soc_verbrauch_pct(
-            energie_kwh, vehicle_profile.batteriekapazitaet_kwh
+            energie_kwh, vehicle_profile.battery_capacity_kwh
         )
 
     def _calc_ladezeit_s(
@@ -566,7 +568,7 @@ class NetworkXOptimizer(OptimizerInterface):
         start_soc_pct: float,
         end_soc_pct: float,
         ladekurve: ChargingCurve,
-        batteriekapazitaet_kwh: float,
+        battery_capacity_kwh: float,
         leistungsdeckel_kw: float | None = None,
     ) -> float:
         """Berechne Ladezeit in Sekunden für den Ladevorgang `start_soc_pct` → `end_soc_pct`.
@@ -591,7 +593,7 @@ class NetworkXOptimizer(OptimizerInterface):
             start_soc_pct,
             end_soc_pct,
             ladekurve,
-            batteriekapazitaet_kwh,
+            battery_capacity_kwh,
             leistungsdeckel_kw,
         )
 
@@ -676,10 +678,10 @@ class NetworkXOptimizer(OptimizerInterface):
         path: list[tuple[int, int, int]],
         waypoints: list[Waypoint],
         waypoint_segment_indices: list[int],
-        abfahrtszeit: datetime,
+        departure_time: datetime,
     ) -> dict[int, datetime]:
         """Berechne Mindestankunftszeit für Zwischenstopps."""
-        return compute_waypoint_times(path, waypoints, waypoint_segment_indices, abfahrtszeit)
+        return compute_waypoint_times(path, waypoints, waypoint_segment_indices, departure_time)
 
 
 def create_networkx_optimizer(
@@ -732,10 +734,10 @@ class ORToolsOptimizer(OptimizerInterface):
         vehicle_profile: VehicleProfile,
         constraints: OptimizationConstraints,
         start_soc_pct: float,
-        abfahrtszeit: datetime,
+        departure_time: datetime,
         iteration: int = 1,
-        ladedauer_vorgaben: dict[str, int] | None = None,
-        faehr_zeitfenster: dict[int, tuple[int, datetime, datetime]] | None = None,
+        charging_duration_specifications: dict[str, int] | None = None,
+        ferry_time_windows: dict[int, tuple[int, datetime, datetime]] | None = None,
         detour_kosten: dict[str, DetourKosten] | None = None,
     ) -> ChargingPlan:
         """Optimiert Ladeplan mittels Constraint-Programmierung (CP-SAT) oder Routing-Solver.

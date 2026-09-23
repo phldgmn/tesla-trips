@@ -30,7 +30,7 @@ def _make_weather(
     consumption calculation apart from being stored on the model.
     """
     return WeatherSample(
-        koordinate=(0.0, 0.0),
+        coordinate=(0.0, 0.0),
         zeitpunkt=datetime.utcnow(),
         temperatur_c=temperatur_c,
         windgeschwindigkeit_ms=0.0,

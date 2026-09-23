@@ -193,16 +193,16 @@ class TestNetworkXOptimizer:
         ]
 
         vehicle_profile = VehicleProfile(
-            masse_kg=1706.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.22,
-            rollwiderstandsbeiwert=0.011,
-            batteriekapazitaet_kwh=62.5,
+            mass_kg=1706.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.22,
+            rolling_resistance_coefficient=0.011,
+            battery_capacity_kwh=62.5,
         )
 
         constraints = OptimizationConstraints(
             min_soc_pct=15.0,
-            ziel_soc_pct=60.0,
+            target_soc_pct=60.0,
             sicherheitsreserve_pct=5.0,
         )
 
@@ -218,7 +218,7 @@ class TestNetworkXOptimizer:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=100.0,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert len(plan.ladehalte) == 0
@@ -228,7 +228,7 @@ class TestNetworkXOptimizer:
     def test_grenzfall_minimaler_soc(self) -> None:
         """Test: Grenzfall - Start-SoC knapp unter Verbrauch → muss laden.
 
-        `ziel_soc_pct=45.0`: das einzige Segment kostet 40% SoC (25 kWh von
+        `target_soc_pct=45.0`: das einzige Segment kostet 40% SoC (25 kWh von
         62.5 kWh); ein Ankunfts-Ziel von >55% waere selbst mit einer Vollladung
         (100%) am Start physikalisch unerreichbar. 45% (minus 5% Reserve = 40%
         Ziel-Bucket) ist mit einer Ladung auf 80-90% erreichbar und erfordert
@@ -264,16 +264,16 @@ class TestNetworkXOptimizer:
         ]
 
         vehicle_profile = VehicleProfile(
-            masse_kg=1706.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.22,
-            rollwiderstandsbeiwert=0.011,
-            batteriekapazitaet_kwh=62.5,
+            mass_kg=1706.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.22,
+            rolling_resistance_coefficient=0.011,
+            battery_capacity_kwh=62.5,
         )
 
         constraints = OptimizationConstraints(
             min_soc_pct=15.0,
-            ziel_soc_pct=45.0,
+            target_soc_pct=45.0,
         )
 
         station = ChargingStation(
@@ -305,7 +305,7 @@ class TestNetworkXOptimizer:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=20.0,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert len(plan.ladehalte) >= 1
@@ -360,16 +360,16 @@ class TestNetworkXOptimizer:
         ]
 
         vehicle_profile = VehicleProfile(
-            masse_kg=1706.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.22,
-            rollwiderstandsbeiwert=0.011,
-            batteriekapazitaet_kwh=62.5,
+            mass_kg=1706.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.22,
+            rolling_resistance_coefficient=0.011,
+            battery_capacity_kwh=62.5,
         )
 
         constraints = OptimizationConstraints(
             min_soc_pct=20.0,
-            ziel_soc_pct=70.0,
+            target_soc_pct=70.0,
         )
 
         optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=30)
@@ -398,7 +398,7 @@ class TestNetworkXOptimizer:
                 vehicle_profile=vehicle_profile,
                 constraints=constraints,
                 start_soc_pct=100.0,
-                abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+                departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
             )
 
 
@@ -475,14 +475,14 @@ class TestSocQuantisierungBeiFeingranularenSegmenten:
         )
 
         vehicle_profile = VehicleProfile(
-            masse_kg=1706.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.22,
-            rollwiderstandsbeiwert=0.011,
-            batteriekapazitaet_kwh=10.0,
+            mass_kg=1706.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.22,
+            rolling_resistance_coefficient=0.011,
+            battery_capacity_kwh=10.0,
         )
 
-        constraints = OptimizationConstraints(min_soc_pct=5.0, ziel_soc_pct=20.0)
+        constraints = OptimizationConstraints(min_soc_pct=5.0, target_soc_pct=20.0)
         optimizer = create_networkx_optimizer()
 
         plan = optimizer.optimize(
@@ -503,7 +503,7 @@ class TestSocQuantisierungBeiFeingranularenSegmenten:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=100.0,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert len(plan.ladehalte) >= 1
@@ -526,11 +526,11 @@ class TestZeitbudgetBeruecksichtigtLadezeit:
         identisch.
         """
         vehicle_profile = VehicleProfile(
-            masse_kg=1706.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.22,
-            rollwiderstandsbeiwert=0.011,
-            batteriekapazitaet_kwh=60.0,
+            mass_kg=1706.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.22,
+            rolling_resistance_coefficient=0.011,
+            battery_capacity_kwh=60.0,
         )
         constraints = OptimizationConstraints(max_ladezeit_s=3600)
         optimizer = create_networkx_optimizer()
@@ -542,7 +542,7 @@ class TestZeitbudgetBeruecksichtigtLadezeit:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             waypoints=[],
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0),
         )
         buckets_mit_vielen_ladestopps = optimizer._estimate_max_time_buckets(
             total_time_s=total_time_s,
@@ -550,7 +550,7 @@ class TestZeitbudgetBeruecksichtigtLadezeit:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             waypoints=[],
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0),
         )
 
         assert buckets_mit_vielen_ladestopps > buckets_ohne_laden
@@ -618,13 +618,13 @@ class TestZeitbudgetBeruecksichtigtLadezeit:
         )
 
         vehicle_profile = VehicleProfile(
-            masse_kg=1706.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.22,
-            rollwiderstandsbeiwert=0.011,
-            batteriekapazitaet_kwh=60.0,
+            mass_kg=1706.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.22,
+            rolling_resistance_coefficient=0.011,
+            battery_capacity_kwh=60.0,
         )
-        constraints = OptimizationConstraints(min_soc_pct=10.0, ziel_soc_pct=20.0)
+        constraints = OptimizationConstraints(min_soc_pct=10.0, target_soc_pct=20.0)
         optimizer = create_networkx_optimizer()
 
         plan = optimizer.optimize(
@@ -645,7 +645,7 @@ class TestZeitbudgetBeruecksichtigtLadezeit:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=80.0,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert len(plan.ladehalte) >= 3
@@ -702,10 +702,10 @@ class TestLadehaltUeberlebtKnotenKollision:
             parent=None,
         )
 
-        ziel_soc_pct = 80.0
+        target_soc_pct = 80.0
         ladezeit_s = 900.0
         neuer_zeitpunkt = current_zeitpunkt + timedelta(seconds=ladezeit_s)
-        new_soc_bucket = soc_to_bucket(ziel_soc_pct, optimizer.soc_step_pct)
+        new_soc_bucket = soc_to_bucket(target_soc_pct, optimizer.soc_step_pct)
         new_time_bucket = time_to_bucket(neuer_zeitpunkt, base_time, optimizer.time_step_min)
         target_key = (5, new_soc_bucket, new_time_bucket)
 
@@ -736,8 +736,8 @@ class TestLadehaltUeberlebtKnotenKollision:
             current=current,
             seg_idx=5,
             station=station,
-            ankunfts_soc_pct=15.0,
-            ziel_soc_pct=ziel_soc_pct,
+            arrival_soc_pct=15.0,
+            target_soc_pct=target_soc_pct,
             ladezeit_s=ladezeit_s,
             hinweg_zeit_s=0.0,
             rueckweg_zeit_s=0.0,
@@ -763,11 +763,11 @@ class TestLadehaltUeberlebtKnotenKollision:
         assert len(ladehalte) == 1
         ladehalt = ladehalte[0]
         assert ladehalt.station.station_id == "kollisions-station"
-        assert ladehalt.ankunfts_soc_pct == 15.0
-        assert ladehalt.ziel_soc_pct == ziel_soc_pct
+        assert ladehalt.arrival_soc_pct == 15.0
+        assert ladehalt.target_soc_pct == target_soc_pct
         assert ladehalt.geschaetzte_ladedauer_s == int(ladezeit_s)
         assert ladehalt.ankunftszeit == current_zeitpunkt
-        assert ladehalt.abfahrtszeit == neuer_zeitpunkt
+        assert ladehalt.departure_time == neuer_zeitpunkt
 
 
 class TestORToolsOptimizer:
@@ -794,16 +794,16 @@ class TestORToolsOptimizer:
         )
 
         vehicle_profile = VehicleProfile(
-            masse_kg=1706.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.22,
-            rollwiderstandsbeiwert=0.011,
-            batteriekapazitaet_kwh=62.5,
+            mass_kg=1706.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.22,
+            rolling_resistance_coefficient=0.011,
+            battery_capacity_kwh=62.5,
         )
 
         constraints = OptimizationConstraints(
             min_soc_pct=15.0,
-            ziel_soc_pct=80.0,
+            target_soc_pct=80.0,
         )
 
         with pytest.raises(NotImplementedError) as exc_info:
@@ -817,14 +817,14 @@ class TestORToolsOptimizer:
                 vehicle_profile=vehicle_profile,
                 constraints=constraints,
                 start_soc_pct=100.0,
-                abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+                departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
             )
 
         assert "OR-Tools-Backend ist eine spätere Ausbaustufe" in str(exc_info.value)
 
 
 class TestLadedauerVorgabe:
-    """Tests für vom Nutzer vorgegebene feste Ladedauern (`ladedauer_vorgaben`)."""
+    """Tests für vom Nutzer vorgegebene feste Ladedauern (`charging_duration_specifications`)."""
 
     def _basis_szenario(
         self,
@@ -866,11 +866,11 @@ class TestLadedauerVorgabe:
             ),
         ]
         vehicle_profile = VehicleProfile(
-            masse_kg=1706.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.22,
-            rollwiderstandsbeiwert=0.011,
-            batteriekapazitaet_kwh=62.5,
+            mass_kg=1706.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.22,
+            rolling_resistance_coefficient=0.011,
+            battery_capacity_kwh=62.5,
         )
         station = ChargingStation(
             station_id="station_001",
@@ -888,7 +888,7 @@ class TestLadedauerVorgabe:
         näherungsweise über die SoC-Ziel-Iteration) als `geschaetzte_ladedauer_s`
         übernommen - unabhängig von `constraints.max_ladezeit_s`."""
         route, gradients, energy_results, vehicle_profile, station = self._basis_szenario()
-        constraints = OptimizationConstraints(min_soc_pct=15.0, ziel_soc_pct=45.0)
+        constraints = OptimizationConstraints(min_soc_pct=15.0, target_soc_pct=45.0)
         optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=15)
 
         plan = optimizer.optimize(
@@ -901,23 +901,23 @@ class TestLadedauerVorgabe:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=20.0,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
-            ladedauer_vorgaben={"station_001": 1800},
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            charging_duration_specifications={"station_001": 1800},
         )
 
         assert len(plan.ladehalte) == 1
         ladehalt = plan.ladehalte[0]
         assert ladehalt.station.station_id == "station_001"
         assert ladehalt.geschaetzte_ladedauer_s == 1800
-        assert (ladehalt.abfahrtszeit - ladehalt.ankunftszeit).total_seconds() == 1800
+        assert (ladehalt.departure_time - ladehalt.ankunftszeit).total_seconds() == 1800
         # Ziel-SoC muss höher als der Ankunfts-SoC sein (es wurde tatsächlich geladen).
-        assert ladehalt.ziel_soc_pct > ladehalt.ankunfts_soc_pct
+        assert ladehalt.target_soc_pct > ladehalt.arrival_soc_pct
 
     def test_ohne_vorgabe_weicht_ladedauer_von_der_vorgabe_ab(self) -> None:
-        """Ohne `ladedauer_vorgaben` berechnet der Optimierer die Ladedauer wie bisher
+        """Ohne `charging_duration_specifications` berechnet der Optimierer die Ladedauer wie bisher
         automatisch - als Kontrast zum exakten Vorgabewert im anderen Test."""
         route, gradients, energy_results, vehicle_profile, station = self._basis_szenario()
-        constraints = OptimizationConstraints(min_soc_pct=15.0, ziel_soc_pct=45.0)
+        constraints = OptimizationConstraints(min_soc_pct=15.0, target_soc_pct=45.0)
         optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=15)
 
         plan = optimizer.optimize(
@@ -930,7 +930,7 @@ class TestLadedauerVorgabe:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=20.0,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert len(plan.ladehalte) == 1
@@ -980,7 +980,7 @@ class TestWaypointSegmentMatchingIgnoriertFrueheKreuzungen:
         auf der geometrisch naeheren, aber falschen fruehen Kreuzung."""
         optimizer = create_networkx_optimizer()
         segmente = self._kreuzende_segmente()
-        wp = Waypoint(koordinate=(60.0, 14.0))
+        wp = Waypoint(coordinate=(60.0, 14.0))
 
         assert optimizer._waypoint_to_segment(wp, segmente) == 2
 
@@ -993,7 +993,7 @@ class TestWaypointSegmentMatchingIgnoriertFrueheKreuzungen:
         Via-Punkt (Segment 7)."""
         optimizer = create_networkx_optimizer()
         segmente = self._kreuzende_segmente()
-        wp = Waypoint(koordinate=(60.0, 14.0))
+        wp = Waypoint(coordinate=(60.0, 14.0))
 
         assert optimizer._waypoint_to_segment(wp, segmente, 5) == 7
 
@@ -1007,7 +1007,7 @@ class TestWaypointSegmentMatchingIgnoriertFrueheKreuzungen:
         eine falsche, geometrisch naehere fruehe Kreuzung faende."""
         optimizer = create_networkx_optimizer()
         segmente = self._kreuzende_segmente()
-        wp = Waypoint(koordinate=(60.0, 14.0))
+        wp = Waypoint(coordinate=(60.0, 14.0))
         route = Route(
             segments=segmente,
             gesamtlaenge_m=sum(s.laenge_m for s in segmente),
@@ -1026,7 +1026,7 @@ class TestWaypointSegmentMatchingIgnoriertFrueheKreuzungen:
         faellt die Zuordnung auf die monotone Naechster-Punkt-Suche zurueck."""
         optimizer = create_networkx_optimizer()
         segmente = self._kreuzende_segmente()
-        wp = Waypoint(koordinate=(60.0, 14.0))
+        wp = Waypoint(coordinate=(60.0, 14.0))
         route = Route(
             segments=segmente,
             gesamtlaenge_m=sum(s.laenge_m for s in segmente),
@@ -1040,7 +1040,7 @@ class TestWaypointSegmentMatchingIgnoriertFrueheKreuzungen:
 
 class TestZwischenstoppErzwingtWartezeit:
     """Regressionstest: Bug - eine an einem Zwischenstopp gesetzte
-    `geplante_abfahrt`/`aufenthaltsdauer` war nur ein optionaler Kostenfaktor,
+    `planned_departure`/`stay_duration` war nur ein optionaler Kostenfaktor,
     den der A*-Optimierer als teurer verworfen hat (die Fahrt "sprang" direkt
     weiter, ohne zu warten) - sichtbar als falsche (zu frühe) Ankunftszeit am
     Fahrtziel trotz gesetzter Abfahrtszeit an einem Zwischenstopp.
@@ -1112,11 +1112,11 @@ class TestZwischenstoppErzwingtWartezeit:
             ),
         ]
         vehicle_profile = VehicleProfile(
-            masse_kg=1706.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.22,
-            rollwiderstandsbeiwert=0.011,
-            batteriekapazitaet_kwh=62.5,
+            mass_kg=1706.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.22,
+            rolling_resistance_coefficient=0.011,
+            battery_capacity_kwh=62.5,
         )
         return route, energy_results, vehicle_profile
 
@@ -1127,11 +1127,11 @@ class TestZwischenstoppErzwingtWartezeit:
         18:44, geplante Abfahrt dort erst am Folgetag 6:30, aber Ankunft am
         Ziel bereits um 22:55 desselben Tages berechnet)."""
         route, energy_results, vehicle_profile = self._basis_szenario()
-        constraints = OptimizationConstraints(min_soc_pct=15.0, ziel_soc_pct=35.0)
+        constraints = OptimizationConstraints(min_soc_pct=15.0, target_soc_pct=35.0)
         optimizer = create_networkx_optimizer()
-        abfahrtszeit = datetime(2026, 8, 30, 6, 15, 0)
-        geplante_abfahrt = datetime(2026, 8, 31, 6, 30, 0)
-        wp = Waypoint(koordinate=(52.5, 12.5), geplante_abfahrt=geplante_abfahrt)
+        departure_time = datetime(2026, 8, 30, 6, 15, 0)
+        planned_departure = datetime(2026, 8, 31, 6, 30, 0)
+        wp = Waypoint(coordinate=(52.5, 12.5), planned_departure=planned_departure)
 
         plan = optimizer.optimize(
             route=route,
@@ -1143,27 +1143,29 @@ class TestZwischenstoppErzwingtWartezeit:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=80.0,
-            abfahrtszeit=abfahrtszeit,
+            departure_time=departure_time,
         )
 
-        ankunft_ziel = abfahrtszeit + timedelta(seconds=plan.gesamtreisezeit_s)
+        ankunft_ziel = departure_time + timedelta(seconds=plan.gesamtreisezeit_s)
         # Die Ankunft am Ziel MUSS nach der geplanten Abfahrt am Zwischenstopp
         # liegen - eine bypassbare Wartezeit wuerde stattdessen weit vor
-        # `geplante_abfahrt` ankommen (reine Fahrzeit ohne Wartezeit).
-        assert ankunft_ziel > geplante_abfahrt
+        # `planned_departure` ankommen (reine Fahrzeit ohne Wartezeit).
+        assert ankunft_ziel > planned_departure
         assert len(plan.zwischenstopp_aufenthalte) == 1
         aufenthalt = plan.zwischenstopp_aufenthalte[0]
-        assert aufenthalt.abfahrtszeit == geplante_abfahrt
-        assert aufenthalt.ankunftszeit < geplante_abfahrt
+        assert aufenthalt.departure_time == planned_departure
+        assert aufenthalt.ankunftszeit < planned_departure
 
     def test_geplante_abfahrt_vor_ankunft_erzwingt_keine_wartezeit(self) -> None:
-        """Liegt `geplante_abfahrt` vor der tatsaechlichen Ankunft, wird KEINE
+        """Liegt `planned_departure` vor der tatsaechlichen Ankunft, wird KEINE
         Wartezeit erzwungen - der Zwischenstopp bleibt optional passierbar."""
         route, energy_results, vehicle_profile = self._basis_szenario()
-        constraints = OptimizationConstraints(min_soc_pct=15.0, ziel_soc_pct=35.0)
+        constraints = OptimizationConstraints(min_soc_pct=15.0, target_soc_pct=35.0)
         optimizer = create_networkx_optimizer()
-        abfahrtszeit = datetime(2026, 8, 30, 6, 15, 0)
-        wp = Waypoint(koordinate=(52.5, 12.5), geplante_abfahrt=abfahrtszeit + timedelta(minutes=1))
+        departure_time = datetime(2026, 8, 30, 6, 15, 0)
+        wp = Waypoint(
+            coordinate=(52.5, 12.5), planned_departure=departure_time + timedelta(minutes=1)
+        )
 
         plan = optimizer.optimize(
             route=route,
@@ -1175,7 +1177,7 @@ class TestZwischenstoppErzwingtWartezeit:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=80.0,
-            abfahrtszeit=abfahrtszeit,
+            departure_time=departure_time,
         )
 
         # Reine Fahrzeit (keine erzwungene Wartezeit): Summe der drei
@@ -1189,13 +1191,13 @@ class TestZwischenstoppErzwingtWartezeit:
         die Ladeleistung ist optional und ohne sie bleibt der SoC unveraendert
         (siehe `test_geplante_abfahrt_verzoegert_ankunft_am_ziel`)."""
         route, energy_results, vehicle_profile = self._basis_szenario()
-        constraints = OptimizationConstraints(min_soc_pct=15.0, ziel_soc_pct=35.0)
+        constraints = OptimizationConstraints(min_soc_pct=15.0, target_soc_pct=35.0)
         optimizer = create_networkx_optimizer()
-        abfahrtszeit = datetime(2026, 8, 30, 6, 15, 0)
+        departure_time = datetime(2026, 8, 30, 6, 15, 0)
         wp = Waypoint(
-            koordinate=(52.5, 12.5),
-            geplante_abfahrt=abfahrtszeit + timedelta(hours=2),
-            ladeleistung_kw=11.0,
+            coordinate=(52.5, 12.5),
+            planned_departure=departure_time + timedelta(hours=2),
+            charging_power_kw=11.0,
         )
 
         plan = optimizer.optimize(
@@ -1208,22 +1210,24 @@ class TestZwischenstoppErzwingtWartezeit:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=50.0,
-            abfahrtszeit=abfahrtszeit,
+            departure_time=departure_time,
         )
 
         assert len(plan.zwischenstopp_aufenthalte) == 1
         aufenthalt = plan.zwischenstopp_aufenthalte[0]
-        assert aufenthalt.ladeleistung_kw == 11.0
-        assert aufenthalt.ziel_soc_pct > aufenthalt.ankunfts_soc_pct
+        assert aufenthalt.charging_power_kw == 11.0
+        assert aufenthalt.target_soc_pct > aufenthalt.arrival_soc_pct
 
     def test_ohne_ladeleistung_kw_bleibt_soc_waehrend_wartezeit_unveraendert(self) -> None:
-        """Ohne `ladeleistung_kw` bleibt der SoC waehrend der erzwungenen
+        """Ohne `charging_power_kw` bleibt der SoC waehrend der erzwungenen
         Wartezeit unveraendert (kein automatisches Laden ohne Ladepunkt)."""
         route, energy_results, vehicle_profile = self._basis_szenario()
-        constraints = OptimizationConstraints(min_soc_pct=15.0, ziel_soc_pct=35.0)
+        constraints = OptimizationConstraints(min_soc_pct=15.0, target_soc_pct=35.0)
         optimizer = create_networkx_optimizer()
-        abfahrtszeit = datetime(2026, 8, 30, 6, 15, 0)
-        wp = Waypoint(koordinate=(52.5, 12.5), geplante_abfahrt=abfahrtszeit + timedelta(hours=2))
+        departure_time = datetime(2026, 8, 30, 6, 15, 0)
+        wp = Waypoint(
+            coordinate=(52.5, 12.5), planned_departure=departure_time + timedelta(hours=2)
+        )
 
         plan = optimizer.optimize(
             route=route,
@@ -1235,16 +1239,16 @@ class TestZwischenstoppErzwingtWartezeit:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=80.0,
-            abfahrtszeit=abfahrtszeit,
+            departure_time=departure_time,
         )
 
         aufenthalt = plan.zwischenstopp_aufenthalte[0]
-        assert aufenthalt.ladeleistung_kw is None
-        assert aufenthalt.ziel_soc_pct == aufenthalt.ankunfts_soc_pct
+        assert aufenthalt.charging_power_kw is None
+        assert aufenthalt.target_soc_pct == aufenthalt.arrival_soc_pct
 
 
 class TestFaehrZeitfenster:
-    """Tests für vom Nutzer vorgegebene Fährfahrpläne (`faehr_zeitfenster`)."""
+    """Tests für vom Nutzer vorgegebene Fährfahrpläne (`ferry_time_windows`)."""
 
     def _basis_szenario(
         self,
@@ -1326,11 +1330,11 @@ class TestFaehrZeitfenster:
             ),
         ]
         vehicle_profile = VehicleProfile(
-            masse_kg=1706.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.22,
-            rollwiderstandsbeiwert=0.011,
-            batteriekapazitaet_kwh=62.5,
+            mass_kg=1706.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.22,
+            rolling_resistance_coefficient=0.011,
+            battery_capacity_kwh=62.5,
         )
         return route, gradients, energy_results, vehicle_profile
 
@@ -1339,11 +1343,11 @@ class TestFaehrZeitfenster:
         Gesamtreisezeit ergibt sich aus Wartezeit bis zur Abfahrt plus Überfahrts-
         und Restfahrzeit."""
         route, gradients, energy_results, vehicle_profile = self._basis_szenario()
-        constraints = OptimizationConstraints(min_soc_pct=15.0, ziel_soc_pct=50.0)
+        constraints = OptimizationConstraints(min_soc_pct=15.0, target_soc_pct=50.0)
         optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=15)
-        abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
-        faehr_abfahrt = abfahrtszeit + timedelta(minutes=45)
-        faehr_ankunft = faehr_abfahrt + timedelta(minutes=30)
+        departure_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
+        ferry_departure = departure_time + timedelta(minutes=45)
+        ferry_arrival = ferry_departure + timedelta(minutes=30)
 
         plan = optimizer.optimize(
             route=route,
@@ -1355,33 +1359,33 @@ class TestFaehrZeitfenster:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=80.0,
-            abfahrtszeit=abfahrtszeit,
-            faehr_zeitfenster={1: (2, faehr_abfahrt, faehr_ankunft)},
+            departure_time=departure_time,
+            ferry_time_windows={1: (2, ferry_departure, ferry_arrival)},
         )
 
         assert plan.ladehalte == []  # kein Ladehalt noetig (Segment 1 kostet kein SoC)
 
-        # Restfahrzeit nach der Faehre = das TATSAECHLICHE `fahrzeit_s` von
+        # Restfahrzeit nach der Ferry = das TATSAECHLICHE `fahrzeit_s` von
         # Segment 2 (siehe `_basis_szenario`/`energy_results[2]`), nicht eine
         # pauschale 110-km/h-Annahme (siehe optimizer.py: `_add_drive_edge`
         # nutzt jetzt `SegmentEnergyResult.fahrzeit_s` je Segment).
         drive_seg2_s = energy_results[2].fahrzeit_s
-        erwartete_gesamtzeit_s = (faehr_ankunft - abfahrtszeit).total_seconds() + drive_seg2_s
+        erwartete_gesamtzeit_s = (ferry_arrival - departure_time).total_seconds() + drive_seg2_s
         assert plan.gesamtreisezeit_s == pytest.approx(erwartete_gesamtzeit_s, abs=1.0)
 
-    def test_verpasste_faehre_macht_route_unfahrbar(self) -> None:
+    def test_missed_ferry_makes_route_infeasible(self) -> None:
         """Liegt die vorgegebene Abfahrt VOR der tatsächlichen Ankunft am Fähr-
         Terminal, ist die Fähre für diesen Pfad nicht mehr nutzbar - die Route
         gilt als nicht fahrbar (keine andere Kante ersetzt die übersprungene
         Fahrtkante)."""
         route, gradients, energy_results, vehicle_profile = self._basis_szenario()
-        constraints = OptimizationConstraints(min_soc_pct=15.0, ziel_soc_pct=50.0)
+        constraints = OptimizationConstraints(min_soc_pct=15.0, target_soc_pct=50.0)
         optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=15)
-        abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
+        departure_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
         # Ankunft am Terminal nach Segment 0 ist ca. 08:27 Uhr - eine Abfahrt
         # um 08:05 Uhr wurde also bereits verpasst.
-        faehr_abfahrt = abfahrtszeit + timedelta(minutes=5)
-        faehr_ankunft = faehr_abfahrt + timedelta(minutes=30)
+        ferry_departure = departure_time + timedelta(minutes=5)
+        ferry_arrival = ferry_departure + timedelta(minutes=30)
 
         with pytest.raises(ValueError, match="Kein erreichbarer Zielknoten"):
             optimizer.optimize(
@@ -1394,8 +1398,8 @@ class TestFaehrZeitfenster:
                 vehicle_profile=vehicle_profile,
                 constraints=constraints,
                 start_soc_pct=80.0,
-                abfahrtszeit=abfahrtszeit,
-                faehr_zeitfenster={1: (2, faehr_abfahrt, faehr_ankunft)},
+                departure_time=departure_time,
+                ferry_time_windows={1: (2, ferry_departure, ferry_arrival)},
             )
 
 
@@ -1408,7 +1412,7 @@ class TestDominanzPruningVerhindertKombinatorischeExplosion:
     Position+SoC profitiert (weder Energieverbrauch noch Ladekurve noch
     `max_time_buckets` noch Fähr-Abfahrtsfenster haengen vom Kalenderzeit-
     punkt ab - fruehere Ankunft heisst hoechstens laenger warten, nie eine
-    Faehre verpassen). Ohne Pruning wurden pro Entscheidungspunkt bis zu
+    Ferry verpassen). Ohne Pruning wurden pro Entscheidungspunkt bis zu
     O(SoC-Buckets x Zeit-Buckets) tatsaechlich erweiterte (dominierte)
     Knoten gehalten statt O(SoC-Buckets) - bei Routen mit vielen
     Ladestationen UND einer teuren Kandidaten-Bewertung pro Knoten (siehe
@@ -1485,13 +1489,13 @@ class TestDominanzPruningVerhindertKombinatorischeExplosion:
             geometrie=[s.geometrie[0] for s in segments] + [segments[-1].geometrie[-1]],
         )
         vehicle_profile = VehicleProfile(
-            masse_kg=1706.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.22,
-            rollwiderstandsbeiwert=0.011,
-            batteriekapazitaet_kwh=75.0,
+            mass_kg=1706.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.22,
+            rolling_resistance_coefficient=0.011,
+            battery_capacity_kwh=75.0,
         )
-        constraints = OptimizationConstraints(min_soc_pct=10.0, ziel_soc_pct=5.0)
+        constraints = OptimizationConstraints(min_soc_pct=10.0, target_soc_pct=5.0)
         gradients = [
             SegmentGradient(
                 segment_index=i,
@@ -1514,7 +1518,7 @@ class TestDominanzPruningVerhindertKombinatorischeExplosion:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=100.0,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
         dauer_s = time.perf_counter() - start
 
@@ -1622,11 +1626,11 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
             geometrie=[s.geometrie[0] for s in segments] + [segments[-1].geometrie[-1]],
         )
         vehicle_profile = VehicleProfile(
-            masse_kg=1706.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.22,
-            rollwiderstandsbeiwert=0.011,
-            batteriekapazitaet_kwh=100.0,
+            mass_kg=1706.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.22,
+            rolling_resistance_coefficient=0.011,
+            battery_capacity_kwh=100.0,
         )
         gradients = [
             SegmentGradient(
@@ -1651,13 +1655,13 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
            frueh gewaehlten Ladehalten suboptimal bleiben.
         2. Reichweiten-/kurvenbasierte Ladeziel-Kandidaten
            (`_lade_ziel_kandidaten`) statt starrer 80/90/100%-Rundwerte -
-           mit dem Default `mindest_ankunfts_soc_pct=5.0` darf die Suche an
+           mit dem Default `min_arrival_soc_pct=5.0` darf die Suche an
            der LETZTEN Station bis auf 5% herunterfahren (statt vorzeitig an
            einer FRUEHEREN Station mehr zu laden als noetig) und dort die
            besonders schnelle Ladeleistung im unteren SoC-Bereich der
            Ladekurve ausnutzen. Das eigentliche Fahrtziel (kein weiterer
            Entscheidungspunkt nach station-5) verlangt selbst nur noch
-           `ziel_soc_target` (hier 5.0%, siehe `optimize()`) statt des
+           `target_soc_target` (hier 5.0%, siehe `optimize()`) statt des
            allgemeinen `min_soc_pct` - die Fahrt endet dort, ein zusaetzliches
            Offene-Strecke-Sicherheitsminimum ist nicht einschlaegig.
 
@@ -1675,13 +1679,13 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
         )
         constraints = OptimizationConstraints(
             min_soc_pct=10.0,
-            ziel_soc_pct=10.0,
+            target_soc_pct=10.0,
             # Explizit 0: dieser Test isoliert Dijkstra + Reichweiten-/Kurven-
             # Kandidaten von der SEPARATEN Mindestladedauer-Funktionalitaet
             # (siehe `TestMindestLadedauerVerhindertKurzeLadehalte`), die mit
             # ihrem eigenen Produktions-Default (600s) sonst den kurzen
             # 376s-Halt an station-4 aus diesem Szenario entfernen wuerde.
-            mindest_ladezeit_s=0,
+            min_charging_time_s=0,
         )
         # Bewusst grobe Diskretisierung: begünstigt die Bucket-Kollisionen,
         # die den (mittlerweile behobenen) FIFO-Bug ueberhaupt erst sichtbar
@@ -1700,7 +1704,7 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=100.0,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert [s.station.station_id for s in plan.ladehalte] == [
@@ -1708,7 +1712,7 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
             "station-4",
             "station-5",
         ]
-        # Ausnutzung des niedrigen, per `mindest_ankunfts_soc_pct` (Default
+        # Ausnutzung des niedrigen, per `min_arrival_soc_pct` (Default
         # 5.0) erlaubten Ankunfts-SoC an der LETZTEN Ladestation - genau der
         # vom Nutzer gewuenschte Effekt (schnelles Laden im unteren SoC-
         # Bereich statt unnoetig frueher Teilladung). An station-4 begrenzt
@@ -1716,16 +1720,16 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
         # groebere Kandidaten-Stufe (9.1% statt exakt 5.0%) den erreichbaren
         # Ankunfts-SoC leicht - mit feinerer Aufloesung (`soc_step_pct=1.0`)
         # sinkt er ebenfalls auf 5.0% (siehe Docstring oben).
-        assert [round(s.ankunfts_soc_pct, 1) for s in plan.ladehalte][-2:] == [9.1, 5.0]
+        assert [round(s.arrival_soc_pct, 1) for s in plan.ladehalte][-2:] == [9.1, 5.0]
         assert plan.gesamtreisezeit_s == 21744
 
 
 class TestMindestLadedauerVerhindertKurzeLadehalte:
-    """Tests für `OptimizationConstraints.mindest_ladezeit_s`: ein Kandidat-
+    """Tests für `OptimizationConstraints.min_charging_time_s`: ein Kandidat-
     Ladeziel, dessen Ladezeit darunter läge, wird auf die Mindestdauer
     gestreckt statt verworfen (siehe `_kandidaten_mit_mindestladedauer`) -
     ein tatsächlicher Ladehalt dauert dadurch entweder gar nicht oder
-    mindestens `mindest_ladezeit_s` (Nutzer-Report: 1-Minuten-Ladehalt,
+    mindestens `min_charging_time_s` (Nutzer-Report: 1-Minuten-Ladehalt,
     gefolgt von einem weiteren Halt nach nur gut 10 Minuten Fahrt).
     """
 
@@ -1738,17 +1742,17 @@ class TestMindestLadedauerVerhindertKurzeLadehalte:
         einmal enthalten (Deduplizierung)."""
         create_networkx_optimizer()
         ladekurve = LadekurveReferenz.model_3_lr_v3()
-        batteriekapazitaet_kwh = 75.0
+        battery_capacity_kwh = 75.0
 
         # 70% -> 71%/72% laden dauert bei dieser Kurve deutlich unter 600s
         # (siehe Kurvenpunkt 50-80% bei 150kW); 70% -> 95% dauert deutlich
         # laenger als 600s und bleibt daher unveraendert.
         ergebnis = charging_math.kandidaten_mit_mindestladedauer(
             kandidaten=[71.0, 72.0, 95.0],
-            ankunft_soc_pct=70.0,
+            arrival_soc_pct=70.0,
             ladekurve=ladekurve,
-            batteriekapazitaet_kwh=batteriekapazitaet_kwh,
-            mindest_ladezeit_s=600.0,
+            battery_capacity_kwh=battery_capacity_kwh,
+            min_charging_time_s=600.0,
         )
 
         # Die beiden zu kurzen Kandidaten (71%/72%) wurden auf dasselbe,
@@ -1757,7 +1761,7 @@ class TestMindestLadedauerVerhindertKurzeLadehalte:
             start_soc_pct=70.0,
             ladezeit_s=600.0,
             ladekurve=ladekurve,
-            batteriekapazitaet_kwh=batteriekapazitaet_kwh,
+            battery_capacity_kwh=battery_capacity_kwh,
         )
         assert ergebnis == [pytest.approx(gestrecktes_soc), 95.0]
 
@@ -1766,22 +1770,22 @@ class TestMindestLadedauerVerhindertKurzeLadehalte:
             start_soc_pct=70.0,
             end_soc_pct=ergebnis[0],
             ladekurve=ladekurve,
-            batteriekapazitaet_kwh=batteriekapazitaet_kwh,
+            battery_capacity_kwh=battery_capacity_kwh,
         )
         assert gestreckte_ladezeit_s == pytest.approx(600.0, abs=1.0)
 
     def test_deaktivierte_mindestladedauer_laesst_kandidaten_unveraendert(self) -> None:
-        """`mindest_ladezeit_s=0` (deaktiviert) darf Kandidaten nicht verändern."""
+        """`min_charging_time_s=0` (deaktiviert) darf Kandidaten nicht verändern."""
         create_networkx_optimizer()
         ladekurve = LadekurveReferenz.model_3_lr_v3()
         kandidaten = [71.0, 72.0, 95.0]
 
         ergebnis = charging_math.kandidaten_mit_mindestladedauer(
             kandidaten=kandidaten,
-            ankunft_soc_pct=70.0,
+            arrival_soc_pct=70.0,
             ladekurve=ladekurve,
-            batteriekapazitaet_kwh=75.0,
-            mindest_ladezeit_s=0.0,
+            battery_capacity_kwh=75.0,
+            min_charging_time_s=0.0,
         )
 
         assert ergebnis == kandidaten
@@ -1798,11 +1802,11 @@ class TestMindestLadedauerVerhindertKurzeLadehalte:
             szenario._sechs_segmente_szenario()
         )
         optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=20)
-        abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
+        departure_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
 
-        def _optimiere(mindest_ladezeit_s: int) -> list[int]:
+        def _optimiere(min_charging_time_s: int) -> list[int]:
             constraints = OptimizationConstraints(
-                min_soc_pct=10.0, ziel_soc_pct=10.0, mindest_ladezeit_s=mindest_ladezeit_s
+                min_soc_pct=10.0, target_soc_pct=10.0, min_charging_time_s=min_charging_time_s
             )
             plan = optimizer.optimize(
                 route=route,
@@ -1814,7 +1818,7 @@ class TestMindestLadedauerVerhindertKurzeLadehalte:
                 vehicle_profile=vehicle_profile,
                 constraints=constraints,
                 start_soc_pct=100.0,
-                abfahrtszeit=abfahrtszeit,
+                departure_time=departure_time,
             )
             return [s.geschaetzte_ladedauer_s for s in plan.ladehalte]
 
@@ -1847,14 +1851,14 @@ class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
                 station_id="real-station",
                 offroute_distance_m=999_999.0,  # would give a wildly different heuristic result
                 vehicle_profile=VehicleProfile(
-                    masse_kg=1800.0,
-                    cw_wert=0.23,
-                    stirnflaeche_m2=2.2,
-                    rollwiderstandsbeiwert=0.01,
-                    batteriekapazitaet_kwh=60.0,
-                    nebenverbraucher_baseline_kw=0.34,
-                    reifentyp="standard",
-                    dachbox=False,
+                    mass_kg=1800.0,
+                    drag_coefficient=0.23,
+                    frontal_area_m2=2.2,
+                    rolling_resistance_coefficient=0.01,
+                    battery_capacity_kwh=60.0,
+                    auxiliary_baseline_kw=0.34,
+                    tire_type="standard",
+                    roof_box=False,
                 ),
                 detour_kosten={"real-station": real_kosten},
                 avg_verbrauch_kwh_pro_m=0.0,
@@ -1877,14 +1881,14 @@ class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
         verworfen). `detour_kosten` MUSS die beiden Richtungen unveraendert
         durchreichen statt sie zu mitteln."""
         vehicle_profile = VehicleProfile(
-            masse_kg=1800.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.2,
-            rollwiderstandsbeiwert=0.01,
-            batteriekapazitaet_kwh=60.0,
-            nebenverbraucher_baseline_kw=0.34,
-            reifentyp="standard",
-            dachbox=False,
+            mass_kg=1800.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.2,
+            rolling_resistance_coefficient=0.01,
+            battery_capacity_kwh=60.0,
+            auxiliary_baseline_kw=0.34,
+            tire_type="standard",
+            roof_box=False,
         )
         # Kurzer Hinweg (10s), sehr langer Rückweg (1000s) - eine Mittelung
         # (505s je Richtung) wuerde weder den Hinweg noch den Rückweg korrekt
@@ -1914,14 +1918,14 @@ class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
 
     def test_faellt_auf_heuristik_zurueck_wenn_station_fehlt(self) -> None:
         vehicle_profile = VehicleProfile(
-            masse_kg=1800.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.2,
-            rollwiderstandsbeiwert=0.01,
-            batteriekapazitaet_kwh=60.0,
-            nebenverbraucher_baseline_kw=0.34,
-            reifentyp="standard",
-            dachbox=False,
+            mass_kg=1800.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.2,
+            rolling_resistance_coefficient=0.01,
+            battery_capacity_kwh=60.0,
+            auxiliary_baseline_kw=0.34,
+            tire_type="standard",
+            roof_box=False,
         )
 
         hinweg_zeit_s, _, rueckweg_zeit_s, _ = detour_costs.detour_kosten(
@@ -1948,14 +1952,14 @@ class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
 
     def test_faellt_auf_heuristik_zurueck_wenn_detour_kosten_none(self) -> None:
         vehicle_profile = VehicleProfile(
-            masse_kg=1800.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.2,
-            rollwiderstandsbeiwert=0.01,
-            batteriekapazitaet_kwh=60.0,
-            nebenverbraucher_baseline_kw=0.34,
-            reifentyp="standard",
-            dachbox=False,
+            mass_kg=1800.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.2,
+            rolling_resistance_coefficient=0.01,
+            battery_capacity_kwh=60.0,
+            auxiliary_baseline_kw=0.34,
+            tire_type="standard",
+            roof_box=False,
         )
 
         hinweg_zeit_s, _, rueckweg_zeit_s, _ = detour_costs.detour_kosten(
@@ -2027,11 +2031,11 @@ class TestAsymmetrischerDetourWirdNichtFaelschlichVerworfen:
         ]
 
         vehicle_profile = VehicleProfile(
-            masse_kg=1706.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.22,
-            rollwiderstandsbeiwert=0.011,
-            batteriekapazitaet_kwh=62.5,
+            mass_kg=1706.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.22,
+            rolling_resistance_coefficient=0.011,
+            battery_capacity_kwh=62.5,
         )
 
         # Station liegt klar in Segment 1 (naeher an coords[2] als an coords[1]).
@@ -2066,9 +2070,9 @@ class TestAsymmetrischerDetourWirdNichtFaelschlichVerworfen:
         # (< 55%-Reserve) - genau die Reserve, die dieser Test prueft.
         constraints = OptimizationConstraints(
             min_soc_pct=15.0,
-            ziel_soc_pct=40.0,
+            target_soc_pct=40.0,
             sicherheitsreserve_pct=5.0,
-            mindest_ankunfts_soc_pct=55.0,
+            min_arrival_soc_pct=55.0,
         )
 
         optimizer = create_networkx_optimizer(soc_step_pct=1.0, time_step_min=5)
@@ -2083,27 +2087,27 @@ class TestAsymmetrischerDetourWirdNichtFaelschlichVerworfen:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=100.0,
-            abfahrtszeit=datetime(2026, 8, 30, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 30, 8, 0, 0, tzinfo=UTC),
             detour_kosten=detour_kosten,
         )
 
         assert len(plan.ladehalte) == 1
         assert plan.ladehalte[0].station.station_id == "asym"
-        assert plan.ladehalte[0].ankunfts_soc_pct == pytest.approx(59.68, abs=0.5)
+        assert plan.ladehalte[0].arrival_soc_pct == pytest.approx(59.68, abs=0.5)
 
 
 class TestMaxChargeSocCapsRegularStops:
-    """Tests for `OptimizationConstraints.max_lade_soc_pct`: the global
+    """Tests for `OptimizationConstraints.max_charge_soc_pct`: the global
     cap on the target SoC of regular charging stops (Supercharger stations).
     Default 100.0 = disabled (behavior unchanged).
 
     Deliberately excluded:
-    - `ladedauer_vorgaben` (explicit user decision, analogous to the
+    - `charging_duration_specifications` (explicit user decision, analogous to the
       unbounded `max_ladezeit_s`, see `_add_charging_edges`)
-    - charging at waypoints (`Waypoint.ladeleistung_kw`)
+    - charging at waypoints (`Waypoint.charging_power_kw`)
     """
 
-    def _optimiere(self, max_lade_soc_pct: float | None) -> list[ChargingStop]:
+    def _optimiere(self, max_charge_soc_pct: float | None) -> list[ChargingStop]:
         """Runs the proven six-segment scenario with the given cap.
 
         Scenario premise (verified against the uncapped run): the natural
@@ -2118,11 +2122,11 @@ class TestMaxChargeSocCapsRegularStops:
         )
         constraints_kwargs: dict[str, float | int] = {
             "min_soc_pct": 10.0,
-            "ziel_soc_pct": 10.0,
-            "mindest_ladezeit_s": 0,
+            "target_soc_pct": 10.0,
+            "min_charging_time_s": 0,
         }
-        if max_lade_soc_pct is not None:
-            constraints_kwargs["max_lade_soc_pct"] = max_lade_soc_pct
+        if max_charge_soc_pct is not None:
+            constraints_kwargs["max_charge_soc_pct"] = max_charge_soc_pct
         optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=20)
         plan = optimizer.optimize(
             route=route,
@@ -2134,14 +2138,14 @@ class TestMaxChargeSocCapsRegularStops:
             vehicle_profile=vehicle_profile,
             constraints=OptimizationConstraints(**constraints_kwargs),
             start_soc_pct=100.0,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
         return list(plan.ladehalte)
 
     def test_without_cap_behavior_is_unchanged(self) -> None:
         """Default (no cap): the natural plan from the scenario premise."""
         halte = self._optimiere(None)
-        assert [(s.station.station_id, round(s.ziel_soc_pct, 1)) for s in halte] == [
+        assert [(s.station.station_id, round(s.target_soc_pct, 1)) for s in halte] == [
             ("station-3", 30.0),
             ("station-4", 33.2),
             ("station-5", 38.3),
@@ -2159,30 +2163,30 @@ class TestMaxChargeSocCapsRegularStops:
         """A cap at/above the natural charging target does not alter the
         plan (38.3% < 38.4% cap): the natural plan is already minimal."""
         halte = self._optimiere(38.4)
-        assert [(s.station.station_id, round(s.ziel_soc_pct, 1)) for s in halte] == [
+        assert [(s.station.station_id, round(s.target_soc_pct, 1)) for s in halte] == [
             ("station-3", 30.0),
             ("station-4", 33.2),
             ("station-5", 38.3),
         ]
 
     def test_cap_does_not_affect_charging_at_waypoints(self) -> None:
-        """`max_lade_soc_pct` affects ONLY regular charging stops:
-        charging at a waypoint (`ladeleistung_kw` during a forced wait) is
+        """`max_charge_soc_pct` affects ONLY regular charging stops:
+        charging at a waypoint (`charging_power_kw` during a forced wait) is
         unaffected - it keeps charging to its (uncapped) target SoC."""
         szenario = TestZwischenstoppErzwingtWartezeit()
         route, energy_results, vehicle_profile = szenario._basis_szenario()
         constraints = OptimizationConstraints(
             min_soc_pct=15.0,
-            ziel_soc_pct=35.0,
-            max_lade_soc_pct=30.0,
-            mindest_ladezeit_s=0,
+            target_soc_pct=35.0,
+            max_charge_soc_pct=30.0,
+            min_charging_time_s=0,
         )
         optimizer = create_networkx_optimizer()
-        abfahrtszeit = datetime(2026, 8, 30, 6, 15, 0)
+        departure_time = datetime(2026, 8, 30, 6, 15, 0)
         wp = Waypoint(
-            koordinate=(52.5, 12.5),
-            geplante_abfahrt=abfahrtszeit + timedelta(hours=2),
-            ladeleistung_kw=11.0,
+            coordinate=(52.5, 12.5),
+            planned_departure=departure_time + timedelta(hours=2),
+            charging_power_kw=11.0,
         )
 
         plan = optimizer.optimize(
@@ -2195,19 +2199,19 @@ class TestMaxChargeSocCapsRegularStops:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=50.0,
-            abfahrtszeit=abfahrtszeit,
+            departure_time=departure_time,
         )
 
         aufenthalte = plan.zwischenstopp_aufenthalte
         assert len(aufenthalte) == 1
         # 2h of wallbox charging raises the SoC to ~64% - well above the
         # 30% cap that applies to regular stops only.
-        assert aufenthalte[0].ladeleistung_kw == 11.0
-        assert aufenthalte[0].ziel_soc_pct > 60.0
+        assert aufenthalte[0].charging_power_kw == 11.0
+        assert aufenthalte[0].target_soc_pct > 60.0
 
     def test_fixed_charge_duration_override_is_not_capped(self) -> None:
-        """An explicitly fixed charge duration (`ladedauer_vorgaben`) is NOT
-        capped by `max_lade_soc_pct` - consistent with the existing
+        """An explicitly fixed charge duration (`charging_duration_specifications`) is NOT
+        capped by `max_charge_soc_pct` - consistent with the existing
         convention for `max_ladezeit_s` (see `_add_charging_edges`): an
         explicit user decision beats the global limit.
 
@@ -2221,9 +2225,9 @@ class TestMaxChargeSocCapsRegularStops:
         )
         constraints = OptimizationConstraints(
             min_soc_pct=10.0,
-            ziel_soc_pct=10.0,
-            max_lade_soc_pct=30.0,
-            mindest_ladezeit_s=0,
+            target_soc_pct=10.0,
+            max_charge_soc_pct=30.0,
+            min_charging_time_s=0,
         )
         optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=20)
         plan = optimizer.optimize(
@@ -2236,18 +2240,18 @@ class TestMaxChargeSocCapsRegularStops:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=100.0,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
-            ladedauer_vorgaben={f"station-{i}": 3600 for i in range(1, 6)},
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            charging_duration_specifications={f"station-{i}": 3600 for i in range(1, 6)},
         )
 
         assert plan.ladehalte
-        assert all(s.ziel_soc_pct > 60.0 for s in plan.ladehalte)
+        assert all(s.target_soc_pct > 60.0 for s in plan.ladehalte)
 
 
 class TestMaxChargeSocStretchClamping:
     """`_kandidaten_mit_mindestladedauer` stretches candidates whose charge
     time would fall below the minimum duration - the result MUST stay
-    clamped to `max_lade_soc_pct` (the charge limit is hard, the minimum
+    clamped to `max_charge_soc_pct` (the charge limit is hard, the minimum
     duration only soft)."""
 
     def test_stretched_target_is_clamped_to_cap(self) -> None:
@@ -2257,11 +2261,11 @@ class TestMaxChargeSocStretchClamping:
         # clamped target must be exactly the cap.
         ergebnis = charging_math.kandidaten_mit_mindestladedauer(
             kandidaten=[70.0],
-            ankunft_soc_pct=20.0,
+            arrival_soc_pct=20.0,
             ladekurve=ladekurve,
-            batteriekapazitaet_kwh=60.0,
-            mindest_ladezeit_s=2400.0,
-            max_lade_soc_pct=70.0,
+            battery_capacity_kwh=60.0,
+            min_charging_time_s=2400.0,
+            max_charge_soc_pct=70.0,
         )
         assert ergebnis == [70.0]
 
@@ -2271,10 +2275,10 @@ class TestMaxChargeSocStretchClamping:
         ladekurve = LadekurveReferenz.model_3_sr()
         ergebnis = charging_math.kandidaten_mit_mindestladedauer(
             kandidaten=[70.0],
-            ankunft_soc_pct=20.0,
+            arrival_soc_pct=20.0,
             ladekurve=ladekurve,
-            batteriekapazitaet_kwh=60.0,
-            mindest_ladezeit_s=2400.0,
+            battery_capacity_kwh=60.0,
+            min_charging_time_s=2400.0,
         )
         assert ergebnis == [100.0]
 
@@ -2284,14 +2288,14 @@ class TestZielUndZwischenstoppFloorNutztAnkunftsMinimum:
     (z. B. 5%) wurde von `min_soc_pct` (Sicherheitsreserve fuer offene
     Strecke, nie vom Frontend/API gesetzt, Default 15%) ueberschrieben, UND
     die Fahrtkante zu einem ladefaehigen Zwischenstopp (`Waypoint.
-    ladeleistung_kw` + erzwungene Wartezeit) verlangte faelschlich densel-
+    charging_power_kw` + erzwungene Wartezeit) verlangte faelschlich densel-
     ben Sicherheitsreserve-Floor statt des niedrigeren
-    `mindest_ankunfts_soc_pct` (siehe Nutzer-Report: Route Gummersbach ->
+    `min_arrival_soc_pct` (siehe Nutzer-Report: Route Gummersbach ->
     Taberg (ladender Zwischenstopp) -> Hagfors, Ziel-SoC 5% gesetzt, aber
     Ankunft am Zwischenstopp mit 21% statt ~5% und am Ziel mit 27% statt
     ~5% - beides Symptome desselben Floor-Bugs). Beide Konstellationen
     machten die Route zuvor sogar komplett unfahrbar, sobald die
-    kontinuierliche Ankunfts-SoC zwischen `mindest_ankunfts_soc_pct` (5%)
+    kontinuierliche Ankunfts-SoC zwischen `min_arrival_soc_pct` (5%)
     und `min_soc_pct` (15%) lag.
     """
 
@@ -2329,7 +2333,7 @@ class TestZielUndZwischenstoppFloorNutztAnkunftsMinimum:
         # Ankunfts-SoC 11.7% am Zwischenstopp, ZWISCHEN `mindest_ankunfts_
         # soc_pct`=5% und `min_soc_pct`=15%), Segment 1 (nach vollem
         # Nachladen am Zwischenstopp) verbraucht 57 kWh (95% -> Ankunft am
-        # Ziel exakt bei 5%, dem gesetzten `ziel_soc_pct`).
+        # Ziel exakt bei 5%, dem gesetzten `target_soc_pct`).
         energy_results = [
             SegmentEnergyResult(
                 segment_index=0,
@@ -2351,11 +2355,11 @@ class TestZielUndZwischenstoppFloorNutztAnkunftsMinimum:
             ),
         ]
         vehicle_profile = VehicleProfile(
-            masse_kg=1706.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.22,
-            rollwiderstandsbeiwert=0.011,
-            batteriekapazitaet_kwh=60.0,
+            mass_kg=1706.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.22,
+            rolling_resistance_coefficient=0.011,
+            battery_capacity_kwh=60.0,
         )
         return route, energy_results, vehicle_profile
 
@@ -2363,18 +2367,18 @@ class TestZielUndZwischenstoppFloorNutztAnkunftsMinimum:
         """`min_soc_pct` bleibt auf Produktions-Default (15%, wird von
         Frontend/API nie gesetzt) - die Route MUSS trotzdem planbar sein,
         weil sowohl der ladefaehige Zwischenstopp als auch das (bewusst
-        niedrig gesetzte) Fahrtziel `mindest_ankunfts_soc_pct`/`ziel_soc_
+        niedrig gesetzte) Fahrtziel `min_arrival_soc_pct`/`ziel_soc_
         target` statt des allgemeinen Sicherheitsreserve-Floors nutzen
         muessen."""
         route, energy_results, vehicle_profile = self._szenario()
         constraints = OptimizationConstraints(
-            ziel_soc_pct=5.0, sicherheitsreserve_pct=0.0, mindest_ladezeit_s=0
+            target_soc_pct=5.0, sicherheitsreserve_pct=0.0, min_charging_time_s=0
         )
         optimizer = create_networkx_optimizer()
-        abfahrtszeit = datetime(2026, 8, 30, 6, 30, 0, tzinfo=UTC)
-        geplante_abfahrt = datetime(2026, 8, 31, 6, 30, 0, tzinfo=UTC)
+        departure_time = datetime(2026, 8, 30, 6, 30, 0, tzinfo=UTC)
+        planned_departure = datetime(2026, 8, 31, 6, 30, 0, tzinfo=UTC)
         wp = Waypoint(
-            koordinate=(52.5, 12.5), geplante_abfahrt=geplante_abfahrt, ladeleistung_kw=11.0
+            coordinate=(52.5, 12.5), planned_departure=planned_departure, charging_power_kw=11.0
         )
 
         plan = optimizer.optimize(
@@ -2387,7 +2391,7 @@ class TestZielUndZwischenstoppFloorNutztAnkunftsMinimum:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=100.0,
-            abfahrtszeit=abfahrtszeit,
+            departure_time=departure_time,
         )
 
         assert len(plan.zwischenstopp_aufenthalte) == 1
@@ -2395,18 +2399,18 @@ class TestZielUndZwischenstoppFloorNutztAnkunftsMinimum:
         # Ankunft am Zwischenstopp bei ~11.7% - NICHT durch das allgemeine
         # `min_soc_pct` (15%) auf einen unerreichbaren Floor angehoben bzw.
         # als unzulaessige Kante verworfen.
-        assert aufenthalt.ankunfts_soc_pct == pytest.approx(11.7, abs=0.1)
+        assert aufenthalt.arrival_soc_pct == pytest.approx(11.7, abs=0.1)
         # Volles Nachladen am Zwischenstopp bleibt uneingeschraenkt (analog
         # zu `TestMaxChargeSocCapsRegularStops.test_cap_does_not_affect_
         # charging_at_waypoints`).
-        assert aufenthalt.ziel_soc_pct == pytest.approx(100.0, abs=0.1)
+        assert aufenthalt.target_soc_pct == pytest.approx(100.0, abs=0.1)
 
 
 class TestLadeTiebreakVermeidetUnnoetigesLadenVorZwischenstopp:
     """Regressionstest: Bug - eine Ladestation kurz vor einem ladefaehigen
     Zwischenstopp mit langer erzwungener Wartezeit (`Waypoint.
-    geplante_abfahrt`/`aufenthaltsdauer` + `ladeleistung_kw`) lud bis zum
-    `max_lade_soc_pct`-Deckel (bzw. ohne Deckel bis 100%) statt auf das
+    planned_departure`/`stay_duration` + `charging_power_kw`) lud bis zum
+    `max_charge_soc_pct`-Deckel (bzw. ohne Deckel bis 100%) statt auf das
     tatsaechlich benoetigte Minimum, obwohl der Zwischenstopp selbst
     ohnehin unbegrenzt bis 100% nachlaedt (siehe Nutzer-Report: Ankunft am
     Zwischenstopp mit 26% statt der gesetzten ~5% trotz bereits behobenem
@@ -2465,11 +2469,11 @@ class TestLadeTiebreakVermeidetUnnoetigesLadenVorZwischenstopp:
             for i, anteil in enumerate([0.60, 0.40, 0.10])
         ]
         vehicle_profile = VehicleProfile(
-            masse_kg=1706.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.22,
-            rollwiderstandsbeiwert=0.011,
-            batteriekapazitaet_kwh=capacity,
+            mass_kg=1706.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.22,
+            rolling_resistance_coefficient=0.011,
+            battery_capacity_kwh=capacity,
         )
         station = ChargingStation(
             station_id="station-1",
@@ -2480,19 +2484,19 @@ class TestLadeTiebreakVermeidetUnnoetigesLadenVorZwischenstopp:
             connector_types=[ConnectorType.CCS2],
             country="DE",
         )
-        abfahrtszeit = datetime(2026, 8, 30, 6, 30, 0, tzinfo=UTC)
+        departure_time = datetime(2026, 8, 30, 6, 30, 0, tzinfo=UTC)
         wp = Waypoint(
-            koordinate=segments[2].geometrie[0],
-            geplante_abfahrt=abfahrtszeit + timedelta(hours=24),
-            ladeleistung_kw=11.0,
+            coordinate=segments[2].geometrie[0],
+            planned_departure=departure_time + timedelta(hours=24),
+            charging_power_kw=11.0,
         )
         return route, energy_results, [station], vehicle_profile, wp
 
     def test_station_laedt_nur_das_fuer_zwischenstopp_noetige_minimum(self) -> None:
         route, energy_results, stations, vehicle_profile, wp = self._szenario()
-        constraints = OptimizationConstraints(ziel_soc_pct=20.0, mindest_ladezeit_s=0)
+        constraints = OptimizationConstraints(target_soc_pct=20.0, min_charging_time_s=0)
         optimizer = create_networkx_optimizer()
-        abfahrtszeit = datetime(2026, 8, 30, 6, 30, 0, tzinfo=UTC)
+        departure_time = datetime(2026, 8, 30, 6, 30, 0, tzinfo=UTC)
 
         plan = optimizer.optimize(
             route=route,
@@ -2504,18 +2508,18 @@ class TestLadeTiebreakVermeidetUnnoetigesLadenVorZwischenstopp:
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=100.0,
-            abfahrtszeit=abfahrtszeit,
+            departure_time=departure_time,
         )
 
         assert len(plan.ladehalte) == 1
         halt = plan.ladehalte[0]
         # Das sparsame Minimum (40% Verbrauch + 5% Floor = 45%) MUSS
         # gewaehlt werden, NICHT der (hier unbeschraenkte, also 100%)
-        # `max_lade_soc_pct`-Deckel.
-        assert halt.ankunfts_soc_pct == pytest.approx(40.0, abs=0.1)
-        assert halt.ziel_soc_pct == pytest.approx(45.0, abs=0.1)
+        # `max_charge_soc_pct`-Deckel.
+        assert halt.arrival_soc_pct == pytest.approx(40.0, abs=0.1)
+        assert halt.target_soc_pct == pytest.approx(45.0, abs=0.1)
 
         assert len(plan.zwischenstopp_aufenthalte) == 1
         aufenthalt = plan.zwischenstopp_aufenthalte[0]
-        assert aufenthalt.ankunfts_soc_pct == pytest.approx(5.0, abs=0.1)
-        assert aufenthalt.ziel_soc_pct == pytest.approx(100.0, abs=0.1)
+        assert aufenthalt.arrival_soc_pct == pytest.approx(5.0, abs=0.1)
+        assert aufenthalt.target_soc_pct == pytest.approx(100.0, abs=0.1)

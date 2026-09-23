@@ -1,46 +1,46 @@
 import type {
   FerryExclusion,
   FerryTimeWindow,
-  ChargingDurationTarget,
+  ChargingDurationSpecification,
 } from "@/types/trip-request";
 
 import { sameFerryExclusion as sameFerryExclusionF } from "./form-helpers";
 
-export { sameFerryExclusionF as sameFaehrAusschluss };
+export { sameFerryExclusionF as sameFerryExclusion };
 
 /** Ergänzt oder entfernt eine Fährverbindung aus der Ausschlussliste. */
 export function toggleFerryExclusion(
   list: FerryExclusion[],
-  faehre: FerryExclusion,
+  ferry: FerryExclusion,
   avoid: boolean,
 ): FerryExclusion[] {
-  const alreadyExists = list.some((f) => sameFerryExclusionF(f, faehre));
+  const alreadyExists = list.some((f) => sameFerryExclusionF(f, ferry));
   if (avoid) {
-    return alreadyExists ? list : [...list, faehre];
+    return alreadyExists ? list : [...list, ferry];
   }
-  return list.filter((f) => !sameFerryExclusionF(f, faehre));
+  return list.filter((f) => !sameFerryExclusionF(f, ferry));
 }
 
 /** Setzt oder entfernt das Zeitfenster für eine Fährverbindung. `zeitfenster`
- *  wird entfernt, wenn `abfahrt`/`ankunft` beide leer sind. */
+ *  wird entfernt, wenn `departure`/`arrival` beide leer sind. */
 export function setFerryTimeWindowFor(
   list: FerryTimeWindow[],
   entry: FerryExclusion,
-  abfahrt: string,
-  ankunft: string,
+  departure: string,
+  arrival: string,
 ): FerryTimeWindow[] {
   const rest = list.filter((f) => !sameFerryExclusionF(f, entry));
-  if (!abfahrt || !ankunft) return rest;
-  return [...rest, { ...entry, abfahrt, ankunft }];
+  if (!departure || !arrival) return rest;
+  return [...rest, { ...entry, departure, arrival }];
 }
 
 /** Setzt oder entfernt die Ladedauer-Vorgabe für eine Station. Die Vorgabe
- *  wird entfernt, wenn `ladedauerMin` nicht positiv ist. */
+ *  wird entfernt, wenn `chargingDurationMin` nicht positiv ist. */
 export function setChargingDurationPresetFor(
-  list: ChargingDurationTarget[],
+  list: ChargingDurationSpecification[],
   stationId: string,
   chargingDurationMin: number,
-): ChargingDurationTarget[] {
+): ChargingDurationSpecification[] {
   const rest = list.filter((v) => v.stationId !== stationId);
   if (!(chargingDurationMin > 0)) return rest;
   return [

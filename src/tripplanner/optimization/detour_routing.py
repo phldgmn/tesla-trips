@@ -79,14 +79,14 @@ def _make_energy_params(vehicle_profile: VehicleProfile) -> VehicleEnergyParamet
     helper for a conversion this small.
     """
     return VehicleEnergyParameters(
-        masse_kg=vehicle_profile.masse_kg,
-        cw_wert=vehicle_profile.cw_wert,
-        stirnflaeche_m2=vehicle_profile.stirnflaeche_m2,
-        rollwiderstandsbeiwert=vehicle_profile.rollwiderstandsbeiwert,
-        batteriekapazitaet_kwh=vehicle_profile.batteriekapazitaet_kwh,
-        nebenverbraucher_baseline_kw=vehicle_profile.nebenverbraucher_baseline_kw,
-        reifentyp=vehicle_profile.reifentyp,
-        dachbox=vehicle_profile.dachbox,
+        mass_kg=vehicle_profile.mass_kg,
+        drag_coefficient=vehicle_profile.drag_coefficient,
+        frontal_area_m2=vehicle_profile.frontal_area_m2,
+        rolling_resistance_coefficient=vehicle_profile.rolling_resistance_coefficient,
+        battery_capacity_kwh=vehicle_profile.battery_capacity_kwh,
+        auxiliary_baseline_kw=vehicle_profile.auxiliary_baseline_kw,
+        tire_type=vehicle_profile.tire_type,
+        roof_box=vehicle_profile.roof_box,
     )
 
 
@@ -94,7 +94,7 @@ async def _route_leg_kosten(
     leg_route: Route,
     elevation_provider: ElevationProvider,
     energy_params: VehicleEnergyParameters,
-    abfahrtszeit: datetime,
+    departure_time: datetime,
 ) -> tuple[float, float, float]:
     """Computes (distanz_m, zeit_s, energie_kwh) for one already-routed leg.
 
@@ -115,8 +115,8 @@ async def _route_leg_kosten(
     for idx, segment in enumerate(leg_route.segments):
         gradient = gradients[idx] if idx < len(gradients) else None
         wetter = WeatherSample(
-            koordinate=segment.geometrie[0],
-            zeitpunkt=abfahrtszeit,
+            coordinate=segment.geometrie[0],
+            zeitpunkt=departure_time,
             **_NEUTRAL_WEATHER_SAMPLE_KWARGS,
         )
         wind = WindComponents(
@@ -143,7 +143,7 @@ async def precompute_detour_costs(  # noqa: PLR0913, PLR0917
     vehicle_profile: VehicleProfile,
     route: Route,
     station_segments: dict[int, list[tuple[ChargingStation, float]]],
-    abfahrtszeit: datetime,
+    departure_time: datetime,
     max_concurrent_requests: int = 20,
 ) -> dict[str, DetourKosten]:
     """Computes real, road-network-routed detour costs for every candidate station.
@@ -165,7 +165,7 @@ async def precompute_detour_costs(  # noqa: PLR0913, PLR0917
         station_segments: Output of `station_mapping.map_stations_to_segments`
             - maps each candidate station to its nearest main-route segment
             index (needed to place the detour's bracket points).
-        abfahrtszeit: Trip departure time (used for the placeholder weather
+        departure_time: Trip departure time (used for the placeholder weather
             sample's timestamp field only - see module docstring on why
             detours don't fetch real weather).
         max_concurrent_requests: Upper bound on simultaneous routing calls
@@ -185,15 +185,15 @@ async def precompute_detour_costs(  # noqa: PLR0913, PLR0917
         vor_index, nach_index = find_bracket_points(route, seg_idx)
         hinweg_anfrage = TripRequest(
             start=route.geometrie[vor_index],
-            ziel=station.coordinate,
-            abfahrtszeit=abfahrtszeit,
-            fahrzeugprofil=vehicle_profile,
+            destination=station.coordinate,
+            departure_time=departure_time,
+            vehicle_profile=vehicle_profile,
         )
         rueckweg_anfrage = TripRequest(
             start=station.coordinate,
-            ziel=route.geometrie[nach_index],
-            abfahrtszeit=abfahrtszeit,
-            fahrzeugprofil=vehicle_profile,
+            destination=route.geometrie[nach_index],
+            departure_time=departure_time,
+            vehicle_profile=vehicle_profile,
         )
         try:
             async with semaphore:
@@ -202,10 +202,10 @@ async def precompute_detour_costs(  # noqa: PLR0913, PLR0917
                     routing_provider.berechne_route(rueckweg_anfrage),
                 )
             hinweg_distanz, hinweg_zeit, hinweg_energie = await _route_leg_kosten(
-                hinweg_route, elevation_provider, energy_params, abfahrtszeit
+                hinweg_route, elevation_provider, energy_params, departure_time
             )
             rueckweg_distanz, rueckweg_zeit, rueckweg_energie = await _route_leg_kosten(
-                rueckweg_route, elevation_provider, energy_params, abfahrtszeit
+                rueckweg_route, elevation_provider, energy_params, departure_time
             )
         except Exception:
             logger.warning(

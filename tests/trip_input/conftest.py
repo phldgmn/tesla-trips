@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from tripplanner.trip_input.models import VehicleProfile, Waypoint
+from tripplanner.trip_input.schemas.request import VehicleProfileAPI
 
 
 @pytest.fixture
@@ -19,20 +20,20 @@ def berlin_muenchen_request() -> dict:
     """TripRequest für Berlin nach München."""
     return {
         "start": (52.52, 13.405),  # Berlin
-        "ziel": (48.135, 11.582),  # München
-        "zwischenstopps": [],
-        "abfahrtszeit": datetime(2026, 8, 15, 8, 30, 0),
-        "fahrzeugprofil": VehicleProfile(
-            masse_kg=1800.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.2,
-            rollwiderstandsbeiwert=0.01,
-            batteriekapazitaet_kwh=60.0,
-            nebenverbraucher_baseline_kw=0.34,
-            reifentyp="standard",
-            dachbox=False,
+        "destination": (48.135, 11.582),  # München
+        "waypoints": [],
+        "departure_time": datetime(2026, 8, 15, 8, 30, 0),
+        "vehicle_profile": VehicleProfile(
+            mass_kg=1800.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.2,
+            rolling_resistance_coefficient=0.01,
+            battery_capacity_kwh=60.0,
+            auxiliary_baseline_kw=0.34,
+            tire_type="standard",
+            roof_box=False,
         ),
-        "praeferenzen": {},
+        "preferences": {},
     }
 
 
@@ -41,25 +42,25 @@ def berlin_hamburg_request() -> dict:
     """TripRequest für Berlin nach Hamburg mit Zwischenstopp."""
     return {
         "start": (52.52, 13.405),  # Berlin
-        "ziel": (53.551, 9.994),  # Hamburg
-        "zwischenstopps": [
+        "destination": (53.551, 9.994),  # Hamburg
+        "waypoints": [
             Waypoint(
-                koordinate=(51.23, 6.78),
-                aufenthaltsdauer=timedelta(minutes=30),
+                coordinate=(51.23, 6.78),
+                stay_duration=timedelta(minutes=30),
             )
         ],
-        "abfahrtszeit": datetime(2026, 8, 15, 8, 30, 0),
-        "fahrzeugprofil": VehicleProfile(
-            masse_kg=1800.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.2,
-            rollwiderstandsbeiwert=0.01,
-            batteriekapazitaet_kwh=60.0,
-            nebenverbraucher_baseline_kw=0.34,
-            reifentyp="standard",
-            dachbox=False,
+        "departure_time": datetime(2026, 8, 15, 8, 30, 0),
+        "vehicle_profile": VehicleProfile(
+            mass_kg=1800.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.2,
+            rolling_resistance_coefficient=0.01,
+            battery_capacity_kwh=60.0,
+            auxiliary_baseline_kw=0.34,
+            tire_type="standard",
+            roof_box=False,
         ),
-        "praeferenzen": {},
+        "preferences": {},
     }
 
 
@@ -68,20 +69,20 @@ def kurze_reise_request() -> dict:
     """TripRequest für sehr kurze Reise (ein paar km)."""
     return {
         "start": (52.52, 13.405),  # Berlin-Mitte
-        "ziel": (52.525, 13.41),  # Etwa 1 km entfernt
-        "zwischenstopps": [],
-        "abfahrtszeit": datetime(2026, 8, 15, 12, 0, 0),
-        "fahrzeugprofil": VehicleProfile(
-            masse_kg=1800.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.2,
-            rollwiderstandsbeiwert=0.01,
-            batteriekapazitaet_kwh=60.0,
-            nebenverbraucher_baseline_kw=0.34,
-            reifentyp="standard",
-            dachbox=False,
+        "destination": (52.525, 13.41),  # Etwa 1 km entfernt
+        "waypoints": [],
+        "departure_time": datetime(2026, 8, 15, 12, 0, 0),
+        "vehicle_profile": VehicleProfile(
+            mass_kg=1800.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.2,
+            rolling_resistance_coefficient=0.01,
+            battery_capacity_kwh=60.0,
+            auxiliary_baseline_kw=0.34,
+            tire_type="standard",
+            roof_box=False,
         ),
-        "praeferenzen": {},
+        "preferences": {},
     }
 
 
@@ -90,20 +91,20 @@ def heavy_vehicle_request() -> dict:
     """TripRequest mit schwerem Fahrzeug (z. B. mit Anhänger)."""
     return {
         "start": (52.52, 13.405),
-        "ziel": (48.135, 11.582),
-        "zwischenstopps": [],
-        "abfahrtszeit": datetime(2026, 8, 15, 8, 30, 0),
-        "fahrzeugprofil": VehicleProfile(
-            masse_kg=2500.0,  # Schwereres Fahrzeug
-            cw_wert=0.35,  # Schlechtere Aerodynamik
-            stirnflaeche_m2=3.0,
-            rollwiderstandsbeiwert=0.015,
-            batteriekapazitaet_kwh=80.0,
-            nebenverbraucher_baseline_kw=0.5,
-            reifentyp="performance",
-            dachbox=True,
+        "destination": (48.135, 11.582),
+        "waypoints": [],
+        "departure_time": datetime(2026, 8, 15, 8, 30, 0),
+        "vehicle_profile": VehicleProfile(
+            mass_kg=2500.0,  # Schwereres Fahrzeug
+            drag_coefficient=0.35,  # Schlechtere Aerodynamik
+            frontal_area_m2=3.0,
+            rolling_resistance_coefficient=0.015,
+            battery_capacity_kwh=80.0,
+            auxiliary_baseline_kw=0.5,
+            tire_type="performance",
+            roof_box=True,
         ),
-        "praeferenzen": {},
+        "preferences": {},
     }
 
 
@@ -112,10 +113,12 @@ def api_request_payload(berlin_muenchen_request: dict) -> dict:
     """API-Request-Format für FastAPI-Tests."""
     return {
         "start": berlin_muenchen_request["start"],
-        "destination": berlin_muenchen_request["ziel"],
+        "destination": berlin_muenchen_request["destination"],
         "waypoints": [],
-        "departureTime": berlin_muenchen_request["abfahrtszeit"].isoformat(),
-        "vehicleProfile": berlin_muenchen_request["fahrzeugprofil"].model_dump(),
+        "departureTime": berlin_muenchen_request["departure_time"].isoformat(),
+        "vehicleProfile": VehicleProfileAPI.from_domain(
+            berlin_muenchen_request["vehicle_profile"]
+        ).model_dump(),
         "preferences": {},
     }
 
@@ -123,19 +126,21 @@ def api_request_payload(berlin_muenchen_request: dict) -> dict:
 @pytest.fixture
 def api_request_payload_with_stop(berlin_hamburg_request: dict) -> dict:
     """API-Request-Format mit Zwischenstopp."""
-    wp = berlin_hamburg_request["zwischenstopps"][0]
+    wp = berlin_hamburg_request["waypoints"][0]
     return {
         "start": berlin_hamburg_request["start"],
-        "destination": berlin_hamburg_request["ziel"],
+        "destination": berlin_hamburg_request["destination"],
         "waypoints": [
             {
-                "koordinate": list(wp.koordinate),
-                "aufenthaltsdauer_s": int(wp.aufenthaltsdauer.total_seconds())
-                if wp.aufenthaltsdauer
+                "coordinate": list(wp.coordinate),
+                "stayDurationS": int(wp.stay_duration.total_seconds())
+                if wp.stay_duration
                 else None,
             }
         ],
-        "departureTime": berlin_hamburg_request["abfahrtszeit"].isoformat(),
-        "vehicleProfile": berlin_hamburg_request["fahrzeugprofil"].model_dump(),
+        "departureTime": berlin_hamburg_request["departure_time"].isoformat(),
+        "vehicleProfile": VehicleProfileAPI.from_domain(
+            berlin_hamburg_request["vehicle_profile"]
+        ).model_dump(),
         "preferences": {},
     }

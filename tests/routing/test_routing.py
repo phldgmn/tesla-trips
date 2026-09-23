@@ -7,7 +7,7 @@ from datetime import timedelta
 import pytest
 from pydantic import ValidationError
 
-from tripplanner.routing.models import FaehrSegment, Route, RouteSegment
+from tripplanner.routing.models import FerrySegment, Route, RouteSegment
 from tripplanner.routing.providers import FakeRoutingProvider
 from tripplanner.trip_input.models import TripRequest
 
@@ -71,35 +71,35 @@ class TestRouteSegmentModel:
 
 
 class TestFaehrSegmentModel:
-    """Tests für das FaehrSegment-Pydantic-Modell."""
+    """Tests für das FerrySegment-Pydantic-Modell."""
 
     def test_faehr_segment_requires_all_fields(self) -> None:
-        """FaehrSegment benötigt name, laenge_m, bbox_sw, bbox_no, segment_index_start/end."""
-        segment = FaehrSegment(
+        """FerrySegment benötigt name, laenge_m, bbox_sw, bbox_ne, segment_index_start/end."""
+        segment = FerrySegment(
             name="Rødby (DK) - Puttgarden (D)",
             laenge_m=22000.0,
             bbox_sw=(54.50, 11.22),
-            bbox_no=(54.66, 11.36),
+            bbox_ne=(54.66, 11.36),
             segment_index_start=3,
             segment_index_end=7,
         )
         assert segment.name == "Rødby (DK) - Puttgarden (D)"
         assert segment.laenge_m == 22000.0
         assert segment.bbox_sw == (54.50, 11.22)
-        assert segment.bbox_no == (54.66, 11.36)
+        assert segment.bbox_ne == (54.66, 11.36)
         assert segment.segment_index_start == 3
         assert segment.segment_index_end == 7
-        assert segment.abfahrt is None
-        assert segment.ankunft is None
+        assert segment.departure is None
+        assert segment.arrival is None
 
     def test_faehr_segment_rejects_negative_laenge(self) -> None:
         """laenge_m muss >= 0 sein."""
         with pytest.raises(ValidationError):
-            FaehrSegment(
+            FerrySegment(
                 name="X",
                 laenge_m=-1.0,
                 bbox_sw=(0.0, 0.0),
-                bbox_no=(1.0, 1.0),
+                bbox_ne=(1.0, 1.0),
                 segment_index_start=0,
                 segment_index_end=1,
             )
@@ -138,21 +138,21 @@ class TestFakeRoutingProvider:
         route = await provider.berechne_route(trip_request)
 
         assert route.geometrie[0] == trip_request.start
-        assert route.geometrie[-1] == trip_request.ziel
+        assert route.geometrie[-1] == trip_request.destination
 
     async def test_berechne_route_mit_waypoints_creates_segment_per_leg(
         self, provider: FakeRoutingProvider
     ) -> None:
         """Bei N Zwischenpunkten entstehen mindestens N+1 Segmente (ein Segment pro Teilstrecke)."""
         start = (52.5200, 13.4050)
-        ziel = (53.5511, 9.9937)
-        zwischenstopps: list[tuple[tuple[float, float], timedelta | None]] = [
+        destination = (53.5511, 9.9937)
+        waypoints: list[tuple[tuple[float, float], timedelta | None]] = [
             ((52.3759, 9.7320), timedelta(minutes=30)),
         ]
 
-        route = await provider.berechne_route_mit_waypoints(start, ziel, zwischenstopps)
+        route = await provider.berechne_route_mit_waypoints(start, destination, waypoints)
 
-        assert len(route.segments) >= len(zwischenstopps) + 1
+        assert len(route.segments) >= len(waypoints) + 1
 
     async def test_berechne_route_mit_waypoints_reports_exact_via_point_segment_index(
         self, provider: FakeRoutingProvider
@@ -162,19 +162,19 @@ class TestFakeRoutingProvider:
         _map_waypoints_to_segments`, das damit die Mehrdeutigkeit einer reinen
         Naechster-Punkt-Suche auf sich kreuzenden Routen vermeidet."""
         start = (52.5200, 13.4050)
-        ziel = (53.5511, 9.9937)
-        zwischenstopps: list[tuple[tuple[float, float], timedelta | None]] = [
+        destination = (53.5511, 9.9937)
+        waypoints: list[tuple[tuple[float, float], timedelta | None]] = [
             ((52.3759, 9.7320), None),
             ((53.0, 10.0), None),
         ]
 
-        route = await provider.berechne_route_mit_waypoints(start, ziel, zwischenstopps)
+        route = await provider.berechne_route_mit_waypoints(start, destination, waypoints)
 
-        assert len(route.via_point_indices) == len(zwischenstopps)
+        assert len(route.via_point_indices) == len(waypoints)
         for idx in route.via_point_indices:
             assert route.segments[idx].geometrie[0] in (
-                zwischenstopps[0][0],
-                zwischenstopps[1][0],
+                waypoints[0][0],
+                waypoints[1][0],
             )
         # Indizes sind streng monoton steigend (Zwischenstopps in Fahrtreihenfolge).
         assert route.via_point_indices[0] < route.via_point_indices[1]
@@ -191,11 +191,8 @@ class TestFakeRoutingProvider:
 
         route_with_waypoint = await provider.berechne_route_mit_waypoints(
             trip_request_with_waypoints.start,
-            trip_request_with_waypoints.ziel,
-            [
-                (wp.koordinate, wp.aufenthaltsdauer)
-                for wp in trip_request_with_waypoints.zwischenstopps
-            ],
+            trip_request_with_waypoints.destination,
+            [(wp.coordinate, wp.stay_duration) for wp in trip_request_with_waypoints.waypoints],
         )
 
         assert len(route_with_waypoint.segments) > route_direct_should_have_one_segment
@@ -208,6 +205,6 @@ class TestFakeRoutingProvider:
 
         assert route.bbox is not None
         min_lat, min_lon, max_lat, max_lon = route.bbox
-        for lat, lon in (trip_request.start, trip_request.ziel):
+        for lat, lon in (trip_request.start, trip_request.destination):
             assert min_lat <= lat <= max_lat
             assert min_lon <= lon <= max_lon

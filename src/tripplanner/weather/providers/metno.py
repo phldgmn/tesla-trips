@@ -133,7 +133,7 @@ def _extract_metno_sample(by_time: dict[Any, Any], query: WeatherQuery) -> Weath
     precipitation_mm, is_snow = _metno_precipitation(entry)
 
     return WeatherSample(
-        koordinate=query.koordinate,
+        coordinate=query.coordinate,
         zeitpunkt=query.zeitpunkt,
         temperatur_c=float(instant.get("air_temperature", 0.0)),
         windgeschwindigkeit_ms=float(instant.get("wind_speed", 0.0)),

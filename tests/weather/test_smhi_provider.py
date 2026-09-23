@@ -45,7 +45,7 @@ async def test_smhi_provider_fetch_weather_maps_fields() -> None:
         return httpx.Response(200, json=_smhi_json())
 
     provider = SmhiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(koordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+    query = WeatherQuery(coordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 14, 0))
 
     results = await provider.fetch_weather([query])
 
@@ -72,7 +72,7 @@ async def test_smhi_provider_frozen_precipitation_routes_to_schneefall() -> None
         return httpx.Response(200, json=_smhi_json(frozen_part_pct=100.0))
 
     provider = SmhiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(koordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+    query = WeatherQuery(coordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 14, 0))
 
     results = await provider.fetch_weather([query])
 
@@ -88,7 +88,7 @@ async def test_smhi_provider_partial_frozen_precipitation_splits_proportionally(
         return httpx.Response(200, json=_smhi_json(frozen_part_pct=50.0))
 
     provider = SmhiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(koordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+    query = WeatherQuery(coordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 14, 0))
 
     results = await provider.fetch_weather([query])
 
@@ -104,7 +104,7 @@ async def test_smhi_provider_missing_hour_returns_no_sample() -> None:
         return httpx.Response(200, json=_smhi_json())
 
     provider = SmhiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(koordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 20, 9, 0))
+    query = WeatherQuery(coordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 20, 9, 0))
 
     results = await provider.fetch_weather([query])
 
@@ -134,7 +134,7 @@ async def test_smhi_provider_http_error_propagates() -> None:
         return httpx.Response(503, json={"error": "service unavailable"})
 
     provider = SmhiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(koordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+    query = WeatherQuery(coordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 14, 0))
 
     with pytest.raises(httpx.HTTPStatusError):
         await provider.fetch_weather([query])
@@ -148,8 +148,8 @@ async def test_smhi_provider_refetch_weather_delegates_to_fetch() -> None:
         return httpx.Response(200, json=_smhi_json())
 
     provider = SmhiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    original = [WeatherQuery(koordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 12, 0))]
-    updated = [WeatherQuery(koordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 14, 0))]
+    original = [WeatherQuery(coordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 12, 0))]
+    updated = [WeatherQuery(coordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 14, 0))]
 
     results = await provider.refetch_weather(original, updated)
 

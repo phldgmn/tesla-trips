@@ -49,7 +49,7 @@ class TestLadeleistungHermiteMatchesScipy:
 
     def _scipy_reference(self, curve: ChargingCurve, soc_pct: float) -> float:
         soc = [p.soc_pct for p in curve.points]
-        power = [p.ladeleistung_kw for p in curve.points]
+        power = [p.charging_power_kw for p in curve.points]
         pchip = PchipInterpolator(soc, power, extrapolate=False)
         soc_clamped = min(max(soc_pct, 0.0), 100.0)
         return max(float(pchip(soc_clamped)), 0.0)

@@ -182,7 +182,7 @@ def _extract_openweather_sample(
     snow_3h = float(entry.get("snow", {}).get("3h", 0.0))
 
     return WeatherSample(
-        koordinate=query.koordinate,
+        coordinate=query.coordinate,
         zeitpunkt=query.zeitpunkt,
         temperatur_c=float(main.get("temp", 0.0)),
         windgeschwindigkeit_ms=float(wind.get("speed", 0.0)),

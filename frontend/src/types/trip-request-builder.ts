@@ -3,7 +3,7 @@ import { getDefaultDepartureIso } from "../utils/datetime-utils";
 import type {
   FerryExclusion,
   FerryTimeWindow,
-  ChargingDurationTarget,
+  ChargingDurationSpecification,
   Stop,
   TripRequestPayload,
   VehicleProfileInput,
@@ -29,17 +29,17 @@ export function buildTripRequestPayload(args: {
   stops: Stop[];
   vehicleProfile: VehicleProfileInput;
   startSocPct: number;
-  mindestAnkunftsSocPct: number;
-  zielSocPct: number;
+  minArrivalSocPct: number;
+  targetSocPct: number;
   preferences?: Record<string, unknown>;
   avoidAllFerries?: boolean;
   highwayPreference?: HighwayPreferenceLevel;
   avoidedFerries?: FerryExclusion[];
   ferryTimeWindows?: FerryTimeWindow[];
-  chargingDurationTargets?: ChargingDurationTarget[];
+  chargingDurationSpecifications?: ChargingDurationSpecification[];
   weatherDetailLevel?: WeatherDetailLevel;
   minChargeDurationS: number;
-  maxLadeSocPct?: number;
+  maxChargeSocPct?: number;
   considerConstructionSites?: boolean;
 }): TripRequestPayload {
   const { stops } = args;
@@ -73,25 +73,25 @@ export function buildTripRequestPayload(args: {
     start: start.position,
     destination: destination.position,
     waypoints: between.map((s) => ({
-      koordinate: s.position as [number, number],
-      aufenthaltsdauer_s: null,
-      geplante_abfahrt: s.leaveAt ?? null,
-      ladeleistung_kw: s.chargingPowerKw ?? null,
+      coordinate: s.position as [number, number],
+      stayDurationS: null,
+      plannedDeparture: s.leaveAt ?? null,
+      chargingPowerKw: s.chargingPowerKw ?? null,
     })),
     departureTime: start.leaveAt ?? getDefaultDepartureIso(),
     vehicleProfile: args.vehicleProfile,
     preferences: args.preferences ?? {},
     startSocPct: args.startSocPct,
-    targetSocPct: args.zielSocPct,
-    minArrivalSocPct: args.mindestAnkunftsSocPct,
+    targetSocPct: args.targetSocPct,
+    minArrivalSocPct: args.minArrivalSocPct,
     avoidAllFerries: args.avoidAllFerries ?? false,
     highwayPreference: args.highwayPreference ?? "off",
     avoidedFerries: args.avoidedFerries ?? [],
     ferryTimeWindows: args.ferryTimeWindows ?? [],
-    chargingDurationSpecifications: args.chargingDurationTargets ?? [],
+    chargingDurationSpecifications: args.chargingDurationSpecifications ?? [],
     weatherDetailLevel: args.weatherDetailLevel ?? "high",
     minChargingTimeS: args.minChargeDurationS,
-    maxChargeSocPct: args.maxLadeSocPct ?? 100,
+    maxChargeSocPct: args.maxChargeSocPct ?? 100,
     considerConstructionSites: args.considerConstructionSites ?? true,
   };
 }

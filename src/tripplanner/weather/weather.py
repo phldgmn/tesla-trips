@@ -232,7 +232,7 @@ def _interpolate_samples(left: WeatherSample, right: WeatherSample, t: float) ->
 
     Returns:
         A new `WeatherSample` with every numeric field interpolated.
-        ``koordinate``/``zeitpunkt`` are copied from *left* and are expected
+        ``coordinate``/``zeitpunkt`` are copied from *left* and are expected
         to be overwritten by the caller with the target segment's own
         values.
     """
@@ -265,7 +265,7 @@ def _interpolate_samples(left: WeatherSample, right: WeatherSample, t: float) ->
 async def fetch_weather_by_detail(
     provider: WeatherProvider,
     segment_eta_list: Sequence[tuple[RouteSegment, timedelta]],
-    abfahrtszeit: datetime,
+    departure_time: datetime,
     detail: WeatherDetailLevel,
 ) -> list[WeatherSample]:
     """Fetch weather samples according to the requested detail level.
@@ -277,9 +277,9 @@ async def fetch_weather_by_detail(
     Args:
         provider: Weather provider to use for fetching data.
         segment_eta_list: Pairs of ``(segment, elapsed_timedelta)`` where the
-            timedelta is the accumulated ETA since *abfahrtszeit* at the start
+            timedelta is the accumulated ETA since *departure_time* at the start
             of that segment.
-        abfahrtszeit: Departure time of the trip (naive or timezone-aware
+        departure_time: Departure time of the trip (naive or timezone-aware
             ``datetime``).
         detail: Target granularity level (``low``, ``medium``, or
             ``high``, differing only in sample spacing -- see
@@ -305,46 +305,46 @@ async def fetch_weather_by_detail(
         )
 
     if detail == "high":
-        return await _fetch_high(provider, segment_eta_list, abfahrtszeit)
+        return await _fetch_high(provider, segment_eta_list, departure_time)
     elif detail == "low":
-        return await _fetch_low(provider, segment_eta_list, abfahrtszeit)
+        return await _fetch_low(provider, segment_eta_list, departure_time)
     elif detail == "medium":
-        return await _fetch_medium(provider, segment_eta_list, abfahrtszeit)
+        return await _fetch_medium(provider, segment_eta_list, departure_time)
     else:
         raise ValueError(f"Unknown detail level: {detail!r}")
 
 
 def _compute_segment_time(
     seg_idx: int,
-    abfahrtszeit: datetime,
+    departure_time: datetime,
     segment_eta_list: Sequence[tuple[RouteSegment, timedelta]],
 ) -> datetime:
     """Compute the ETA timestamp for the given segment index.
 
-    The timestamp is ``abfahrtszeit + sum(durations of all preceding segments)``.
+    The timestamp is ``departure_time + sum(durations of all preceding segments)``.
     """
     elapsed = timedelta(0)
     for i in range(seg_idx):
         _, duration = segment_eta_list[i]
         elapsed += duration
-    return abfahrtszeit + elapsed
+    return departure_time + elapsed
 
 
 async def _fetch_high(
     provider: WeatherProvider,
     segment_eta_list: Sequence[tuple[RouteSegment, timedelta]],
-    abfahrtszeit: datetime,
+    departure_time: datetime,
 ) -> list[WeatherSample]:
     """High-detail: samples every ``HIGH_DETAIL_SAMPLE_SPACING_M`` metres along the route."""
     return await _fetch_sampled(
-        provider, segment_eta_list, abfahrtszeit, HIGH_DETAIL_SAMPLE_SPACING_M
+        provider, segment_eta_list, departure_time, HIGH_DETAIL_SAMPLE_SPACING_M
     )
 
 
 async def _fetch_sampled(
     provider: WeatherProvider,
     segment_eta_list: Sequence[tuple[RouteSegment, timedelta]],
-    abfahrtszeit: datetime,
+    departure_time: datetime,
     spacing_m: float,
 ) -> list[WeatherSample]:
     """Shared "low"/"medium"/"high" implementation: spaced sampling with interpolation.
@@ -362,7 +362,7 @@ async def _fetch_sampled(
         provider: Weather provider to use for fetching data.
         segment_eta_list: Pairs of ``(segment, elapsed_timedelta)`` in route
             order.
-        abfahrtszeit: Departure time of the trip.
+        departure_time: Departure time of the trip.
         spacing_m: Target distance between consecutive sampled points.
 
     Returns:
@@ -385,8 +385,8 @@ async def _fetch_sampled(
         segment, _ = segment_eta_list[idx]
         geo = segment.geometrie
         coord = geo[len(geo) // 2]
-        seg_time = _compute_segment_time(idx, abfahrtszeit, segment_eta_list)
-        queries.append(WeatherQuery(koordinate=coord, zeitpunkt=seg_time))
+        seg_time = _compute_segment_time(idx, departure_time, segment_eta_list)
+        queries.append(WeatherQuery(coordinate=coord, zeitpunkt=seg_time))
 
     samples = await provider.fetch_weather(queries)
 
@@ -408,10 +408,10 @@ async def _fetch_sampled(
         segment, _ = segment_eta_list[seg_idx]
         seg_geo = segment.geometrie
         seg_coord = seg_geo[len(seg_geo) // 2]
-        seg_time = _compute_segment_time(seg_idx, abfahrtszeit, segment_eta_list)
+        seg_time = _compute_segment_time(seg_idx, departure_time, segment_eta_list)
         result.append(
             interpolated.model_copy(
-                update={"koordinate": seg_coord, "zeitpunkt": seg_time},
+                update={"coordinate": seg_coord, "zeitpunkt": seg_time},
             )
         )
     return result
@@ -420,22 +420,22 @@ async def _fetch_sampled(
 async def _fetch_low(
     provider: WeatherProvider,
     segment_eta_list: Sequence[tuple[RouteSegment, timedelta]],
-    abfahrtszeit: datetime,
+    departure_time: datetime,
 ) -> list[WeatherSample]:
     """Low-detail: samples every ``LOW_DETAIL_SAMPLE_SPACING_M`` metres along the route."""
     return await _fetch_sampled(
-        provider, segment_eta_list, abfahrtszeit, LOW_DETAIL_SAMPLE_SPACING_M
+        provider, segment_eta_list, departure_time, LOW_DETAIL_SAMPLE_SPACING_M
     )
 
 
 async def _fetch_medium(
     provider: WeatherProvider,
     segment_eta_list: Sequence[tuple[RouteSegment, timedelta]],
-    abfahrtszeit: datetime,
+    departure_time: datetime,
 ) -> list[WeatherSample]:
     """Medium-detail: samples every ``MEDIUM_DETAIL_SAMPLE_SPACING_M`` metres along the route."""
     return await _fetch_sampled(
-        provider, segment_eta_list, abfahrtszeit, MEDIUM_DETAIL_SAMPLE_SPACING_M
+        provider, segment_eta_list, departure_time, MEDIUM_DETAIL_SAMPLE_SPACING_M
     )
 
 
@@ -467,7 +467,7 @@ async def fetch_weather_for_route(
         samples = await provider.fetch_weather(batch)
         for sample in samples:
             for idx, query in enumerate(route_queries):
-                if query.koordinate == sample.koordinate and query.zeitpunkt == sample.zeitpunkt:
+                if query.coordinate == sample.coordinate and query.zeitpunkt == sample.zeitpunkt:
                     if results[idx] is None:
                         results[idx] = sample
                     break

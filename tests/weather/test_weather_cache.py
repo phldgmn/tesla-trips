@@ -103,7 +103,7 @@ def test_cache_str_key_matches_cache_key() -> None:
 def test_cache_deserialize_roundtrip() -> None:
     """WeatherSample -> model_dump -> model_validate recovers the same data."""
     sample = WeatherSample(
-        koordinate=(52.52, 13.41),
+        coordinate=(52.52, 13.41),
         zeitpunkt=datetime(2026, 8, 15, 10, 0, 0),
         temperatur_c=25.0,
         windgeschwindigkeit_ms=5.5,
@@ -121,7 +121,7 @@ def test_cache_deserialize_roundtrip() -> None:
     assert recovered.temperatur_c == sample.temperatur_c
     assert recovered.windgeschwindigkeit_ms == sample.windgeschwindigkeit_ms
     assert recovered.bewoelkung_pct == sample.bewoelkung_pct
-    assert recovered.koordinate == sample.koordinate
+    assert recovered.coordinate == sample.coordinate
     assert recovered.zeitpunkt == sample.zeitpunkt
 
 
@@ -160,7 +160,7 @@ async def test_openmeteo_persistent_cache_cross_instance(tmp_path: Path) -> None
     # Instance 1: first fetch populates both caches
     p1 = _make_provider_with_transport(transport, 3600.0, db_path)
 
-    query = WeatherQuery(koordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
     results = await p1.fetch_weather([query])
     assert len(results) == 1
     assert call_count == 1
@@ -194,8 +194,8 @@ async def test_openmeteo_different_coords_trigger_new_call(tmp_path: Path) -> No
     provider = _make_provider_with_transport(transport, 3600.0, db_path)
 
     # Two different coords — should each trigger an API call
-    q1 = WeatherQuery(koordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
-    q2 = WeatherQuery(koordinate=(53.55, 9.99), zeitpunkt=datetime(2026, 8, 2, 12, 0))
+    q1 = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    q2 = WeatherQuery(coordinate=(53.55, 9.99), zeitpunkt=datetime(2026, 8, 2, 12, 0))
 
     results = await provider.fetch_weather([q1, q2])
     assert len(results) == 2
@@ -222,7 +222,7 @@ async def test_openmeteo_ttl_expiry_causes_refetch(tmp_path: Path) -> None:
     transport = httpx.MockTransport(handler)
     provider = _make_provider_with_transport(transport, 1.0, db_path)
 
-    query = WeatherQuery(koordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
     results = await provider.fetch_weather([query])
     assert len(results) == 1
     assert call_count == 1
@@ -279,7 +279,7 @@ async def test_lb_persistent_cache_cross_instance(tmp_path: Path) -> None:
     """LoadBalancedWeatherProvider shares cache across fresh instances."""
     db_path = str(tmp_path / "lb_cache.sqlite")
     sample = WeatherSample(
-        koordinate=(52.52, 13.41),
+        coordinate=(52.52, 13.41),
         zeitpunkt=datetime(2026, 8, 15, 10, 0),
         temperatur_c=25.0,
         windgeschwindigkeit_ms=5.0,
@@ -291,7 +291,7 @@ async def test_lb_persistent_cache_cross_instance(tmp_path: Path) -> None:
         globalstrahlung_wm2=400.0,
         bewoelkung_pct=20,
     )
-    query = WeatherQuery(koordinate=(52.52, 13.41), zeitpunkt=datetime(2026, 8, 15, 10, 0))
+    query = WeatherQuery(coordinate=(52.52, 13.41), zeitpunkt=datetime(2026, 8, 15, 10, 0))
 
     # Instance 1: first fetch
     p1, counter1 = _make_lb_provider_with_entry(sample, 3600.0, db_path)
@@ -316,7 +316,7 @@ async def test_lb_in_memory_first_level(tmp_path: Path) -> None:
     """Same instance: in-memory dict avoids SQLite round-trip on repeated calls."""
     db_path = str(tmp_path / "lb_inmem.sqlite")
     sample = WeatherSample(
-        koordinate=(52.52, 13.41),
+        coordinate=(52.52, 13.41),
         zeitpunkt=datetime(2026, 8, 15, 10, 0),
         temperatur_c=25.0,
         windgeschwindigkeit_ms=5.0,
@@ -328,7 +328,7 @@ async def test_lb_in_memory_first_level(tmp_path: Path) -> None:
         globalstrahlung_wm2=400.0,
         bewoelkung_pct=20,
     )
-    query = WeatherQuery(koordinate=(52.52, 13.41), zeitpunkt=datetime(2026, 8, 15, 10, 0))
+    query = WeatherQuery(coordinate=(52.52, 13.41), zeitpunkt=datetime(2026, 8, 15, 10, 0))
 
     stub, counter = _make_lb_provider_with_entry(sample, 3600.0, db_path)
 
@@ -346,7 +346,7 @@ async def test_lb_different_coords_trigger_new_call(tmp_path: Path) -> None:
     """Different coordinate/time triggers a new fetch."""
     db_path = str(tmp_path / "lb_diff.sqlite")
     sample = WeatherSample(
-        koordinate=(52.52, 13.41),
+        coordinate=(52.52, 13.41),
         zeitpunkt=datetime(2026, 8, 15, 10, 0),
         temperatur_c=25.0,
         windgeschwindigkeit_ms=5.0,
@@ -360,9 +360,9 @@ async def test_lb_different_coords_trigger_new_call(tmp_path: Path) -> None:
     )
     stub, counter = _make_lb_provider_with_entry(sample, 3600.0, db_path)
 
-    q1 = WeatherQuery(koordinate=(52.52, 13.41), zeitpunkt=datetime(2026, 8, 15, 10, 0))
-    q2 = WeatherQuery(koordinate=(52.52, 13.42), zeitpunkt=datetime(2026, 8, 15, 10, 0))
-    q3 = WeatherQuery(koordinate=(51.0, 9.0), zeitpunkt=datetime(2026, 8, 15, 10, 0))
+    q1 = WeatherQuery(coordinate=(52.52, 13.41), zeitpunkt=datetime(2026, 8, 15, 10, 0))
+    q2 = WeatherQuery(coordinate=(52.52, 13.42), zeitpunkt=datetime(2026, 8, 15, 10, 0))
+    q3 = WeatherQuery(coordinate=(51.0, 9.0), zeitpunkt=datetime(2026, 8, 15, 10, 0))
 
     # First call — stub hit once, caches rounded coord (52.5, 13.4)
     await stub.fetch_weather([q1])
@@ -382,7 +382,7 @@ async def test_lb_ttl_expiry_causes_refetch(tmp_path: Path) -> None:
     """LoadBalancedWeatherProvider respects TTL and refetches expired entries."""
     db_path = str(tmp_path / "lb_ttl.sqlite")
     sample = WeatherSample(
-        koordinate=(52.52, 13.41),
+        coordinate=(52.52, 13.41),
         zeitpunkt=datetime(2026, 8, 15, 10, 0),
         temperatur_c=25.0,
         windgeschwindigkeit_ms=5.0,
@@ -394,7 +394,7 @@ async def test_lb_ttl_expiry_causes_refetch(tmp_path: Path) -> None:
         globalstrahlung_wm2=400.0,
         bewoelkung_pct=20,
     )
-    query = WeatherQuery(koordinate=(52.52, 13.41), zeitpunkt=datetime(2026, 8, 15, 10, 0))
+    query = WeatherQuery(coordinate=(52.52, 13.41), zeitpunkt=datetime(2026, 8, 15, 10, 0))
 
     stub1, counter1 = _make_lb_provider_with_entry(sample, 1.0, db_path)
 
@@ -430,7 +430,7 @@ async def test_openmeteo_refetch_uses_persistent_cache(tmp_path: Path) -> None:
     transport = httpx.MockTransport(handler)
     provider = _make_provider_with_transport(transport, 3600.0, db_path)
 
-    query = WeatherQuery(koordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
 
     # Initial fetch — stub called once, cached
     await provider.fetch_weather([query])
@@ -452,7 +452,7 @@ async def test_lb_refetch_uses_persistent_cache(tmp_path: Path) -> None:
     """LoadBalancedWeatherProvider.refetch_weather falls back to persistent cache."""
     db_path = str(tmp_path / "lb_refetch.sqlite")
     sample = WeatherSample(
-        koordinate=(52.52, 13.41),
+        coordinate=(52.52, 13.41),
         zeitpunkt=datetime(2026, 8, 15, 10, 0),
         temperatur_c=25.0,
         windgeschwindigkeit_ms=5.0,
@@ -464,7 +464,7 @@ async def test_lb_refetch_uses_persistent_cache(tmp_path: Path) -> None:
         globalstrahlung_wm2=400.0,
         bewoelkung_pct=20,
     )
-    query = WeatherQuery(koordinate=(52.52, 13.41), zeitpunkt=datetime(2026, 8, 15, 10, 0))
+    query = WeatherQuery(coordinate=(52.52, 13.41), zeitpunkt=datetime(2026, 8, 15, 10, 0))
 
     stub, counter = _make_lb_provider_with_entry(sample, 3600.0, db_path)
 

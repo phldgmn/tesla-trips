@@ -96,7 +96,7 @@ class ChargingStopSummary(BaseModel):
         min_length=1,
         description="Eindeutige ID der Ladestation, zur Identifikation "
         "bei einer vom Nutzer vorgegebenen Ladedauer (siehe "
-        "`tripplanner.trip_input.models.LadedauerVorgabe`)",
+        "`tripplanner.trip_input.models.ChargingDurationSpecification`)",
     )
     position: tuple[float, float] = Field(
         ..., description="Position der Ladestation als (lat, lon)"
@@ -137,16 +137,16 @@ class ChargingStopSummary(BaseModel):
             "falls `detour_geometrie` leer ist)."
         ),
     )
-    ankunfts_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
-    ziel_soc_pct: float = Field(
+    arrival_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
+    target_soc_pct: float = Field(
         ..., ge=0.0, le=100.0, description="Angestrebter SoC nach dem Laden in %"
     )
-    ladedauer_s: int = Field(..., ge=0, description="Ladedauer in Sekunden")
+    charging_duration_s: int = Field(..., ge=0, description="Ladedauer in Sekunden")
     energie_geladen_kwh: float = Field(
         ..., ge=0.0, description="Waehrend des Ladehalts geladene Energiemenge in kWh"
     )
     ankunftszeit: datetime = Field(..., description="Zeitpunkt der Ankunft an der Station")
-    abfahrtszeit: datetime = Field(..., description="Zeitpunkt der Abfahrt von der Station")
+    departure_time: datetime = Field(..., description="Zeitpunkt der Abfahrt von der Station")
     price_per_kwh: float | None = Field(
         default=None,
         ge=0.0,
@@ -200,12 +200,12 @@ class WaypointStopSummary(BaseModel):
         ..., ge=0.0, description="Kumulierte Distanz entlang der Route bei diesem Zwischenstopp"
     )
     ankunftszeit: datetime = Field(..., description="Zeitpunkt der Ankunft am Zwischenstopp")
-    abfahrtszeit: datetime = Field(..., description="Zeitpunkt der (erzwungenen) Abfahrt")
-    ladeleistung_kw: float | None = Field(
+    departure_time: datetime = Field(..., description="Zeitpunkt der (erzwungenen) Abfahrt")
+    charging_power_kw: float | None = Field(
         default=None, ge=0.0, description="Genutzte Ladeleistung in kW, None falls nicht geladen"
     )
-    ankunfts_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
-    ziel_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Abfahrt in %")
+    arrival_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
+    target_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Abfahrt in %")
     energie_geladen_kwh: float = Field(
         ..., ge=0.0, description="Waehrend des Aufenthalts geladene Energiemenge in kWh"
     )
@@ -243,7 +243,7 @@ class TripSimulationResult(BaseModel):
         ),
     )
     start_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Start-SoC in %")
-    ziel_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ziel-SoC in %")
+    target_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ziel-SoC in %")
     charging_stops: list[ChargingStopSummary] = Field(
         default_factory=list,
         description="Ein Eintrag pro Ladehalt (chronologisch), fuer die Kartendarstellung",
@@ -283,7 +283,7 @@ class LadehaltDetour(BaseModel):
 
     Die beiden Klammerpunkte (`route_index_vor`/`route_index_nach`, indices in
     `Route.geometrie`) liegen bewusst deutlich VOR/NACH dem eigentlichen
-    Abzweigpunkt auf der Route - ein Detour-Request mit `start == ziel`
+    Abzweigpunkt auf der Route - ein Detour-Request mit `start == destination`
     (derselbe Punkt) ist fuer GraphHopper richtungsmehrdeutig und fuehrt zu
     unnoetigen Umwegen (an der falschen Ausfahrt vorbei, an der naechsten
     wenden). Mit zwei UNTERSCHIEDLICHEN, bereits auf der Hauptroute in

@@ -12,7 +12,7 @@ import type {
   TripRequestPayload,
   FerryExclusion,
   FerryTimeWindow,
-  ChargingDurationTarget,
+  ChargingDurationSpecification,
   WeatherDetailLevel,
   HighwayPreferenceLevel,
 } from "../../types/trip-request";
@@ -34,7 +34,7 @@ import {
   combineDateTimeToIso,
 } from "../../utils/datetime-utils";
 import type { ChargingStop, FerrySegment } from "../../types";
-import { buildRouteEntries } from "@/utils/route-eintraege";
+import { buildRouteEntries } from "@/utils/route-entries";
 import type { SimulationFrame } from "../../types";
 import {
   Zap,
@@ -62,7 +62,7 @@ import {
   formatChargingStationName,
 } from "./form-helpers";
 import {
-  sameFaehrAusschluss as sameFerryExclusion,
+  sameFerryExclusion as sameFerryExclusion,
   toggleFerryExclusion,
   setFerryTimeWindowFor,
   setChargingDurationPresetFor,
@@ -84,7 +84,7 @@ export interface TripPlannerFormProps {
   isSubmitting: boolean;
   submitError?: string | null;
   /** Fährverbindungen, die in der zuletzt berechneten Route erkannt wurden
-   *  (aus `TripSimulationResult.erkannte_faehren`), zur Anzeige als
+   *  (aus `TripSimulationResult.detected_ferries`), zur Anzeige als
    *  "vermeiden"-Checkboxen. `undefined`/leer, solange noch keine Route
    *  berechnet wurde. */
   detectedFerries?: FerrySegment[];
@@ -94,7 +94,7 @@ export interface TripPlannerFormProps {
    *  wurde. */
   chargingStops?: ChargingStop[];
   /** Simulationsframes, zur zeitlichen Einordnung von Stops, Ladehalten und
-   *  Fähren (für `buildRouteEintraege`). `undefined`/leer, solange noch keine
+   *  Fähren (für `buildRouteEntries`). `undefined`/leer, solange noch keine
    *  Route berechnet wurde. */
   frames?: SimulationFrame[];
 }
@@ -128,7 +128,7 @@ export function TripPlannerForm({
   onSubmit,
   isSubmitting,
   submitError,
-  detectedFerries: erkannteFaehren,
+  detectedFerries: detectedFerries,
   chargingStops,
   frames,
 }: TripPlannerFormProps) {
@@ -149,50 +149,53 @@ export function TripPlannerForm({
     false,
   );
   const [startSoc, setStartSoc] = usePersistentState("start-soc", 80);
-  const [mindestAnkunftsSocPct, setMinArrivalSocPct] = usePersistentState(
-    "mindest-ankunfts-soc",
+  const [minArrivalSocPct, setMinArrivalSocPct] = usePersistentState(
+    "min-arrival-soc",
     5,
   );
-  const [zielSoc, setTargetSoc] = usePersistentState("ziel-soc", 20);
-  const [mindestLadezeitMin, setMinChargeTimeMin] = usePersistentState(
-    "mindest-ladezeit-s",
+  const [targetSoc, setTargetSoc] = usePersistentState("target-soc", 20);
+  const [minChargeTimeMin, setMinChargeTimeMin] = usePersistentState(
+    "min-charging-time-s",
     10,
   );
-  const [maxLadeSocPct, setMaxChargeSocPct] = usePersistentState(
-    "max-lade-soc",
+  const [maxChargeSocPct, setMaxChargeSocPct] = usePersistentState(
+    "max-charge-soc",
     100,
   );
   const [avoidAllFerries, setAvoidAllFerries] = usePersistentState(
-    "alle-faehren-vermeiden",
+    "avoid-all-ferries",
     false,
   );
   const [autobahnPraeferenz, setHighwayPreference] =
-    usePersistentState<HighwayPreferenceLevel>("autobahn-praeferenz", "off");
-  const [wetterDetailgrad, setWeatherDetailLevel] =
-    usePersistentState<WeatherDetailLevel>("wetter-detailgrad", () =>
+    usePersistentState<HighwayPreferenceLevel>("highway-preference", "off");
+  const [weatherDetailLevel, setWeatherDetailLevel] =
+    usePersistentState<WeatherDetailLevel>("weather-detail-level", () =>
       migrateConsiderWeather(),
     );
-  const [baustellenBeruecksichtigen, setConsiderRoadworks] = usePersistentState(
-    "baustellen-beruecksichtigen",
+  const [considerRoadworks, setConsiderRoadworks] = usePersistentState(
+    "consider-construction-sites",
     true,
   );
-  const [vermiedeneFaehren, setAvoidedFerries] = usePersistentState<
+  const [avoidedFerries, setAvoidedFerries] = usePersistentState<
     FerryExclusion[]
-  >("vermiedene-faehren", []);
+  >("avoided-ferries", []);
   const [ferryTimeWindows, setFerryTimeWindows] = usePersistentState<
     FerryTimeWindow[]
   >("faehr-zeitfenster", []);
   const [chargingDurationPresets, setChargingDurationPresets] =
-    usePersistentState<ChargingDurationTarget[]>("ladedauer-vorgaben", []);
+    usePersistentState<ChargingDurationSpecification[]>(
+      "charging-duration-specifications",
+      [],
+    );
   // Haelt den Zwischenstand der Fährfahrplan-Eingabe (Datum + Zeit je Feld
   // separat eingegeben), solange noch nicht beide Felder (Abfahrt UND
-  // Ankunft) vollständig ausgefüllt sind - `faehrZeitfenster` speichert
-  // absichtlich NUR vollständige Zeitfenster (siehe `setFaehrZeitfensterFuer`),
+  // Ankunft) vollständig ausgefüllt sind - `ferryTimeWindow` speichert
+  // absichtlich NUR vollständige Zeitfenster (siehe `setFerryTimeWindowFor`),
   // ohne diesen separaten Entwurfs-State würde ein kontrolliertes Eingabefeld
   // nach jedem Tastendruck auf "" zurückspringen, solange das jeweils andere
   // Feld noch leer ist.
   const [ferryTimeWindowDraft, setFerryTimeWindowDraft] = useState<
-    Record<string, { abfahrt: string; ankunft: string }>
+    Record<string, { departure: string; arrival: string }>
   >({});
 
   // --- "Ignorierte Fähren"- und "Fahrzeug & Ladestand"-Modal-Sichtbarkeit
@@ -476,15 +479,15 @@ export function TripPlannerForm({
     allFerries: boolean,
     avoided: FerryExclusion[],
     timeWindows: FerryTimeWindow[],
-    chargingDurations: ChargingDurationTarget[],
+    chargingDurations: ChargingDurationSpecification[],
   ) => {
     const errors = validateForm({
       stops,
       startSoc,
-      targetSoc: zielSoc,
-      minArrivalSocPct: mindestAnkunftsSocPct,
-      minChargingTimeMin: mindestLadezeitMin,
-      maxChargeSocPct: maxLadeSocPct,
+      targetSoc: targetSoc,
+      minArrivalSocPct: minArrivalSocPct,
+      minChargingTimeMin: minChargeTimeMin,
+      maxChargeSocPct: maxChargeSocPct,
     });
 
     if (errors.length > 0) {
@@ -496,18 +499,18 @@ export function TripPlannerForm({
         stops,
         vehicleProfile: vehicleProfile,
         startSocPct: startSoc,
-        zielSocPct: zielSoc,
-        minChargeDurationS: mindestLadezeitMin * 60,
-        mindestAnkunftsSocPct,
-        maxLadeSocPct,
+        targetSocPct: targetSoc,
+        minChargeDurationS: minChargeTimeMin * 60,
+        minArrivalSocPct,
+        maxChargeSocPct,
         preferences: {},
         avoidAllFerries: allFerries,
         highwayPreference: autobahnPraeferenz,
         avoidedFerries: avoided,
         ferryTimeWindows: timeWindows,
-        chargingDurationTargets: chargingDurations,
-        weatherDetailLevel: wetterDetailgrad,
-        considerConstructionSites: baustellenBeruecksichtigen,
+        chargingDurationSpecifications: chargingDurations,
+        weatherDetailLevel: weatherDetailLevel,
+        considerConstructionSites: considerRoadworks,
       });
       onSubmit(payload);
     } catch (error) {
@@ -522,7 +525,7 @@ export function TripPlannerForm({
   const handleSubmit = () =>
     buildAndSubmit(
       avoidAllFerries,
-      vermiedeneFaehren,
+      avoidedFerries,
       ferryTimeWindows,
       chargingDurationPresets,
     );
@@ -532,20 +535,20 @@ export function TripPlannerForm({
   const validationErrors = validateForm({
     stops,
     startSoc,
-    targetSoc: zielSoc,
-    minChargingTimeMin: mindestLadezeitMin,
-    minArrivalSocPct: mindestAnkunftsSocPct,
-    maxChargeSocPct: maxLadeSocPct,
+    targetSoc: targetSoc,
+    minChargingTimeMin: minChargeTimeMin,
+    minArrivalSocPct: minArrivalSocPct,
+    maxChargeSocPct: maxChargeSocPct,
   });
 
   // --- Route-Liste: chronologisch sortierte Stopps, Ladehalte und
-  //     (nicht ignorierte) Fähren, siehe utils/route-eintraege.ts ---
+  //     (nicht ignorierte) Fähren, siehe utils/route-entries.ts ---
   const routeEntries = buildRouteEntries({
     stops,
     frames,
     chargingStops,
-    erkannteFaehren,
-    avoidedFerries: vermiedeneFaehren,
+    detectedFerries,
+    avoidedFerries: avoidedFerries,
   });
 
   // --- Render Helpers ---
@@ -569,9 +572,9 @@ export function TripPlannerForm({
             <input
               type="number"
               step="1"
-              value={v.masse_kg}
+              value={v.massKg}
               onChange={(e) =>
-                handleVehicleFieldChange("masse_kg", parseFloat(e.target.value))
+                handleVehicleFieldChange("massKg", parseFloat(e.target.value))
               }
               style={{ width: "100%", padding: "0.4rem" }}
             />
@@ -583,9 +586,12 @@ export function TripPlannerForm({
             <input
               type="number"
               step="0.001"
-              value={v.cw_wert}
+              value={v.dragCoefficient}
               onChange={(e) =>
-                handleVehicleFieldChange("cw_wert", parseFloat(e.target.value))
+                handleVehicleFieldChange(
+                  "dragCoefficient",
+                  parseFloat(e.target.value),
+                )
               }
               style={{ width: "100%", padding: "0.4rem" }}
             />
@@ -597,10 +603,10 @@ export function TripPlannerForm({
             <input
               type="number"
               step="0.01"
-              value={v.stirnflaeche_m2}
+              value={v.frontalAreaM2}
               onChange={(e) =>
                 handleVehicleFieldChange(
-                  "stirnflaeche_m2",
+                  "frontalAreaM2",
                   parseFloat(e.target.value),
                 )
               }
@@ -614,10 +620,10 @@ export function TripPlannerForm({
             <input
               type="number"
               step="0.0001"
-              value={v.rollwiderstandsbeiwert}
+              value={v.rollingResistanceCoefficient}
               onChange={(e) =>
                 handleVehicleFieldChange(
-                  "rollwiderstandsbeiwert",
+                  "rollingResistanceCoefficient",
                   parseFloat(e.target.value),
                 )
               }
@@ -631,10 +637,10 @@ export function TripPlannerForm({
             <input
               type="number"
               step="0.1"
-              value={v.batteriekapazitaet_kwh}
+              value={v.batteryCapacityKwh}
               onChange={(e) =>
                 handleVehicleFieldChange(
-                  "batteriekapazitaet_kwh",
+                  "batteryCapacityKwh",
                   parseFloat(e.target.value),
                 )
               }
@@ -648,10 +654,10 @@ export function TripPlannerForm({
             <input
               type="number"
               step="0.01"
-              value={v.nebenverbraucher_baseline_kw}
+              value={v.auxiliaryBaselineKw}
               onChange={(e) =>
                 handleVehicleFieldChange(
-                  "nebenverbraucher_baseline_kw",
+                  "auxiliaryBaselineKw",
                   parseFloat(e.target.value),
                 )
               }
@@ -663,11 +669,11 @@ export function TripPlannerForm({
               Reifentyp
             </label>
             <select
-              value={v.reifentyp}
+              value={v.tireType}
               onChange={(e) =>
                 handleVehicleFieldChange(
-                  "reifentyp",
-                  e.target.value as VehicleProfileInput["reifentyp"],
+                  "tireType",
+                  e.target.value as VehicleProfileInput["tireType"],
                 )
               }
               style={{ width: "100%", padding: "0.5rem" }}
@@ -683,13 +689,13 @@ export function TripPlannerForm({
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <input
               type="checkbox"
-              checked={v.dachbox}
+              checked={v.roofBox}
               onChange={(e) =>
-                handleVehicleFieldChange("dachbox", e.target.checked)
+                handleVehicleFieldChange("roofBox", e.target.checked)
               }
-              id="dachbox-checkbox"
+              id="roofBox-checkbox"
             />
-            <label htmlFor="dachbox-checkbox">Dachbox</label>
+            <label htmlFor="roofBox-checkbox">Dachbox</label>
           </div>
         </div>
       </details>
@@ -803,7 +809,7 @@ export function TripPlannerForm({
               min="0"
               max="100"
               step="1"
-              value={mindestAnkunftsSocPct}
+              value={minArrivalSocPct}
               onChange={(e) =>
                 setMinArrivalSocPct(parseInt(e.target.value, 10) || 0)
               }
@@ -832,7 +838,7 @@ export function TripPlannerForm({
               min="0"
               max="30"
               step="1"
-              value={mindestLadezeitMin}
+              value={minChargeTimeMin}
               onChange={(e) =>
                 setMinChargeTimeMin(parseInt(e.target.value, 10) || 0)
               }
@@ -860,7 +866,7 @@ export function TripPlannerForm({
               min="0"
               max="100"
               step="1"
-              value={maxLadeSocPct}
+              value={maxChargeSocPct}
               onChange={(e) =>
                 setMaxChargeSocPct(parseInt(e.target.value, 10) || 0)
               }
@@ -902,12 +908,12 @@ export function TripPlannerForm({
           content={
             <>
               <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>
-                Wetter: {wetterDetailgrad === "off" && "Aus"}
-                {wetterDetailgrad === "low" && "Niedrig"}
-                {wetterDetailgrad === "medium" && "Mittel"}
-                {wetterDetailgrad === "high" && "Hoch"}
+                Wetter: {weatherDetailLevel === "off" && "Aus"}
+                {weatherDetailLevel === "low" && "Niedrig"}
+                {weatherDetailLevel === "medium" && "Mittel"}
+                {weatherDetailLevel === "high" && "Hoch"}
               </div>
-              {wetterDetailgrad === "off"
+              {weatherDetailLevel === "off"
                 ? "Wetterdaten werden ignoriert (klicken: Niedrig → Mittel → Hoch → Aus)"
                 : "Durchklicken: nächste Stufe (Niedrig → Mittel → Hoch → Aus)"}
             </>
@@ -922,57 +928,57 @@ export function TripPlannerForm({
                 "medium",
                 "high",
               ];
-              const idx = levels.indexOf(wetterDetailgrad);
+              const idx = levels.indexOf(weatherDetailLevel);
               setWeatherDetailLevel(levels[(idx + 1) % levels.length]);
             }}
             disabled={isSubmitting}
-            aria-pressed={wetterDetailgrad !== "off"}
-            aria-label={`Wetterberücksichtigung: ${wetterDetailgrad}`}
+            aria-pressed={weatherDetailLevel !== "off"}
+            aria-label={`Wetterberücksichtigung: ${weatherDetailLevel}`}
             style={{
               display: "flex",
               alignItems: "center",
               gap: "0.2rem",
               padding: "0.35rem 0.55rem",
-              background: wetterDetailgrad !== "off" ? "#eff6ff" : "#f9fafb",
+              background: weatherDetailLevel !== "off" ? "#eff6ff" : "#f9fafb",
               border: `1px solid ${
-                wetterDetailgrad !== "off" ? "#93c5fd" : "#e5e7eb"
+                weatherDetailLevel !== "off" ? "#93c5fd" : "#e5e7eb"
               }`,
               borderRadius: "999px",
               cursor: isSubmitting ? "not-allowed" : "pointer",
               fontSize: "0.78rem",
-              color: wetterDetailgrad !== "off" ? "#1d4ed8" : "#6b7280",
+              color: weatherDetailLevel !== "off" ? "#1d4ed8" : "#6b7280",
             }}
           >
             <CloudSun size={13} />
-            {wetterDetailgrad === "off" && <SignalZero size={13} />}
-            {wetterDetailgrad === "low" && <SignalLow size={13} />}
-            {wetterDetailgrad === "medium" && <SignalMedium size={13} />}
-            {wetterDetailgrad === "high" && <SignalHigh size={13} />}
+            {weatherDetailLevel === "off" && <SignalZero size={13} />}
+            {weatherDetailLevel === "low" && <SignalLow size={13} />}
+            {weatherDetailLevel === "medium" && <SignalMedium size={13} />}
+            {weatherDetailLevel === "high" && <SignalHigh size={13} />}
           </button>
         </Popover>
         <Popover
           content={
-            baustellenBeruecksichtigen
+            considerRoadworks
               ? "Baustellen werden bei der Berechnung berücksichtigt (klicken zum Deaktivieren)"
               : "Baustellen werden bei der Berechnung ignoriert (klicken zum Aktivieren)"
           }
         >
           <button
             type="button"
-            onClick={() => setConsiderRoadworks(!baustellenBeruecksichtigen)}
+            onClick={() => setConsiderRoadworks(!considerRoadworks)}
             disabled={isSubmitting}
-            aria-pressed={baustellenBeruecksichtigen}
+            aria-pressed={considerRoadworks}
             aria-label="Baustellen berücksichtigen"
             style={{
               display: "flex",
               alignItems: "center",
               padding: "0.35rem 0.55rem",
-              background: baustellenBeruecksichtigen ? "#eff6ff" : "#f9fafb",
-              border: `1px solid ${baustellenBeruecksichtigen ? "#93c5fd" : "#e5e7eb"}`,
+              background: considerRoadworks ? "#eff6ff" : "#f9fafb",
+              border: `1px solid ${considerRoadworks ? "#93c5fd" : "#e5e7eb"}`,
               borderRadius: "999px",
               cursor: isSubmitting ? "not-allowed" : "pointer",
               fontSize: "0.78rem",
-              color: baustellenBeruecksichtigen ? "#1d4ed8" : "#6b7280",
+              color: considerRoadworks ? "#1d4ed8" : "#6b7280",
             }}
           >
             <Construction size={13} />
@@ -1081,16 +1087,15 @@ export function TripPlannerForm({
                 display: "flex",
                 alignItems: "center",
                 padding: "0.35rem 0.6rem 0.35rem 0.5rem",
-                background:
-                  vermiedeneFaehren.length > 0 ? "#fffbeb" : "#f9fafb",
+                background: avoidedFerries.length > 0 ? "#fffbeb" : "#f9fafb",
                 border: "none",
                 cursor: isSubmitting ? "not-allowed" : "pointer",
                 fontSize: "0.78rem",
-                fontWeight: vermiedeneFaehren.length > 0 ? 600 : 400,
-                color: vermiedeneFaehren.length > 0 ? "#b45309" : "#6b7280",
+                fontWeight: avoidedFerries.length > 0 ? 600 : 400,
+                color: avoidedFerries.length > 0 ? "#b45309" : "#6b7280",
               }}
             >
-              {vermiedeneFaehren.length}
+              {avoidedFerries.length}
             </button>
           </Popover>
         </div>
@@ -1127,7 +1132,7 @@ export function TripPlannerForm({
             // unterschiedlichen Kalendertagen, z. B. ein Zwischenstopp über
             // Mitternacht) - Abfahrts-Badge bekommt dann zusätzlich das
             // Datum (siehe `TagestrennerEintrag`-Docstring in
-            // `route-eintraege.ts`).
+            // `route-entries.ts`).
             const departureDateShort =
               entry.timing.departure !== null &&
               isDayChange(entry.timing.arrival, entry.timing.departure)
@@ -1240,7 +1245,7 @@ export function TripPlannerForm({
                           }
                         >
                           <Battery size={12} />
-                          {idx === 0 ? startSoc : zielSoc}%
+                          {idx === 0 ? startSoc : targetSoc}%
                         </button>
                       )}
                       <button
@@ -1398,7 +1403,7 @@ export function TripPlannerForm({
                         max="100"
                         step="1"
                         autoFocus
-                        value={idx === 0 ? startSoc : zielSoc}
+                        value={idx === 0 ? startSoc : targetSoc}
                         onChange={(e) => {
                           const value = parseInt(e.target.value, 10) || 0;
                           if (idx === 0) {
@@ -1735,7 +1740,7 @@ export function TripPlannerForm({
                       onBlur={() =>
                         buildAndSubmit(
                           avoidAllFerries,
-                          vermiedeneFaehren,
+                          avoidedFerries,
                           ferryTimeWindows,
                           chargingDurationPresets,
                         )
@@ -1762,7 +1767,7 @@ export function TripPlannerForm({
             // Fahrsegment quer über Mitternacht: Strecke/Zeit/beide Daten
             // in EINER Zeile statt zusätzlich einen separaten
             // Tagestrenner zu rendern (siehe `FahrsegmentEintrag`-
-            // Docstring in `route-eintraege.ts`).
+            // Docstring in `route-entries.ts`).
             const dayChange = isDayChange(entry.vonIso, entry.bisIso)
               ? { vonIso: entry.vonIso, bisIso: entry.bisIso }
               : undefined;
@@ -1777,49 +1782,49 @@ export function TripPlannerForm({
           }
 
           // eintrag.art === "Fähre"
-          const faehre = entry.faehre;
+          const ferry = entry.ferry;
           const exclusionEntry: FerryExclusion = {
-            name: faehre.name,
-            bboxSw: faehre.bboxSw,
-            bboxNe: faehre.bboxNe,
+            name: ferry.name,
+            bboxSw: ferry.bboxSw,
+            bboxNe: ferry.bboxNe,
           };
           const timeWindowEntry = ferryTimeWindows.find((f) =>
             sameFerryExclusion(f, exclusionEntry),
           );
           const key = ferryKey(exclusionEntry);
           const draft = ferryTimeWindowDraft[key] ?? {
-            abfahrt: timeWindowEntry?.abfahrt ?? "",
-            ankunft: timeWindowEntry?.ankunft ?? "",
+            departure: timeWindowEntry?.departure ?? "",
+            arrival: timeWindowEntry?.arrival ?? "",
           };
-          const departureParts = draft.abfahrt
-            ? splitIsoToDateTime(draft.abfahrt)
+          const departureParts = draft.departure
+            ? splitIsoToDateTime(draft.departure)
             : null;
-          const arrivalParts = draft.ankunft
-            ? splitIsoToDateTime(draft.ankunft)
+          const arrivalParts = draft.arrival
+            ? splitIsoToDateTime(draft.arrival)
             : null;
 
           const handleTimeWindowChange = (
-            field: "abfahrt" | "ankunft",
+            field: "departure" | "arrival",
             date: string,
             time: string,
           ) => {
             const iso = date && time ? combineDateTimeToIso(date, time) : "";
             const nextDraft = {
-              abfahrt: field === "abfahrt" ? iso : draft.abfahrt,
-              ankunft: field === "ankunft" ? iso : draft.ankunft,
+              departure: field === "departure" ? iso : draft.departure,
+              arrival: field === "arrival" ? iso : draft.arrival,
             };
             setFerryTimeWindowDraft((prev) => ({ ...prev, [key]: nextDraft }));
             const next = setFerryTimeWindowFor(
               ferryTimeWindows,
               exclusionEntry,
-              nextDraft.abfahrt,
-              nextDraft.ankunft,
+              nextDraft.departure,
+              nextDraft.arrival,
             );
             setFerryTimeWindows(next);
-            if (nextDraft.abfahrt && nextDraft.ankunft) {
+            if (nextDraft.departure && nextDraft.arrival) {
               buildAndSubmit(
                 avoidAllFerries,
-                vermiedeneFaehren,
+                avoidedFerries,
                 next,
                 chargingDurationPresets,
               );
@@ -1828,7 +1833,7 @@ export function TripPlannerForm({
 
           const handleIgnore = () => {
             const next = toggleFerryExclusion(
-              vermiedeneFaehren,
+              avoidedFerries,
               exclusionEntry,
               true,
             );
@@ -1888,7 +1893,7 @@ export function TripPlannerForm({
                   }}
                 >
                   <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                    ⛴ {faehre.name} ({(faehre.lengthM / 1000).toFixed(1)} km)
+                    ⛴ {ferry.name} ({(ferry.lengthM / 1000).toFixed(1)} km)
                   </span>
                   <button
                     type="button"
@@ -1922,7 +1927,7 @@ export function TripPlannerForm({
                       disabled={isSubmitting}
                       onChange={(e) =>
                         handleTimeWindowChange(
-                          "abfahrt",
+                          "departure",
                           e.target.value,
                           departureParts?.time ?? "12:00",
                         )
@@ -1935,7 +1940,7 @@ export function TripPlannerForm({
                       disabled={isSubmitting}
                       onChange={(e) =>
                         handleTimeWindowChange(
-                          "abfahrt",
+                          "departure",
                           departureParts?.date ?? "",
                           e.target.value,
                         )
@@ -1951,7 +1956,7 @@ export function TripPlannerForm({
                       disabled={isSubmitting}
                       onChange={(e) =>
                         handleTimeWindowChange(
-                          "ankunft",
+                          "arrival",
                           e.target.value,
                           arrivalParts?.time ?? "12:00",
                         )
@@ -1964,7 +1969,7 @@ export function TripPlannerForm({
                       disabled={isSubmitting}
                       onChange={(e) =>
                         handleTimeWindowChange(
-                          "ankunft",
+                          "arrival",
                           arrivalParts?.date ?? "",
                           e.target.value,
                         )
@@ -1987,15 +1992,15 @@ export function TripPlannerForm({
         onClose={() => setIsIgnoredFerriesModalOpen(false)}
         title="Ignorierte Fähren"
       >
-        {vermiedeneFaehren.length === 0 ? (
+        {avoidedFerries.length === 0 ? (
           <p style={{ margin: 0, color: "#6b7280" }}>
             Keine ignorierten Fähren.
           </p>
         ) : (
           <div style={{ display: "grid", gap: "0.5rem" }}>
-            {vermiedeneFaehren.map((entry) => {
+            {avoidedFerries.map((entry) => {
               const lengthM =
-                (erkannteFaehren ?? []).find((f) =>
+                (detectedFerries ?? []).find((f) =>
                   sameFerryExclusion(
                     { name: f.name, bboxSw: f.bboxSw, bboxNe: f.bboxNe },
                     entry,
@@ -2022,7 +2027,7 @@ export function TripPlannerForm({
                     type="button"
                     onClick={() => {
                       const next = toggleFerryExclusion(
-                        vermiedeneFaehren,
+                        avoidedFerries,
                         entry,
                         false,
                       );

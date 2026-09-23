@@ -16,7 +16,7 @@ from tripplanner.battery.models import (
 def default_parameters() -> VehicleBatteryParameters:
     """Default vehicle battery parameters (Model 3 LR)."""
     return VehicleBatteryParameters(
-        batteriekapazitaet_kwh=75.0,
+        battery_capacity_kwh=75.0,
         max_ladeleistung_kw=250.0,
         effizienz_ladeelektronik=0.95,
         temperatur_korrekturfaktor=1.0,
@@ -40,7 +40,7 @@ def constant_curve() -> ChargingCurve:
     """Konstante Ladekurve (250 kW über gesamten SoC-Bereich)."""
     return ChargingCurve(
         points=[
-            ChargingCurvePoint(soc_pct=0.0, ladeleistung_kw=250.0),
-            ChargingCurvePoint(soc_pct=100.0, ladeleistung_kw=250.0),
+            ChargingCurvePoint(soc_pct=0.0, charging_power_kw=250.0),
+            ChargingCurvePoint(soc_pct=100.0, charging_power_kw=250.0),
         ]
     )

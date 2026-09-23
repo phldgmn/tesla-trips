@@ -220,8 +220,8 @@ class TestBuildCustomModel:
     def test_avoid_all_ferries_adds_ferry_priority_rule(
         self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
     ) -> None:
-        """alle_faehren_vermeiden=True fügt eine road_environment==FERRY Priority-Regel hinzu."""
-        anfrage = trip_request.model_copy(update={"alle_faehren_vermeiden": True})
+        """avoid_all_ferries=True fügt eine road_environment==FERRY Priority-Regel hinzu."""
+        anfrage = trip_request.model_copy(update={"avoid_all_ferries": True})
 
         custom_model = gh_provider._build_custom_model(anfrage)
 
@@ -229,16 +229,16 @@ class TestBuildCustomModel:
         assert {"if": "road_environment == FERRY", "multiply_by": 0.0} in custom_model["priority"]
         assert "areas" not in custom_model
 
-    def test_vermiedene_faehren_adds_area_and_priority_rule(
+    def test_avoided_ferries_adds_area_and_priority_rule(
         self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
     ) -> None:
         """Jede vermiedene Fähre erzeugt eine GeoJSON-Area und eine in_<id> Priority-Regel."""
         ausschluss = FerryExclusion(
             name="Rødby (DK) - Puttgarden (D)",
             bbox_sw=(54.50, 11.22),
-            bbox_no=(54.66, 11.36),
+            bbox_ne=(54.66, 11.36),
         )
-        anfrage = trip_request.model_copy(update={"vermiedene_faehren": [ausschluss]})
+        anfrage = trip_request.model_copy(update={"avoided_ferries": [ausschluss]})
 
         custom_model = gh_provider._build_custom_model(anfrage)
 
@@ -257,7 +257,7 @@ class TestBuildCustomModel:
     def test_use_custom_model_and_ferry_avoidance_combined(self, trip_request: TripRequest) -> None:
         """use_custom_model=True und Fährvermeidung wirken gemeinsam auf dieselbe priority-Liste."""
         provider = GraphHopperRoutingProvider(client=None, use_custom_model=True)  # type: ignore[arg-type]
-        anfrage = trip_request.model_copy(update={"alle_faehren_vermeiden": True})
+        anfrage = trip_request.model_copy(update={"avoid_all_ferries": True})
 
         custom_model = provider._build_custom_model(anfrage)
 
@@ -266,21 +266,21 @@ class TestBuildCustomModel:
         assert {"if": "road_class == MOTORWAY", "multiply_by": 1.0} in custom_model["priority"]
         assert {"if": "road_environment == FERRY", "multiply_by": 0.0} in custom_model["priority"]
 
-    def test_two_simultaneous_vermiedene_faehren_produces_two_areas_and_two_priority_rules(
+    def test_two_simultaneous_avoided_ferries_produces_two_areas_and_two_priority_rules(
         self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
     ) -> None:
         """Zwei vermiedene Fähren erzeugen zwei GeoJSON-Areas und zwei priority-Regeln."""
         exclusion0 = FerryExclusion(
             name="Fähre A",
             bbox_sw=(54.50, 11.22),
-            bbox_no=(54.66, 11.36),
+            bbox_ne=(54.66, 11.36),
         )
         exclusion1 = FerryExclusion(
             name="Fähre B",
             bbox_sw=(54.20, 9.80),
-            bbox_no=(54.30, 9.90),
+            bbox_ne=(54.30, 9.90),
         )
-        anfrage = trip_request.model_copy(update={"vermiedene_faehren": [exclusion0, exclusion1]})
+        anfrage = trip_request.model_copy(update={"avoided_ferries": [exclusion0, exclusion1]})
 
         custom_model = gh_provider._build_custom_model(anfrage)
 
@@ -309,9 +309,9 @@ class TestBuildCustomModel:
         level: str,
         erwarteter_multiplikator: float,
     ) -> None:
-        """autobahn_praeferenz in {low, medium, high} fügt die passende road_class==MOTORWAY
+        """highway_preference in {low, medium, high} fügt die passende road_class==MOTORWAY
         Priority-Regel (1.1/1.2/1.3) hinzu."""
-        anfrage = trip_request.model_copy(update={"autobahn_praeferenz": level})
+        anfrage = trip_request.model_copy(update={"highway_preference": level})
 
         custom_model = gh_provider._build_custom_model(anfrage)
 
@@ -323,8 +323,8 @@ class TestBuildCustomModel:
     def test_prefer_motorways_off_adds_no_priority_rule(
         self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
     ) -> None:
-        """autobahn_praeferenz='off' (Standard) fügt keine MOTORWAY-Priority-Regel hinzu."""
-        anfrage = trip_request.model_copy(update={"autobahn_praeferenz": "off"})
+        """highway_preference='off' (Standard) fügt keine MOTORWAY-Priority-Regel hinzu."""
+        anfrage = trip_request.model_copy(update={"highway_preference": "off"})
 
         custom_model = gh_provider._build_custom_model(anfrage)
 
@@ -333,9 +333,9 @@ class TestBuildCustomModel:
     def test_prefer_motorways_and_avoid_ferries_combined(
         self, gh_provider: GraphHopperRoutingProvider, trip_request: TripRequest
     ) -> None:
-        """autobahn_praeferenz und alle_faehren_vermeiden wirken gemeinsam, nicht exklusiv."""
+        """highway_preference und avoid_all_ferries wirken gemeinsam, nicht exklusiv."""
         anfrage = trip_request.model_copy(
-            update={"autobahn_praeferenz": "high", "alle_faehren_vermeiden": True}
+            update={"highway_preference": "high", "avoid_all_ferries": True}
         )
 
         custom_model = gh_provider._build_custom_model(anfrage)

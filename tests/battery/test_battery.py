@@ -116,10 +116,10 @@ class TestComputeChargeDuration:
 
         curve = ChargingCurve(
             points=[
-                ChargingCurvePoint(soc_pct=0.0, ladeleistung_kw=250.0),
-                ChargingCurvePoint(soc_pct=25.0, ladeleistung_kw=250.0),
-                ChargingCurvePoint(soc_pct=75.0, ladeleistung_kw=250.0),
-                ChargingCurvePoint(soc_pct=100.0, ladeleistung_kw=250.0),
+                ChargingCurvePoint(soc_pct=0.0, charging_power_kw=250.0),
+                ChargingCurvePoint(soc_pct=25.0, charging_power_kw=250.0),
+                ChargingCurvePoint(soc_pct=75.0, charging_power_kw=250.0),
+                ChargingCurvePoint(soc_pct=100.0, charging_power_kw=250.0),
             ]
         )
 

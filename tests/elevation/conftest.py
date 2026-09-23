@@ -40,7 +40,7 @@ def sample_coords() -> list[tuple[float, float]]:
 def elevation_points_from_coords(sample_coords: list[tuple[float, float]]) -> list[ElevationPoint]:
     """ElevationPoints basierend auf sample_coords mit bekannten Höhen."""
     return [
-        ElevationPoint(koordinate=coord, hoehe_m=100.0 + idx * 5.0)
+        ElevationPoint(coordinate=coord, hoehe_m=100.0 + idx * 5.0)
         for idx, coord in enumerate(sample_coords)
     ]
 

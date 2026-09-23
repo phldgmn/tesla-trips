@@ -98,7 +98,9 @@ class GraphHopperRoutingProvider:
     async def berechne_route(self, anfrage: TripRequest) -> Route:
         """Berechnet eine Route für eine TripRequest (inkl. Zwischenstopps)."""
         # Umwandlung TripRequest → GraphHopper Parameter
-        points = [anfrage.start] + [wp.koordinate for wp in anfrage.zwischenstopps] + [anfrage.ziel]
+        points = (
+            [anfrage.start] + [wp.coordinate for wp in anfrage.waypoints] + [anfrage.destination]
+        )
 
         details_list = [
             *await self._ermittele_verfuegbare_path_details(),

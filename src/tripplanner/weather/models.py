@@ -40,7 +40,7 @@ pre-stop conditions across the whole stationary period.
 class WeatherQuery(BaseModel):
     """Abfrage für ein einzelnes Wetterereignis."""
 
-    koordinate: Coordinate
+    coordinate: Coordinate
     """WGS84 (lat, lon)."""
 
     zeitpunkt: datetime
@@ -50,7 +50,7 @@ class WeatherQuery(BaseModel):
 class WeatherSample(BaseModel):
     """Wetterdaten für einen Zeitpunkt an einer Koordinate."""
 
-    koordinate: Coordinate
+    coordinate: Coordinate
     """WGS84 (lat, lon)."""
 
     zeitpunkt: datetime

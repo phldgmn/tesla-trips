@@ -26,7 +26,7 @@ import {
 import { isDayChange } from "./datetime-utils";
 
 /**
- * Vergleicht zwei FaehrAusschluss-Einträge auf inhaltliche Gleichheit.
+ * Vergleicht zwei FerryExclusion-Einträge auf inhaltliche Gleichheit.
  */
 function sameFerryExclusion(a: FerryExclusion, b: FerryExclusion): boolean {
   return (
@@ -64,11 +64,11 @@ export type PointEntry =
       art: "Fähre";
       sortKey: string | null;
       timing: PositionTiming;
-      faehre: FerrySegment;
+      ferry: FerrySegment;
     };
 
 /** Verbindender Eintrag zwischen zwei `PunktEintrag`en: gefahrene Strecke/
- *  Zeit zwischen deren `verbindungsZeitpunkt`en. Trägt KEIN eigenes
+ *  Zeit zwischen deren `connectionTime`en. Trägt KEIN eigenes
  *  Tageswechsel-Flag - Aufrufer prüfen `istTageswechsel(vonIso, bisIso)`
  *  direkt, um Strecke/Zeit/beide Daten in einer Zeile zu kombinieren (siehe
  *  `FahrsegmentZeile` in `TripPlannerForm.tsx`), statt separat einen
@@ -118,9 +118,9 @@ function connectionTime(
  *
  * - Alle `stops` werden immer inkludiert (in Originalreihenfolge als Stabiltiebraker).
  * - `chargingStops` werden mit ihrer `ankunftszeit` als sortKey inkludiert.
- * - `erkannteFaehren`, die NICHT in `vermiedeneFaehren` enthalten sind, werden mit
+ * - `detectedFerries`, die NICHT in `avoidedFerries` enthalten sind, werden mit
  *   ihrer erwarteten Ankunftszeit (BBox-Mitte) als sortKey inkludiert.
- * - Ferien in `vermiedeneFaehren` werden EXKLUDET.
+ * - Ferien in `avoidedFerries` werden EXKLUDET.
  * - Wenn `frames` undefined/leer ist, werden nur Stops zurückgegeben (sortKey: null).
  *
  * Die Sortierung ist aufsteigend nach `sortKey` (ISO-String-Vergleich via localeCompare),
@@ -131,15 +131,15 @@ export function buildRouteEntries(args: {
   stops: Stop[];
   frames: SimulationFrame[] | undefined;
   chargingStops: ChargingStop[] | undefined;
-  erkannteFaehren: FerrySegment[] | undefined;
+  detectedFerries: FerrySegment[] | undefined;
   avoidedFerries: FerryExclusion[];
 }): RouteEntry[] {
   const {
     stops,
     frames,
     chargingStops,
-    erkannteFaehren,
-    avoidedFerries: vermiedeneFaehren,
+    detectedFerries,
+    avoidedFerries: avoidedFerries,
   } = args;
 
   // Keine Simulation: nur Stops in Originalreihenfolge
@@ -189,23 +189,23 @@ export function buildRouteEntries(args: {
   );
 
   // Fähren (nur nicht-vermiedene): sortKey = Ankunftszeit (BBox-Mitte)
-  const recognizedFerriesWithoutAvoided = erkannteFaehren?.filter(
-    (faehre) =>
-      !vermiedeneFaehren.some((avoidedFerry) =>
+  const recognizedFerriesWithoutAvoided = detectedFerries?.filter(
+    (ferry) =>
+      !avoidedFerries.some((avoidedFerry) =>
         sameFerryExclusion(avoidedFerry, {
-          name: faehre.name,
-          bboxSw: faehre.bboxSw,
-          bboxNe: faehre.bboxNe,
+          name: ferry.name,
+          bboxSw: ferry.bboxSw,
+          bboxNe: ferry.bboxNe,
         }),
       ),
   );
 
   const ferryEntries: PointEntry[] = (
     recognizedFerriesWithoutAvoided ?? []
-  ).map((faehre) => {
+  ).map((ferry) => {
     // BBox-Mitte berechnen
-    const bbox_sw = faehre.bboxSw;
-    const bbox_ne = faehre.bboxNe;
+    const bbox_sw = ferry.bboxSw;
+    const bbox_ne = ferry.bboxNe;
     const bboxCenter: [number, number] = [
       (bbox_sw[0] + bbox_ne[0]) / 2,
       (bbox_sw[1] + bbox_ne[1]) / 2,
@@ -216,7 +216,7 @@ export function buildRouteEntries(args: {
       art: "Fähre" as const,
       sortKey,
       timing,
-      faehre,
+      ferry,
     };
   });
 
@@ -236,7 +236,7 @@ export function buildRouteEntries(args: {
   });
 
   // Fahrsegmente zwischen je zwei aufeinanderfolgenden Einträgen einfügen
-  // (gefahrene Strecke/Zeit dazwischen) - siehe `verbindungsZeitpunkt`/
+  // (gefahrene Strecke/Zeit dazwischen) - siehe `connectionTime`/
   // `berechneFahrsegment`. `cumulativeKm` einmalig für die gesamte Route
   // gebildet statt pro Segment neu (siehe `berechneFahrsegment`-Docstring).
   const cumulativeKm = cumulativeDistancesKm(frames);

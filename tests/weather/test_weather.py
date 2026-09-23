@@ -28,14 +28,14 @@ async def test_fetch_weather_for_route_single_coord_three_times() -> None:
     # Given: Fake-Provider mit vordefinierten Wetterdaten
     now = datetime(2026, 8, 2, 10, 0)
     queries = [
-        WeatherQuery(koordinate=BERLIN, zeitpunkt=now),
-        WeatherQuery(koordinate=BERLIN, zeitpunkt=now + timedelta(hours=1)),
-        WeatherQuery(koordinate=BERLIN, zeitpunkt=now + timedelta(hours=2)),
+        WeatherQuery(coordinate=BERLIN, zeitpunkt=now),
+        WeatherQuery(coordinate=BERLIN, zeitpunkt=now + timedelta(hours=1)),
+        WeatherQuery(coordinate=BERLIN, zeitpunkt=now + timedelta(hours=2)),
     ]
 
     samples = [
         WeatherSample(
-            koordinate=BERLIN,
+            coordinate=BERLIN,
             zeitpunkt=now,
             temperatur_c=20.0,
             windgeschwindigkeit_ms=5.0,
@@ -48,7 +48,7 @@ async def test_fetch_weather_for_route_single_coord_three_times() -> None:
             bewoelkung_pct=20.0,
         ),
         WeatherSample(
-            koordinate=BERLIN,
+            coordinate=BERLIN,
             zeitpunkt=now + timedelta(hours=1),
             temperatur_c=21.0,
             windgeschwindigkeit_ms=6.0,
@@ -61,7 +61,7 @@ async def test_fetch_weather_for_route_single_coord_three_times() -> None:
             bewoelkung_pct=18.0,
         ),
         WeatherSample(
-            koordinate=BERLIN,
+            coordinate=BERLIN,
             zeitpunkt=now + timedelta(hours=2),
             temperatur_c=22.0,
             windgeschwindigkeit_ms=7.0,
@@ -104,7 +104,7 @@ async def test_fetch_weather_for_route_duplicate_coords_single_api_call() -> Non
             call_count += 1
             return [
                 WeatherSample(
-                    koordinate=q.koordinate,
+                    coordinate=q.coordinate,
                     zeitpunkt=q.zeitpunkt,
                     temperatur_c=20.0,
                     windgeschwindigkeit_ms=5.0,
@@ -121,8 +121,8 @@ async def test_fetch_weather_for_route_duplicate_coords_single_api_call() -> Non
 
     now = datetime(2026, 8, 2, 10, 0)
     queries = [
-        WeatherQuery(koordinate=BERLIN, zeitpunkt=now),
-        WeatherQuery(koordinate=BERLIN, zeitpunkt=now + timedelta(hours=1)),
+        WeatherQuery(coordinate=BERLIN, zeitpunkt=now),
+        WeatherQuery(coordinate=BERLIN, zeitpunkt=now + timedelta(hours=1)),
     ]
 
     provider = CountingFakeProvider()
@@ -150,7 +150,7 @@ async def test_fetch_weather_for_route_multiple_coords_batching() -> None:
             call_count += 1
             return [
                 WeatherSample(
-                    koordinate=q.koordinate,
+                    coordinate=q.coordinate,
                     zeitpunkt=q.zeitpunkt,
                     temperatur_c=20.0,
                     windgeschwindigkeit_ms=5.0,
@@ -168,11 +168,11 @@ async def test_fetch_weather_for_route_multiple_coords_batching() -> None:
     now = datetime(2026, 8, 2, 10, 0)
     # 50 Queries für Berlin
     berlin_queries = [
-        WeatherQuery(koordinate=BERLIN, zeitpunkt=now + timedelta(hours=i)) for i in range(50)
+        WeatherQuery(coordinate=BERLIN, zeitpunkt=now + timedelta(hours=i)) for i in range(50)
     ]
     # 50 Queries für Hamburg
     hamburg_queries = [
-        WeatherQuery(koordinate=HAMBURG, zeitpunkt=now + timedelta(hours=i)) for i in range(50)
+        WeatherQuery(coordinate=HAMBURG, zeitpunkt=now + timedelta(hours=i)) for i in range(50)
     ]
     queries = berlin_queries + hamburg_queries
 
@@ -242,7 +242,7 @@ def test_extract_sample_from_response() -> None:
 
     # Then: WeatherSample mit korrekten Werten
     assert sample is not None
-    assert sample.koordinate == (52.52, 13.405)
+    assert sample.coordinate == (52.52, 13.405)
     assert sample.zeitpunkt == zeitpunkt
     assert sample.temperatur_c == 13.8
     # wind_speed_10m: 11.8 km/h → 11.8 * 1000/3600 ≈ 3.28 m/s

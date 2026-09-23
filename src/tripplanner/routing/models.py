@@ -54,7 +54,7 @@ class RouteSegment(BaseModel):
         description=(
             "Umgebungstyp aus GraphHopper Path-Detail `road_environment` (ROAD, "
             "FERRY, BRIDGE, TUNNEL, FORD, OTHER), normalisiert auf Großbuchstaben; "
-            "None wenn nicht verfügbar. Wird von `routing.faehren.erkenne_faehren()` "
+            "None wenn nicht verfügbar. Wird von `routing.ferries.detect_ferries()` "
             "genutzt, um Fährabschnitte der Route zu erkennen."
         ),
     )
@@ -142,11 +142,11 @@ class GraphHopperInfo(BaseModel):
     took: int  # Millisekunden
 
 
-class FaehrSegment(BaseModel):
+class FerrySegment(BaseModel):
     """Eine in einer berechneten `Route` erkannte, zusammenhängende Fährverbindung.
 
-    Erzeugt von `tripplanner.routing.faehren.erkenne_faehren()`. `bbox_sw`/`bbox_no`
-    beschreiben eine um `FAEHR_PUFFER_GRAD` gepufferte Bounding Box um die exakte
+    Erzeugt von `tripplanner.routing.ferries.detect_ferries()`. `bbox_sw`/`bbox_ne`
+    beschreiben eine um `FERRY_BUFFER_DEG` gepufferte Bounding Box um die exakte
     Segmentgeometrie - zur Wiederverwendung als `FerryExclusion`
     (`tripplanner.trip_input.models`) in einer nachfolgenden Routenberechnung, die
     genau diese Fährverbindung vermeiden soll.
@@ -156,14 +156,14 @@ class FaehrSegment(BaseModel):
         ...,
         description=(
             "Fährname aus dem ersten nicht-leeren `strassenname` innerhalb des Laufs, "
-            "'Unbenannte Fähre' falls GraphHopper keinen Namen liefert."
+            "'Unnamed ferry' falls GraphHopper keinen Namen liefert."
         ),
     )
     laenge_m: float = Field(
         ..., ge=0, description="Gesamtlänge aller zusammenhängenden Fährsegmente in Metern"
     )
     bbox_sw: Coordinate = Field(..., description="Südwest-Ecke der gepufferten Bounding Box")
-    bbox_no: Coordinate = Field(..., description="Nordost-Ecke der gepufferten Bounding Box")
+    bbox_ne: Coordinate = Field(..., description="Nordost-Ecke der gepufferten Bounding Box")
     segment_index_start: int = Field(
         ..., ge=0, description="Index des ersten Fähr-Segments in `Route.segments`"
     )
@@ -176,17 +176,17 @@ class FaehrSegment(BaseModel):
             "letzten Fähr-Segments."
         ),
     )
-    abfahrt: datetime | None = Field(
+    departure: datetime | None = Field(
         default=None,
         description=(
             "Vom Nutzer vorgegebene Abfahrtszeit dieser Fährverbindung, sofern ein "
-            "passendes `trip_input.models.FaehrZeitfenster` in der Anfrage enthalten "
-            "war (siehe `trip_input.api._matche_faehr_zeitfenster`); sonst `None`."
+            "passendes `trip_input.models.FerryTimeWindow` in der Anfrage enthalten "
+            "war (siehe `trip_input.api._match_ferry_time_windows`); sonst `None`."
         ),
     )
-    ankunft: datetime | None = Field(
+    arrival: datetime | None = Field(
         default=None,
         description=(
-            "Vom Nutzer vorgegebene Ankunftszeit dieser Fährverbindung, analog zu `abfahrt`."
+            "Vom Nutzer vorgegebene Ankunftszeit dieser Fährverbindung, analog zu `departure`."
         ),
     )

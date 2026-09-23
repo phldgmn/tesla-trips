@@ -1,9 +1,9 @@
 """API-Schema-Modelle für trip_input (Supercharger-/Request-/Response-Schemata)."""
 
 from tripplanner.trip_input.schemas.request import (
-    FaehrAusschlussAPI,
-    FaehrZeitfensterAPI,
-    LadedauerVorgabeAPI,
+    ChargingDurationSpecificationAPI,
+    FerryExclusionAPI,
+    FerryTimeWindowAPI,
     TripRequestAPI,
     WaypointAPI,
 )
@@ -12,7 +12,7 @@ from tripplanner.trip_input.schemas.response import (
     ChargingStopAPI,
     ConstructionZoneAPI,
     ConstructionZoneEventAPI,
-    FaehrSegmentAPI,
+    FerrySegmentAPI,
     FrameAPI,
     TripSimulationResultAPI,
     WaypointStopAPI,
@@ -25,14 +25,14 @@ from tripplanner.trip_input.schemas.superchargers import (
 
 __all__ = [
     "ChargingCostByCurrencyAPI",
+    "ChargingDurationSpecificationAPI",
     "ChargingStopAPI",
     "ConstructionZoneAPI",
     "ConstructionZoneEventAPI",
-    "FaehrAusschlussAPI",
-    "FaehrSegmentAPI",
-    "FaehrZeitfensterAPI",
+    "FerryExclusionAPI",
+    "FerrySegmentAPI",
+    "FerryTimeWindowAPI",
     "FrameAPI",
-    "LadedauerVorgabeAPI",
     "SuperchargerPricingAPI",
     "SuperchargerStationAPI",
     "SuperchargerStationDetailAPI",

@@ -20,14 +20,14 @@ from tripplanner.routing.models import Route, RouteSegment
 from tripplanner.trip_input.models import TripRequest, VehicleProfile
 
 VEHICLE_PROFILE = VehicleProfile(
-    masse_kg=1800.0,
-    cw_wert=0.23,
-    stirnflaeche_m2=2.2,
-    rollwiderstandsbeiwert=0.01,
-    batteriekapazitaet_kwh=60.0,
-    nebenverbraucher_baseline_kw=0.34,
-    reifentyp="standard",
-    dachbox=False,
+    mass_kg=1800.0,
+    drag_coefficient=0.23,
+    frontal_area_m2=2.2,
+    rolling_resistance_coefficient=0.01,
+    battery_capacity_kwh=60.0,
+    auxiliary_baseline_kw=0.34,
+    tire_type="standard",
+    roof_box=False,
 )
 
 
@@ -77,7 +77,7 @@ async def test_precompute_returns_real_cost_per_station() -> None:
         vehicle_profile=VEHICLE_PROFILE,
         route=route,
         station_segments=station_segments,
-        abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0),
+        departure_time=datetime(2026, 8, 15, 8, 0, 0),
     )
 
     assert station.station_id in result
@@ -100,7 +100,7 @@ async def test_precompute_skips_on_route_stations() -> None:
         vehicle_profile=VEHICLE_PROFILE,
         route=route,
         station_segments=station_segments,
-        abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0),
+        departure_time=datetime(2026, 8, 15, 8, 0, 0),
     )
 
     assert station.station_id not in result
@@ -126,7 +126,7 @@ async def test_precompute_fans_out_concurrently() -> None:
         vehicle_profile=VEHICLE_PROFILE,
         route=route,
         station_segments=station_segments,
-        abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0),
+        departure_time=datetime(2026, 8, 15, 8, 0, 0),
         max_concurrent_requests=20,
     )
     elapsed = asyncio.get_event_loop().time() - start
@@ -149,7 +149,7 @@ async def test_precompute_omits_station_on_routing_failure() -> None:
 
     class PartiallyFailingRoutingProvider(FakeRoutingProvider):
         async def berechne_route(self, anfrage: TripRequest) -> Route:
-            if anfrage.ziel in _failing_targets or anfrage.start in _failing_targets:
+            if anfrage.destination in _failing_targets or anfrage.start in _failing_targets:
                 raise RuntimeError("simulated routing failure")
             return await super().berechne_route(anfrage)
 
@@ -159,7 +159,7 @@ async def test_precompute_omits_station_on_routing_failure() -> None:
         vehicle_profile=VEHICLE_PROFILE,
         route=route,
         station_segments=station_segments,
-        abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0),
+        departure_time=datetime(2026, 8, 15, 8, 0, 0),
     )
 
     assert "fails" not in result
@@ -177,7 +177,7 @@ async def test_precompute_empty_station_segments_returns_empty_dict() -> None:
         vehicle_profile=VEHICLE_PROFILE,
         route=route,
         station_segments={},
-        abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0),
+        departure_time=datetime(2026, 8, 15, 8, 0, 0),
     )
 
     assert result == {}

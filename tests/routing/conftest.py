@@ -39,11 +39,11 @@ def graphhopper_response_with_ferry() -> GraphHopperResponse:
 def vehicle_profile() -> VehicleProfile:
     """Beispiel-Fahrzeugprofil für TripRequests."""
     return VehicleProfile(
-        masse_kg=1706.0,
-        cw_wert=0.23,
-        stirnflaeche_m2=2.22,
-        rollwiderstandsbeiwert=0.011,
-        batteriekapazitaet_kwh=62.5,
+        mass_kg=1706.0,
+        drag_coefficient=0.23,
+        frontal_area_m2=2.22,
+        rolling_resistance_coefficient=0.011,
+        battery_capacity_kwh=62.5,
     )
 
 
@@ -52,9 +52,9 @@ def trip_request(vehicle_profile: VehicleProfile) -> TripRequest:
     """Beispiel-TripRequest ohne Zwischenstopps (Berlin -> Hamburg)."""
     return TripRequest(
         start=(52.5200, 13.4050),
-        ziel=(53.5511, 9.9937),
-        abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0),
-        fahrzeugprofil=vehicle_profile,
+        destination=(53.5511, 9.9937),
+        departure_time=datetime(2026, 8, 15, 8, 0, 0),
+        vehicle_profile=vehicle_profile,
     )
 
 
@@ -63,8 +63,8 @@ def trip_request_with_waypoints(vehicle_profile: VehicleProfile) -> TripRequest:
     """Beispiel-TripRequest mit einem Zwischenstopp (Berlin -> Hannover -> Hamburg)."""
     return TripRequest(
         start=(52.5200, 13.4050),
-        ziel=(53.5511, 9.9937),
-        zwischenstopps=[Waypoint(koordinate=(52.3759, 9.7320))],
-        abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0),
-        fahrzeugprofil=vehicle_profile,
+        destination=(53.5511, 9.9937),
+        waypoints=[Waypoint(coordinate=(52.3759, 9.7320))],
+        departure_time=datetime(2026, 8, 15, 8, 0, 0),
+        vehicle_profile=vehicle_profile,
     )

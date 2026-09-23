@@ -56,11 +56,11 @@ _GARMISCH: tuple[float, float] = (47.4920, 11.0950)
 def vehicle_profile() -> VehicleProfile:
     """Realistisches Fahrzeugprofil für ein Model 3 Long Range."""
     return VehicleProfile(
-        masse_kg=1805.0,
-        cw_wert=0.23,
-        stirnflaeche_m2=2.22,
-        rollwiderstandsbeiwert=0.011,
-        batteriekapazitaet_kwh=75.0,
+        mass_kg=1805.0,
+        drag_coefficient=0.23,
+        frontal_area_m2=2.22,
+        rolling_resistance_coefficient=0.011,
+        battery_capacity_kwh=75.0,
     )
 
 
@@ -72,24 +72,24 @@ def _now_iso() -> str:
 def _build_payload(
     *,
     start: tuple[float, float],
-    ziel: tuple[float, float],
-    zwischenstopps: list[dict[str, object]] | None = None,
-    abfahrtszeit: str | None = None,
+    destination: tuple[float, float],
+    waypoints: list[dict[str, object]] | None = None,
+    departure_time: str | None = None,
 ) -> dict[str, object]:
     """Baut ein TripRequestAPI-JSON-Payload."""
-    if abfahrtszeit is None:
-        abfahrtszeit = _now_iso()
+    if departure_time is None:
+        departure_time = _now_iso()
     return {
         "start": start,
-        "destination": ziel,
-        "waypoints": zwischenstopps or [],
-        "departureTime": abfahrtszeit,
+        "destination": destination,
+        "waypoints": waypoints or [],
+        "departureTime": departure_time,
         "vehicleProfile": {
-            "masse_kg": 1805.0,
-            "cw_wert": 0.23,
-            "stirnflaeche_m2": 2.22,
-            "rollwiderstandsbeiwert": 0.011,
-            "batteriekapazitaet_kwh": 75.0,
+            "mass_kg": 1805.0,
+            "drag_coefficient": 0.23,
+            "frontal_area_m2": 2.22,
+            "rolling_resistance_coefficient": 0.011,
+            "battery_capacity_kwh": 75.0,
         },
         "startSocPct": 80.0,
         "targetSocPct": 20.0,
@@ -167,12 +167,12 @@ async def test_end_to_end_multi_country_trip(client: TestClient) -> None:
     """
     payload = _build_payload(
         start=_COPENHAGEN,
-        ziel=_MALMO,
-        zwischenstopps=[
+        destination=_MALMO,
+        waypoints=[
             {
-                "koordinate": _MALMO,
-                "aufenthaltsdauer_s": 600,
-                "geplante_abfahrt": None,
+                "coordinate": _MALMO,
+                "stayDurationS": 600,
+                "plannedDeparture": None,
             },
         ],
     )
@@ -215,7 +215,7 @@ async def test_elevation_real_data(client: TestClient) -> None:
     # Guard against the 118-second regression that originally motivated this test (Issue #13).
     # 15 s is generous for real-world network + elevation lookups.
     t0 = time.perf_counter()
-    payload = _build_payload(start=_MUNCHEN, ziel=_GARMISCH)
+    payload = _build_payload(start=_MUNCHEN, destination=_GARMISCH)
 
     response = client.post("/trips", json=payload)
     assert response.status_code == 201, (
@@ -252,7 +252,7 @@ async def test_weather_real_values(client: TestClient) -> None:
     Echter Open-Meteo liefert orts- und zeitabhängige Werte.
     """
     # Nördliche Route: København -> Malmö (unterschiedliche Breitengrade)
-    payload = _build_payload(start=_COPENHAGEN, ziel=_MALMO)
+    payload = _build_payload(start=_COPENHAGEN, destination=_MALMO)
 
     response = client.post("/trips", json=payload)
     assert response.status_code == 201, (
@@ -281,7 +281,7 @@ async def test_construction_no_crash(client: TestClient) -> None:
     """
     payload = _build_payload(
         start=_COPENHAGEN,
-        ziel=_MALMO,
+        destination=_MALMO,
     )
 
     response = client.post("/trips", json=payload)

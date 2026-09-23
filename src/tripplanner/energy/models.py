@@ -16,21 +16,21 @@ class VehicleEnergyParameters(BaseModel):
     """
 
     # Aerodynamik
-    cw_wert: float = Field(
+    drag_coefficient: float = Field(
         default=0.23,
         ge=0.0,
         description="Drag coefficient (cW) für Tesla Model 3 (Standardfassung). "
         "Neuere Generation (Highland facelift) erreicht 0.219, "
         "aber 0.23 bleibt als Standard für breite Kompatibilität.",
     )
-    stirnflaeche_m2: float = Field(
+    frontal_area_m2: float = Field(
         default=2.22,
         ge=0.0,
         description="Frontalfläche in m² (Tesla Model 3).",
     )
 
     # Rollwiderstand
-    rollwiderstandsbeiwert: float = Field(
+    rolling_resistance_coefficient: float = Field(
         default=0.011,
         ge=0.0,
         le=0.02,
@@ -39,7 +39,7 @@ class VehicleEnergyParameters(BaseModel):
     )
 
     # Masse
-    masse_kg: float = Field(
+    mass_kg: float = Field(
         default=1706.0,
         ge=1500.0,
         le=2200.0,
@@ -50,7 +50,7 @@ class VehicleEnergyParameters(BaseModel):
     )
 
     # Batterie & Antrieb
-    batteriekapazitaet_kwh: float = Field(
+    battery_capacity_kwh: float = Field(
         default=62.5,
         ge=50.0,
         le=200.0,
@@ -74,7 +74,7 @@ class VehicleEnergyParameters(BaseModel):
     )
 
     # Nebenverbraucher
-    nebenverbraucher_baseline_kw: float = Field(
+    auxiliary_baseline_kw: float = Field(
         default=0.34,
         ge=0.0,
         le=1.0,
@@ -112,16 +112,16 @@ class VehicleEnergyParameters(BaseModel):
     )
 
     # Reifentyp & Dachbox
-    reifentyp: str = Field(
+    tire_type: str = Field(
         default="standard",
         description="Reifentyp, der den Rollwiderstand moduliert.",
     )
-    dachbox: bool = Field(
+    roof_box: bool = Field(
         default=False,
-        description="Vorhandensein einer Dachbox (erhöht cw_wert um ~0.03-0.05).",
+        description="Vorhandensein einer Dachbox (erhöht drag_coefficient um ~0.03-0.05).",
     )
 
-    @field_validator("cw_wert")
+    @field_validator("drag_coefficient")
     @classmethod
     def adjust_cw_for_dachbox(cls, v: float) -> float:
         """Passive Anpassung des cw-Werts bei Dachbox."""
@@ -136,8 +136,8 @@ class VehicleEnergyParameters(BaseModel):
             "low_rolling_resistance": 0.9,
             "performance": 1.1,
         }
-        factor = typ_factors.get(self.reifentyp, 1.0)
-        self.rollwiderstandsbeiwert *= factor
+        factor = typ_factors.get(self.tire_type, 1.0)
+        self.rolling_resistance_coefficient *= factor
         return self
 
 

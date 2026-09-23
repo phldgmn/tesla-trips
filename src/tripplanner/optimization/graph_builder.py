@@ -46,7 +46,7 @@ MAX_SOC_PCT: float = 100.0
 # Verschwindend kleiner Kosten-Tie-Breaker (Sekunden je geladenem Prozentpunkt)
 # für Ladekanten an REGULAERN Ladestationen (NICHT an Zwischenstopps, siehe
 # `add_waypoint_wait_edge`): faellt ein Ladehalt vor einer erzwungenen,
-# spaeten Abfahrtszeit (`Waypoint.geplante_abfahrt`/`aufenthaltsdauer`), ist
+# spaeten Abfahrtszeit (`Waypoint.planned_departure`/`stay_duration`), ist
 # die zusaetzliche Ladezeit dort rechnerisch EXAKT kostenneutral - jede
 # Sekunde laenger geladen wird 1:1 durch eine Sekunde kuerzeres Warten am
 # Zwischenstopp kompensiert (`add_waypoint_wait_edge`, `kosten = wait_time_s`
@@ -54,7 +54,7 @@ MAX_SOC_PCT: float = 100.0
 # dieser exakten Kostengleichheit ein beliebiges (oft unnoetig hohes)
 # Ladeziel statt des tatsaechlich benoetigten Minimums (siehe Nutzer-Report:
 # Ladestation kurz vor einem ueber Nacht ladenden Zwischenstopp laedt bis auf
-# den `max_lade_soc_pct`-Deckel, obwohl der Zwischenstopp selbst ohnehin
+# den `max_charge_soc_pct`-Deckel, obwohl der Zwischenstopp selbst ohnehin
 # unbegrenzt bis 100% nachlaedt). Der Wert ist um Groessenordnungen kleiner
 # als jede real ins Gewicht fallende Zeitdifferenz (Sekunden bis Minuten je
 # Zeit-Bucket) und kann daher NIE eine echte Zeitoptimierung verfaelschen -
@@ -117,9 +117,9 @@ class StateGraphBuilder:
         constraints: OptimizationConstraints,
         start_node: tuple[int, int, int],
         ziel_soc_bucket: int,
-        ziel_soc_target: float,
+        target_soc_target: float,
         max_time_buckets: int,
-        ladedauer_vorgaben: dict[str, int],
+        charging_duration_specifications: dict[str, int],
         ferry_pins: dict[int, tuple[int, datetime, datetime]],
         detour_kosten: dict[str, DetourKosten] | None = None,
     ) -> None:
@@ -153,7 +153,7 @@ class StateGraphBuilder:
         # eine Zeitdauer: Fahrzeit/Ladezeit/Wartezeit/Faehr-Wartezeit), und
         # saemtliche Folgekosten (Energieverbrauch, Ladekurve, `max_time_
         # buckets`-Limit, sogar Faehr-Abfahrtsfenster - frueher ankommen
-        # heisst dort hoechstens laenger warten, nie eine Faehre verpassen,
+        # heisst dort hoechstens laenger warten, nie eine Ferry verpassen,
         # die ein spaeterer Zustand noch erreicht haette) haengen NUR vom
         # weiterhin identischen SoC und der (monoton) verstrichenen Zeit ab,
         # nie vom Kalenderzeitpunkt selbst. Der erste (Heap-Reihenfolge:
@@ -190,9 +190,9 @@ class StateGraphBuilder:
         # kann (Ladeleistung gesetzt UND eine erzwungene Wartezeit vorliegt,
         # siehe `add_waypoint_wait_edge`/`required_departure` - ohne
         # Wartezeit findet dort kein Ladevorgang statt, siehe
-        # `Waypoint.ladeleistung_kw`). Fuer diese Segmente gilt beim Anfahren
+        # `Waypoint.charging_power_kw`). Fuer diese Segmente gilt beim Anfahren
         # dieselbe abgesenkte Ankunfts-Untergrenze wie an einer Ladestation
-        # (`mindest_ankunfts_soc_pct` statt des allgemeinen
+        # (`min_arrival_soc_pct` statt des allgemeinen
         # `min_soc_pct`-Sicherheitsreserve fuer offene Strecke) - an einer
         # Ladestation UND an einem ladefaehigen Zwischenstopp ist ein
         # niedriger Ankunfts-SoC unbedenklich, weil garantiert nachgeladen
@@ -203,9 +203,9 @@ class StateGraphBuilder:
             seg_idx
             for seg_idx, wps in waypoint_map.items()
             if any(
-                wp.ladeleistung_kw is not None
-                and wp.ladeleistung_kw > 0.0
-                and (wp.aufenthaltsdauer is not None or wp.geplante_abfahrt is not None)
+                wp.charging_power_kw is not None
+                and wp.charging_power_kw > 0.0
+                and (wp.stay_duration is not None or wp.planned_departure is not None)
                 for wp in wps
             )
         }
@@ -219,9 +219,9 @@ class StateGraphBuilder:
             seg_idx, soc_bucket, time_bucket = current
 
             # Zwischenstopp-Zwang pruefen: liegt fuer diese Position eine (aus
-            # `Waypoint.aufenthaltsdauer`/`geplante_abfahrt` abgeleitete)
+            # `Waypoint.stay_duration`/`planned_departure` abgeleitete)
             # Mindestabfahrtszeit vor, die am aktuellen Knoten noch nicht
-            # erreicht ist, MUSS zunaechst gewartet werden - Fahrt-/Faehrkante
+            # erreicht ist, MUSS zunaechst gewartet werden - Fahrt-/FerryEdge
             # (Block 2) werden dann NICHT erzeugt, sonst waere die Wartezeit
             # nur ein optionaler, vom A*-Kostenoptimierer als teurer verworfener
             # Zusatzpfad statt einer erzwungenen Mindestaufenthaltsdauer (siehe
@@ -284,7 +284,7 @@ class StateGraphBuilder:
                         seg_idx=seg_idx,
                         target_seg_idx=target_seg_idx,
                         total_segments=len(segments),
-                        ziel_soc_target=ziel_soc_target,
+                        target_soc_target=target_soc_target,
                         cum_time_s=cum_time_s,
                         cum_energy_kwh=cum_energy_kwh,
                         max_time_buckets=max_time_buckets,
@@ -312,12 +312,12 @@ class StateGraphBuilder:
                     max_time_buckets=max_time_buckets,
                     constraints=constraints,
                     heap=heap,
-                    ladedauer_vorgaben=ladedauer_vorgaben,
+                    charging_duration_specifications=charging_duration_specifications,
                     checkpoints=checkpoints,
                     station_segments=station_segments,
                     waypoint_charge_segments=waypoint_charge_segments,
                     cum_energy_kwh=cum_energy_kwh,
-                    ziel_soc_target=ziel_soc_target,
+                    target_soc_target=target_soc_target,
                     detour_kosten=detour_kosten,
                 )
 
@@ -329,8 +329,8 @@ class StateGraphBuilder:
                     current=current,
                     seg_idx=seg_idx,
                     required_departure=required_departure,
-                    koordinate=wait_koordinate,
-                    ladeleistung_kw=wait_ladeleistung_kw,
+                    coordinate=wait_koordinate,
+                    charging_power_kw=wait_ladeleistung_kw,
                     ladekurve=ladekurve,
                     vehicle_profile=vehicle_profile,
                     max_time_buckets=max_time_buckets,
@@ -346,13 +346,13 @@ class StateGraphBuilder:
     ) -> tuple[datetime | None, tuple[float, float] | None, float | None]:
         """Ermittelt die (spaeteste) erzwungene Mindestabfahrtszeit an `seg_idx`.
 
-        Kombiniert je Waypoint `aufenthaltsdauer` (relativ zur TATSAECHLICHEN
-        Ankunft `stop_arrival`) und `geplante_abfahrt` (absolut) - `stop_arrival`
+        Kombiniert je Waypoint `stay_duration` (relativ zur TATSAECHLICHEN
+        Ankunft `stop_arrival`) und `planned_departure` (absolut) - `stop_arrival`
         ist der Zeitpunkt der TATSAECHLICHEN Ankunft an dieser Position (siehe
         `add_drive_edge`/`add_ferry_edge`), nicht der aktuelle Knoten-
         Zeitpunkt, der bereits eine laufende Ladung/Wartezeit am selben
         `seg_idx` widerspiegeln kann (sonst wuerde eine relative
-        `aufenthaltsdauer` bei jeder erneuten Pruefung ab dem NEUEN Zeitpunkt
+        `stay_duration` bei jeder erneuten Pruefung ab dem NEUEN Zeitpunkt
         nochmals aufgeschlagen und nie konvergieren). Liegen mehrere
         Zwischenstopps auf demselben Segment, gewinnt die spaeteste Abfahrts-
         zeit (deren Koordinate/Ladeleistung wird fuer die Wartekante genutzt).
@@ -362,23 +362,23 @@ class StateGraphBuilder:
 
         stop_arrival = G.nodes[current].get("stop_arrival", G.nodes[current]["zeitpunkt"])
         required_departure: datetime | None = None
-        koordinate: tuple[float, float] | None = None
-        ladeleistung_kw: float | None = None
+        coordinate: tuple[float, float] | None = None
+        charging_power_kw: float | None = None
         for wp in waypoint_map[seg_idx]:
             kandidaten: list[datetime] = []
-            if wp.aufenthaltsdauer:
-                kandidaten.append(stop_arrival + wp.aufenthaltsdauer)
-            if wp.geplante_abfahrt:
-                kandidaten.append(wp.geplante_abfahrt)
+            if wp.stay_duration:
+                kandidaten.append(stop_arrival + wp.stay_duration)
+            if wp.planned_departure:
+                kandidaten.append(wp.planned_departure)
             if not kandidaten:
                 continue
             kandidat_abfahrt = max(kandidaten)
             if required_departure is None or kandidat_abfahrt > required_departure:
                 required_departure = kandidat_abfahrt
-                koordinate = wp.koordinate
-                ladeleistung_kw = wp.ladeleistung_kw
+                coordinate = wp.coordinate
+                charging_power_kw = wp.charging_power_kw
 
-        return required_departure, koordinate, ladeleistung_kw
+        return required_departure, coordinate, charging_power_kw
 
     def add_drive_edge(  # noqa: PLR0913, PLR0917 -- Fahrtkanten-Konstruktion braucht den vollen Kantenkontext
         self,
@@ -394,7 +394,7 @@ class StateGraphBuilder:
         station_segments: dict[int, list[tuple[ChargingStation, float]]],
         waypoint_charge_segments: set[int],
         total_segments: int,
-        ziel_soc_target: float,
+        target_soc_target: float,
         heap: list[tuple[float, int, tuple[int, int, int]]],
     ) -> None:
         """Füge eine aggregierte Fahrtkante von `seg_idx` bis `target_seg_idx` hinzu.
@@ -416,7 +416,7 @@ class StateGraphBuilder:
         energie_kwh = cum_energy_kwh[target_seg_idx] - cum_energy_kwh[seg_idx]
         verbrauch_pct = charging_math.calc_soc_verbrauch_pct(
             energie_kwh=energie_kwh,
-            batteriekapazitaet_kwh=vehicle_profile.batteriekapazitaet_kwh,
+            battery_capacity_kwh=vehicle_profile.battery_capacity_kwh,
         )
 
         # Verbrauch wird vom KONTINUIERLICHEN SoC des Vorgaengerknotens
@@ -429,7 +429,7 @@ class StateGraphBuilder:
         # Reichweite reicht nicht (SoC unter 0%) - eine unzulaessige Kante wie
         # jede andere Unterschreitung der geltenden Sicherheitsreserve.
         # Fuehrt die Fahrtkante zum eigentlichen FAHRTZIEL
-        # (`target_seg_idx == total_segments`), gilt dort `ziel_soc_target`
+        # (`target_seg_idx == total_segments`), gilt dort `target_soc_target`
         # (bereits um `sicherheitsreserve_pct` bereinigtes Ziel-SoC, siehe
         # `optimize()`) statt des allgemeinen `min_soc_pct` - die Fahrt endet
         # hier, ein zusaetzliches Offene-Strecke-Sicherheitsminimum ist nicht
@@ -440,14 +440,14 @@ class StateGraphBuilder:
         # ladefaehigen Zwischenstopp (`target_seg_idx in
         # waypoint_charge_segments`, siehe `generate_graph`), gilt dort
         # ebenfalls NICHT das allgemeine `min_soc_pct`, sondern das
-        # niedrigere `mindest_ankunfts_soc_pct` - dort wird ja garantiert
+        # niedrigere `min_arrival_soc_pct` - dort wird ja garantiert
         # nachgeladen, ein frueheres/hoeheres Pflicht-Minimum wuerde nur
         # unnoetig fruehes (und damit langsameres) Laden erzwingen (siehe
-        # `OptimizationConstraints.mindest_ankunfts_soc_pct`).
+        # `OptimizationConstraints.min_arrival_soc_pct`).
         if target_seg_idx == total_segments:
-            mindest_soc_pct = ziel_soc_target
+            mindest_soc_pct = target_soc_target
         elif target_seg_idx in station_segments or target_seg_idx in waypoint_charge_segments:
-            mindest_soc_pct = constraints.mindest_ankunfts_soc_pct
+            mindest_soc_pct = constraints.min_arrival_soc_pct
         else:
             mindest_soc_pct = constraints.min_soc_pct
         if new_soc_pct < 0.0 or new_soc_pct < mindest_soc_pct:
@@ -528,30 +528,30 @@ class StateGraphBuilder:
         """Fügt eine Kante für eine terminierte Fährüberfahrt hinzu.
 
         Modelliert eine vom Nutzer terminierte Fährüberfahrt (fixe Abfahrts-/
-        Ankunftszeit, `optimize()`-Parameter `faehr_zeitfenster`) in EINEM Sprung
+        Ankunftszeit, `optimize()`-Parameter `ferry_time_windows`) in EINEM Sprung
         von `current` zum Segment nach der Fähre - anstelle der sonst pro Segment
         erzeugten `add_drive_edge`-Kanten für die dazwischenliegenden
         Fähr-Segmente (siehe `generate_graph`). Kein SoC-Verbrauch (Motor aus
         während der Überfahrt) - nur Wartezeit bis zur Abfahrt plus die
         Überfahrtsdauer als Kosten, analog zu `add_waypoint_wait_edge`s
         "kein SoC-Verlust"-Ansatz. `pin` ist
-        `(segment_index_end, abfahrt, ankunft)`, wobei `segment_index_end` das
+        `(segment_index_end, departure, arrival)`, wobei `segment_index_end` das
         erste Segment NACH der Fähre ist (siehe
-        `tripplanner.routing.models.FaehrSegment.segment_index_end`).
+        `tripplanner.routing.models.FerrySegment.segment_index_end`).
         """
-        segment_index_end, abfahrt, ankunft = pin
+        segment_index_end, departure, arrival = pin
         current_zeitpunkt = G.nodes[current]["zeitpunkt"]
 
-        if current_zeitpunkt > abfahrt:
+        if current_zeitpunkt > departure:
             return  # Fähre zu diesem Zeitpunkt bereits abgefahren - Pfad unzulässig
 
-        neuer_zeitpunkt = ankunft
+        neuer_zeitpunkt = arrival
         new_time_bucket = time_to_bucket(neuer_zeitpunkt, self.base_time, self.time_step_min)
         if new_time_bucket > max_time_buckets:
             return  # Zeitlimit überschritten
 
-        wartezeit_s = (abfahrt - current_zeitpunkt).total_seconds()
-        ueberfahrt_s = (ankunft - abfahrt).total_seconds()
+        wartezeit_s = (departure - current_zeitpunkt).total_seconds()
+        ueberfahrt_s = (arrival - departure).total_seconds()
         kosten = wartezeit_s + ueberfahrt_s
 
         # SoC-Bucket unveraendert (kein Verbrauch waehrend der Ueberfahrt)
@@ -595,12 +595,12 @@ class StateGraphBuilder:
         max_time_buckets: int,
         constraints: OptimizationConstraints,
         heap: list[tuple[float, int, tuple[int, int, int]]],
-        ladedauer_vorgaben: dict[str, int],
+        charging_duration_specifications: dict[str, int],
         checkpoints: list[int],
         station_segments: dict[int, list[tuple[ChargingStation, float]]],
         waypoint_charge_segments: set[int],
         cum_energy_kwh: list[float],
-        ziel_soc_target: float,
+        target_soc_target: float,
         detour_kosten: dict[str, DetourKosten] | None = None,
     ) -> None:
         """Füge Ladekanten zu allen Stationen in diesem Segment hinzu.
@@ -620,7 +620,7 @@ class StateGraphBuilder:
         zurück statt direkt in Jönköping/Mariestad zu laden).
 
         Für Stationen mit einer vom Nutzer vorgegebenen festen Ladedauer
-        (`ladedauer_vorgaben`, Schlüssel = `station_id`) wird GENAU EINE Kante
+        (`charging_duration_specifications`, Schlüssel = `station_id`) wird GENAU EINE Kante
         mit dieser Dauer erzeugt (resultierender SoC per Bisektion über die
         Ladekurve ermittelt, siehe `soc_nach_fester_ladezeit`) statt der
         sonstigen SoC-Ziel-Iteration - die Vorgabe ist eine explizite
@@ -639,8 +639,8 @@ class StateGraphBuilder:
                 avg_verbrauch_kwh_pro_m=self.avg_verbrauch_kwh_pro_m,
             )
             hinweg_zeit_s, hinweg_soc_pct, rueckweg_zeit_s, rueckweg_soc_pct = detour_ergebnis
-            ankunft_soc_pct = current_soc_pct - hinweg_soc_pct
-            # Untergrenze `mindest_ankunfts_soc_pct` gilt fuer den
+            arrival_soc_pct = current_soc_pct - hinweg_soc_pct
+            # Untergrenze `min_arrival_soc_pct` gilt fuer den
             # TATSAECHLICHEN SoC AN der Station, nicht nur fuer den
             # On-Route-SoC am Checkpoint vor dem Abstecher: eine abseits der
             # Route liegende Station (siehe `detour_kosten`) kostet
@@ -656,18 +656,18 @@ class StateGraphBuilder:
             # gemitteltes "je Richtung"-SoC wuerde eine Station mit kurzem
             # Hinweg aber langem Rueckweg faelschlich unter die
             # Sicherheitsreserve druecken.
-            if ankunft_soc_pct < constraints.mindest_ankunfts_soc_pct:
+            if arrival_soc_pct < constraints.min_arrival_soc_pct:
                 logger.debug(
                     "Charging candidate %s (%s) rejected at segment %d: arrival SoC %.2f%% "
-                    "(on-route %.2f%% - hinweg %.2f%%) < mindest_ankunfts_soc_pct %.2f%% "
+                    "(on-route %.2f%% - hinweg %.2f%%) < min_arrival_soc_pct %.2f%% "
                     "(hinweg=%.1fs/%.2f%%, rueckweg=%.1fs/%.2f%%, offroute=%.0fm)",
                     station.station_id,
                     station.name,
                     seg_idx,
-                    ankunft_soc_pct,
+                    arrival_soc_pct,
                     current_soc_pct,
                     hinweg_soc_pct,
-                    constraints.mindest_ankunfts_soc_pct,
+                    constraints.min_arrival_soc_pct,
                     hinweg_zeit_s,
                     hinweg_soc_pct,
                     rueckweg_zeit_s,
@@ -682,7 +682,7 @@ class StateGraphBuilder:
                 station.station_id,
                 station.name,
                 seg_idx,
-                ankunft_soc_pct,
+                arrival_soc_pct,
                 hinweg_zeit_s,
                 hinweg_soc_pct,
                 rueckweg_zeit_s,
@@ -690,21 +690,21 @@ class StateGraphBuilder:
                 offroute_distance_m,
             )
 
-            vorgabe_s = ladedauer_vorgaben.get(station.station_id)
+            vorgabe_s = charging_duration_specifications.get(station.station_id)
             if vorgabe_s is not None:
                 ziel_soc = charging_math.soc_nach_fester_ladezeit(
-                    start_soc_pct=ankunft_soc_pct,
+                    start_soc_pct=arrival_soc_pct,
                     ladezeit_s=float(vorgabe_s),
                     ladekurve=ladekurve,
-                    batteriekapazitaet_kwh=vehicle_profile.batteriekapazitaet_kwh,
+                    battery_capacity_kwh=vehicle_profile.battery_capacity_kwh,
                 )
                 self.fuege_ladekante_hinzu(
                     G=G,
                     current=current,
                     seg_idx=seg_idx,
                     station=station,
-                    ankunfts_soc_pct=ankunft_soc_pct,
-                    ziel_soc_pct=ziel_soc,
+                    arrival_soc_pct=arrival_soc_pct,
+                    target_soc_pct=ziel_soc,
                     ladezeit_s=float(vorgabe_s),
                     hinweg_zeit_s=hinweg_zeit_s,
                     rueckweg_zeit_s=rueckweg_zeit_s,
@@ -715,7 +715,7 @@ class StateGraphBuilder:
                 continue
 
             Ziel_soc_values = charging_math.lade_ziel_kandidaten(
-                ankunft_soc_pct=ankunft_soc_pct,
+                arrival_soc_pct=arrival_soc_pct,
                 seg_idx=seg_idx,
                 checkpoints=checkpoints,
                 station_segments=station_segments,
@@ -725,27 +725,27 @@ class StateGraphBuilder:
                 vehicle_profile=vehicle_profile,
                 constraints=constraints,
                 ladekurve=ladekurve,
-                ziel_soc_target=ziel_soc_target,
+                target_soc_target=target_soc_target,
             )
             Ziel_soc_values = charging_math.kandidaten_mit_mindestladedauer(
                 kandidaten=Ziel_soc_values,
-                ankunft_soc_pct=ankunft_soc_pct,
+                arrival_soc_pct=arrival_soc_pct,
                 ladekurve=ladekurve,
-                batteriekapazitaet_kwh=vehicle_profile.batteriekapazitaet_kwh,
-                mindest_ladezeit_s=float(constraints.mindest_ladezeit_s),
-                max_lade_soc_pct=min(MAX_SOC_PCT, constraints.max_lade_soc_pct),
+                battery_capacity_kwh=vehicle_profile.battery_capacity_kwh,
+                min_charging_time_s=float(constraints.min_charging_time_s),
+                max_charge_soc_pct=min(MAX_SOC_PCT, constraints.max_charge_soc_pct),
             )
             for Ziel_soc in Ziel_soc_values:
-                if Ziel_soc <= ankunft_soc_pct:
+                if Ziel_soc <= arrival_soc_pct:
                     continue  # Bereits höher als Ziel
 
                 # Ladezeit berechnen (echtes Start-/End-SoC-Fenster, siehe
                 # `calc_ladezeit_s`)
                 ladezeit_s = charging_math.calc_ladezeit_s(
-                    start_soc_pct=ankunft_soc_pct,
+                    start_soc_pct=arrival_soc_pct,
                     end_soc_pct=Ziel_soc,
                     ladekurve=ladekurve,
-                    batteriekapazitaet_kwh=vehicle_profile.batteriekapazitaet_kwh,
+                    battery_capacity_kwh=vehicle_profile.battery_capacity_kwh,
                 )
 
                 if ladezeit_s > constraints.max_ladezeit_s:
@@ -756,8 +756,8 @@ class StateGraphBuilder:
                     current=current,
                     seg_idx=seg_idx,
                     station=station,
-                    ankunfts_soc_pct=ankunft_soc_pct,
-                    ziel_soc_pct=Ziel_soc,
+                    arrival_soc_pct=arrival_soc_pct,
+                    target_soc_pct=Ziel_soc,
                     ladezeit_s=ladezeit_s,
                     hinweg_zeit_s=hinweg_zeit_s,
                     rueckweg_zeit_s=rueckweg_zeit_s,
@@ -772,8 +772,8 @@ class StateGraphBuilder:
         current: tuple[int, int, int],
         seg_idx: int,
         station: ChargingStation,
-        ankunfts_soc_pct: float,
-        ziel_soc_pct: float,
+        arrival_soc_pct: float,
+        target_soc_pct: float,
         ladezeit_s: float,
         hinweg_zeit_s: float,
         rueckweg_zeit_s: float,
@@ -786,19 +786,19 @@ class StateGraphBuilder:
         Erzeugt (falls günstiger als ein bestehender Pfad) eine Ladekante von
         `current` zu einem Knoten, der wieder AUF der Route liegt (derselbe
         `seg_idx`) - dazwischen liegen Hinweg-Abstecher (`hinweg_zeit_s`, der
-        SoC-Verbrauch dafuer steckt bereits in `ankunfts_soc_pct`, siehe
-        `add_charging_edges`), die eigentliche Ladung (`ankunfts_soc_pct` ->
-        `ziel_soc_pct` in `ladezeit_s`) und der Rückweg-Abstecher
+        SoC-Verbrauch dafuer steckt bereits in `arrival_soc_pct`, siehe
+        `add_charging_edges`), die eigentliche Ladung (`arrival_soc_pct` ->
+        `target_soc_pct` in `ladezeit_s`) und der Rückweg-Abstecher
         (`rueckweg_zeit_s`/`rueckweg_soc_pct`, siehe `detour_kosten`). Der
-        neue Knoten-SoC ist daher `ziel_soc_pct` MINUS den Rückweg-Verbrauch,
-        nicht `ziel_soc_pct` selbst - ein Ladehalt abseits der Route "kostet"
+        neue Knoten-SoC ist daher `target_soc_pct` MINUS den Rückweg-Verbrauch,
+        nicht `target_soc_pct` selbst - ein Ladehalt abseits der Route "kostet"
         auch auf dem Rückweg noch Reichweite. Hin- und Rückweg werden bewusst
         NICHT gemittelt (siehe `DetourKosten`-Docstring): beide Legs koennen
         real unterschiedlich lang sein, und jede Seite braucht ihren
         EIGENEN, nicht symmetrisierten Wert, sonst kann eine Station mit
         kurzem Hinweg aber langem Rückweg (oder umgekehrt) faelschlich als
         nicht erreichbar/nicht rueckfuehrbar verworfen werden, obwohl sie es
-        real ist. `ankunfts_soc_pct`/`ziel_soc_pct` (Zustand AN der Station)
+        real ist. `arrival_soc_pct`/`target_soc_pct` (Zustand AN der Station)
         werden zusätzlich als Kanten-Attribute hinterlegt, damit
         `extract_charging_stops` den tatsächlichen Lade-Ablauf (nicht den um
         die Abstecher-Fahrt verfälschten Routen-SoC) berichten kann -
@@ -806,14 +806,14 @@ class StateGraphBuilder:
         als auch eine vom Nutzer vorgegebene feste Ladedauer (siehe
         `add_charging_edges`).
         """
-        route_soc_pct = ziel_soc_pct - rueckweg_soc_pct
+        route_soc_pct = target_soc_pct - rueckweg_soc_pct
         if route_soc_pct < 0.0:
             return  # Reichweite reicht nicht für den Rückweg zur Route
         new_soc_bucket = soc_to_bucket(route_soc_pct, self.soc_step_pct)
 
         ankunftszeit = G.nodes[current]["zeitpunkt"] + timedelta(seconds=hinweg_zeit_s)
-        abfahrtszeit = ankunftszeit + timedelta(seconds=ladezeit_s)
-        neuer_zeitpunkt = abfahrtszeit + timedelta(seconds=rueckweg_zeit_s)
+        departure_time = ankunftszeit + timedelta(seconds=ladezeit_s)
+        neuer_zeitpunkt = departure_time + timedelta(seconds=rueckweg_zeit_s)
         new_time_bucket = time_to_bucket(neuer_zeitpunkt, self.base_time, self.time_step_min)
 
         if new_time_bucket > max_time_buckets:
@@ -827,7 +827,7 @@ class StateGraphBuilder:
             ladezeit_s
             + hinweg_zeit_s
             + rueckweg_zeit_s
-            + LADE_TIEBREAK_S_PRO_PROZENTPUNKT * (ziel_soc_pct - ankunfts_soc_pct)
+            + LADE_TIEBREAK_S_PRO_PROZENTPUNKT * (target_soc_pct - arrival_soc_pct)
         )
         current_cost = G.nodes[current].get("total_cost", 0.0)
         new_total_cost = current_cost + kosten
@@ -838,8 +838,8 @@ class StateGraphBuilder:
             station.station_id,
             station.name,
             seg_idx,
-            ankunfts_soc_pct,
-            ziel_soc_pct,
+            arrival_soc_pct,
+            target_soc_pct,
             ladezeit_s,
             hinweg_zeit_s,
             rueckweg_zeit_s,
@@ -866,7 +866,7 @@ class StateGraphBuilder:
         if new_total_cost < G.nodes[next_node].get("total_cost", COST_INF):
             # `station_id` als EDGE-Attribut (nicht nur Node-Attribut) setzen:
             # ein Knoten-Schluessel `(segment_index, soc_bucket, time_bucket)`
-            # kann durch Diskretisierung mit einer ANDEREN Fahrt-/Faehrkante
+            # kann durch Diskretisierung mit einer ANDEREN Fahrt-/FerryEdge
             # kollidieren, die denselben Knoten frueher bereits (mit
             # `type="drive"`, ohne `station_id`) angelegt hat - der Knoten
             # selbst wird dann NICHT erneut mit `type="charge"`/`station_id`
@@ -883,11 +883,11 @@ class StateGraphBuilder:
                 next_node,
                 cost=kosten,
                 station_id=station.station_id,
-                ankunfts_soc_pct=ankunfts_soc_pct,
-                ziel_soc_pct=ziel_soc_pct,
+                arrival_soc_pct=arrival_soc_pct,
+                target_soc_pct=target_soc_pct,
                 ladezeit_s=ladezeit_s,
                 ankunftszeit=ankunftszeit,
-                abfahrtszeit=abfahrtszeit,
+                departure_time=departure_time,
             )
             G.nodes[next_node]["total_cost"] = new_total_cost
             G.nodes[next_node]["parent"] = current
@@ -920,8 +920,8 @@ class StateGraphBuilder:
         current: tuple[int, int, int],
         seg_idx: int,
         required_departure: datetime,
-        koordinate: tuple[float, float],
-        ladeleistung_kw: float | None,
+        coordinate: tuple[float, float],
+        charging_power_kw: float | None,
         ladekurve: ChargingCurve,
         vehicle_profile: VehicleProfile,
         max_time_buckets: int,
@@ -931,11 +931,11 @@ class StateGraphBuilder:
 
         `required_departure` ist der bereits fertig aufgeloeste, absolute
         Mindestabfahrtszeitpunkt (siehe `generate_graph`, kombiniert aus
-        `Waypoint.aufenthaltsdauer`/`geplante_abfahrt`) - diese Kante wird nur
+        `Waypoint.stay_duration`/`planned_departure`) - diese Kante wird nur
         erzeugt, wenn er noch nicht erreicht ist. Optional wird waehrend der
         Wartezeit ueber eine vor Ort verfuegbare Ladeleistung
-        (`ladeleistung_kw`) geladen: der resultierende SoC wird per Bisektion
-        (`soc_nach_fester_ladezeit`, mit `ladeleistung_kw` als Leistungs-
+        (`charging_power_kw`) geladen: der resultierende SoC wird per Bisektion
+        (`soc_nach_fester_ladezeit`, mit `charging_power_kw` als Leistungs-
         deckel gegenueber der Fahrzeug-Ladekurve) fuer die FESTE Wartedauer
         ermittelt - die Wartezeit selbst ist durch `required_departure`
         vorgegeben und wird durch das Laden weder verlaengert noch verkuerzt.
@@ -951,13 +951,13 @@ class StateGraphBuilder:
 
         current_soc_pct = G.nodes[current]["soc_pct"]
         new_soc_pct = current_soc_pct
-        if ladeleistung_kw is not None and ladeleistung_kw > 0.0:
+        if charging_power_kw is not None and charging_power_kw > 0.0:
             new_soc_pct = charging_math.soc_nach_fester_ladezeit(
                 start_soc_pct=current_soc_pct,
                 ladezeit_s=wait_time_s,
                 ladekurve=ladekurve,
-                batteriekapazitaet_kwh=vehicle_profile.batteriekapazitaet_kwh,
-                leistungsdeckel_kw=ladeleistung_kw,
+                battery_capacity_kwh=vehicle_profile.battery_capacity_kwh,
+                leistungsdeckel_kw=charging_power_kw,
             )
         new_soc_bucket = soc_to_bucket(new_soc_pct, self.soc_step_pct)
 
@@ -988,12 +988,12 @@ class StateGraphBuilder:
                 current,
                 next_node,
                 cost=kosten,
-                waypoint_koordinate=koordinate,
+                waypoint_koordinate=coordinate,
                 waypoint_ankunftszeit=current_zeitpunkt,
                 waypoint_abfahrtszeit=required_departure,
                 waypoint_ankunfts_soc_pct=current_soc_pct,
                 waypoint_ziel_soc_pct=new_soc_pct,
-                waypoint_ladeleistung_kw=ladeleistung_kw,
+                waypoint_ladeleistung_kw=charging_power_kw,
             )
             G.nodes[next_node]["total_cost"] = new_total_cost
             G.nodes[next_node]["parent"] = current

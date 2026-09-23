@@ -7,7 +7,7 @@ export interface RouteLeg {
   coordinates: [number, number][];
   /** Laenge dieses Teilabschnitts in Metern */
   totalDistanceM: number;
-  /** SoC-Stuetzpunkte, `distanzM` relativ zum Beginn DIESES Teilabschnitts
+  /** SoC-Stuetzpunkte, `distanceM` relativ zum Beginn DIESES Teilabschnitts
    *  (0 = Start des Legs), nicht zur Gesamtroute. */
   samples: RouteSample[];
 }
@@ -47,26 +47,26 @@ export function splitRouteIntoLegs(spliced: SplicedRoute): RouteLeg[] {
       coordStart,
       coordEndInclusive + 1,
     );
-    // Der Ankunfts-Stuetzpunkt eines Ladehalts liegt distanzM-genau AUF der
+    // Der Ankunfts-Stuetzpunkt eines Ladehalts liegt distanceM-genau AUF der
     // Leg-Grenze (Ende von Leg N). Ohne den `isFirstLeg`-Sonderfall (untere
     // Schranke inklusive nur beim allerersten Leg) wuerde er per `>=` auch
-    // in Leg N+1 auftauchen (dort bei distanzM=0 dupliziert) - der 0.5 m
+    // in Leg N+1 auftauchen (dort bei distanceM=0 dupliziert) - der 0.5 m
     // spaeter liegende Abfahrts-Stuetzpunkt bleibt davon unberuehrt.
     const samples = spliced.samples
       .filter((s) =>
-        isFirstLeg ? s.distanzM >= distStart : s.distanzM > distStart,
+        isFirstLeg ? s.distanceM >= distStart : s.distanceM > distStart,
       )
-      .filter((s) => s.distanzM <= distEnd)
-      .sort((a, b) => a.distanzM - b.distanzM)
-      .map((s) => ({ ...s, distanzM: s.distanzM - distStart }));
+      .filter((s) => s.distanceM <= distEnd)
+      .sort((a, b) => a.distanceM - b.distanceM)
+      .map((s) => ({ ...s, distanceM: s.distanceM - distStart }));
     legs.push({ coordinates, totalDistanceM: distEnd - distStart, samples });
     isFirstLeg = false;
   };
 
   for (const boundary of spliced.legBoundaries) {
-    pushLeg(boundary.coordinateIndex, boundary.distanzM);
+    pushLeg(boundary.coordinateIndex, boundary.distanceM);
     coordStart = boundary.coordinateIndex;
-    distStart = boundary.distanzM;
+    distStart = boundary.distanceM;
   }
   pushLeg(spliced.coordinates.length - 1, spliced.totalDistanceM);
 

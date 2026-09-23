@@ -1,11 +1,11 @@
-"""API-Request-Schemata für den /trips-Endpunkt."""
+"""API request schemas for the /trips endpoint."""
 
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field
 
 from tripplanner.trip_input.models import VehicleProfile
 from tripplanner.trip_input.schemas.base import CamelCaseAPI
@@ -18,80 +18,101 @@ MAX_WAYPOINTS = 25
 MAX_LIST_ITEMS = 50
 
 
-class WaypointAPI(BaseModel):
-    """API-Request für Zwischenstopp."""
+class WaypointAPI(CamelCaseAPI):
+    """A mandatory waypoint between start and destination."""
 
-    model_config = ConfigDict(extra="forbid")
-
-    koordinate: LatLon = Field(..., description="(lat, lon) Koordinate in Dezimalgrad")
-    aufenthaltsdauer_s: int | None = Field(
-        None, ge=0, description="Mindestaufenthaltsdauer in Sekunden"
-    )
-    geplante_abfahrt: datetime | None = Field(
+    coordinate: LatLon = Field(..., description="(lat, lon) coordinate in decimal degrees")
+    stay_duration_s: int | None = Field(None, ge=0, description="Minimum stay duration in seconds")
+    planned_departure: datetime | None = Field(
         None,
-        description="Gewünschter frühester Abfahrtszeitpunkt (ISO-8601)",
+        description="Earliest desired departure time (ISO-8601)",
     )
-    ladeleistung_kw: float | None = Field(
+    charging_power_kw: float | None = Field(
         None,
         ge=0.0,
         le=350.0,
-        description=("Vor Ort verfügbare Ladeleistung an diesem Zwischenstopp in kW, optional"),
+        description="Charging power available at this waypoint in kW, optional",
     )
 
 
-class FaehrAusschlussAPI(CamelCaseAPI):
-    """API-Request für eine zu vermeidende, zuvor erkannte Fährverbindung."""
+class VehicleProfileAPI(CamelCaseAPI):
+    """Physical vehicle profile, mirrors ``trip_input.models.VehicleProfile``."""
 
-    name: str = Field(..., description="Anzeigename der Fährverbindung")
-    bbox_sw: LatLon = Field(..., description="Südwest-Ecke der Bounding Box")
-    bbox_ne: LatLon = Field(..., description="Nordost-Ecke der Bounding Box")
-
-
-class FaehrZeitfensterAPI(CamelCaseAPI):
-    """API-Request für einen vorgegebenen Fährfahrplan (Abfahrt/Ankunft)."""
-
-    name: str = Field(..., description="Anzeigename der Fährverbindung")
-    bbox_sw: LatLon = Field(..., description="Südwest-Ecke der Bounding Box")
-    bbox_ne: LatLon = Field(..., description="Nordost-Ecke der Bounding Box")
-    abfahrt: datetime = Field(..., description="Vorgegebene Abfahrtszeit (ISO-8601)")
-    ankunft: datetime = Field(..., description="Vorgegebene Ankunftszeit (ISO-8601)")
-
-
-class LadedauerVorgabeAPI(CamelCaseAPI):
-    """API-Request für eine vom Nutzer vorgegebene feste Ladedauer an einer Station."""
-
-    station_id: str = Field(..., min_length=1, description="Eindeutige ID der Ladestation")
-    charging_duration_s: int = Field(
-        ..., ge=0, description="Vorgegebene feste Ladedauer in Sekunden"
+    mass_kg: float = Field(..., gt=0, description="Vehicle mass including load in kg")
+    drag_coefficient: float = Field(..., ge=0.0, description="Aerodynamic drag coefficient (cW)")
+    frontal_area_m2: float = Field(..., gt=0, description="Frontal area in m²")
+    rolling_resistance_coefficient: float = Field(
+        ..., ge=0.0, description="Rolling resistance coefficient c_r"
     )
+    battery_capacity_kwh: float = Field(..., gt=0, description="Usable battery capacity in kWh")
+    auxiliary_baseline_kw: float = Field(
+        default=0.34, ge=0.0, description="Baseline auxiliary load in kW"
+    )
+    tire_type: Literal["standard", "winter", "low_rolling_resistance", "performance"] = Field(
+        default="standard", description="Tire type, modulates rolling resistance"
+    )
+    roof_box: bool = Field(default=False, description="Whether a roof box is mounted")
+
+    @classmethod
+    def from_domain(cls, profile: VehicleProfile) -> VehicleProfileAPI:
+        """Build the API model from a domain ``VehicleProfile``."""
+        return cls.model_validate(profile.model_dump(), by_name=True)
+
+    def to_domain(self) -> VehicleProfile:
+        """Convert to the domain ``VehicleProfile``."""
+        return VehicleProfile(**self.model_dump(by_alias=False))
+
+
+class FerryExclusionAPI(CamelCaseAPI):
+    """A previously detected ferry connection to avoid."""
+
+    name: str = Field(..., description="Display name of the ferry connection")
+    bbox_sw: LatLon = Field(..., description="South-west corner of the bounding box")
+    bbox_ne: LatLon = Field(..., description="North-east corner of the bounding box")
+
+
+class FerryTimeWindowAPI(CamelCaseAPI):
+    """A fixed ferry schedule (departure/arrival)."""
+
+    name: str = Field(..., description="Display name of the ferry connection")
+    bbox_sw: LatLon = Field(..., description="South-west corner of the bounding box")
+    bbox_ne: LatLon = Field(..., description="North-east corner of the bounding box")
+    departure: datetime = Field(..., description="Fixed departure time (ISO-8601)")
+    arrival: datetime = Field(..., description="Fixed arrival time (ISO-8601)")
+
+
+class ChargingDurationSpecificationAPI(CamelCaseAPI):
+    """A user-specified fixed charging duration at a station."""
+
+    station_id: str = Field(..., min_length=1, description="Unique charging station ID")
+    charging_duration_s: int = Field(..., ge=0, description="Fixed charging duration in seconds")
 
 
 class PreferencesAPI(CamelCaseAPI):
-    """Nutzerpräferenzen. Derzeit ohne Felder; unbekannte Schlüssel werden abgelehnt."""
+    """User preferences. Currently empty; unknown keys are rejected."""
 
 
 class TripRequestAPI(CamelCaseAPI):
-    """API-Request für /trips-Endpunkt."""
+    """Request body for the /trips endpoint."""
 
-    start: LatLon = Field(..., description="(lat, lon) Startkoordinate")
-    destination: LatLon = Field(..., description="(lat, lon) Zielkoordinate")
+    start: LatLon = Field(..., description="(lat, lon) start coordinate")
+    destination: LatLon = Field(..., description="(lat, lon) destination coordinate")
     waypoints: list[WaypointAPI] = Field(
-        default_factory=list, max_length=MAX_WAYPOINTS, description="Liste von Zwischenstopps"
+        default_factory=list, max_length=MAX_WAYPOINTS, description="Ordered list of waypoints"
     )
     departure_time: datetime = Field(
-        ..., description="ISO-8601 Abfahrtszeit (z. B. '2026-08-15T08:30:00')"
+        ..., description="ISO-8601 departure time (e.g. '2026-08-15T08:30:00')"
     )
-    vehicle_profile: VehicleProfile = Field(..., description="Physikalisches Fahrzeugprofil")
-    start_soc_pct: float = Field(80.0, ge=0.0, le=100.0, description="Start-SoC in Prozent")
-    target_soc_pct: float = Field(20.0, ge=0.0, le=100.0, description="Ziel-SoC in Prozent")
+    vehicle_profile: VehicleProfileAPI = Field(..., description="Physical vehicle profile")
+    start_soc_pct: float = Field(80.0, ge=0.0, le=100.0, description="Start SoC in percent")
+    target_soc_pct: float = Field(20.0, ge=0.0, le=100.0, description="Target SoC in percent")
     min_arrival_soc_pct: float = Field(
         5.0,
         ge=0.0,
         le=100.0,
         description=(
-            "Minimal zulässiger SoC beim Ankommen an einer Ladestation "
-            "(darf niedriger sein als die allgemeine Sicherheitsreserve auf "
-            "offener Strecke, da dort garantiert nachgeladen wird)"
+            "Minimum allowed SoC when arriving at a charging station (may be lower "
+            "than the general safety reserve on open road, since charging is guaranteed there)"
         ),
     )
     min_charging_time_s: int = Field(
@@ -99,9 +120,8 @@ class TripRequestAPI(CamelCaseAPI):
         ge=0,
         le=1800,
         description=(
-            "Minimale Dauer eines einzelnen Ladevorgangs in Sekunden, wenn "
-            "geladen wird (verhindert unnötig kurze Ladehalte, ohne den "
-            "Ladehalt an sich zu erzwingen)"
+            "Minimum duration of a single charging session in seconds when charging "
+            "(prevents needlessly short stops without forcing a stop)"
         ),
     )
     max_charge_soc_pct: float = Field(
@@ -114,37 +134,35 @@ class TripRequestAPI(CamelCaseAPI):
         ),
     )
     preferences: PreferencesAPI = Field(
-        default_factory=PreferencesAPI, description="Nutzerpräferenzen (derzeit keine)"
+        default_factory=PreferencesAPI, description="User preferences (currently none)"
     )
     avoid_all_ferries: bool = Field(
-        default=False, description="Falls True, werden alle Fährverbindungen vermieden"
+        default=False, description="If True, all ferry connections are avoided"
     )
     highway_preference: Literal["off", "low", "medium", "high"] = Field(
         default="off",
         description=(
-            "Autobahnpräferenz-Stufe: 'off' (keine Präferenz), 'low' (priority-Boost "
-            "*1.1), 'medium' (*1.2), 'high' (*1.3) für road_class == MOTORWAY, "
-            "ohne Nicht-Autobahn-Routen auszuschließen."
+            "Highway preference level: 'off' (none), 'low' (priority boost *1.1), "
+            "'medium' (*1.2), 'high' (*1.3) for road_class == MOTORWAY, without "
+            "excluding non-highway routes."
         ),
     )
-    avoided_ferries: list[FaehrAusschlussAPI] = Field(
+    avoided_ferries: list[FerryExclusionAPI] = Field(
+        default_factory=list,
+        max_length=MAX_LIST_ITEMS,
+        description=("Previously detected ferry connections to avoid"),
+    )
+    ferry_time_windows: list[FerryTimeWindowAPI] = Field(
         default_factory=list,
         max_length=MAX_LIST_ITEMS,
         description=(
-            "Liste spezifischer, zuvor erkannter Fährverbindungen, die vermieden werden sollen"
+            "User-specified departure/arrival times for previously detected ferry connections"
         ),
     )
-    ferry_time_windows: list[FaehrZeitfensterAPI] = Field(
+    charging_duration_specifications: list[ChargingDurationSpecificationAPI] = Field(
         default_factory=list,
         max_length=MAX_LIST_ITEMS,
-        description=(
-            "Vom Nutzer vorgegebene Abfahrts-/Ankunftszeiten für zuvor erkannte Fährverbindungen"
-        ),
-    )
-    charging_duration_specifications: list[LadedauerVorgabeAPI] = Field(
-        default_factory=list,
-        max_length=MAX_LIST_ITEMS,
-        description="Vom Nutzer vorgegebene feste Ladedauern für einzelne Ladehalte",
+        description="User-specified fixed charging durations for individual charging stops",
     )
     weather_detail_level: Literal["off", "low", "medium", "high"] = Field(
         default="high",
@@ -152,47 +170,14 @@ class TripRequestAPI(CamelCaseAPI):
             "Weather detail level: 'off', 'low', 'medium', or 'high'. "
             "'low'/'medium' use coarser weather resolution and complete faster; "
             "'off' skips weather entirely (placeholder values); 'high' uses "
-            "per-segment weather (default, exact behavior matching the legacy "
-            "wetter_beruecksichtigen=True)."
+            "per-segment weather (default)."
         ),
     )
-
-    @model_validator(mode="before")
-    @staticmethod
-    def _map_legacy_wetter_boolean(data: dict[str, object]) -> dict[str, object]:
-        """Map legacy wetter_beruecksichtigen boolean to weather_detail_level.
-
-        Handles both the old field name (wetter_beruecksichtigen: bool) and
-        defensively: the new field name with a boolean value from clients
-        that send the new field with the old type.
-        """
-        if not isinstance(data, dict):
-            return data
-
-        # Legacy field name: wetter_beruecksichtigen -> weather_detail_level
-        if "wetter_beruecksichtigen" in data and "weatherDetailLevel" not in data:
-            raw = data.pop("wetter_beruecksichtigen")
-            if isinstance(raw, bool):
-                data["weatherDetailLevel"] = "high" if raw else "off"
-            else:
-                raise ValueError(
-                    f"wetter_beruecksichtigen must be a boolean (True/False), "
-                    f"got {raw!r}. Use weatherDetailLevel instead."
-                )
-
-        # Defensive: wetter_detailgrad sent as a raw JSON boolean
-        if data.get("weatherDetailLevel") is True:
-            data["weatherDetailLevel"] = "high"
-        elif data.get("weatherDetailLevel") is False:
-            data["weatherDetailLevel"] = "off"
-
-        return data
 
     consider_construction_sites: bool = Field(
         default=True,
         description=(
-            "Falls False, wird der Baustellen-Provider für diese Berechnung "
-            "übersprungen (keine Geschwindigkeitsreduktion durch Baustellen), um "
-            "die Berechnungsdauer zu reduzieren."
+            "If False, the construction-site provider is skipped for this request "
+            "(no roadwork speed reductions), which makes planning faster."
         ),
     )

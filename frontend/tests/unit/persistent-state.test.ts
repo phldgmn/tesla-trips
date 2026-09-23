@@ -72,7 +72,7 @@ describe("usePersistentState", () => {
     const counter = mountCounter("counter-c", 0);
     counter.setValue(99);
 
-    const raw = window.localStorage.getItem("tesla-trips:v1:counter-c");
+    const raw = window.localStorage.getItem("tesla-trips:v2:counter-c");
     expect(raw).not.toBeNull();
     expect(JSON.parse(raw as string)).toBe(99);
   });
@@ -87,7 +87,7 @@ describe("usePersistentState", () => {
   });
 
   it("falls back to the initial value when the stored JSON is corrupted", () => {
-    window.localStorage.setItem("tesla-trips:v1:counter-e", "{not valid json");
+    window.localStorage.setItem("tesla-trips:v2:counter-e", "{not valid json");
     const counter = mountCounter("counter-e", 5);
     expect(counter.getValue()).toBe(5);
   });
@@ -100,25 +100,25 @@ describe("migrateConsiderWeather", () => {
 
   it("maps old true value to 'high' and removes old key", () => {
     window.localStorage.setItem(
-      "tesla-trips:v1:wetter-beruecksichtigen",
+      "tesla-trips:v2:wetter-beruecksichtigen",
       "true",
     );
     const result = migrateConsiderWeather();
     expect(result).toBe("high");
     expect(
-      window.localStorage.getItem("tesla-trips:v1:wetter-beruecksichtigen"),
+      window.localStorage.getItem("tesla-trips:v2:wetter-beruecksichtigen"),
     ).toBeNull();
   });
 
   it("maps old false value to 'off' and removes old key", () => {
     window.localStorage.setItem(
-      "tesla-trips:v1:wetter-beruecksichtigen",
+      "tesla-trips:v2:wetter-beruecksichtigen",
       "false",
     );
     const result = migrateConsiderWeather();
     expect(result).toBe("off");
     expect(
-      window.localStorage.getItem("tesla-trips:v1:wetter-beruecksichtigen"),
+      window.localStorage.getItem("tesla-trips:v2:wetter-beruecksichtigen"),
     ).toBeNull();
   });
 
@@ -126,13 +126,13 @@ describe("migrateConsiderWeather", () => {
     const result = migrateConsiderWeather();
     expect(result).toBe("high");
     expect(
-      window.localStorage.getItem("tesla-trips:v1:wetter-beruecksichtigen"),
+      window.localStorage.getItem("tesla-trips:v2:wetter-beruecksichtigen"),
     ).toBeNull();
   });
 
   it("falls back to 'high' when old key holds corrupted JSON", () => {
     window.localStorage.setItem(
-      "tesla-trips:v1:wetter-beruecksichtigen",
+      "tesla-trips:v2:wetter-beruecksichtigen",
       "{not valid json",
     );
     const result = migrateConsiderWeather();
@@ -141,7 +141,7 @@ describe("migrateConsiderWeather", () => {
 
   it("falls back to 'high' when old key holds a non-boolean string", () => {
     window.localStorage.setItem(
-      "tesla-trips:v1:wetter-beruecksichtigen",
+      "tesla-trips:v2:wetter-beruecksichtigen",
       '"foo"',
     );
     const result = migrateConsiderWeather();

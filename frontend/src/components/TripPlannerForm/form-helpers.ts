@@ -108,7 +108,7 @@ export function validateForm(args: {
   return errors;
 }
 
-/** Vergleicht zwei FaehrAusschluss-Einträge auf inhaltliche Gleichheit. */
+/** Vergleicht zwei FerryExclusion-Einträge auf inhaltliche Gleichheit. */
 export function sameFerryExclusion(
   a: FerryExclusion,
   b: FerryExclusion,
@@ -125,14 +125,14 @@ export function sameFerryExclusion(
 /** Ergänzt oder entfernt eine Fährverbindung aus der Ausschlussliste. */
 export function toggleFerryExclusion(
   list: FerryExclusion[],
-  faehre: FerryExclusion,
+  ferry: FerryExclusion,
   avoid: boolean,
 ): FerryExclusion[] {
-  const alreadyExists = list.some((f) => sameFerryExclusion(f, faehre));
+  const alreadyExists = list.some((f) => sameFerryExclusion(f, ferry));
   if (avoid) {
-    return alreadyExists ? list : [...list, faehre];
+    return alreadyExists ? list : [...list, ferry];
   }
-  return list.filter((f) => !sameFerryExclusion(f, faehre));
+  return list.filter((f) => !sameFerryExclusion(f, ferry));
 }
 
 /** Stabiler Identitäts-Schlüssel für eine Fährverbindung (Name + Bounding Box),

@@ -64,7 +64,7 @@ class OpenMeteoClient:
         # Gruppieren nach Koordinate (doppelte Standorte sparen API-Calls)
         coords: dict[tuple[float, float], list[tuple[int, WeatherQuery]]] = {}
         for idx, q in enumerate(queries):
-            key = (round(q.koordinate[0], 1), round(q.koordinate[1], 1))
+            key = (round(q.coordinate[0], 1), round(q.coordinate[1], 1))
             coords.setdefault(key, []).append((idx, q))
 
         results: list[OpenMeteoResponse | None] = [None] * len(queries)
@@ -164,11 +164,11 @@ class OpenMeteoProvider:
         results: list[WeatherSample | None] = [None] * len(queries)
 
         for idx, query in enumerate(queries):
-            ck = _cache_key(query.koordinate, query.zeitpunkt)
+            ck = _cache_key(query.coordinate, query.zeitpunkt)
             raw = self._cache.get(ck)
             if raw is None and self._persistent_cache is not None:
                 # Persistent cache fallback
-                str_key = _cache_str_key(query.koordinate, query.zeitpunkt)
+                str_key = _cache_str_key(query.coordinate, query.zeitpunkt)
                 json_str = self._persistent_cache.get(str_key)
                 if json_str is not None:
                     raw = _cache_deserialize(json_str)
@@ -176,7 +176,7 @@ class OpenMeteoProvider:
 
             if raw is not None:
                 results[idx] = raw.model_copy(
-                    update={"koordinate": query.koordinate, "zeitpunkt": query.zeitpunkt}
+                    update={"coordinate": query.coordinate, "zeitpunkt": query.zeitpunkt}
                 )
             else:
                 uncached_queries.append((idx, query))
@@ -194,18 +194,18 @@ class OpenMeteoProvider:
 
             for orig_idx, query in uncached_queries:
                 # Find matching response via rounded coord
-                rc = _cache_key(query.koordinate, query.zeitpunkt)[0]
+                rc = _cache_key(query.coordinate, query.zeitpunkt)[0]
                 resp_match = resp_by_coord.get(rc)
                 if resp_match is None:
                     continue
                 sample = _extract_sample_from_response(
-                    resp_match, query.zeitpunkt, query.koordinate
+                    resp_match, query.zeitpunkt, query.coordinate
                 )
                 if sample is not None:
-                    ck = _cache_key(query.koordinate, query.zeitpunkt)
+                    ck = _cache_key(query.coordinate, query.zeitpunkt)
                     self._cache[ck] = sample
                     if self._persistent_cache is not None:
-                        str_key = _cache_str_key(query.koordinate, query.zeitpunkt)
+                        str_key = _cache_str_key(query.coordinate, query.zeitpunkt)
                         self._persistent_cache.set(str_key, sample.model_dump(mode="json"))
                     results[orig_idx] = sample
 
@@ -226,18 +226,18 @@ class OpenMeteoProvider:
         results: list[WeatherSample | None] = [None] * len(updated_queries)
 
         for idx, query in enumerate(updated_queries):
-            ck = _cache_key(query.koordinate, query.zeitpunkt)
+            ck = _cache_key(query.coordinate, query.zeitpunkt)
             raw = self._cache.get(ck)
             if raw is None and self._persistent_cache is not None:
                 # Persistent cache fallback
-                str_key = _cache_str_key(query.koordinate, query.zeitpunkt)
+                str_key = _cache_str_key(query.coordinate, query.zeitpunkt)
                 json_str = self._persistent_cache.get(str_key)
                 if json_str is not None:
                     raw = _cache_deserialize(json_str)
                     self._cache[ck] = raw
             if raw is not None:
                 results[idx] = raw.model_copy(
-                    update={"koordinate": query.koordinate, "zeitpunkt": query.zeitpunkt}
+                    update={"coordinate": query.coordinate, "zeitpunkt": query.zeitpunkt}
                 )
 
         # Für nicht-gecachte Queries neu abfragen
@@ -246,11 +246,11 @@ class OpenMeteoProvider:
         if uncached:
             samples = await self.fetch_weather(uncached)
             for sample in samples:
-                ck = _cache_key(sample.koordinate, sample.zeitpunkt)
+                ck = _cache_key(sample.coordinate, sample.zeitpunkt)
                 self._cache[ck] = sample
                 for idx, query in enumerate(updated_queries):
                     if (
-                        query.koordinate == sample.koordinate
+                        query.coordinate == sample.coordinate
                         and query.zeitpunkt == sample.zeitpunkt
                     ):
                         results[idx] = sample
@@ -304,7 +304,7 @@ def _extract_sample_from_response(
     wind_speed_ms = wind_speed_kmh * _KMH_TO_MPS
 
     return WeatherSample(
-        koordinate=query_koordinate or (response.latitude, response.longitude),
+        coordinate=query_koordinate or (response.latitude, response.longitude),
         zeitpunkt=zeitpunkt,
         temperatur_c=get_value("temperature_2m", 0.0),
         windgeschwindigkeit_ms=wind_speed_ms,

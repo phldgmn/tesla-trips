@@ -77,8 +77,8 @@ def make_charging_station(
 def make_charging_stop(
     station: ChargingStation,
     segment_index: int,
-    ankunfts_soc_pct: float,
-    ziel_soc_pct: float,
+    arrival_soc_pct: float,
+    target_soc_pct: float,
     estimated_charge_duration_s: int,
     arrival_time: datetime,
 ) -> ChargingStop:
@@ -86,11 +86,11 @@ def make_charging_stop(
     return ChargingStop(
         station=station,
         segment_index=segment_index,
-        ankunfts_soc_pct=ankunfts_soc_pct,
-        ziel_soc_pct=ziel_soc_pct,
+        arrival_soc_pct=arrival_soc_pct,
+        target_soc_pct=target_soc_pct,
         geschaetzte_ladedauer_s=estimated_charge_duration_s,
         ankunftszeit=arrival_time,
-        abfahrtszeit=arrival_time + timedelta(seconds=estimated_charge_duration_s),
+        departure_time=arrival_time + timedelta(seconds=estimated_charge_duration_s),
     )
 
 
@@ -234,8 +234,8 @@ def plan_with_charging(
             make_charging_stop(
                 station=charging_station_leipzig,
                 segment_index=1,
-                ankunfts_soc_pct=30.0,
-                ziel_soc_pct=60.0,
+                arrival_soc_pct=30.0,
+                target_soc_pct=60.0,
                 estimated_charge_duration_s=1800,
                 arrival_time=base_time + timedelta(seconds=1500),
             ),

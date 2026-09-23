@@ -60,10 +60,10 @@ def detour_kosten(
     if detour_kosten is not None and station_id in detour_kosten:
         kosten = detour_kosten[station_id]
         hinweg_soc_pct = calc_soc_verbrauch_pct(
-            kosten.hinweg_energie_kwh, vehicle_profile.batteriekapazitaet_kwh
+            kosten.hinweg_energie_kwh, vehicle_profile.battery_capacity_kwh
         )
         rueckweg_soc_pct = calc_soc_verbrauch_pct(
-            kosten.rueckweg_energie_kwh, vehicle_profile.batteriekapazitaet_kwh
+            kosten.rueckweg_energie_kwh, vehicle_profile.battery_capacity_kwh
         )
         return kosten.hinweg_zeit_s, hinweg_soc_pct, kosten.rueckweg_zeit_s, rueckweg_soc_pct
 
@@ -74,5 +74,5 @@ def detour_kosten(
     detour_geschwindigkeit_m_s = DETOUR_GESCHWINDIGKEIT_KMH * 1000.0 / 3600.0
     zeit_s = strecke_m / detour_geschwindigkeit_m_s
     energie_kwh = strecke_m * avg_verbrauch_kwh_pro_m
-    soc_pct = calc_soc_verbrauch_pct(energie_kwh, vehicle_profile.batteriekapazitaet_kwh)
+    soc_pct = calc_soc_verbrauch_pct(energie_kwh, vehicle_profile.battery_capacity_kwh)
     return zeit_s, soc_pct, zeit_s, soc_pct

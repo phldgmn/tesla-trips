@@ -24,7 +24,7 @@ def make_weather_sample(
 ) -> WeatherSample:
     """Hilfsfunktion zur Erstellung von WeatherSample-Instanzen."""
     return WeatherSample(
-        koordinate=BERLIN,
+        coordinate=BERLIN,
         zeitpunkt=datetime(2025, 6, 15, 12, 0, tzinfo=UTC),
         temperatur_c=temperatur_c,
         windgeschwindigkeit_ms=windgeschwindigkeit_ms,

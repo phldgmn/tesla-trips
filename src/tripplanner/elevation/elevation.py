@@ -85,7 +85,7 @@ class ElevationProvider:
         elevations = await self.data_source.get_elevations_batch(coordinates)
 
         return [
-            ElevationPoint(koordinate=coord, hoehe_m=elev)
+            ElevationPoint(coordinate=coord, hoehe_m=elev)
             for coord, elev in zip(coordinates, elevations, strict=True)
         ]
 
@@ -126,7 +126,7 @@ class ElevationProvider:
 
             # Horizontale Distanz berechnen (nicht Route-Länge!)
             horizontal_dist = calculate_horizontal_distance(
-                start_point.koordinate, end_point.koordinate
+                start_point.coordinate, end_point.coordinate
             )
 
             gradient_pct = 0.0 if horizontal_dist == 0 else (dh / horizontal_dist) * 100

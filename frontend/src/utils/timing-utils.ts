@@ -108,7 +108,7 @@ export function estimateWaypointTimings(
  *  die Ankunfts-/Abfahrtszeit dieses Clusters zurück. Generalisierte Variante
  *  ohne Stopp-Bezug – wird auch zur chronologischen Einordnung unterminierter
  *  Fährverbindungen anhand ihrer Bounding-Box-Mitte verwendet (siehe
- *  `route-eintraege.ts`). */
+ *  `route-entries.ts`). */
 export function estimatePositionTiming(
   position: [number, number],
   frames: SimulationFrame[],
@@ -216,7 +216,7 @@ export interface DrivingSegment {
  *  `TripSummary.tsx` für "Strecke/Dauer seit letztem" (siehe
  *  `buildTimePlan`). `cumulativeKm` MUSS `cumulativeDistancesKm(frames)`
  *  sein - als Parameter statt intern neu berechnet, damit Aufrufer mit
- *  vielen Segmenten (siehe `route-eintraege.ts`) die Distanzsumme nur
+ *  vielen Segmenten (siehe `route-entries.ts`) die Distanzsumme nur
  *  einmal für die gesamte Route bilden statt einmal pro Segment.
  *  Liefert `null`, wenn sich einer der beiden Zeitpunkte keinem Frame
  *  zuordnen lässt (z. B. leeres `frames`-Array). */

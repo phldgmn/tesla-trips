@@ -1,130 +1,123 @@
-/** Vertragstypen für die Reiseplanung (Request-Seite).
+/** Contract types for trip planning (request side).
  *
- * Spiegelt `TripRequestAPI`/`WaypointAPI`/`VehicleProfile` aus
- * `src/tripplanner/trip_input/api.py` bzw. `models.py`. Koordinaten sind
- * überall `[lat, lon]`, konsistent mit der projektweiten Konvention
- * (siehe `AGENTS.md`, Abschnitt "Koordinatenkonvention"). Die Umwandlung
- * nach MapLibre-`[lng, lat]` erfolgt ausschließlich über
- * `utils/geo-utils.ts::toLngLat()`.
+ * Mirrors `TripRequestAPI`/`WaypointAPI`/`VehicleProfileAPI` from
+ * `src/tripplanner/trip_input/schemas/request.py`. Coordinates are always
+ * `[lat, lon]`, following the project-wide convention (see `AGENTS.md`,
+ * "Koordinatenkonvention"). Conversion to MapLibre `[lng, lat]` happens only
+ * via `utils/geo-utils.ts::toLngLat()`.
  *
- * DATENMODELL: Die Reise besteht aus einer dynamischen, geordneten Liste
- * von `Stop`s (mindestens 2) – bewusst OHNE separate "Start"/"Ziel"/
- * "Zwischenstopp"-Typen. Der erste Eintrag ist die Abfahrt, der letzte das
- * Ziel, alles dazwischen ein Zwischenstopp – rein durch Position in der
- * Liste bestimmt, nicht durch ein `kind`-Feld. Stopps lassen sich frei
- * hinzufügen/entfernen/umsortieren (min. 2 müssen erhalten bleiben).
+ * DATA MODEL: a trip is a dynamic, ordered list of `Stop`s (at least 2) –
+ * deliberately WITHOUT separate start/destination/waypoint types. The first
+ * entry is the departure, the last the destination, everything in between a
+ * waypoint – determined purely by position in the list, not by a `kind`
+ * field. Stops can be freely added/removed/reordered (at least 2 remain).
  *
- * ABFAHRTSZEIT: Es gibt keine globale "Abfahrt" mehr. Jeder Stopp außer dem
- * letzten kann optional einen geplanten Abfahrtszeitpunkt (`leaveAt`)
- * haben. Der erste Stopp übernimmt diese Rolle für die Reise insgesamt
- * (Backend-Feld `abfahrtszeit`); ist er nicht gesetzt, wird ein sinnvoller
- * Default (nächste volle Stunde) verwendet. Für Zwischenstopps wird
- * `leaveAt` als gewünschter frühester Abfahrtszeitpunkt an das Backend
- * durchgereicht (`geplante_abfahrt`), das daraus serverseitig die
- * tatsächlich nötige Wartezeit ableitet (abhängig von der berechneten
- * Ankunftszeit, die clientseitig nicht bekannt ist).
+ * DEPARTURE TIME: there is no global departure. Every stop except the last
+ * may have a planned departure time (`leaveAt`). The first stop's value is
+ * the trip departure (backend field `departureTime`); if unset, a sensible
+ * default (next full hour) is used. For waypoints, `leaveAt` is sent as the
+ * earliest desired departure (`plannedDeparture`); the server derives the
+ * actual wait from the computed arrival time, which the client doesn't know.
  */
 
-/** Ein Stopp der Route. Rolle (Start/Zwischenstopp/Ziel) ergibt sich rein
- *  aus der Position im `stops`-Array, nicht aus diesem Objekt. */
+/** A stop on the route. Its role (start/waypoint/destination) follows purely
+ *  from its position in the `stops` array, not from this object. */
 export interface Stop {
-  /** Stabile client-seitige ID (z. B. via crypto.randomUUID()). */
+  /** Stable client-side ID (e.g. via crypto.randomUUID()). */
   id: string;
-  /** Freitext-Adresse – vom Nutzer eingetippt oder vom Geocoder aufgelöst. */
+  /** Free-text address, typed by the user or resolved by the geocoder. */
   address: string;
-  /** Aufgelöste Koordinate [lat, lon], oder `null` solange nicht aufgelöst. */
+  /** Resolved coordinate [lat, lon], or `null` while unresolved. */
   position: [number, number] | null;
-  /** Geplanter Abfahrtszeitpunkt an diesem Stopp (ISO, lokal, ohne
-   *  Zeitzone). Nur für Stopps vor dem letzten sinnvoll. */
+  /** Planned departure time at this stop (ISO, local, no time zone). Only
+   *  meaningful for stops before the last one. */
   leaveAt?: string;
-  /** Vor Ort verfügbare Ladeleistung an diesem Zwischenstopp in kW (z. B.
-   *  eine Wallbox am Übernachtungsziel), optional. Wird nur während einer
-   *  durch `leaveAt` erzwungenen Wartezeit genutzt – ohne Wartezeit findet
-   *  kein Ladevorgang statt. Nur für Stopps vor dem letzten sinnvoll. */
+  /** Charging power available at this waypoint in kW (e.g. a wall box at the
+   *  overnight stop), optional. Only used during a wait forced by `leaveAt` –
+   *  without a wait there is no charging. Only meaningful for stops before
+   *  the last one. */
   chargingPowerKw?: number;
 }
 
-/** Reifentyp – siehe `tripplanner.trip_input.models.VehicleProfile.reifentyp`. */
+/** Tire type – see `tripplanner.trip_input.models.VehicleProfile.tire_type`. */
 export type TireType =
   "standard" | "winter" | "low_rolling_resistance" | "performance";
 
-/** Wetter-Detailgrad – siehe `tripplanner.weather.models.WeatherDetailLevel`. */
+/** Weather detail level – see `tripplanner.weather.models.WeatherDetailLevel`. */
 export type WeatherDetailLevel = "off" | "low" | "medium" | "high";
 
-/** Autobahnpräferenz-Stufe – siehe `tripplanner.trip_input.models.TripRequest.autobahn_praeferenz`.
- *  'off' = keine Präferenz, 'low'/'medium'/'high' = priority-Boost *1.1/*1.2/*1.3
- *  für road_class == MOTORWAY (Nudge, keine Erzwingung). */
+/** Highway preference level – see `tripplanner.trip_input.models.TripRequest.highway_preference`.
+ *  'off' = no preference, 'low'/'medium'/'high' = priority boost *1.1/*1.2/*1.3
+ *  for road_class == MOTORWAY (a nudge, not enforced). */
 export type HighwayPreferenceLevel = "off" | "low" | "medium" | "high";
 
-/** Fahrzeugprofil-Payload (`VehicleProfile`). */
+/** Vehicle profile payload (`VehicleProfileAPI`). */
 export interface VehicleProfileInput {
-  masse_kg: number;
-  cw_wert: number;
-  stirnflaeche_m2: number;
-  rollwiderstandsbeiwert: number;
-  batteriekapazitaet_kwh: number;
-  nebenverbraucher_baseline_kw: number;
-  reifentyp: TireType;
-  dachbox: boolean;
+  massKg: number;
+  dragCoefficient: number;
+  frontalAreaM2: number;
+  rollingResistanceCoefficient: number;
+  batteryCapacityKwh: number;
+  auxiliaryBaselineKw: number;
+  tireType: TireType;
+  roofBox: boolean;
 }
 
-/** Named, editierbares Fahrzeugprofil-Preset für die Auswahl im Formular. */
+/** Named, editable vehicle profile preset for the form picker. */
 export interface VehicleProfilePreset {
   id: string;
   label: string;
   profile: VehicleProfileInput;
 }
 
-/** Wegpunkt-Payload für `POST /trips` (`WaypointAPI`). */
+/** Waypoint payload for `POST /trips` (`WaypointAPI`). */
 export interface WaypointInput {
-  koordinate: [number, number];
-  /** Fixe Mindestaufenthaltsdauer in Sekunden. Wird vom Formular nicht mehr
-   *  gesetzt (siehe `geplante_abfahrt`) – bleibt Teil des Vertrags, weil das
-   *  Backend-Feld weiterhin existiert und optional befüllbar ist. */
-  aufenthaltsdauer_s: number | null;
-  /** Gewünschter Abfahrtszeitpunkt an diesem Stopp (ISO, lokal), oder
-   *  `null`. Erzwingt serverseitig eine Mindestwartezeit bis dahin. */
-  geplante_abfahrt: string | null;
-  /** Vor Ort verfügbare Ladeleistung an diesem Zwischenstopp in kW, oder
-   *  `null`. Wird nur während einer durch `geplante_abfahrt` erzwungenen
-   *  Wartezeit genutzt. */
-  ladeleistung_kw: number | null;
+  coordinate: [number, number];
+  /** Fixed minimum stay in seconds. No longer set by the form (see
+   *  `plannedDeparture`), but still part of the contract because the backend
+   *  field exists and is optional. */
+  stayDurationS: number | null;
+  /** Desired departure time at this stop (ISO, local), or `null`. The server
+   *  enforces a minimum wait until then. */
+  plannedDeparture: string | null;
+  /** Charging power available at this waypoint in kW, or `null`. Only used
+   *  during a wait forced by `plannedDeparture`. */
+  chargingPowerKw: number | null;
 }
 
-/** Eine (gepufferte) Bounding Box um eine erkannte Fährverbindung, zur Vermeidung
- *  in einer nachfolgenden Routenberechnung (`FaehrAusschlussAPI`). */
+/** A (buffered) bounding box around a detected ferry connection, to avoid it
+ *  in a subsequent route computation (`FerryExclusionAPI`). */
 export interface FerryExclusion {
   name: string;
   bboxSw: [number, number];
   bboxNe: [number, number];
 }
 
-/** Eine vom Nutzer vorgegebene Abfahrts-/Ankunftszeit für eine zuvor erkannte
- *  Fährverbindung (`FaehrZeitfensterAPI`), zur Abstimmung mit dem tatsächlichen
- *  Fährfahrplan. */
+/** A user-specified departure/arrival time for a previously detected ferry
+ *  connection (`FerryTimeWindowAPI`), to match the actual timetable. */
 export interface FerryTimeWindow {
   name: string;
   bboxSw: [number, number];
   bboxNe: [number, number];
-  /** ISO-8601, lokal (ohne Zeitzone). */
-  abfahrt: string;
-  /** ISO-8601, lokal (ohne Zeitzone). */
-  ankunft: string;
+  /** ISO-8601, local (no time zone). */
+  departure: string;
+  /** ISO-8601, local (no time zone). */
+  arrival: string;
 }
 
-/** Eine vom Nutzer vorgegebene feste Ladedauer für eine bestimmte Ladestation
- *  (`LadedauerVorgabeAPI`), identifiziert über die stabile `station_id`. */
-export interface ChargingDurationTarget {
+/** A user-specified fixed charging duration at a specific charging station
+ *  (`ChargingDurationSpecificationAPI`), identified by its stable station ID. */
+export interface ChargingDurationSpecification {
   stationId: string;
   chargingDurationS: number;
 }
 
-/** Vollständiger Request-Body für `POST /trips` (`TripRequestAPI`). */
+/** Full request body for `POST /trips` (`TripRequestAPI`). */
 export interface TripRequestPayload {
   start: [number, number];
   destination: [number, number];
   waypoints: WaypointInput[];
-  /** ISO-8601, z. B. "2026-08-15T08:30:00". */
+  /** ISO-8601, e.g. "2026-08-15T08:30:00". */
   departureTime: string;
   vehicleProfile: VehicleProfileInput;
   preferences: Record<string, unknown>;
@@ -134,18 +127,17 @@ export interface TripRequestPayload {
   minArrivalSocPct: number;
   maxChargeSocPct: number;
   avoidAllFerries: boolean;
-  /** Grad der Autobahnpräferenz bei der Berechnung: 'off' (keine Präferenz),
-   *  'low'/'medium'/'high' (Nudge, keine Erzwingung; Toggle "Autobahn"). */
+  /** Highway preference: 'off' (none), 'low'/'medium'/'high' (a nudge, not
+   *  enforced; "Autobahn" toggle). */
   highwayPreference: HighwayPreferenceLevel;
   avoidedFerries: FerryExclusion[];
   ferryTimeWindows: FerryTimeWindow[];
-  chargingDurationSpecifications: ChargingDurationTarget[];
-  /** Steuert die räumliche/zeitliche Auflösung der Wetterabfrage
-   *  (siehe `TripPlannerForm`-Kontrolle "Routendetails"). `"off"` entspricht
-   *  dem alten `wetter_beruecksichtigen: false`, `"high"` dem alten `true`. */
+  chargingDurationSpecifications: ChargingDurationSpecification[];
+  /** Spatial/temporal resolution of the weather lookup (see the
+   *  "Routendetails" control in `TripPlannerForm`). `"off"` skips weather. */
   weatherDetailLevel: WeatherDetailLevel;
-  /** Falls false, wird der Baustellen-Provider für diese Berechnung
-   *  übersprungen, um sie zu beschleunigen (Toggle "Baustellen"). */
+  /** If false, the construction-site provider is skipped to speed up
+   *  planning ("Baustellen" toggle). */
   considerConstructionSites: boolean;
 }
 

@@ -3,14 +3,14 @@ import { buildTripRequestPayload, createEmptyStop } from "@/types/trip-request";
 import type { Stop, VehicleProfileInput } from "@/types/trip-request";
 
 const vehicleProfile: VehicleProfileInput = {
-  masse_kg: 1706,
-  cw_wert: 0.23,
-  stirnflaeche_m2: 2.22,
-  rollwiderstandsbeiwert: 0.011,
-  batteriekapazitaet_kwh: 62.5,
-  nebenverbraucher_baseline_kw: 0.34,
-  reifentyp: "standard",
-  dachbox: false,
+  massKg: 1706,
+  dragCoefficient: 0.23,
+  frontalAreaM2: 2.22,
+  rollingResistanceCoefficient: 0.011,
+  batteryCapacityKwh: 62.5,
+  auxiliaryBaselineKw: 0.34,
+  tireType: "standard",
+  roofBox: false,
 };
 
 function makeStops(): Stop[] {
@@ -21,12 +21,12 @@ function makeStops(): Stop[] {
 }
 
 describe("buildTripRequestPayload ferry fields", () => {
-  it("defaults alle_faehren_vermeiden to false and vermiedene_faehren to empty", () => {
+  it("defaults avoid_all_ferries to false and avoided_ferries to empty", () => {
     const payload = buildTripRequestPayload({
       stops: makeStops(),
       vehicleProfile: vehicleProfile,
       startSocPct: 80,
-      zielSocPct: 20,
+      targetSocPct: 20,
     });
 
     expect(payload.avoidAllFerries).toBe(false);
@@ -38,7 +38,7 @@ describe("buildTripRequestPayload ferry fields", () => {
       stops: makeStops(),
       vehicleProfile: vehicleProfile,
       startSocPct: 80,
-      zielSocPct: 20,
+      targetSocPct: 20,
       avoidAllFerries: true,
       avoidedFerries: [
         {
@@ -55,13 +55,13 @@ describe("buildTripRequestPayload ferry fields", () => {
   });
 });
 
-describe("buildTripRequestPayload faehr_zeitfenster/ladedauer_vorgaben fields", () => {
-  it("defaults faehr_zeitfenster and ladedauer_vorgaben to empty arrays", () => {
+describe("buildTripRequestPayload ferry_time_windows/charging_duration_specifications fields", () => {
+  it("defaults ferry_time_windows and charging_duration_specifications to empty arrays", () => {
     const payload = buildTripRequestPayload({
       stops: makeStops(),
       vehicleProfile: vehicleProfile,
       startSocPct: 80,
-      zielSocPct: 20,
+      targetSocPct: 20,
     });
 
     expect(payload.ferryTimeWindows).toEqual([]);
@@ -73,23 +73,23 @@ describe("buildTripRequestPayload faehr_zeitfenster/ladedauer_vorgaben fields", 
       stops: makeStops(),
       vehicleProfile: vehicleProfile,
       startSocPct: 80,
-      zielSocPct: 20,
+      targetSocPct: 20,
       ferryTimeWindows: [
         {
           name: "Rødby (DK) - Puttgarden (D)",
           bboxSw: [54.5, 11.22],
           bboxNe: [54.66, 11.36],
-          abfahrt: "2026-08-15T10:00:00",
-          ankunft: "2026-08-15T11:09:00",
+          departure: "2026-08-15T10:00:00",
+          arrival: "2026-08-15T11:09:00",
         },
       ],
-      chargingDurationTargets: [
+      chargingDurationSpecifications: [
         { stationId: "station-1", chargingDurationS: 1800 },
       ],
     });
 
     expect(payload.ferryTimeWindows).toHaveLength(1);
-    expect(payload.ferryTimeWindows[0].abfahrt).toBe("2026-08-15T10:00:00");
+    expect(payload.ferryTimeWindows[0].departure).toBe("2026-08-15T10:00:00");
     expect(payload.chargingDurationSpecifications).toEqual([
       { stationId: "station-1", chargingDurationS: 1800 },
     ]);
@@ -102,7 +102,7 @@ describe("buildTripRequestPayload wetter_detailgrad/baustellen_beruecksichtigen 
       stops: makeStops(),
       vehicleProfile: vehicleProfile,
       startSocPct: 80,
-      zielSocPct: 20,
+      targetSocPct: 20,
     });
 
     expect(payload.weatherDetailLevel).toBe("high");
@@ -114,7 +114,7 @@ describe("buildTripRequestPayload wetter_detailgrad/baustellen_beruecksichtigen 
       stops: makeStops(),
       vehicleProfile: vehicleProfile,
       startSocPct: 80,
-      zielSocPct: 20,
+      targetSocPct: 20,
       weatherDetailLevel: "off",
       considerConstructionSites: false,
     });
@@ -128,7 +128,7 @@ describe("buildTripRequestPayload wetter_detailgrad/baustellen_beruecksichtigen 
       stops: makeStops(),
       vehicleProfile: vehicleProfile,
       startSocPct: 80,
-      zielSocPct: 20,
+      targetSocPct: 20,
       weatherDetailLevel: "medium",
     });
 
@@ -136,25 +136,25 @@ describe("buildTripRequestPayload wetter_detailgrad/baustellen_beruecksichtigen 
   });
 });
 
-describe("buildTripRequestPayload max_lade_soc_pct field", () => {
-  it("defaults max_lade_soc_pct to 100 (uncapped)", () => {
+describe("buildTripRequestPayload max_charge_soc_pct field", () => {
+  it("defaults max_charge_soc_pct to 100 (uncapped)", () => {
     const payload = buildTripRequestPayload({
       stops: makeStops(),
       vehicleProfile: vehicleProfile,
       startSocPct: 80,
-      zielSocPct: 20,
+      targetSocPct: 20,
     });
 
     expect(payload.maxChargeSocPct).toBe(100);
   });
 
-  it("passes through an explicit maxLadeSocPct value", () => {
+  it("passes through an explicit maxChargeSocPct value", () => {
     const payload = buildTripRequestPayload({
       stops: makeStops(),
       vehicleProfile: vehicleProfile,
       startSocPct: 80,
-      zielSocPct: 20,
-      maxLadeSocPct: 80,
+      targetSocPct: 20,
+      maxChargeSocPct: 80,
     });
 
     expect(payload.maxChargeSocPct).toBe(80);

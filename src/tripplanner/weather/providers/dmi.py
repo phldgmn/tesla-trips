@@ -123,7 +123,7 @@ def _extract_dmi_sample(payload: dict[str, Any], query: WeatherQuery) -> Weather
     snow_rate = value_at("total-snowfall-rate-water-equivalent", 0.0)  # kg/m^2/s
 
     return WeatherSample(
-        koordinate=query.koordinate,
+        coordinate=query.coordinate,
         zeitpunkt=query.zeitpunkt,
         temperatur_c=value_at("temperature-2m", 273.15) - 273.15,
         windgeschwindigkeit_ms=value_at("wind-speed-10m", 0.0),

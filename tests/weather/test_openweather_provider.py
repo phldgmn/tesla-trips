@@ -52,7 +52,7 @@ async def test_openweather_provider_fetch_weather_maps_fields() -> None:
     provider = OpenWeatherProvider(
         api_key="test-key", client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
     )
-    query = WeatherQuery(koordinate=BERLIN, zeitpunkt=target)
+    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=target)
 
     results = await provider.fetch_weather([query])
 
@@ -81,7 +81,7 @@ async def test_openweather_provider_matches_nearest_slot_within_tolerance() -> N
     provider = OpenWeatherProvider(
         api_key="test-key", client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
     )
-    query = WeatherQuery(koordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 16, 0))
+    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 16, 0))
 
     results = await provider.fetch_weather([query])
 
@@ -100,7 +100,7 @@ async def test_openweather_provider_beyond_tolerance_returns_no_sample() -> None
     provider = OpenWeatherProvider(
         api_key="test-key", client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
     )
-    query = WeatherQuery(koordinate=BERLIN, zeitpunkt=datetime(2026, 8, 25, 15, 0))
+    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 25, 15, 0))
 
     results = await provider.fetch_weather([query])
 
@@ -122,7 +122,7 @@ async def test_openweather_provider_snow_conversion() -> None:
     provider = OpenWeatherProvider(
         api_key="test-key", client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
     )
-    query = WeatherQuery(koordinate=BERLIN, zeitpunkt=target)
+    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=target)
 
     results = await provider.fetch_weather([query])
 
@@ -157,7 +157,7 @@ async def test_openweather_provider_http_error_propagates() -> None:
     provider = OpenWeatherProvider(
         api_key="bad-key", client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
     )
-    query = WeatherQuery(koordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 15, 0))
+    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 15, 0))
 
     with pytest.raises(httpx.HTTPStatusError):
         await provider.fetch_weather([query])
@@ -175,8 +175,8 @@ async def test_openweather_provider_refetch_weather_delegates_to_fetch() -> None
     provider = OpenWeatherProvider(
         api_key="test-key", client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
     )
-    original = [WeatherQuery(koordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 12, 0))]
-    updated = [WeatherQuery(koordinate=BERLIN, zeitpunkt=target)]
+    original = [WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 12, 0))]
+    updated = [WeatherQuery(coordinate=BERLIN, zeitpunkt=target)]
 
     results = await provider.refetch_weather(original, updated)
 
@@ -213,7 +213,7 @@ async def test_openweather_provider_throttles_below_requests_per_minute() -> Non
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         rate_limiter=limiter,
     )
-    queries = [WeatherQuery(koordinate=(52.0 + i, 13.0), zeitpunkt=target) for i in range(7)]
+    queries = [WeatherQuery(coordinate=(52.0 + i, 13.0), zeitpunkt=target) for i in range(7)]
 
     with mock.patch("asyncio.sleep", side_effect=fake_sleep):
         results = await provider.fetch_weather(queries)

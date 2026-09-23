@@ -27,7 +27,7 @@ def _group_queries_by_coordinate(
     """
     groups: dict[Coordinate, list[tuple[int, WeatherQuery]]] = {}
     for idx, query in enumerate(queries):
-        rounded = (round(query.koordinate[0], 1), round(query.koordinate[1], 1))
+        rounded = (round(query.coordinate[0], 1), round(query.coordinate[1], 1))
         groups.setdefault(rounded, []).append((idx, query))
     return groups
 

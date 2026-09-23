@@ -7,7 +7,7 @@ import type { WeatherDetailLevel } from "../types/trip-request";
  *  nicht mehr passenden Werten aus `localStorage` scheitert (siehe
  *  `readPersistedState` – ein Parse-/Validierungsfehler fällt einfach auf
  *  `initialValue` zurück, statt die App abstürzen zu lassen). */
-const STORAGE_PREFIX = "tesla-trips:v1:";
+const STORAGE_PREFIX = "tesla-trips:v2:";
 
 function readPersistedState<T>(key: string): T | undefined {
   if (typeof window === "undefined") return undefined;

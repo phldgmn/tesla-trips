@@ -154,17 +154,17 @@ def _build_charging_stop_summaries(
                 route_index_vor=detour.route_index_vor if detour else None,
                 route_index_nach=detour.route_index_nach if detour else None,
                 detour_station_index=detour.station_index if detour else None,
-                ankunfts_soc_pct=ladehalt.ankunfts_soc_pct,
-                ziel_soc_pct=ladehalt.ziel_soc_pct,
-                ladedauer_s=ladehalt.geschaetzte_ladedauer_s,
+                arrival_soc_pct=ladehalt.arrival_soc_pct,
+                target_soc_pct=ladehalt.target_soc_pct,
+                charging_duration_s=ladehalt.geschaetzte_ladedauer_s,
                 energie_geladen_kwh=max(
                     0.0,
-                    (ladehalt.ziel_soc_pct - ladehalt.ankunfts_soc_pct)
+                    (ladehalt.target_soc_pct - ladehalt.arrival_soc_pct)
                     / 100.0
                     * battery_capacity_kwh,
                 ),
                 ankunftszeit=ladehalt.ankunftszeit,
-                abfahrtszeit=ladehalt.abfahrtszeit,
+                departure_time=ladehalt.departure_time,
             )
         )
     return charging_stops
@@ -189,7 +189,7 @@ def _build_waypoint_stop_summaries(
     for aufenthalt in aufenthalte_sortiert:
         waypoint_stops.append(
             WaypointStopSummary(
-                position=aufenthalt.koordinate,
+                position=aufenthalt.coordinate,
                 # Rein geometrisch aus dem (per GraphHopper-Via-Punkt exakt
                 # aufgeloesten, siehe `NetworkXOptimizer.
                 # _map_waypoints_to_segments`) `segment_index` abgeleitet -
@@ -199,13 +199,13 @@ def _build_waypoint_stop_summaries(
                 if aufenthalt.segment_index > 0
                 else 0.0,
                 ankunftszeit=aufenthalt.ankunftszeit,
-                abfahrtszeit=aufenthalt.abfahrtszeit,
-                ladeleistung_kw=aufenthalt.ladeleistung_kw,
-                ankunfts_soc_pct=aufenthalt.ankunfts_soc_pct,
-                ziel_soc_pct=aufenthalt.ziel_soc_pct,
+                departure_time=aufenthalt.departure_time,
+                charging_power_kw=aufenthalt.charging_power_kw,
+                arrival_soc_pct=aufenthalt.arrival_soc_pct,
+                target_soc_pct=aufenthalt.target_soc_pct,
                 energie_geladen_kwh=max(
                     0.0,
-                    (aufenthalt.ziel_soc_pct - aufenthalt.ankunfts_soc_pct)
+                    (aufenthalt.target_soc_pct - aufenthalt.arrival_soc_pct)
                     / 100.0
                     * battery_capacity_kwh,
                 ),
@@ -229,7 +229,7 @@ def _compute_total_times(
     """
     gesamt_ladezeit_min = 0.0
     for ladehalt in charging_plan.ladehalte:
-        ladezeit_s = (ladehalt.abfahrtszeit - ladehalt.ankunftszeit).total_seconds()
+        ladezeit_s = (ladehalt.departure_time - ladehalt.ankunftszeit).total_seconds()
         gesamt_ladezeit_min += ladezeit_s / 60.0
 
     # Zwischenstopp-Aufenthalte zaehlen ausschliesslich als Wartezeit
@@ -239,7 +239,7 @@ def _compute_total_times(
     # zusammen mit `gesamt_fahrzeit_min` ergeben die volle Gesamtreisezeit.
     gesamt_wartezeit_min = 0.0
     for aufenthalt in charging_plan.zwischenstopp_aufenthalte:
-        wartezeit_s = (aufenthalt.abfahrtszeit - aufenthalt.ankunftszeit).total_seconds()
+        wartezeit_s = (aufenthalt.departure_time - aufenthalt.ankunftszeit).total_seconds()
         gesamt_wartezeit_min += wartezeit_s / 60.0
 
     gesamt_fahrzeit_min = max(0.0, (end_time_s / 60.0) - gesamt_ladezeit_min - gesamt_wartezeit_min)
@@ -252,7 +252,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     charging_plan: ChargingPlan,
     segment_energy: list[SegmentEnergyResult],
     start_soc_pct: float,
-    abfahrtszeit: datetime,
+    departure_time: datetime,
     output_resolution_seconds: int = 60,
     battery_capacity_kwh: float = 62.5,
     charging_stop_detours: dict[int, LadehaltDetour] | None = None,
@@ -267,7 +267,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         segment_energy: Energiebedarf je Segment
         start_soc_pct: Start-SoC in %
         output_resolution_seconds: Zeitauflösung der Ausgabe (default: 60s)
-        abfahrtszeit: Abfahrtszeitpunkt der Reise (timezone-aware datetime)
+        departure_time: Abfahrtszeitpunkt der Reise (timezone-aware datetime)
         battery_capacity_kwh: Nutzbare Batteriekapazitaet in kWh (default: 62.5 kWh)
         charging_stop_detours: Optionales, ueber GraphHopper geroutetes Detour-Ergebnis
             je Ladehalt (Schluessel: `id()` des `ChargingStop`-Objekts aus
@@ -333,7 +333,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     # Ladehalte nach Segment-Index sortiert, um beim Durchlauf der FAHREN-
     # Frames den zuletzt ABGESCHLOSSENEN Ladehalt als SoC-Baseline zu finden
     # (siehe unten). Zwischenstopp-Aufenthalte analog - beide koennen den SoC
-    # veraendern (Ladehalt immer, Zwischenstopp nur mit `ladeleistung_kw`).
+    # veraendern (Ladehalt immer, Zwischenstopp nur mit `charging_power_kw`).
     ladehalte_sortiert = sorted(charging_plan.ladehalte, key=lambda lh: lh.segment_index)
     aufenthalte_sortiert = sorted(
         charging_plan.zwischenstopp_aufenthalte, key=lambda a: a.segment_index
@@ -343,8 +343,8 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     # Segment liefert den korrekten Baseline-SoC unabhaengig davon, ob der
     # SoC-Sprung von einem Ladehalt oder einer Zwischenstopp-Ladung stammt.
     soc_checkpoints_sortiert: list[tuple[int, float]] = sorted(
-        [(lh.segment_index, lh.ziel_soc_pct) for lh in charging_plan.ladehalte]
-        + [(a.segment_index, a.ziel_soc_pct) for a in charging_plan.zwischenstopp_aufenthalte],
+        [(lh.segment_index, lh.target_soc_pct) for lh in charging_plan.ladehalte]
+        + [(a.segment_index, a.target_soc_pct) for a in charging_plan.zwischenstopp_aufenthalte],
         key=lambda t: t[0],
     )
 
@@ -371,7 +371,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     ms_to_kmh = 3.6
 
     # Verwende uebergebene Abfahrtszeit als Basis
-    base_time = abfahrtszeit
+    base_time = departure_time
 
     # Ladehalte/Zwischenstopp-Aufenthalte mit relativen (Sekunden-seit-
     # Abfahrt) Ankunfts-/Abfahrtszeiten vorab aufbereiten. Wird sowohl zur
@@ -380,7 +380,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     ladehalte_mit_relzeit = [
         (
             (lh.ankunftszeit - base_time).total_seconds(),
-            (lh.abfahrtszeit - base_time).total_seconds(),
+            (lh.departure_time - base_time).total_seconds(),
             lh,
         )
         for lh in charging_plan.ladehalte
@@ -388,7 +388,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     aufenthalte_mit_relzeit = [
         (
             (a.ankunftszeit - base_time).total_seconds(),
-            (a.abfahrtszeit - base_time).total_seconds(),
+            (a.departure_time - base_time).total_seconds(),
             a,
         )
         for a in charging_plan.zwischenstopp_aufenthalte
@@ -479,8 +479,8 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
             if total_charge_time_s > 0:
                 charge_progress = (current_time_s - rel_ankunftszeit_s) / total_charge_time_s
                 charge_progress = min(1.0, max(0.0, charge_progress))
-                current_soc_pct = aktueller_ladehalt.ankunfts_soc_pct + charge_progress * (
-                    aktueller_ladehalt.ziel_soc_pct - aktueller_ladehalt.ankunfts_soc_pct
+                current_soc_pct = aktueller_ladehalt.arrival_soc_pct + charge_progress * (
+                    aktueller_ladehalt.target_soc_pct - aktueller_ladehalt.arrival_soc_pct
                 )
         elif aktueller_aufenthalt is not None:
             # Zwischenstopp-Aufenthalt: PAUSE ohne Ladeleistung, LADEN mit -
@@ -488,19 +488,19 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
             # Koordinate (siehe Positions-Block unten).
             zustand = (
                 TripState.LADEN
-                if aktueller_aufenthalt.ladeleistung_kw is not None
+                if aktueller_aufenthalt.charging_power_kw is not None
                 else TripState.PAUSE
             )
             geschwindigkeit_kmh = 0.0
 
             total_wait_time_s = (
-                aktueller_aufenthalt.abfahrtszeit - aktueller_aufenthalt.ankunftszeit
+                aktueller_aufenthalt.departure_time - aktueller_aufenthalt.ankunftszeit
             ).total_seconds()
             if total_wait_time_s > 0:
                 wait_progress = (current_time_s - rel_ankunftszeit_s) / total_wait_time_s
                 wait_progress = min(1.0, max(0.0, wait_progress))
-                current_soc_pct = aktueller_aufenthalt.ankunfts_soc_pct + wait_progress * (
-                    aktueller_aufenthalt.ziel_soc_pct - aktueller_aufenthalt.ankunfts_soc_pct
+                current_soc_pct = aktueller_aufenthalt.arrival_soc_pct + wait_progress * (
+                    aktueller_aufenthalt.target_soc_pct - aktueller_aufenthalt.arrival_soc_pct
                 )
         else:
             zustand = TripState.FAHREN
@@ -550,7 +550,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
             # Waehrend eines Zwischenstopp-Aufenthalts steht das Fahrzeug an
             # dessen Koordinate - exakte Koordinate statt Streckeninterpolation,
             # analog zum Ladehalt oben.
-            position = aktueller_aufenthalt.koordinate
+            position = aktueller_aufenthalt.coordinate
         else:
             start_pt_idx = 0
             end_pt_idx = len(segment.geometrie) - 1
@@ -558,7 +558,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
                 segment, start_pt_idx, end_pt_idx, progress_in_segment
             )
         frame = SimulationFrame(
-            zeitpunkt=abfahrtszeit + timedelta(seconds=current_time_s),
+            zeitpunkt=departure_time + timedelta(seconds=current_time_s),
             position=position,
             distanz_m=current_distance_m,
             soc_pct=current_soc_pct,
@@ -599,7 +599,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         gesamt_ladezeit_min=gesamt_ladezeit_min,
         gesamt_wartezeit_min=gesamt_wartezeit_min,
         start_soc_pct=start_soc_pct,
-        ziel_soc_pct=end_soc_pct,
+        target_soc_pct=end_soc_pct,
         charging_stops=charging_stops,
         waypoint_stops=waypoint_stops,
         construction_zones=construction_zones or [],

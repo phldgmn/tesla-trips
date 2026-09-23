@@ -4,13 +4,13 @@ import {
   isUnresolvedAddress,
   swapStops,
   validateForm,
-  toggleFaehrAusschluss,
-  setFaehrZeitfensterFuer,
-  setLadedauerVorgabeFuer,
-  unterscheidetSichAlsUhrzeit,
-  formatLadestationName,
-  formatFahrsegmentStrecke,
-  formatFahrsegmentDauer,
+  toggleFerryExclusion,
+  setFerryTimeWindowFor,
+  setChargingDurationFor,
+  differsAsClockTime,
+  formatChargingStationName,
+  formatDriveSegmentDistance,
+  formatDriveSegmentDuration,
 } from "@/components/TripPlannerForm";
 import type { Stop } from "@/types/trip-request";
 
@@ -238,7 +238,7 @@ describe("TripPlannerForm pure helpers", () => {
       expect(errors.some((e) => e.toLowerCase().includes("stop"))).toBe(true);
     });
 
-    it("returns no errors for a valid start/ziel with resolved positions and SoC in range", () => {
+    it("returns no errors for a valid start/destination with resolved positions and SoC in range", () => {
       const errors = validateForm({
         stops: berlinToHamburg,
         startSoc: 80,
@@ -271,7 +271,7 @@ describe("TripPlannerForm pure helpers", () => {
       expect(errors).toContain("Start-SoC muss zwischen 0 und 100 % liegen.");
     });
 
-    it("reports an error when zielSoc is below 0", () => {
+    it("reports an error when targetSoc is below 0", () => {
       const errors = validateForm({
         stops: berlinToHamburg,
         startSoc: 80,
@@ -282,7 +282,7 @@ describe("TripPlannerForm pure helpers", () => {
       expect(errors).toContain("Ziel-SoC muss zwischen 0 und 100 % liegen.");
     });
 
-    it("reports an error when zielSoc is above 100", () => {
+    it("reports an error when targetSoc is above 100", () => {
       const errors = validateForm({
         stops: berlinToHamburg,
         startSoc: 80,
@@ -304,7 +304,7 @@ describe("TripPlannerForm pure helpers", () => {
       expect(errors).toContain("Start-SoC muss zwischen 0 und 100 % liegen.");
     });
 
-    it("treats NaN zielSoc as invalid", () => {
+    it("treats NaN targetSoc as invalid", () => {
       const errors = validateForm({
         stops: berlinToHamburg,
         startSoc: 80,
@@ -397,36 +397,36 @@ describe("TripPlannerForm pure helpers", () => {
   });
 
   // =========================================================================
-  // sameFaehrAusschluss / toggleFaehrAusschluss
+  // sameFerryExclusion / toggleFerryExclusion
   // =========================================================================
 
-  describe("toggleFaehrAusschluss", () => {
-    const faehre = {
+  describe("toggleFerryExclusion", () => {
+    const ferry = {
       name: "Rødby (DK) - Puttgarden (D)",
       bboxSw: [54.5, 11.22] as [number, number],
       bboxNe: [54.66, 11.36] as [number, number],
     };
 
     it("adds the ferry when toggled on and not already present", () => {
-      const result = toggleFaehrAusschluss([], faehre, true);
+      const result = toggleFerryExclusion([], ferry, true);
       expect(result).toHaveLength(1);
-      expect(result[0].name).toBe(faehre.name);
+      expect(result[0].name).toBe(ferry.name);
     });
 
     it("does not duplicate the ferry when toggled on twice", () => {
-      const once = toggleFaehrAusschluss([], faehre, true);
-      const twice = toggleFaehrAusschluss(once, faehre, true);
+      const once = toggleFerryExclusion([], ferry, true);
+      const twice = toggleFerryExclusion(once, ferry, true);
       expect(twice).toHaveLength(1);
     });
 
     it("removes the ferry when toggled off", () => {
-      const withFaehre = toggleFaehrAusschluss([], faehre, true);
-      const result = toggleFaehrAusschluss(withFaehre, faehre, false);
+      const withFerry = toggleFerryExclusion([], ferry, true);
+      const result = toggleFerryExclusion(withFerry, ferry, false);
       expect(result).toHaveLength(0);
     });
 
     it("toggling off an absent ferry is a no-op", () => {
-      const result = toggleFaehrAusschluss([], faehre, false);
+      const result = toggleFerryExclusion([], ferry, false);
       expect(result).toHaveLength(0);
     });
 
@@ -442,112 +442,108 @@ describe("TripPlannerForm pure helpers", () => {
         bboxSw: [51.0, 11.0] as [number, number],
         bboxNe: [51.5, 11.5] as [number, number],
       };
-      const withFaehre1 = toggleFaehrAusschluss([], faehre1, true);
+      const withFaehre1 = toggleFerryExclusion([], faehre1, true);
       expect(withFaehre1).toHaveLength(1);
       // Toggling on faehre2 adds it as a separate entry (not a duplicate)
-      const withBoth = toggleFaehrAusschluss(withFaehre1, faehre2, true);
+      const withBoth = toggleFerryExclusion(withFaehre1, faehre2, true);
       expect(withBoth).toHaveLength(2);
       // Toggling off faehre1 removes only faehre1, leaving faehre2
-      const afterRemoveFaehre1 = toggleFaehrAusschluss(
-        withBoth,
-        faehre1,
-        false,
-      );
+      const afterRemoveFaehre1 = toggleFerryExclusion(withBoth, faehre1, false);
       expect(afterRemoveFaehre1).toHaveLength(1);
       expect(afterRemoveFaehre1[0].bboxSw[0]).toBe(51.0);
     });
   });
 
   // =========================================================================
-  // setFaehrZeitfensterFuer
+  // setFerryTimeWindowFor
   // =========================================================================
 
-  describe("setFaehrZeitfensterFuer", () => {
-    const faehre = {
+  describe("setFerryTimeWindowFor", () => {
+    const ferry = {
       name: "Rødby (DK) - Puttgarden (D)",
       bboxSw: [54.5, 11.22] as [number, number],
       bboxNe: [54.66, 11.36] as [number, number],
     };
 
-    it("adds a time window when both abfahrt and ankunft are given", () => {
-      const result = setFaehrZeitfensterFuer(
+    it("adds a time window when both departure and arrival are given", () => {
+      const result = setFerryTimeWindowFor(
         [],
-        faehre,
+        ferry,
         "2026-08-15T10:00:00",
         "2026-08-15T11:09:00",
       );
       expect(result).toHaveLength(1);
-      expect(result[0].abfahrt).toBe("2026-08-15T10:00:00");
-      expect(result[0].ankunft).toBe("2026-08-15T11:09:00");
+      expect(result[0].departure).toBe("2026-08-15T10:00:00");
+      expect(result[0].arrival).toBe("2026-08-15T11:09:00");
     });
 
     it("replaces an existing time window for the same ferry instead of duplicating", () => {
-      const once = setFaehrZeitfensterFuer(
+      const once = setFerryTimeWindowFor(
         [],
-        faehre,
+        ferry,
         "2026-08-15T10:00:00",
         "2026-08-15T11:09:00",
       );
-      const updated = setFaehrZeitfensterFuer(
+      const updated = setFerryTimeWindowFor(
         once,
-        faehre,
+        ferry,
         "2026-08-15T12:00:00",
         "2026-08-15T13:09:00",
       );
       expect(updated).toHaveLength(1);
-      expect(updated[0].abfahrt).toBe("2026-08-15T12:00:00");
+      expect(updated[0].departure).toBe("2026-08-15T12:00:00");
     });
 
-    it("removes the time window when either abfahrt or ankunft is empty", () => {
-      const once = setFaehrZeitfensterFuer(
+    it("removes the time window when either departure or arrival is empty", () => {
+      const once = setFerryTimeWindowFor(
         [],
-        faehre,
+        ferry,
         "2026-08-15T10:00:00",
         "2026-08-15T11:09:00",
       );
-      const cleared = setFaehrZeitfensterFuer(once, faehre, "", "");
+      const cleared = setFerryTimeWindowFor(once, ferry, "", "");
       expect(cleared).toHaveLength(0);
     });
 
-    it("does not add a time window when abfahrt/ankunft are both empty", () => {
-      const result = setFaehrZeitfensterFuer([], faehre, "", "");
+    it("does not add a time window when departure/arrival are both empty", () => {
+      const result = setFerryTimeWindowFor([], ferry, "", "");
       expect(result).toHaveLength(0);
     });
   });
 
   // =========================================================================
-  // setLadedauerVorgabeFuer
+  // setChargingDurationFor
   // =========================================================================
 
-  describe("setLadedauerVorgabeFuer", () => {
+  describe("setChargingDurationFor", () => {
     it("adds a duration override converted from minutes to seconds", () => {
-      const result = setLadedauerVorgabeFuer([], "station-1", 30);
+      const result = setChargingDurationFor([], "station-1", 30);
       expect(result).toEqual([
         { stationId: "station-1", chargingDurationS: 1800 },
       ]);
     });
 
     it("replaces an existing override for the same station instead of duplicating", () => {
-      const once = setLadedauerVorgabeFuer([], "station-1", 30);
-      const updated = setLadedauerVorgabeFuer(once, "station-1", 45);
+      const once = setChargingDurationFor([], "station-1", 30);
+      const updated = setChargingDurationFor(once, "station-1", 45);
       expect(updated).toEqual([
         { stationId: "station-1", chargingDurationS: 2700 },
       ]);
     });
 
     it("removes the override when the given minutes are zero or negative", () => {
-      const once = setLadedauerVorgabeFuer([], "station-1", 30);
-      const cleared = setLadedauerVorgabeFuer(once, "station-1", 0);
+      const once = setChargingDurationFor([], "station-1", 30);
+      const cleared = setChargingDurationFor(once, "station-1", 0);
       expect(cleared).toHaveLength(0);
     });
 
     it("keeps overrides for other stations untouched", () => {
-      const withTwo = setLadedauerVorgabeFuer(
-        setLadedauerVorgabeFuer([], "station-1", 30),
+      const withTwo = setChargingDurationFor(
+        setChargingDurationFor([], "station-1", 30),
         "station-2",
         15,
       );
-      const updated = setLadedauerVorgabeFuer(withTwo, "station-1", 20);
+      const updated = setChargingDurationFor(withTwo, "station-1", 20);
       expect(updated).toHaveLength(2);
       expect(
         updated.find((v) => v.stationId === "station-2")?.chargingDurationS,
@@ -556,85 +552,75 @@ describe("TripPlannerForm pure helpers", () => {
   });
 
   // =========================================================================
-  // unterscheidetSichAlsUhrzeit
+  // differsAsClockTime
   // =========================================================================
 
-  describe("unterscheidetSichAlsUhrzeit", () => {
+  describe("differsAsClockTime", () => {
     it("gibt false zurück, wenn beide Zeitpunkte auf dieselbe Minute fallen", () => {
       expect(
-        unterscheidetSichAlsUhrzeit(
-          "2026-08-17T01:14:00",
-          "2026-08-17T01:14:00",
-        ),
+        differsAsClockTime("2026-08-17T01:14:00", "2026-08-17T01:14:00"),
       ).toBe(false);
     });
 
     it("gibt true zurück, wenn sich die angezeigte Uhrzeit unterscheidet", () => {
       expect(
-        unterscheidetSichAlsUhrzeit(
-          "2026-08-17T00:40:00",
-          "2026-08-17T00:53:00",
-        ),
+        differsAsClockTime("2026-08-17T00:40:00", "2026-08-17T00:53:00"),
       ).toBe(true);
     });
 
     it("gibt true zurück, wenn einer der beiden Zeitpunkte unbekannt ist", () => {
-      expect(unterscheidetSichAlsUhrzeit(null, "2026-08-17T00:53:00")).toBe(
-        true,
-      );
-      expect(unterscheidetSichAlsUhrzeit("2026-08-17T00:53:00", null)).toBe(
-        true,
-      );
-      expect(unterscheidetSichAlsUhrzeit(null, null)).toBe(true);
+      expect(differsAsClockTime(null, "2026-08-17T00:53:00")).toBe(true);
+      expect(differsAsClockTime("2026-08-17T00:53:00", null)).toBe(true);
+      expect(differsAsClockTime(null, null)).toBe(true);
     });
   });
 
   // =========================================================================
-  // formatLadestationName
+  // formatChargingStationName
   // =========================================================================
 
-  describe("formatLadestationName", () => {
+  describe("formatChargingStationName", () => {
     it("entfernt den 'Tesla Supercharger - '-Präfix", () => {
       expect(
-        formatLadestationName("Tesla Supercharger - Berlin Alexanderplatz"),
+        formatChargingStationName("Tesla Supercharger - Berlin Alexanderplatz"),
       ).toBe("Berlin Alexanderplatz");
     });
 
     it("lässt Namen ohne diesen Präfix unverändert", () => {
-      expect(formatLadestationName("Ionity Rasthof Rhön")).toBe(
+      expect(formatChargingStationName("Ionity Rasthof Rhön")).toBe(
         "Ionity Rasthof Rhön",
       );
     });
 
     it("entfernt den Präfix nicht, wenn er nicht am Anfang steht", () => {
-      expect(formatLadestationName("Nahe Tesla Supercharger - Berlin")).toBe(
-        "Nahe Tesla Supercharger - Berlin",
-      );
+      expect(
+        formatChargingStationName("Nahe Tesla Supercharger - Berlin"),
+      ).toBe("Nahe Tesla Supercharger - Berlin");
     });
   });
 
   // =========================================================================
-  // formatFahrsegmentStrecke / formatFahrsegmentDauer
+  // formatDriveSegmentDistance / formatDriveSegmentDuration
   // =========================================================================
 
-  describe("formatFahrsegmentStrecke", () => {
+  describe("formatDriveSegmentDistance", () => {
     it("formatiert km mit einer Nachkommastelle und deutschem Komma", () => {
-      expect(formatFahrsegmentStrecke(42.05)).toBe("42,1 km");
-      expect(formatFahrsegmentStrecke(0)).toBe("0,0 km");
+      expect(formatDriveSegmentDistance(42.05)).toBe("42,1 km");
+      expect(formatDriveSegmentDistance(0)).toBe("0,0 km");
     });
   });
 
-  describe("formatFahrsegmentDauer", () => {
+  describe("formatDriveSegmentDuration", () => {
     it("formatiert unter einer Stunde nur in Minuten", () => {
-      expect(formatFahrsegmentDauer(35)).toBe("35min");
+      expect(formatDriveSegmentDuration(35)).toBe("35min");
     });
 
     it("formatiert ab einer Stunde als 'Xh Ymin'", () => {
-      expect(formatFahrsegmentDauer(90)).toBe("1h 30min");
+      expect(formatDriveSegmentDuration(90)).toBe("1h 30min");
     });
 
     it("rundet auf ganze Minuten", () => {
-      expect(formatFahrsegmentDauer(59.6)).toBe("1h 0min");
+      expect(formatDriveSegmentDuration(59.6)).toBe("1h 0min");
     });
   });
 });

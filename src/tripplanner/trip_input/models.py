@@ -1,9 +1,9 @@
-"""Eingabemodelle für Reiseanfragen.
+"""Input models for trip requests.
 
-Datenmodelle für `trip_input`: `TripRequest`, `Waypoint`, `VehicleProfile`.
-Konsumiert von `routing` (Start/Ziel/Zwischenstopps) und `energy`/`optimization`
-(Fahrzeugparameter). Alle Koordinaten sind `(lat, lon)` in Dezimalgrad (WGS84),
-siehe `tripplanner.geo`.
+Data models for `trip_input`: `TripRequest`, `Waypoint`, `VehicleProfile`.
+Consumed by `routing` (start/destination/waypoints) and `energy`/`optimization`
+(vehicle parameters). All coordinates are `(lat, lon)` in decimal degrees (WGS84),
+see `tripplanner.geo`.
 """
 
 from __future__ import annotations
@@ -26,182 +26,178 @@ class TripInfeasibleError(ValueError):
 
 
 class Waypoint(BaseModel):
-    """Ein Pflicht-Wegpunkt mit Koordinate und optionaler Mindestaufenthaltsdauer.
+    """A mandatory waypoint with a coordinate and an optional minimum stay.
 
-    Ein Zwischenstopp ist konzeptionell unabhängig von einem Ladestopp (siehe
-    `docs/06-offene-punkte-widersprueche.md`, Punkt 4): er kann mit einem
-    Ladehalt zusammenfallen, ist aber kein automatischer Ladepunkt.
+    A waypoint is conceptually independent of a charging stop (see
+    `docs/06-offene-punkte-widersprueche.md`, item 4): it may coincide with a
+    charging stop, but is not automatically a charging point.
     """
 
-    koordinate: Coordinate = Field(..., description="(lat, lon) Koordinate in Dezimalgrad")
-    aufenthaltsdauer: timedelta | None = Field(
-        default=None, description="Optionale Mindestaufenthaltsdauer an diesem Wegpunkt"
+    coordinate: Coordinate = Field(..., description="(lat, lon) coordinate in decimal degrees")
+    stay_duration: timedelta | None = Field(
+        default=None, description="Optional minimum stay duration at this waypoint"
     )
-    geplante_abfahrt: datetime | None = Field(
+    planned_departure: datetime | None = Field(
         default=None,
-        description="Gewünschter frühester Abfahrtszeitpunkt an diesem Wegpunkt",
+        description="Earliest desired departure time at this waypoint",
     )
-    ladeleistung_kw: float | None = Field(
+    charging_power_kw: float | None = Field(
         default=None,
         ge=0.0,
         description=(
-            "Vor Ort verfügbare Ladeleistung an diesem Zwischenstopp in kW (z. B. "
-            "Wallbox beim Übernachtungsziel), optional. Wird nur während einer "
-            "durch `aufenthaltsdauer`/`geplante_abfahrt` erzwungenen Wartezeit "
-            "genutzt - ohne Wartezeit findet kein Ladevorgang statt, da kein "
-            "Zeitfenster dafür existiert."
+            "Charging power available at this waypoint in kW (e.g. a wall box at "
+            "the overnight stop), optional. Only used during a wait forced by "
+            "`stay_duration`/`planned_departure` - without a wait there is no "
+            "time window and therefore no charging."
         ),
     )
 
 
 class FerryExclusion(BaseModel):
-    """Eine vom Nutzer zu vermeidende Fährverbindung.
+    """A ferry connection the user wants to avoid.
 
-    Stammt aus einer zuvor per `tripplanner.routing.erkenne_faehren()` aus einer
-    berechneten Route erkannten `FaehrSegment`-Struktur (gleiche Feldnamen für
-    `name`/`bbox_sw`/`bbox_no`, aber eigenständig definiert): `routing` importiert
-    bereits `trip_input.models` (`TripRequest`), ein Import in Gegenrichtung würde
-    einen Modul-Zyklus erzeugen. Der API-Layer (`trip_input.api`, der beide Module
-    bereits importiert) konvertiert zwischen beiden Repräsentationen.
+    Originates from a `FerrySegment` previously detected in a computed route via
+    `tripplanner.routing.detect_ferries()` (same field names for
+    `name`/`bbox_sw`/`bbox_ne`, but defined separately): `routing` already imports
+    `trip_input.models` (`TripRequest`), so importing the other way would create a
+    module cycle. The API layer (`trip_input.api`, which imports both) converts
+    between the two representations.
     """
 
     name: str = Field(
         ...,
-        description="Anzeigename der Fährverbindung (aus einer vorherigen Routenberechnung)",
+        description="Display name of the ferry connection (from a previous route computation)",
     )
     bbox_sw: Coordinate = Field(
-        ..., description="Südwest-Ecke der (gepufferten) Bounding Box um die Fährverbindung"
+        ..., description="South-west corner of the (buffered) bounding box around the ferry"
     )
-    bbox_no: Coordinate = Field(
-        ..., description="Nordost-Ecke der (gepufferten) Bounding Box um die Fährverbindung"
+    bbox_ne: Coordinate = Field(
+        ..., description="North-east corner of the (buffered) bounding box around the ferry"
     )
 
 
-class FaehrZeitfenster(BaseModel):
-    """Vom Nutzer vorgegebene Abfahrts-/Ankunftszeit für eine Fährverbindung.
+class FerryTimeWindow(BaseModel):
+    """User-specified departure/arrival time for a ferry connection.
 
-    Zur Abstimmung der Planung mit dem tatsächlichen Fährfahrplan.
-    Identifikation über `name`/`bbox_sw`/`bbox_no` wie `FerryExclusion` (aus einer
-    vorherigen Routenberechnung via `tripplanner.routing.erkenne_faehren()`). Der
-    API-Layer (`trip_input.api`) matcht dies gegen die frisch berechnete Route und
-    reicht bei Treffer die feste Abfahrts-/Ankunftszeit als Zeitplan-Vorgabe an
-    `optimization.optimizer` weiter (siehe `_matche_faehr_zeitfenster`).
+    Aligns the plan with the actual ferry timetable. Identified via
+    `name`/`bbox_sw`/`bbox_ne` like `FerryExclusion` (from a previous route
+    computation via `tripplanner.routing.detect_ferries()`). The pipeline matches
+    it against the freshly computed route and, on a match, passes the fixed
+    departure/arrival time to `optimization.optimizer` as a schedule constraint
+    (see `_match_ferry_time_windows`).
     """
 
     name: str = Field(
         ...,
-        description="Anzeigename der Fährverbindung (aus einer vorherigen Routenberechnung)",
+        description="Display name of the ferry connection (from a previous route computation)",
     )
     bbox_sw: Coordinate = Field(
-        ..., description="Südwest-Ecke der (gepufferten) Bounding Box um die Fährverbindung"
+        ..., description="South-west corner of the (buffered) bounding box around the ferry"
     )
-    bbox_no: Coordinate = Field(
-        ..., description="Nordost-Ecke der (gepufferten) Bounding Box um die Fährverbindung"
+    bbox_ne: Coordinate = Field(
+        ..., description="North-east corner of the (buffered) bounding box around the ferry"
     )
-    abfahrt: datetime = Field(..., description="Vorgegebene Abfahrtszeit der Fähre")
-    ankunft: datetime = Field(..., description="Vorgegebene Ankunftszeit der Fähre")
+    departure: datetime = Field(..., description="Fixed ferry departure time")
+    arrival: datetime = Field(..., description="Fixed ferry arrival time")
 
-    @field_validator("ankunft")
+    @field_validator("arrival")
     @classmethod
     def _arrival_after_departure(cls, v: datetime, info: ValidationInfo) -> datetime:
-        """Stellt sicher, dass die Ankunft zeitlich nach der Abfahrt liegt."""
-        abfahrt = info.data.get("abfahrt")
-        if abfahrt is not None and v <= abfahrt:
-            raise ValueError("ankunft muss zeitlich nach abfahrt liegen")
+        """Ensure the arrival is after the departure."""
+        departure = info.data.get("departure")
+        if departure is not None and v <= departure:
+            raise ValueError("arrival must be after departure")
         return v
 
 
-class LadedauerVorgabe(BaseModel):
-    """Vom Nutzer vorgegebene feste Ladedauer für einen Ladehalt an einer Station.
+class ChargingDurationSpecification(BaseModel):
+    """User-specified fixed charging duration for a stop at a given station.
 
-    Zur Nachjustierung des automatisch berechneten Ladeplans (z. B. anhand
-    tatsächlicher Wartezeiten an der Säule oder gewünschter Pausenlänge).
-    Identifikation über die stabile `station_id` (siehe
-    `tripplanner.charging_infrastructure.models.ChargingStation.station_id`) statt
-    Koordinate/Bounding-Box, da eine Ladestation - anders als eine Fährlinie - über
-    mehrere Routenberechnungen hinweg immer dieselbe eindeutige ID behält.
+    Lets the user adjust the computed charging plan (e.g. for real queueing
+    times or a desired break length). Identified by the stable `station_id` (see
+    `tripplanner.charging_infrastructure.models.ChargingStation.station_id`)
+    rather than a coordinate/bounding box, because a charging station - unlike a
+    ferry line - keeps the same unique ID across route computations.
     """
 
-    station_id: str = Field(..., min_length=1, description="Eindeutige ID der Ladestation")
-    ladedauer_s: int = Field(..., ge=0, description="Vorgegebene feste Ladedauer in Sekunden")
+    station_id: str = Field(..., min_length=1, description="Unique charging station ID")
+    charging_duration_s: int = Field(..., ge=0, description="Fixed charging duration in seconds")
 
 
 class VehicleProfile(BaseModel):
-    """Physikalisches Fahrzeugprofil, konsumiert von `energy`/`optimization`.
+    """Physical vehicle profile, consumed by `energy`/`optimization`.
 
-    Feldnamen entsprechen `tripplanner.energy.models.VehicleEnergyParameters`
-    (siehe `docs/plans/06-energy.md`), damit `trip_input` direkt in ein
-    `VehicleEnergyParameters`-Objekt überführt werden kann.
+    Field names match `tripplanner.energy.models.VehicleEnergyParameters`
+    (see `docs/plans/06-energy.md`) so `trip_input` can be converted directly
+    into a `VehicleEnergyParameters` object.
     """
 
-    masse_kg: float = Field(..., gt=0, description="Fahrzeugmasse inkl. Beladung in kg")
-    cw_wert: float = Field(..., ge=0.0, description="Luftwiderstandsbeiwert (cW)")
-    stirnflaeche_m2: float = Field(..., gt=0, description="Stirnfläche in m²")
-    rollwiderstandsbeiwert: float = Field(..., ge=0.0, description="Rollwiderstandsbeiwert c_r")
-    batteriekapazitaet_kwh: float = Field(
-        ..., gt=0, description="Nutzbare Batteriekapazität in kWh"
+    mass_kg: float = Field(..., gt=0, description="Vehicle mass including load in kg")
+    drag_coefficient: float = Field(..., ge=0.0, description="Aerodynamic drag coefficient (cW)")
+    frontal_area_m2: float = Field(..., gt=0, description="Frontal area in m²")
+    rolling_resistance_coefficient: float = Field(
+        ..., ge=0.0, description="Rolling resistance coefficient c_r"
     )
-    nebenverbraucher_baseline_kw: float = Field(
-        default=0.34, ge=0.0, description="Baseline-Leistung der Nebenverbraucher in kW"
+    battery_capacity_kwh: float = Field(..., gt=0, description="Usable battery capacity in kWh")
+    auxiliary_baseline_kw: float = Field(
+        default=0.34, ge=0.0, description="Baseline auxiliary load in kW"
     )
-    reifentyp: Literal["standard", "winter", "low_rolling_resistance", "performance"] = Field(
-        default="standard", description="Reifentyp, moduliert den Rollwiderstand"
+    tire_type: Literal["standard", "winter", "low_rolling_resistance", "performance"] = Field(
+        default="standard", description="Tire type, modulates rolling resistance"
     )
-    dachbox: bool = Field(default=False, description="Vorhandensein einer Dachbox")
+    roof_box: bool = Field(default=False, description="Whether a roof box is mounted")
 
 
 class TripRequest(BaseModel):
-    """Vollständige Reiseanfrage: Start, Ziel, Zwischenstopps, Abfahrtszeit, Fahrzeug."""
+    """Complete trip request: start, destination, waypoints, departure, vehicle."""
 
-    start: Coordinate = Field(..., description="(lat, lon) Startkoordinate in Dezimalgrad")
-    ziel: Coordinate = Field(..., description="(lat, lon) Zielkoordinate in Dezimalgrad")
-    zwischenstopps: list[Waypoint] = Field(
-        default_factory=list,
-        description="Geordnete Liste von Pflicht-Zwischenstopps zwischen Start und Ziel",
+    start: Coordinate = Field(..., description="(lat, lon) start coordinate in decimal degrees")
+    destination: Coordinate = Field(
+        ..., description="(lat, lon) destination coordinate in decimal degrees"
     )
-    abfahrtszeit: datetime = Field(..., description="Geplante Abfahrtszeit")
-    fahrzeugprofil: VehicleProfile = Field(..., description="Physikalisches Fahrzeugprofil")
-    alle_faehren_vermeiden: bool = Field(
+    waypoints: list[Waypoint] = Field(
+        default_factory=list,
+        description="Ordered list of mandatory waypoints between start and destination",
+    )
+    departure_time: datetime = Field(..., description="Planned departure time")
+    vehicle_profile: VehicleProfile = Field(..., description="Physical vehicle profile")
+    avoid_all_ferries: bool = Field(
         default=False,
         description=(
-            "Falls True, werden alle Fährverbindungen bei der Routenberechnung "
-            "vermieden (GraphHopper custom_model: road_environment == FERRY "
-            "ausgeschlossen)."
+            "If True, all ferry connections are avoided during routing "
+            "(GraphHopper custom_model: road_environment == FERRY excluded)."
         ),
     )
-    autobahn_praeferenz: Literal["off", "low", "medium", "high"] = Field(
+    highway_preference: Literal["off", "low", "medium", "high"] = Field(
         default="off",
         description=(
-            "Grad der Autobahnpräferenz bei der Routenberechnung: 'off' (keine "
-            "Präferenz), 'low' (priority *1.1), 'medium' (*1.2), 'high' (*1.3) "
-            "für road_class == MOTORWAY im GraphHopper custom_model, ohne "
-            "Nicht-Autobahn-Routen auszuschließen (z. B. wenn ein Ladehalt "
-            "abseits der Autobahn liegt)."
+            "Highway preference during routing: 'off' (none), 'low' (priority *1.1), "
+            "'medium' (*1.2), 'high' (*1.3) for road_class == MOTORWAY in the "
+            "GraphHopper custom_model, without excluding non-highway routes (e.g. "
+            "when a charging stop lies off the highway)."
         ),
     )
-    vermiedene_faehren: list[FerryExclusion] = Field(
+    avoided_ferries: list[FerryExclusion] = Field(
         default_factory=list,
         description=(
-            "Liste spezifischer, zuvor erkannter Fährverbindungen, die bei der "
-            "Routenberechnung vermieden werden sollen (siehe FerryExclusion)."
+            "Previously detected ferry connections to avoid during routing (see FerryExclusion)."
         ),
     )
-    faehr_zeitfenster: list[FaehrZeitfenster] = Field(
+    ferry_time_windows: list[FerryTimeWindow] = Field(
         default_factory=list,
         description=(
-            "Vom Nutzer vorgegebene Abfahrts-/Ankunftszeiten für zuvor erkannte "
-            "Fährverbindungen, zur Abstimmung mit dem tatsächlichen Fährfahrplan "
-            "(siehe FaehrZeitfenster)."
+            "User-specified departure/arrival times for previously detected ferry "
+            "connections, to match the actual timetable (see FerryTimeWindow)."
         ),
     )
-    ladedauer_vorgaben: list[LadedauerVorgabe] = Field(
+    charging_duration_specifications: list[ChargingDurationSpecification] = Field(
         default_factory=list,
         description=(
-            "Vom Nutzer vorgegebene feste Ladedauern für einzelne Ladehalte, "
-            "identifiziert über die Stations-ID (siehe LadedauerVorgabe)."
+            "User-specified fixed charging durations for individual stops, "
+            "identified by station ID (see ChargingDurationSpecification)."
         ),
     )
-    praeferenzen: dict[str, object] = Field(
+    preferences: dict[str, object] = Field(
         default_factory=dict,
-        description="Erweiterbare Nutzerpräferenzen (aktuell nicht spezifiziert)",
+        description="Extensible user preferences (currently unspecified)",
     )

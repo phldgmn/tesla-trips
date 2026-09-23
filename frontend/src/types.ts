@@ -175,7 +175,7 @@ export interface WaypointStop {
   /** ISO-8601 Zeitpunkt der (erzwungenen) Abfahrt */
   departureTime: string;
   /** Genutzte Ladeleistung in kW, null falls nicht geladen wurde */
-  ladeleistungKw: number | null;
+  chargingPowerKw: number | null;
   /** SoC bei Ankunft in % */
   arrivalSocPct: number;
   /** SoC bei Abfahrt in % */
@@ -192,14 +192,14 @@ export interface Waypoint {
   dwell_time_s: number | null;
 }
 
-/** Eine in der berechneten Route erkannte Fährverbindung (`FaehrSegmentAPI`). */
+/** Eine in der berechneten Route erkannte Fährverbindung (`FerrySegmentAPI`). */
 export interface FerrySegment {
   name: string;
   lengthM: number;
   bboxSw: [number, number];
   bboxNe: [number, number];
   /** Vom Nutzer vorgegebene Abfahrtszeit (ISO-8601), oder null falls ungeplant. */
-  abfahrt: string | null;
+  departure: string | null;
   /** Vom Nutzer vorgegebene Ankunftszeit (ISO-8601), oder null falls ungeplant. */
-  ankunft: string | null;
+  arrival: string | null;
 }

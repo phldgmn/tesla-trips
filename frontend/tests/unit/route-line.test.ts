@@ -54,13 +54,13 @@ describe("buildSplicedRoute", () => {
     ];
     const d1 = haversineDistanceM(route[0], route[1]);
     const frames = [
-      { distanzM: 0, socPct: 90 },
-      { distanzM: d1, socPct: 70 },
+      { distanceM: 0, socPct: 90 },
+      { distanceM: d1, socPct: 70 },
     ];
     const result = buildSplicedRoute(route, [], frames);
     expect(result.samples).toEqual([
-      { distanzM: 0, socPct: 90 },
-      { distanzM: d1, socPct: 70 },
+      { distanceM: 0, socPct: 90 },
+      { distanceM: d1, socPct: 70 },
     ]);
     expect(result.samples.every((s) => !s.critical)).toBe(true);
   });
@@ -92,13 +92,13 @@ describe("buildSplicedRoute", () => {
       [
         {
           position: station,
-          distanzM: 1000,
+          distanceM: 1000,
           detourGeometrie,
           stationIndex: 2,
           routeIndexVor: 1,
           routeIndexNach: 3,
-          ankunftsSocPct: 25,
-          zielSocPct: 80,
+          arrivalSocPct: 25,
+          targetSocPct: 80,
         },
       ],
       [],
@@ -122,7 +122,7 @@ describe("buildSplicedRoute", () => {
     expect(critical).toHaveLength(2);
     expect(critical[0].socPct).toBe(25);
     expect(critical[1].socPct).toBe(80);
-    expect(critical[1].distanzM).toBeGreaterThan(critical[0].distanzM);
+    expect(critical[1].distanceM).toBeGreaterThan(critical[0].distanceM);
   });
 
   it("places the arrival->departure SoC jump right at the station instead of smearing it over the return leg", () => {
@@ -147,13 +147,13 @@ describe("buildSplicedRoute", () => {
       [
         {
           position: station,
-          distanzM: 1000,
+          distanceM: 1000,
           detourGeometrie,
           stationIndex: 2,
           routeIndexVor: 1,
           routeIndexNach: 3,
-          ankunftsSocPct: 18,
-          zielSocPct: 80,
+          arrivalSocPct: 18,
+          targetSocPct: 80,
         },
       ],
       [],
@@ -161,7 +161,7 @@ describe("buildSplicedRoute", () => {
 
     const critical = result.samples.filter((s) => s.critical);
     expect(critical).toHaveLength(2);
-    const jumpSpan = critical[1].distanzM - critical[0].distanzM;
+    const jumpSpan = critical[1].distanceM - critical[0].distanceM;
     // Der Sprung von Ankunfts- zu Ziel-SoC muss quasi am selben Punkt (der
     // Ladestation) passieren statt ueber die gesamte Rueckfahrt der
     // Detour-Schleife verschmiert zu werden.
@@ -205,12 +205,12 @@ describe("buildSplicedRoute", () => {
 
     const stop = {
       position: station,
-      distanzM: 1000,
+      distanceM: 1000,
       detourGeometrie,
       routeIndexVor: 1,
       routeIndexNach: 3,
-      ankunftsSocPct: 18,
-      zielSocPct: 80,
+      arrivalSocPct: 18,
+      targetSocPct: 80,
     };
 
     const explicit = buildSplicedRoute(
@@ -225,9 +225,9 @@ describe("buildSplicedRoute", () => {
     );
 
     const explicitJumpAt = explicit.samples.filter((s) => s.critical)[0]
-      .distanzM;
+      .distanceM;
     const fallbackJumpAt = fallback.samples.filter((s) => s.critical)[0]
-      .distanzM;
+      .distanceM;
 
     // Mit explizitem stationIndex liegt der Sprung am ECHTEN Anschlusspunkt
     // (weiter entlang der Detour-Geometrie) statt an der naeher liegenden,
@@ -243,26 +243,26 @@ describe("buildSplicedRoute", () => {
       [52.7, 13.6],
     ];
     const station: [number, number] = [52.65, 13.7];
-    const distanzM = haversineDistanceM(route[0], route[1]);
+    const distanceM = haversineDistanceM(route[0], route[1]);
 
     const result = buildSplicedRoute(
       route,
       [
         {
           position: station,
-          distanzM,
+          distanceM,
           detourGeometrie: [],
           stationIndex: null,
           routeIndexVor: null,
           routeIndexNach: null,
-          ankunftsSocPct: 30,
-          zielSocPct: 90,
+          arrivalSocPct: 30,
+          targetSocPct: 90,
         },
       ],
       [],
     );
 
-    // Fallback: naechstliegender Routenpunkt (per distanzM) -> Station ->
+    // Fallback: naechstliegender Routenpunkt (per distanceM) -> Station ->
     // derselbe Routenpunkt, bevor die Route fortgesetzt wird.
     expect(result.coordinates).toEqual([
       [13.4, 52.5],
@@ -275,7 +275,7 @@ describe("buildSplicedRoute", () => {
     expect(critical.map((s) => s.socPct)).toEqual([30, 90]);
   });
 
-  it("sorts charging stops by distanzM regardless of input order", () => {
+  it("sorts charging stops by distanceM regardless of input order", () => {
     const route: [number, number][] = [
       [52.0, 13.0], // 0
       [52.1, 13.1], // 1
@@ -290,30 +290,30 @@ describe("buildSplicedRoute", () => {
       [
         {
           position: [52.31, 13.31],
-          distanzM: d2,
+          distanceM: d2,
           detourGeometrie: [],
           stationIndex: null,
           routeIndexVor: null,
           routeIndexNach: null,
-          ankunftsSocPct: 15,
-          zielSocPct: 85,
+          arrivalSocPct: 15,
+          targetSocPct: 85,
         },
         {
           position: [52.11, 13.11],
-          distanzM: d1,
+          distanceM: d1,
           detourGeometrie: [],
           stationIndex: null,
           routeIndexVor: null,
           routeIndexNach: null,
-          ankunftsSocPct: 40,
-          zielSocPct: 95,
+          arrivalSocPct: 40,
+          targetSocPct: 95,
         },
       ],
       [],
     );
 
     const critical = result.samples.filter((s) => s.critical);
-    // Erster Ladehalt (distanzM=d1, nahe route[1]) zuerst, zweiter (distanzM=d2, nahe route[2]) danach.
+    // Erster Ladehalt (distanceM=d1, nahe route[1]) zuerst, zweiter (distanceM=d2, nahe route[2]) danach.
     expect(critical.map((s) => s.socPct)).toEqual([40, 95, 15, 85]);
   });
 
@@ -334,29 +334,29 @@ describe("buildSplicedRoute", () => {
         {
           // Ueberlappt mit dem ersten Abstecher (Bereich [1,3] vs [0,2]).
           position: stationB,
-          distanzM: 2,
+          distanceM: 2,
           detourGeometrie: [route[1], stationB, route[3]],
           stationIndex: 1,
           routeIndexVor: 1,
           routeIndexNach: 3,
-          ankunftsSocPct: 50,
-          zielSocPct: 60,
+          arrivalSocPct: 50,
+          targetSocPct: 60,
         },
         {
           position: stationA,
-          distanzM: 1,
+          distanceM: 1,
           detourGeometrie: [route[0], stationA, route[2]],
           stationIndex: 1,
           routeIndexVor: 0,
           routeIndexNach: 2,
-          ankunftsSocPct: 10,
-          zielSocPct: 20,
+          arrivalSocPct: 10,
+          targetSocPct: 20,
         },
       ],
       [],
     );
 
-    // Nur der erste (per distanzM sortierte) Abstecher wird gespleisst; der
+    // Nur der erste (per distanceM sortierte) Abstecher wird gespleisst; der
     // ueberlappende zweite wird sicher uebersprungen statt die Linie zu
     // beschaedigen oder eine Endlosschleife zu erzeugen.
     expect(result.coordinates).toEqual([
@@ -427,23 +427,23 @@ describe("splitRouteIntoLegs", () => {
       [
         {
           position: stationA,
-          distanzM: 1000,
+          distanceM: 1000,
           detourGeometrie: detourA,
           stationIndex: 2,
           routeIndexVor: 1,
           routeIndexNach: 3,
-          ankunftsSocPct: 18,
-          zielSocPct: 80,
+          arrivalSocPct: 18,
+          targetSocPct: 80,
         },
         {
           position: stationB,
-          distanzM: 2000,
+          distanceM: 2000,
           detourGeometrie: detourB,
           stationIndex: 2,
           routeIndexVor: 5,
           routeIndexNach: 7,
-          ankunftsSocPct: 22,
-          zielSocPct: 80,
+          arrivalSocPct: 22,
+          targetSocPct: 80,
         },
       ],
       [],
@@ -468,12 +468,12 @@ describe("splitRouteIntoLegs", () => {
     const leg2Critical = legs[1].samples.filter((s) => s.critical);
     const leg3Critical = legs[2].samples.filter((s) => s.critical);
     expect(leg1Critical.map((s) => s.socPct)).toEqual([18]);
-    expect(leg1Critical[0].distanzM).toBeCloseTo(legs[0].totalDistanceM, 3);
+    expect(leg1Critical[0].distanceM).toBeCloseTo(legs[0].totalDistanceM, 3);
     expect(leg2Critical.map((s) => s.socPct)).toEqual([80, 22]);
-    expect(leg2Critical[0].distanzM).toBeLessThan(1);
-    expect(leg2Critical[1].distanzM).toBeCloseTo(legs[1].totalDistanceM, 3);
+    expect(leg2Critical[0].distanceM).toBeLessThan(1);
+    expect(leg2Critical[1].distanceM).toBeCloseTo(legs[1].totalDistanceM, 3);
     expect(leg3Critical.map((s) => s.socPct)).toEqual([80]);
-    expect(leg3Critical[0].distanzM).toBeLessThan(1);
+    expect(leg3Critical[0].distanceM).toBeLessThan(1);
   });
 
   it("splits a waypoint stop (no detour geometry, on-route position) into its own leg too", () => {
@@ -494,7 +494,7 @@ describe("splitRouteIntoLegs", () => {
       [52.0, 8.0],
     ];
     const waypointPosition: [number, number] = [51.0, 8.0];
-    const distanzM =
+    const distanceM =
       haversineDistanceM(route[0], route[1]) +
       haversineDistanceM(route[1], route[2]);
 
@@ -503,13 +503,13 @@ describe("splitRouteIntoLegs", () => {
       [
         {
           position: waypointPosition,
-          distanzM,
+          distanceM,
           detourGeometrie: [],
           stationIndex: null,
           routeIndexVor: null,
           routeIndexNach: null,
-          ankunftsSocPct: 25,
-          zielSocPct: 100,
+          arrivalSocPct: 25,
+          targetSocPct: 100,
         },
       ],
       [],
@@ -628,16 +628,16 @@ describe("projectDistanceAlongLineM", () => {
 
 describe("findNearestRouteSample", () => {
   const samples: RouteSample[] = [
-    { distanzM: 0, socPct: 90, timestamp: "2026-08-16T18:00:00" },
-    { distanzM: 1000, socPct: 70, timestamp: "2026-08-16T18:10:00" },
-    { distanzM: 5000, socPct: 40, timestamp: "2026-08-16T18:30:00" },
+    { distanceM: 0, socPct: 90, timestamp: "2026-08-16T18:00:00" },
+    { distanceM: 1000, socPct: 70, timestamp: "2026-08-16T18:10:00" },
+    { distanceM: 5000, socPct: 40, timestamp: "2026-08-16T18:30:00" },
   ];
 
   it("returns undefined for an empty sample list", () => {
     expect(findNearestRouteSample([], 1000)).toBeUndefined();
   });
 
-  it("returns the exact match when distanzM lines up with a sample", () => {
+  it("returns the exact match when distanceM lines up with a sample", () => {
     expect(findNearestRouteSample(samples, 1000)).toBe(samples[1]);
   });
 
@@ -683,13 +683,13 @@ describe("route-hover regression: post-charging SoC/time near a charging stop", 
     [
       {
         position: station,
-        distanzM: 1000,
+        distanceM: 1000,
         detourGeometrie,
         stationIndex: 2,
         routeIndexVor: 1,
         routeIndexNach: 3,
-        ankunftsSocPct: 20,
-        zielSocPct: 80,
+        arrivalSocPct: 20,
+        targetSocPct: 80,
         arrivalTime: "2026-08-16T19:17:00",
         departureTime: "2026-08-16T19:30:00",
       },
@@ -759,20 +759,20 @@ describe("buildSplicedRoute: FAHREN-Frames innerhalb des margin_m-Puffers", () =
     haversineDistanceM(route[2], route[3]);
   // Tatsaechlicher Abzweigpunkt: mittig im Puffer, wie bei `margin_m=3000`
   // symmetrisch um den echten Ladehalt.
-  const chargeDistanzM = (routeCum1 + routeCum3) / 2;
+  const chargeDistanceM = (routeCum1 + routeCum3) / 2;
 
   const result = buildSplicedRoute(
     route,
     [
       {
         position: station,
-        distanzM: chargeDistanzM,
+        distanceM: chargeDistanceM,
         detourGeometrie,
         stationIndex: 2,
         routeIndexVor: 1,
         routeIndexNach: 3,
-        ankunftsSocPct: 20,
-        zielSocPct: 80,
+        arrivalSocPct: 20,
+        targetSocPct: 80,
         arrivalTime: "2026-08-16T19:17:00",
         departureTime: "2026-08-16T19:30:00",
       },
@@ -781,23 +781,23 @@ describe("buildSplicedRoute: FAHREN-Frames innerhalb des margin_m-Puffers", () =
       // Kurz VOR dem tatsaechlichen Ladehalt, aber noch innerhalb des
       // Puffers [routeIndexVor, routeIndexNach].
       {
-        distanzM: chargeDistanzM - 200,
+        distanceM: chargeDistanceM - 200,
         socPct: 21,
         timestamp: "2026-08-16T19:15:00",
       },
       // Kurz NACH dem Ladehalt, ebenfalls noch innerhalb des Puffers.
       {
-        distanzM: chargeDistanzM + 200,
+        distanceM: chargeDistanceM + 200,
         socPct: 79,
         timestamp: "2026-08-16T19:32:00",
       },
     ],
   );
 
-  it("keeps all samples sorted ascending by distanzM", () => {
+  it("keeps all samples sorted ascending by distanceM", () => {
     for (let i = 1; i < result.samples.length; i++) {
-      expect(result.samples[i].distanzM).toBeGreaterThanOrEqual(
-        result.samples[i - 1].distanzM,
+      expect(result.samples[i].distanceM).toBeGreaterThanOrEqual(
+        result.samples[i - 1].distanceM,
       );
     }
   });
@@ -815,8 +815,8 @@ describe("buildSplicedRoute: FAHREN-Frames innerhalb des margin_m-Puffers", () =
     expect(arrival).toBeDefined();
     expect(departure).toBeDefined();
 
-    expect(preFrame.distanzM).toBeLessThan(arrival.distanzM);
-    expect(arrival.distanzM).toBeLessThan(departure.distanzM);
-    expect(departure.distanzM).toBeLessThan(postFrame.distanzM);
+    expect(preFrame.distanceM).toBeLessThan(arrival.distanceM);
+    expect(arrival.distanceM).toBeLessThan(departure.distanceM);
+    expect(departure.distanceM).toBeLessThan(postFrame.distanceM);
   });
 });

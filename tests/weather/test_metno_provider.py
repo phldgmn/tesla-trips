@@ -55,7 +55,7 @@ async def test_metno_provider_fetch_weather_maps_fields() -> None:
         return httpx.Response(200, json=_metno_json())
 
     provider = MetNorwayProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(koordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 14, 0))
 
     results = await provider.fetch_weather([query])
 
@@ -81,7 +81,7 @@ async def test_metno_provider_snow_symbol_routes_to_schneefall() -> None:
         return httpx.Response(200, json=_metno_json(snow_symbol=True))
 
     provider = MetNorwayProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(koordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 14, 0))
 
     results = await provider.fetch_weather([query])
 
@@ -98,7 +98,7 @@ async def test_metno_provider_missing_hour_returns_no_sample() -> None:
         return httpx.Response(200, json=_metno_json())
 
     provider = MetNorwayProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(koordinate=BERLIN, zeitpunkt=datetime(2026, 8, 20, 9, 0))
+    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 20, 9, 0))
 
     results = await provider.fetch_weather([query])
 
@@ -130,7 +130,7 @@ async def test_metno_provider_http_error_propagates() -> None:
         return httpx.Response(429, json={"error": "rate limited"})
 
     provider = MetNorwayProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(koordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 14, 0))
 
     with pytest.raises(httpx.HTTPStatusError):
         await provider.fetch_weather([query])
@@ -145,8 +145,8 @@ async def test_metno_provider_refetch_weather_delegates_to_fetch() -> None:
         return httpx.Response(200, json=_metno_json())
 
     provider = MetNorwayProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    original = [WeatherQuery(koordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 12, 0))]
-    updated = [WeatherQuery(koordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 14, 0))]
+    original = [WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 12, 0))]
+    updated = [WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 14, 0))]
 
     results = await provider.refetch_weather(original, updated)
 

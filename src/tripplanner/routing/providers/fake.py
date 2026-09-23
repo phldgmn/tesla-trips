@@ -26,32 +26,33 @@ class FakeRoutingProvider:
     """Zielgroesse pro Fake-Segment in Metern."""
 
     async def berechne_route(self, anfrage: TripRequest) -> Route:
-        """Berechnet eine Route für eine TripRequest (inkl. Zwischenstopps) mit Fake-Daten."""
-        zwischenstopps = [(wp.koordinate, wp.aufenthaltsdauer) for wp in anfrage.zwischenstopps]
-        return await self.berechne_route_mit_waypoints(anfrage.start, anfrage.ziel, zwischenstopps)
+        """Compute a fake route for a TripRequest, including its waypoints."""
+        waypoints = [(wp.coordinate, wp.stay_duration) for wp in anfrage.waypoints]
+        return await self.berechne_route_mit_waypoints(
+            anfrage.start, anfrage.destination, waypoints
+        )
 
     async def berechne_route_mit_waypoints(
         self,
         start: Coordinate,
-        ziel: Coordinate,
-        zwischenstopps: list[tuple[Coordinate, timedelta | None]],
+        destination: Coordinate,
+        waypoints: list[tuple[Coordinate, timedelta | None]],
     ) -> Route:
-        """Berechnet eine diskretisierte Route mit Zwischenstopps mit Fake-Daten."""
-        waypoints = [start] + [wp[0] for wp in zwischenstopps] + [ziel]
+        """Compute a discretized fake route through the given waypoints."""
+        points = [start] + [wp[0] for wp in waypoints] + [destination]
 
         segments: list[RouteSegment] = []
         total_distance = 0.0
         full_geometrie = [start]
-        # Exakter Segment-Index jedes Zwischenstopps (siehe
-        # `Route.via_point_indices`-Docstring): hier trivial verfuegbar, da
-        # jede Teilstrecke separat konkateniert wird - der Zwischenstopp
-        # `waypoints[i]` liegt exakt an der Segment-Anzahl nach Abschluss der
-        # vorherigen Teilstrecke.
+        # Exact segment index of each waypoint (see the `Route.via_point_indices`
+        # docstring): trivially available here because each leg is concatenated
+        # separately - waypoint `points[i]` sits exactly at the segment count
+        # after the previous leg is finished.
         via_point_indices: list[int] = []
 
-        for i in range(len(waypoints) - 1):
+        for i in range(len(points) - 1):
             for seg_start, seg_ende, laenge_m in self._diskretisiere_teilstrecke(
-                waypoints[i], waypoints[i + 1]
+                points[i], points[i + 1]
             ):
                 segments.append(
                     RouteSegment(
@@ -67,12 +68,11 @@ class FakeRoutingProvider:
                 )
                 total_distance += laenge_m
                 full_geometrie.append(seg_ende)
-            # waypoints[i + 1] ist ein Zwischenstopp, falls es nicht das Ziel
-            # (letztes Element) ist.
-            if i + 1 < len(waypoints) - 1:
+            # points[i + 1] is a waypoint unless it is the destination (last item).
+            if i + 1 < len(points) - 1:
                 via_point_indices.append(len(segments))
         if not segments:
-            # Start und Ziel identisch: liefere minimale Route mit einem Segment
+            # Start and destination are identical: return a minimal one-segment route
             segments.append(
                 RouteSegment(
                     segment_index=0,
@@ -92,10 +92,10 @@ class FakeRoutingProvider:
             gesamtlaenge_m=total_distance,
             geometrie=full_geometrie,
             bbox=(
-                min(wp[0] for wp in waypoints),
-                min(wp[1] for wp in waypoints),
-                max(wp[0] for wp in waypoints),
-                max(wp[1] for wp in waypoints),
+                min(pt[0] for pt in points),
+                min(pt[1] for pt in points),
+                max(pt[0] for pt in points),
+                max(pt[1] for pt in points),
             ),
             via_point_indices=via_point_indices,
         )

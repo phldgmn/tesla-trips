@@ -70,7 +70,7 @@ def _make_segment_eta(
 def _make_sample(coordinate: Coordinate, zeitpunkt: datetime, temperatur_c: float) -> WeatherSample:
     """Builds a distinguishable `WeatherSample` for interpolation/fan-out assertions."""
     return WeatherSample(
-        koordinate=coordinate,
+        coordinate=coordinate,
         zeitpunkt=zeitpunkt,
         temperatur_c=temperatur_c,
         windgeschwindigkeit_ms=5.0,
@@ -87,7 +87,7 @@ def _make_sample(coordinate: Coordinate, zeitpunkt: datetime, temperatur_c: floa
 def _weather_sample(**overrides: object) -> WeatherSample:
     """Builds a `WeatherSample` with sane defaults, overridable per field."""
     defaults: dict[str, object] = {
-        "koordinate": (52.0, 13.0),
+        "coordinate": (52.0, 13.0),
         "zeitpunkt": ABFAHRTSZEIT,
         "temperatur_c": 10.0,
         "windgeschwindigkeit_ms": 5.0,
@@ -349,7 +349,7 @@ class TestFetchHigh:
             await fetch_weather_by_detail(
                 provider=provider,
                 segment_eta_list=segment_eta,
-                abfahrtszeit=ABFAHRTSZEIT,
+                departure_time=ABFAHRTSZEIT,
                 detail="high",
             )
 
@@ -358,7 +358,7 @@ class TestFetchHigh:
                 segment_eta[idx][0].geometrie[len(segment_eta[idx][0].geometrie) // 2]
                 for idx in expected_indices
             }
-            actual_coords = {q.koordinate for q in provider.fetch_weather_calls[0]}
+            actual_coords = {q.coordinate for q in provider.fetch_weather_calls[0]}
             assert actual_coords == expected_coords
 
     @pytest.mark.asyncio
@@ -383,7 +383,7 @@ class TestFetchHigh:
         await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="high",
         )
 
@@ -403,7 +403,7 @@ class TestFetchHigh:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="high",
         )
 
@@ -421,14 +421,14 @@ class TestFetchHigh:
         await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="high",
         )
 
         queried_indices: set[int] = set()
         for seg_idx, (seg, _) in enumerate(segment_eta):
             for q in provider.fetch_weather_calls[0]:
-                if q.koordinate == seg.geometrie[len(seg.geometrie) // 2]:
+                if q.coordinate == seg.geometrie[len(seg.geometrie) // 2]:
                     queried_indices.add(seg_idx)
                     break
         assert 0 in queried_indices
@@ -443,7 +443,7 @@ class TestFetchHigh:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="high",
         )
 
@@ -459,7 +459,7 @@ class TestFetchHigh:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=eta_list,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="high",
         )
 
@@ -484,7 +484,7 @@ class TestFetchLow:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="low",
         )
 
@@ -502,7 +502,7 @@ class TestFetchLow:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="low",
         )
 
@@ -517,14 +517,14 @@ class TestFetchLow:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="low",
         )
 
         for i, sample in enumerate(result):
             seg = segment_eta[i][0]
             expected_coord = seg.geometrie[len(seg.geometrie) // 2]
-            assert sample.koordinate == expected_coord
+            assert sample.coordinate == expected_coord
 
     @pytest.mark.asyncio
     async def test_low_sample_has_segment_own_timestamp(self) -> None:
@@ -536,7 +536,7 @@ class TestFetchLow:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=eta_list,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="low",
         )
 
@@ -566,7 +566,7 @@ class TestFetchLow:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="low",
         )
 
@@ -593,7 +593,7 @@ class TestFetchLow:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="low",
         )
 
@@ -634,7 +634,7 @@ class TestFetchLow:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="low",
         )
 
@@ -658,7 +658,7 @@ class TestFetchMedium:
             await fetch_weather_by_detail(
                 provider=provider,
                 segment_eta_list=segment_eta,
-                abfahrtszeit=ABFAHRTSZEIT,
+                departure_time=ABFAHRTSZEIT,
                 detail="medium",
             )
 
@@ -669,7 +669,7 @@ class TestFetchMedium:
                 segment_eta[idx][0].geometrie[len(segment_eta[idx][0].geometrie) // 2]
                 for idx in expected_indices
             }
-            actual_coords = {q.koordinate for q in provider.fetch_weather_calls[0]}
+            actual_coords = {q.coordinate for q in provider.fetch_weather_calls[0]}
             assert actual_coords == expected_coords
 
     @pytest.mark.asyncio
@@ -694,7 +694,7 @@ class TestFetchMedium:
         await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="medium",
         )
 
@@ -713,14 +713,14 @@ class TestFetchMedium:
         await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="medium",
         )
 
         queried_indices: set[int] = set()
         for seg_idx, (seg, _) in enumerate(segment_eta):
             for q in provider.fetch_weather_calls[0]:
-                if q.koordinate == seg.geometrie[len(seg.geometrie) // 2]:
+                if q.coordinate == seg.geometrie[len(seg.geometrie) // 2]:
                     queried_indices.add(seg_idx)
                     break
         assert 0 in queried_indices
@@ -735,7 +735,7 @@ class TestFetchMedium:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="medium",
         )
 
@@ -777,7 +777,7 @@ class TestFetchMedium:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="medium",
         )
 
@@ -794,7 +794,7 @@ class TestFetchMedium:
             expected_temp = 5.0 + frac * (10.0 - 5.0)
             assert result[seg_idx].temperatur_c == pytest.approx(expected_temp)
             expected_coord = segments[seg_idx].geometrie[len(segments[seg_idx].geometrie) // 2]
-            assert result[seg_idx].koordinate == expected_coord
+            assert result[seg_idx].coordinate == expected_coord
 
 
 # ── Edge cases ───────────────────────────────────────────────────────────────
@@ -811,7 +811,7 @@ class TestEdgeCases:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=[],
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="high",
         )
 
@@ -823,7 +823,7 @@ class TestEdgeCases:
         result = await fetch_weather_by_detail(
             provider=FakeWeatherProvider(),
             segment_eta_list=[],
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="low",
         )
         assert result == []
@@ -833,7 +833,7 @@ class TestEdgeCases:
         result = await fetch_weather_by_detail(
             provider=FakeWeatherProvider(),
             segment_eta_list=[],
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="medium",
         )
         assert result == []
@@ -847,7 +847,7 @@ class TestEdgeCases:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="high",
         )
 
@@ -864,7 +864,7 @@ class TestEdgeCases:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="low",
         )
 
@@ -880,7 +880,7 @@ class TestEdgeCases:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            abfahrtszeit=ABFAHRTSZEIT,
+            departure_time=ABFAHRTSZEIT,
             detail="medium",
         )
 
@@ -897,7 +897,7 @@ class TestEdgeCases:
             await fetch_weather_by_detail(
                 provider=provider,
                 segment_eta_list=segment_eta,
-                abfahrtszeit=ABFAHRTSZEIT,
+                departure_time=ABFAHRTSZEIT,
                 detail="off",
             )
 
@@ -911,6 +911,6 @@ class TestEdgeCases:
             await fetch_weather_by_detail(
                 provider=provider,
                 segment_eta_list=segment_eta,
-                abfahrtszeit=ABFAHRTSZEIT,
+                departure_time=ABFAHRTSZEIT,
                 detail="super_high",  # type: ignore[arg-type]
             )

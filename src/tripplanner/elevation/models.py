@@ -19,18 +19,18 @@ class ElevationPoint(BaseModel):
     """Höhenwert an einer Koordinate.
 
     Args:
-        koordinate: Breitengrad, Längengrad (WGS84, Grad)
+        coordinate: Breitengrad, Längengrad (WGS84, Grad)
         hoehe_m: Höhe über NN in Metern (ungültige Werte: -9999 → nicht belegt)
     """
 
-    koordinate: Coordinate = Field(description="Breitengrad, Längengrad (WGS84, Grad)")
+    coordinate: Coordinate = Field(description="Breitengrad, Längengrad (WGS84, Grad)")
     hoehe_m: float = Field(
         ge=HEIGHT_MIN,
         le=HEIGHT_MAX,
         description="Höhe über NN in Metern (ungültige Werte: -9999 → nicht belegt)",
     )
 
-    @field_validator("koordinate")
+    @field_validator("coordinate")
     @classmethod
     def validate_koordinate(cls, v: Coordinate) -> Coordinate:
         """Validiere Koordinaten-Bereiche."""

@@ -30,11 +30,11 @@ LEIPZIG_COORD: Final[tuple[float, float]] = (51.3397, 12.3731)
 def vehicle_profile() -> VehicleProfile:
     """Beispiel-Fahrzeugprofil."""
     return VehicleProfile(
-        masse_kg=1706.0,
-        cw_wert=0.23,
-        stirnflaeche_m2=2.22,
-        rollwiderstandsbeiwert=0.011,
-        batteriekapazitaet_kwh=62.5,
+        mass_kg=1706.0,
+        drag_coefficient=0.23,
+        frontal_area_m2=2.22,
+        rolling_resistance_coefficient=0.011,
+        battery_capacity_kwh=62.5,
     )
 
 
@@ -43,7 +43,7 @@ def optimization_constraints() -> OptimizationConstraints:
     """Standard-Optimierungs-Constraints."""
     return OptimizationConstraints(
         min_soc_pct=15.0,
-        ziel_soc_pct=80.0,
+        target_soc_pct=80.0,
         sicherheitsreserve_pct=5.0,
     )
 
@@ -273,6 +273,6 @@ def route_with_waypoint() -> Route:
 def waypoint_leipzig() -> Waypoint:
     """Zwischenstopp bei Leipzig mit 15-min-Pause."""
     return Waypoint(
-        koordinate=LEIPZIG_COORD,
-        aufenthaltsdauer=timedelta(minutes=15),
+        coordinate=LEIPZIG_COORD,
+        stay_duration=timedelta(minutes=15),
     )

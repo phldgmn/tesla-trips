@@ -10,7 +10,7 @@ export * from "./route-legs";
 /** Ein SoC-Stuetzpunkt fuer `buildSocGradientExpression`, positioniert per
  * kumulierter Distanz entlang der GESPLICETEN Linie (inkl. Abstecher-Laenge). */
 export interface RouteSample {
-  distanzM: number;
+  distanceM: number;
   socPct: number;
   /** Zeitpunkt (ISO) dieses Stuetzpunkts - fuer den Routen-Hover-Tooltip
    *  (siehe `findNearestRouteSample`/`buildRouteHoverText` in `Map.tsx`).
@@ -128,23 +128,23 @@ export function projectDistanceAlongLineM(
   return bestCumulative;
 }
 
-/** Findet den `RouteSample`, dessen `distanzM` (kumulierte Distanz entlang
- * der gesplicete Linie) am naechsten an `distanzM` liegt - per Binaersuche,
- * da `samples` nach `distanzM` aufsteigend sortiert ist (siehe
+/** Findet den `RouteSample`, dessen `distanceM` (kumulierte Distanz entlang
+ * der gesplicete Linie) am naechsten an `distanceM` liegt - per Binaersuche,
+ * da `samples` nach `distanceM` aufsteigend sortiert ist (siehe
  * `buildSplicedRoute`). Genutzt zusammen mit `projectDistanceAlongLineM` fuer
  * den Routen-Hover-Tooltip: die Mausposition wird auf die gezeichnete Linie
  * projiziert, die resultierende Distanz-entlang-der-Linie dann hier auf den
  * naechstgelegenen Stuetzpunkt (mit Zeitpunkt + SoC) abgebildet. */
 export function findNearestRouteSample(
   samples: RouteSample[],
-  distanzM: number,
+  distanceM: number,
 ): RouteSample | undefined {
   if (samples.length === 0) return undefined;
   let lo = 0;
   let hi = samples.length - 1;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (samples[mid].distanzM < distanzM) {
+    if (samples[mid].distanceM < distanceM) {
       lo = mid + 1;
     } else {
       hi = mid;
@@ -152,8 +152,8 @@ export function findNearestRouteSample(
   }
   if (
     lo > 0 &&
-    Math.abs(samples[lo - 1].distanzM - distanzM) <
-      Math.abs(samples[lo].distanzM - distanzM)
+    Math.abs(samples[lo - 1].distanceM - distanceM) <
+      Math.abs(samples[lo].distanceM - distanceM)
   ) {
     return samples[lo - 1];
   }

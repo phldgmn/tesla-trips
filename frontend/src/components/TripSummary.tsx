@@ -60,11 +60,11 @@ export interface TimePlanEntry {
    *  Verfügbarkeitsbedingung wie `distanceSinceLastKm`. */
   durationSinceLastMin: number | null;
   /** SoC bei Ankunft in %, oder null (z. B. am Start, der keine Ankunft hat). */
-  ankunftsSocPct: number | null;
+  arrivalSocPct: number | null;
   /** SoC bei Abfahrt in %, oder null (z. B. am Ziel, das keine Abfahrt hat). */
-  abfahrtsSocPct: number | null;
+  departureSocPct: number | null;
   /** Während eines Ladehalts geladene Energie in kWh, sonst null. */
-  energieGeladenKwh: number | null;
+  energyChargedKwh: number | null;
   /** Geschätzte Kosten dieses Ladehalts, oder null (kein Ladehalt oder keine
    *  gecachten Preisdaten für die Station vorhanden). */
   estimatedCost: number | null;
@@ -78,7 +78,7 @@ export interface TimePlanEntry {
  *  vorgegebene Zeit erhalten eine geschätzte Ankunfts-/Abfahrtszeit anhand
  *  ihrer Bounding-Box-Mitte (siehe `estimatePositionTiming`), damit auch sie
  *  chronologisch einsortiert werden können (gleiches Vorgehen wie in
- *  `route-eintraege.ts` für die Routen-Hoverkarte).
+ *  `route-entries.ts` für die Routen-Hoverkarte).
  *
  * Ergänzt für jeden Eintrag (soweit ermittelbar) die seit dem vorherigen
  * Eintrag gefahrene Strecke/Zeit sowie den SoC bei Ankunft/Abfahrt, indem der
@@ -97,7 +97,7 @@ export function buildTimePlan(
   // aus `result.waypoint_stops`, siehe `ZwischenstoppAufenthalt` im Backend)
   // statt der nur GESCHAETZTEN Werte aus `estimateWaypointTimings` (nächst-
   // gelegener Simulationsframe) - Koordinaten sind identisch, da `Stop.
-  // position` unveraendert als `Waypoint.koordinate` an das Backend
+  // position` unveraendert als `Waypoint.coordinate` an das Backend
   // durchgereicht wird.
   const stopEntries: TimePlanEntry[] = stops.map((stop, i) => {
     const waypointStop = stop.position
@@ -115,9 +115,9 @@ export function buildTimePlan(
       departure: waypointStop?.departureTime ?? timings[i]?.departure ?? null,
       distanceSinceLastKm: null,
       durationSinceLastMin: null,
-      ankunftsSocPct: waypointStop?.arrivalSocPct ?? null,
-      abfahrtsSocPct: waypointStop?.targetSocPct ?? null,
-      energieGeladenKwh: waypointStop?.energyChargedKwh ?? null,
+      arrivalSocPct: waypointStop?.arrivalSocPct ?? null,
+      departureSocPct: waypointStop?.targetSocPct ?? null,
+      energyChargedKwh: waypointStop?.energyChargedKwh ?? null,
       estimatedCost: null,
       costCurrency: null,
     };
@@ -132,17 +132,17 @@ export function buildTimePlan(
       departure: stop.departureTime,
       distanceSinceLastKm: null,
       durationSinceLastMin: null,
-      ankunftsSocPct: stop.arrivalSocPct,
-      abfahrtsSocPct: stop.targetSocPct,
-      energieGeladenKwh: stop.energyChargedKwh,
+      arrivalSocPct: stop.arrivalSocPct,
+      departureSocPct: stop.targetSocPct,
+      energyChargedKwh: stop.energyChargedKwh,
       estimatedCost: stop.estimatedCost,
       costCurrency: stop.currency,
     }),
   );
 
   const ferryEntries: TimePlanEntry[] = result.detectedFerries.map((f, idx) => {
-    let arrival = f.abfahrt;
-    let departure = f.ankunft;
+    let arrival = f.departure;
+    let departure = f.arrival;
     if (arrival === null || departure === null) {
       const bboxCenter: [number, number] = [
         (f.bboxSw[0] + f.bboxNe[0]) / 2,
@@ -153,16 +153,16 @@ export function buildTimePlan(
       departure = departure ?? estimated.departure;
     }
     return {
-      key: `faehre-${idx}-${f.name}`,
+      key: `ferry-${idx}-${f.name}`,
       art: "Fähre",
       label: f.name,
       arrival,
       departure,
       distanceSinceLastKm: null,
       durationSinceLastMin: null,
-      ankunftsSocPct: null,
-      abfahrtsSocPct: null,
-      energieGeladenKwh: null,
+      arrivalSocPct: null,
+      departureSocPct: null,
+      energyChargedKwh: null,
       estimatedCost: null,
       costCurrency: null,
     };
@@ -211,14 +211,14 @@ export function buildTimePlan(
     if (entry.art !== "Ladehalt") {
       // Exakte Werte (aus `result.waypoint_stops`, siehe oben) NICHT durch
       // die nur geschaetzte Frame-Naeherung ueberschreiben.
-      if (entry.ankunftsSocPct === null) {
-        entry.ankunftsSocPct =
+      if (entry.arrivalSocPct === null) {
+        entry.arrivalSocPct =
           entry.arrival && arrivalIdx !== null
             ? frames[arrivalIdx].socPct
             : null;
       }
-      if (entry.abfahrtsSocPct === null) {
-        entry.abfahrtsSocPct =
+      if (entry.departureSocPct === null) {
+        entry.departureSocPct =
           entry.departure && exitIdx !== null ? frames[exitIdx].socPct : null;
       }
     }
@@ -440,12 +440,12 @@ function TripSummary({ result, stops }: TripSummaryProps) {
                 <td style={cellStyle}>{formatShortDate(entry.arrival)}</td>
                 <td style={rightCellStyle}>{formatTime(entry.arrival)}</td>
                 <td style={rightCellStyle}>
-                  {formatSocOrDash(entry.ankunftsSocPct)}
+                  {formatSocOrDash(entry.arrivalSocPct)}
                 </td>
                 <td style={cellStyle}>{formatShortDate(entry.departure)}</td>
                 <td style={rightCellStyle}>{formatTime(entry.departure)}</td>
                 <td style={rightCellStyle}>
-                  {formatSocOrDash(entry.abfahrtsSocPct)}
+                  {formatSocOrDash(entry.departureSocPct)}
                 </td>
                 <td style={rightCellStyle}>
                   {formatKmOrDash(entry.distanceSinceLastKm)}
@@ -454,7 +454,7 @@ function TripSummary({ result, stops }: TripSummaryProps) {
                   {formatMinutesOrDash(entry.durationSinceLastMin)}
                 </td>
                 <td style={rightCellStyle}>
-                  {formatKwhOrDash(entry.energieGeladenKwh)}
+                  {formatKwhOrDash(entry.energyChargedKwh)}
                 </td>
                 <td style={rightCellStyle}>
                   {entry.art === "Ladehalt"

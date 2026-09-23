@@ -131,7 +131,7 @@ class TestPositionsInterpolation:
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
             output_resolution_seconds=4500,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert len(result.frames) == 2
@@ -160,7 +160,7 @@ class TestPositionsInterpolation:
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
             output_resolution_seconds=100,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert len(result.frames) > 1
@@ -184,7 +184,7 @@ class TestPositionsInterpolation:
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
             output_resolution_seconds=750,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         frame_at_750s = result.frames[1]
@@ -208,11 +208,11 @@ class TestStateTransitions:
                 ChargingStop(
                     station=charging_station_leipzig,
                     segment_index=1,
-                    ankunfts_soc_pct=30.0,
-                    ziel_soc_pct=60.0,
+                    arrival_soc_pct=30.0,
+                    target_soc_pct=60.0,
                     geschaetzte_ladedauer_s=1800,
                     ankunftszeit=base_time + timedelta(seconds=1500),
-                    abfahrtszeit=base_time + timedelta(seconds=3300),
+                    departure_time=base_time + timedelta(seconds=3300),
                 ),
             ],
             gesamtreisezeit_s=6300,
@@ -224,7 +224,7 @@ class TestStateTransitions:
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
             output_resolution_seconds=60,
-            abfahrtszeit=base_time,
+            departure_time=base_time,
         )
 
         zustande = [f.zustand for f in result.frames]
@@ -246,11 +246,11 @@ class TestStateTransitions:
                 ChargingStop(
                     station=charging_station_leipzig,
                     segment_index=1,
-                    ankunfts_soc_pct=30.0,
-                    ziel_soc_pct=80.0,
+                    arrival_soc_pct=30.0,
+                    target_soc_pct=80.0,
                     geschaetzte_ladedauer_s=1800,
                     ankunftszeit=base_time + timedelta(seconds=1500),
-                    abfahrtszeit=base_time + timedelta(seconds=3300),
+                    departure_time=base_time + timedelta(seconds=3300),
                 ),
             ],
             gesamtreisezeit_s=6300,
@@ -262,7 +262,7 @@ class TestStateTransitions:
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
             output_resolution_seconds=600,
-            abfahrtszeit=base_time,
+            departure_time=base_time,
         )
 
         laden_frames = [f for f in result.frames if f.zustand == TripState.LADEN]
@@ -292,7 +292,7 @@ class TestSocChanges:
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
             output_resolution_seconds=60,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         first_soc = result.frames[0].soc_pct
@@ -312,11 +312,11 @@ class TestSocChanges:
                 ChargingStop(
                     station=charging_station_leipzig,
                     segment_index=1,
-                    ankunfts_soc_pct=30.0,
-                    ziel_soc_pct=60.0,
+                    arrival_soc_pct=30.0,
+                    target_soc_pct=60.0,
                     geschaetzte_ladedauer_s=1800,
                     ankunftszeit=base_time + timedelta(seconds=1500),
-                    abfahrtszeit=base_time + timedelta(seconds=3300),
+                    departure_time=base_time + timedelta(seconds=3300),
                 ),
             ],
             gesamtreisezeit_s=6300,
@@ -327,7 +327,7 @@ class TestSocChanges:
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
             output_resolution_seconds=600,
-            abfahrtszeit=base_time,
+            departure_time=base_time,
         )
 
         laden_frames = [f for f in result.frames if f.zustand == TripState.LADEN]
@@ -355,7 +355,7 @@ class TestTotals:
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
             output_resolution_seconds=60,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert result.gesamt_distanz_km == pytest.approx(150.0, abs=0.1)
@@ -376,7 +376,7 @@ class TestTotals:
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
             output_resolution_seconds=60,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert result.gesamt_fahrzeit_min == pytest.approx(75.0, abs=0.1)
@@ -394,11 +394,11 @@ class TestTotals:
                 ChargingStop(
                     station=charging_station_leipzig,
                     segment_index=1,
-                    ankunfts_soc_pct=30.0,
-                    ziel_soc_pct=60.0,
+                    arrival_soc_pct=30.0,
+                    target_soc_pct=60.0,
                     geschaetzte_ladedauer_s=1800,
                     ankunftszeit=base_time + timedelta(seconds=1500),
-                    abfahrtszeit=base_time + timedelta(seconds=3300),
+                    departure_time=base_time + timedelta(seconds=3300),
                 ),
             ],
             gesamtreisezeit_s=6300,
@@ -409,7 +409,7 @@ class TestTotals:
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
             output_resolution_seconds=60,
-            abfahrtszeit=base_time,
+            departure_time=base_time,
         )
 
         assert result.gesamt_ladezeit_min == pytest.approx(30.0, abs=0.1)
@@ -435,7 +435,7 @@ class TestResolution:
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
             output_resolution_seconds=10,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert len(result.frames) >= 360
@@ -456,7 +456,7 @@ class TestResolution:
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
             output_resolution_seconds=600,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert len(result.frames) >= 6
@@ -481,25 +481,25 @@ class TestNoChargingScenario:
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
             output_resolution_seconds=60,
         )
 
         assert all(f.zustand == TripState.FAHREN for f in result.frames)
         assert result.gesamt_ladezeit_min == pytest.approx(0.0, abs=0.01)
-        assert result.start_soc_pct > result.ziel_soc_pct
+        assert result.start_soc_pct > result.target_soc_pct
 
 
 class TestDepartureTimeBasis:
-    """Regressionstests Bug 1: Zeitstempel muessen auf abfahrtszeit basieren, nicht Unix-Epoch."""
+    """Regressionstests Bug 1: Zeitstempel muessen auf departure_time basieren, nicht Unix-Epoch."""
 
     def test_timepoint_based_on_departuretime(
         self,
         route_3_segments: Route,
         energy_results_3_segments: list[SegmentEnergyResult],
     ) -> None:
-        """Erster Frame-Zeitpunkt entspricht exakt der uebergebenen abfahrtszeit (nicht 1970)."""
-        abfahrtszeit = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
+        """Erster Frame-Zeitpunkt entspricht exakt der uebergebenen departure_time (nicht 1970)."""
+        departure_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
         plan = ChargingPlan(ladehalte=[], gesamtreisezeit_s=600)
 
         result = simulate_trip(
@@ -507,20 +507,20 @@ class TestDepartureTimeBasis:
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
-            abfahrtszeit=abfahrtszeit,
+            departure_time=departure_time,
             output_resolution_seconds=60,
         )
 
-        assert result.frames[0].zeitpunkt == abfahrtszeit
-        assert result.frames[1].zeitpunkt == abfahrtszeit + timedelta(seconds=60)
+        assert result.frames[0].zeitpunkt == departure_time
+        assert result.frames[1].zeitpunkt == departure_time + timedelta(seconds=60)
 
     def test_timepoint_with_other_departuretime(
         self,
         route_3_segments: Route,
         energy_results_3_segments: list[SegmentEnergyResult],
     ) -> None:
-        """Eine voellig andere abfahrtszeit fuehrt zu entsprechend verschobenen Zeitstempeln."""
-        abfahrtszeit = datetime(2030, 1, 1, 12, 0, 0, tzinfo=UTC)
+        """Eine voellig andere departure_time fuehrt zu entsprechend verschobenen Zeitstempeln."""
+        departure_time = datetime(2030, 1, 1, 12, 0, 0, tzinfo=UTC)
         plan = ChargingPlan(ladehalte=[], gesamtreisezeit_s=600)
 
         result = simulate_trip(
@@ -528,13 +528,13 @@ class TestDepartureTimeBasis:
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
-            abfahrtszeit=abfahrtszeit,
+            departure_time=departure_time,
             output_resolution_seconds=60,
         )
 
-        assert result.frames[0].zeitpunkt == abfahrtszeit
+        assert result.frames[0].zeitpunkt == departure_time
         assert result.frames[0].zeitpunkt.year == 2030
-        assert result.frames[-1].zeitpunkt > abfahrtszeit
+        assert result.frames[-1].zeitpunkt > departure_time
 
 
 class TestSocDepletionPhysikalischKorrekt:
@@ -557,7 +557,7 @@ class TestSocDepletionPhysikalischKorrekt:
             charging_plan=plan,
             segment_energy=energy_results,
             start_soc_pct=80.0,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
             output_resolution_seconds=3600,
             battery_capacity_kwh=50.0,
         )
@@ -580,7 +580,7 @@ class TestSocDepletionPhysikalischKorrekt:
             charging_plan=plan,
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
             output_resolution_seconds=60,
             battery_capacity_kwh=battery_capacity_kwh,
         )
@@ -620,7 +620,8 @@ class TestSocBaselineAfterChargingStop:
             if e.segment_index >= ladehalt.segment_index
         )
         erwarteter_end_soc = (
-            ladehalt.ziel_soc_pct - (energy_after_charging_stop_kwh / battery_capacity_kwh) * 100.0
+            ladehalt.target_soc_pct
+            - (energy_after_charging_stop_kwh / battery_capacity_kwh) * 100.0
         )
         wrong_end_soc = (
             80.0
@@ -636,7 +637,7 @@ class TestSocBaselineAfterChargingStop:
             charging_plan=plan_with_charging,
             segment_energy=energy_results_with_charging,
             start_soc_pct=80.0,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
             output_resolution_seconds=60,
             battery_capacity_kwh=battery_capacity_kwh,
         )
@@ -664,13 +665,13 @@ class TestZwischenstoppAufenthalt:
         base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
         stopp_koordinate = (51.0, 12.0)
         aufenthalt = ZwischenstoppAufenthalt(
-            koordinate=stopp_koordinate,
+            coordinate=stopp_koordinate,
             segment_index=1,
             ankunftszeit=base_time + timedelta(seconds=1500),
-            abfahrtszeit=base_time + timedelta(seconds=3300),
-            ladeleistung_kw=None,
-            ankunfts_soc_pct=55.0,
-            ziel_soc_pct=55.0,
+            departure_time=base_time + timedelta(seconds=3300),
+            charging_power_kw=None,
+            arrival_soc_pct=55.0,
+            target_soc_pct=55.0,
         )
         plan = ChargingPlan(
             ladehalte=[],
@@ -684,7 +685,7 @@ class TestZwischenstoppAufenthalt:
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
             output_resolution_seconds=60,
-            abfahrtszeit=base_time,
+            departure_time=base_time,
         )
 
         pause_frames = [f for f in result.frames if f.zustand == TripState.PAUSE]
@@ -695,7 +696,7 @@ class TestZwischenstoppAufenthalt:
             assert frame.soc_pct == pytest.approx(55.0, abs=0.5)
         assert result.gesamt_wartezeit_min == pytest.approx(30.0, abs=0.1)
         assert result.waypoint_stops[0].position == stopp_koordinate
-        assert result.waypoint_stops[0].ladeleistung_kw is None
+        assert result.waypoint_stops[0].charging_power_kw is None
 
     def test_wartezeit_mit_ladeleistung_ergibt_laden_frame_mit_steigendem_soc(
         self,
@@ -707,13 +708,13 @@ class TestZwischenstoppAufenthalt:
         base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
         stopp_koordinate = (51.0, 12.0)
         aufenthalt = ZwischenstoppAufenthalt(
-            koordinate=stopp_koordinate,
+            coordinate=stopp_koordinate,
             segment_index=1,
             ankunftszeit=base_time + timedelta(seconds=1500),
-            abfahrtszeit=base_time + timedelta(seconds=3300),
-            ladeleistung_kw=11.0,
-            ankunfts_soc_pct=40.0,
-            ziel_soc_pct=60.0,
+            departure_time=base_time + timedelta(seconds=3300),
+            charging_power_kw=11.0,
+            arrival_soc_pct=40.0,
+            target_soc_pct=60.0,
         )
         plan = ChargingPlan(
             ladehalte=[],
@@ -727,7 +728,7 @@ class TestZwischenstoppAufenthalt:
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
             output_resolution_seconds=60,
-            abfahrtszeit=base_time,
+            departure_time=base_time,
         )
 
         laden_frames = [f for f in result.frames if f.zustand == TripState.LADEN]
@@ -741,7 +742,7 @@ class TestZwischenstoppAufenthalt:
         # `gesamt_ladezeit_min` ein.
         assert result.gesamt_wartezeit_min == pytest.approx(30.0, abs=0.1)
         assert result.gesamt_ladezeit_min == pytest.approx(0.0, abs=0.1)
-        assert result.waypoint_stops[0].ladeleistung_kw == 11.0
+        assert result.waypoint_stops[0].charging_power_kw == 11.0
         assert result.waypoint_stops[0].energie_geladen_kwh > 0.0
 
     def test_soc_nach_wartezeit_bleibt_baseline_fuer_folgefahrt(
@@ -755,13 +756,13 @@ class TestZwischenstoppAufenthalt:
         siehe `TestSocBaselineAfterChargingStop`)."""
         base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
         aufenthalt = ZwischenstoppAufenthalt(
-            koordinate=(51.0, 12.0),
+            coordinate=(51.0, 12.0),
             segment_index=1,
             ankunftszeit=base_time + timedelta(seconds=1500),
-            abfahrtszeit=base_time + timedelta(seconds=3300),
-            ladeleistung_kw=11.0,
-            ankunfts_soc_pct=30.0,
-            ziel_soc_pct=70.0,
+            departure_time=base_time + timedelta(seconds=3300),
+            charging_power_kw=11.0,
+            arrival_soc_pct=30.0,
+            target_soc_pct=70.0,
         )
         plan = ChargingPlan(
             ladehalte=[],
@@ -775,13 +776,13 @@ class TestZwischenstoppAufenthalt:
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
             output_resolution_seconds=60,
-            abfahrtszeit=base_time,
+            departure_time=base_time,
         )
 
         fahren_frames_nach_aufenthalt = [
             f
             for f in result.frames
-            if f.zustand == TripState.FAHREN and f.zeitpunkt > aufenthalt.abfahrtszeit
+            if f.zustand == TripState.FAHREN and f.zeitpunkt > aufenthalt.departure_time
         ]
         assert fahren_frames_nach_aufenthalt
         # Erster FAHREN-Frame nach der Ladung darf nicht weit unter 70% liegen
@@ -810,13 +811,13 @@ class TestZwischenstoppAufenthalt:
         unten), 55 km vom tatsaechlichen Zwischenstopp entfernt."""
         base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
         aufenthalt = ZwischenstoppAufenthalt(
-            koordinate=(50.5, 9.0),
+            coordinate=(50.5, 9.0),
             segment_index=2,
             ankunftszeit=base_time + timedelta(seconds=3300),
-            abfahrtszeit=base_time + timedelta(seconds=3900),
-            ladeleistung_kw=11.0,
-            ankunfts_soc_pct=30.0,
-            ziel_soc_pct=70.0,
+            departure_time=base_time + timedelta(seconds=3900),
+            charging_power_kw=11.0,
+            arrival_soc_pct=30.0,
+            target_soc_pct=70.0,
         )
         plan = ChargingPlan(
             ladehalte=[],
@@ -832,7 +833,7 @@ class TestZwischenstoppAufenthalt:
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
             output_resolution_seconds=60,
-            abfahrtszeit=base_time,
+            departure_time=base_time,
         )
 
         assert result.waypoint_stops[0].distanz_m == pytest.approx(110_000.0)
@@ -845,14 +846,14 @@ class TestWetterWirdAnFramesAngehaengt:
 
     @staticmethod
     def _make_weather_sample(
-        koordinate: Coordinate,
+        coordinate: Coordinate,
         temperatur_c: float,
         windgeschwindigkeit_ms: float = 3.0,
         windrichtung_deg: float = 270.0,
         niederschlag_mm: float = 0.0,
     ) -> WeatherSample:
         return WeatherSample(
-            koordinate=koordinate,
+            coordinate=coordinate,
             zeitpunkt=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
             temperatur_c=temperatur_c,
             windgeschwindigkeit_ms=windgeschwindigkeit_ms,
@@ -886,7 +887,7 @@ class TestWetterWirdAnFramesAngehaengt:
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
             output_resolution_seconds=60,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
             weather_samples=weather_samples,
         )
 
@@ -922,7 +923,7 @@ class TestWetterWirdAnFramesAngehaengt:
             segment_energy=energy_results_3_segments,
             start_soc_pct=80.0,
             output_resolution_seconds=60,
-            abfahrtszeit=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
         )
 
         assert result.frames

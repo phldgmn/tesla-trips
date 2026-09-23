@@ -188,12 +188,12 @@ def calculate_segment_consumption(
         wetter.schneefall_cm,
         wetter.temperatur_c,
     )
-    cr_eff = fahrzeug_params.rollwiderstandsbeiwert * f_ober
-    F_roll = cr_eff * fahrzeug_params.masse_kg * ERDBESCHLEUNIGUNG_MS2 * math.cos(alpha_rad)
+    cr_eff = fahrzeug_params.rolling_resistance_coefficient * f_ober
+    F_roll = cr_eff * fahrzeug_params.mass_kg * ERDBESCHLEUNIGUNG_MS2 * math.cos(alpha_rad)
 
     # 3.2 Luftwiderstand (inkl. Dachbox-Korrektur)
-    cw_eff = fahrzeug_params.cw_wert
-    if fahrzeug_params.dachbox:
+    cw_eff = fahrzeug_params.drag_coefficient
+    if fahrzeug_params.roof_box:
         cw_eff += 0.04  # Konservative Schätzung für Dachbox
 
     # relative Geschwindigkeit zum Luftmassenstrom
@@ -206,12 +206,12 @@ def calculate_segment_consumption(
         0.5
         * berechne_luftdichte(wetter.temperatur_c, wetter.luftdruck_hpa)
         * cw_eff
-        * fahrzeug_params.stirnflaeche_m2
+        * fahrzeug_params.frontal_area_m2
         * (v_relativ**2)
     )
 
     # 3.3 Steigung (Höhenenergie)
-    F_steigung = fahrzeug_params.masse_kg * ERDBESCHLEUNIGUNG_MS2 * math.sin(alpha_rad)
+    F_steigung = fahrzeug_params.mass_kg * ERDBESCHLEUNIGUNG_MS2 * math.sin(alpha_rad)
 
     # 4. Energie für Bewegung
     # Nur positive Steigung verbraucht Energie (bei Gefällen gibt der Motor keine Energie auf)
@@ -220,7 +220,7 @@ def calculate_segment_consumption(
 
     # 5. HVAC-Verbrauch (temperaturabhängig)
     T_c = wetter.temperatur_c
-    P_next_to_kw = fahrzeug_params.nebenverbraucher_baseline_kw
+    P_next_to_kw = fahrzeug_params.auxiliary_baseline_kw
 
     delta_T_min = fahrzeug_params.komforttemperatur_min_c - T_c
     delta_T_max = T_c - fahrzeug_params.komforttemperatur_max_c
@@ -246,7 +246,7 @@ def calculate_segment_consumption(
     E_rekup_j = 0.0
     if v_end_ms < v_anfang_ms:
         # Rekuperation nur bei Verzögerung
-        E_kin_j = 0.5 * fahrzeug_params.masse_kg * (v_anfang_ms**2 - v_end_ms**2)
+        E_kin_j = 0.5 * fahrzeug_params.mass_kg * (v_anfang_ms**2 - v_end_ms**2)
         E_rekup_j = min(
             E_kin_j * fahrzeug_params.wirkungsgrad_rekuperation,
             REKUPERATION_MAX_POWER_W * t_s,

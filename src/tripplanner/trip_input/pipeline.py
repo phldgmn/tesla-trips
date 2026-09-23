@@ -38,17 +38,17 @@ from tripplanner.optimization.station_mapping import map_stations_to_segments
 from tripplanner.routing import (
     FakeRoutingProvider,
     RoutingProvider,
-    erkenne_faehren,
+    detect_ferries,
 )
 from tripplanner.routing.detour_geometry import find_bracket_points
-from tripplanner.routing.models import Coordinate, FaehrSegment, Route, RouteSegment
+from tripplanner.routing.models import Coordinate, FerrySegment, Route, RouteSegment
 from tripplanner.simulation import simulate_trip
 from tripplanner.simulation.models import (
     LadehaltDetour,
     TripSimulationResult,
 )
 from tripplanner.trip_input.models import (
-    FaehrZeitfenster,
+    FerryTimeWindow,
     TripRequest,
     VehicleProfile,
     Waypoint,
@@ -105,7 +105,7 @@ def _step_3_segment_route(route: Route) -> list[RouteSegment]:
 
 def _step_4_estimate_initial_eta(
     route: Route,
-    abfahrtszeit: datetime,
+    departure_time: datetime,
 ) -> list[tuple[RouteSegment, timedelta]]:
     """Schritt 4: Initiale ETA-Schätzung je Segment.
 
@@ -135,7 +135,7 @@ def _step_4_estimate_initial_eta(
 async def _step_5_fetch_weather(
     provider: WeatherProvider | None,
     segment_eta_list: list[tuple[RouteSegment, timedelta]],
-    abfahrtszeit: datetime,
+    departure_time: datetime,
     weather_detail: WeatherDetailLevel = "high",
 ) -> list[WeatherSample]:
     """Step 5: Fetch weather data along the route at the current ETAs.
@@ -154,7 +154,7 @@ async def _step_5_fetch_weather(
         provider: Weather provider. ``None`` falls back to
             ``FakeWeatherProvider``.
         segment_eta_list: Segments with estimated travel time from departure.
-        abfahrtszeit: Departure time of the entire trip.
+        departure_time: Departure time of the entire trip.
         weather_detail: Weather granularity level.
 
     Returns:
@@ -165,16 +165,16 @@ async def _step_5_fetch_weather(
 
     if weather_detail == "off":
         queries: list[WeatherQuery] = []
-        current_time = abfahrtszeit
+        current_time = departure_time
         for segment, dauer in segment_eta_list:
             mitte_idx = len(segment.geometrie) // 2
             queries.append(
-                WeatherQuery(koordinate=segment.geometrie[mitte_idx], zeitpunkt=current_time)
+                WeatherQuery(coordinate=segment.geometrie[mitte_idx], zeitpunkt=current_time)
             )
             current_time += dauer
         return await provider.fetch_weather(queries)
 
-    return await fetch_weather_by_detail(provider, segment_eta_list, abfahrtszeit, weather_detail)
+    return await fetch_weather_by_detail(provider, segment_eta_list, departure_time, weather_detail)
 
 
 async def _step_6_construction_sites(
@@ -202,7 +202,7 @@ async def _step_7_calculate_segment_energy(  # noqa: PLR0913, PLR0917
     weather_samples: list[WeatherSample],
     vehicle_profile: VehicleProfile,
     construction_zones: list[ConstructionZone],
-    abfahrtszeit: datetime,
+    departure_time: datetime,
     elevation_provider: ElevationProvider,
     elevation_points: list[ElevationPoint],
 ) -> list[SegmentEnergyResult]:
@@ -222,14 +222,14 @@ async def _step_7_calculate_segment_energy(  # noqa: PLR0913, PLR0917
 
     # VehicleEnergyParameters erzeugen
     energy_params = VehicleEnergyParameters(
-        masse_kg=vehicle_profile.masse_kg,
-        cw_wert=vehicle_profile.cw_wert,
-        stirnflaeche_m2=vehicle_profile.stirnflaeche_m2,
-        rollwiderstandsbeiwert=vehicle_profile.rollwiderstandsbeiwert,
-        batteriekapazitaet_kwh=vehicle_profile.batteriekapazitaet_kwh,
-        nebenverbraucher_baseline_kw=vehicle_profile.nebenverbraucher_baseline_kw,
-        reifentyp=vehicle_profile.reifentyp,
-        dachbox=vehicle_profile.dachbox,
+        mass_kg=vehicle_profile.mass_kg,
+        drag_coefficient=vehicle_profile.drag_coefficient,
+        frontal_area_m2=vehicle_profile.frontal_area_m2,
+        rolling_resistance_coefficient=vehicle_profile.rolling_resistance_coefficient,
+        battery_capacity_kwh=vehicle_profile.battery_capacity_kwh,
+        auxiliary_baseline_kw=vehicle_profile.auxiliary_baseline_kw,
+        tire_type=vehicle_profile.tire_type,
+        roof_box=vehicle_profile.roof_box,
     )
 
     # Reales Höhenprofil-basiertes Gradient je Segment
@@ -254,10 +254,10 @@ async def _step_7_calculate_segment_energy(  # noqa: PLR0913, PLR0917
         # Wenn wetter None ist, erstelle Dummy
         if wetter is None:
             wetter = WeatherSample(
-                koordinate=segment.geometrie[0],
-                zeitpunkt=abfahrtszeit + segment_eta_list[idx][1]
+                coordinate=segment.geometrie[0],
+                zeitpunkt=departure_time + segment_eta_list[idx][1]
                 if idx < len(segment_eta_list)
-                else abfahrtszeit,
+                else departure_time,
                 temperatur_c=20.0,
                 windgeschwindigkeit_ms=5.0,
                 windrichtung_deg=180.0,
@@ -339,19 +339,19 @@ async def _step_8_optimize_charging_plan(  # noqa: PLR0913, PLR0917
     segment_energy: list[SegmentEnergyResult],
     vehicle_profile: VehicleProfile,
     start_soc_pct: float,
-    ziel_soc_pct: float,
+    target_soc_pct: float,
     construction_zones: list[ConstructionZone],
-    abfahrtszeit: datetime,
+    departure_time: datetime,
     elevation_provider: ElevationProvider,
     elevation_points: list[ElevationPoint],
     charging_stations: list[ChargingStation],
     detour_kosten: dict[str, DetourKosten],
-    zwischenstopps: list[Waypoint] | None = None,
-    ladedauer_vorgaben: dict[str, int] | None = None,
-    faehr_zeitfenster: dict[int, tuple[int, datetime, datetime]] | None = None,
-    mindest_ankunfts_soc_pct: float = 5.0,
-    max_lade_soc_pct: float = 100.0,
-    mindest_ladezeit_s: int = 600,
+    waypoints: list[Waypoint] | None = None,
+    charging_duration_specifications: dict[str, int] | None = None,
+    ferry_time_windows: dict[int, tuple[int, datetime, datetime]] | None = None,
+    min_arrival_soc_pct: float = 5.0,
+    max_charge_soc_pct: float = 100.0,
+    min_charging_time_s: int = 600,
 ) -> ChargingPlan:
     """Step 8: Determine the optimal charging plan.
 
@@ -364,14 +364,14 @@ async def _step_8_optimize_charging_plan(  # noqa: PLR0913, PLR0917
     """
     optimizer = create_networkx_optimizer()
     constraints = OptimizationConstraints(
-        ziel_soc_pct=ziel_soc_pct,
+        target_soc_pct=target_soc_pct,
         max_ladezeit_s=3600,
-        mindest_ankunfts_soc_pct=mindest_ankunfts_soc_pct,
-        mindest_ladezeit_s=mindest_ladezeit_s,
-        max_lade_soc_pct=max_lade_soc_pct,
+        min_arrival_soc_pct=min_arrival_soc_pct,
+        min_charging_time_s=min_charging_time_s,
+        max_charge_soc_pct=max_charge_soc_pct,
     )
 
-    waypoints = list(zwischenstopps) if zwischenstopps else []
+    waypoints = list(waypoints) if waypoints else []
 
     # CPU-bound (gradients + NetworkX graph search): run off the event loop so
     # concurrent requests (incl. /health) are not stalled. The optimizer is
@@ -392,9 +392,9 @@ async def _step_8_optimize_charging_plan(  # noqa: PLR0913, PLR0917
             vehicle_profile=vehicle_profile,
             constraints=constraints,
             start_soc_pct=start_soc_pct,
-            abfahrtszeit=abfahrtszeit,
-            ladedauer_vorgaben=ladedauer_vorgaben,
-            faehr_zeitfenster=faehr_zeitfenster,
+            departure_time=departure_time,
+            charging_duration_specifications=charging_duration_specifications,
+            ferry_time_windows=ferry_time_windows,
             detour_kosten=detour_kosten,
         )
     )
@@ -411,8 +411,8 @@ def _step_9_update_eta(
 
     Berücksichtigt sowohl reguläre Ladehalte (`charging_plan.ladehalte`) als
     auch erzwungene Zwischenstopp-Wartezeiten (`charging_plan.
-    zwischenstopp_aufenthalte`, aus `Waypoint.aufenthaltsdauer`/
-    `geplante_abfahrt`) - ohne Letzteres würden alle Segmente NACH einem
+    zwischenstopp_aufenthalte`, aus `Waypoint.stay_duration`/
+    `planned_departure`) - ohne Letzteres würden alle Segmente NACH einem
     Zwischenstopp mit Wartezeit (z. B. einer Übernachtung) mit einer ETA
     berechnet, die die tatsächliche Wartedauer ignoriert; nachgelagerte
     Wetterabfragen (`fetch_weather_by_detail`) würden dann für die Zeit VOR
@@ -429,7 +429,7 @@ def _step_9_update_eta(
 
     wartezeiten_pro_segment: dict[int, timedelta] = {}
     for aufenthalt in charging_plan.zwischenstopp_aufenthalte:
-        wartezeit = aufenthalt.abfahrtszeit - aufenthalt.ankunftszeit
+        wartezeit = aufenthalt.departure_time - aufenthalt.ankunftszeit
         wartezeiten_pro_segment[aufenthalt.segment_index] = (
             wartezeiten_pro_segment.get(aufenthalt.segment_index, timedelta()) + wartezeit
         )
@@ -457,8 +457,8 @@ async def _step_route_charging_detours(
     routing_provider: RoutingProvider | None,
     route: Route,
     charging_plan: ChargingPlan,
-    abfahrtszeit: datetime,
-    fahrzeugprofil: VehicleProfile,
+    departure_time: datetime,
+    vehicle_profile: VehicleProfile,
 ) -> dict[int, LadehaltDetour]:
     """Schritt 8b: Routet fuer jeden Ladehalt eine echte Hin-und-zurueck-Verbindung.
 
@@ -505,15 +505,15 @@ async def _step_route_charging_detours(
         vor_index, after_index = find_bracket_points(route, ladehalt.segment_index)
         hinweg_anfrage = TripRequest(
             start=route.geometrie[vor_index],
-            ziel=ladehalt.station.coordinate,
-            abfahrtszeit=abfahrtszeit,
-            fahrzeugprofil=fahrzeugprofil,
+            destination=ladehalt.station.coordinate,
+            departure_time=departure_time,
+            vehicle_profile=vehicle_profile,
         )
         rueckweg_anfrage = TripRequest(
             start=ladehalt.station.coordinate,
-            ziel=route.geometrie[after_index],
-            abfahrtszeit=abfahrtszeit,
-            fahrzeugprofil=fahrzeugprofil,
+            destination=route.geometrie[after_index],
+            departure_time=departure_time,
+            vehicle_profile=vehicle_profile,
         )
         tasks.append((stop_idx, id(ladehalt), ladehalt, hinweg_anfrage, rueckweg_anfrage))
 
@@ -567,9 +567,9 @@ def _bbox_center(sw: Coordinate, no: Coordinate) -> Coordinate:
 
 
 def _match_ferry_time_window(
-    detected_ferries: list[FaehrSegment],
-    faehr_zeitfenster: list[FaehrZeitfenster],
-) -> list[FaehrSegment]:
+    detected_ferries: list[FerrySegment],
+    ferry_time_windows: list[FerryTimeWindow],
+) -> list[FerrySegment]:
     """Reichert erkannte Fährverbindungen um Nutzer-Zeitfenster an.
 
     Identifikation über `name` (bei mehrdeutigem Namen über die nächste
@@ -579,19 +579,21 @@ def _match_ferry_time_window(
     mit dem selbstkorrigierenden Ansatz der Fährvermeidung (siehe
     docs/superpowers/specs/2026-08-15-ferry-avoidance-design.md).
     """
-    ergebnis: list[FaehrSegment] = []
-    for faehre in detected_ferries:
-        kandidaten = [fz for fz in faehr_zeitfenster if fz.name == faehre.name]
+    ergebnis: list[FerrySegment] = []
+    for ferry in detected_ferries:
+        kandidaten = [fz for fz in ferry_time_windows if fz.name == ferry.name]
         if not kandidaten:
-            ergebnis.append(faehre)
+            ergebnis.append(ferry)
             continue
-        faehre_mitte = _bbox_center(faehre.bbox_sw, faehre.bbox_no)
+        ferry_midpoint = _bbox_center(ferry.bbox_sw, ferry.bbox_ne)
         beste = min(
             kandidaten,
-            key=lambda fz: haversine_distance_m(faehre_mitte, _bbox_center(fz.bbox_sw, fz.bbox_no)),
+            key=lambda fz: haversine_distance_m(
+                ferry_midpoint, _bbox_center(fz.bbox_sw, fz.bbox_ne)
+            ),
         )
         ergebnis.append(
-            faehre.model_copy(update={"abfahrt": beste.abfahrt, "ankunft": beste.ankunft})
+            ferry.model_copy(update={"departure": beste.departure, "arrival": beste.arrival})
         )
     return ergebnis
 
@@ -655,13 +657,13 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
     charging_provider: ChargingStationProvider | None = None,
     start_soc_pct: float = 80.0,
     destination_soc_pct: float = 20.0,
-    mindest_ankunfts_soc_pct: float = 5.0,
-    mindest_ladezeit_s: int = 600,
-    max_lade_soc_pct: float = 100.0,
+    min_arrival_soc_pct: float = 5.0,
+    min_charging_time_s: int = 600,
+    max_charge_soc_pct: float = 100.0,
     max_iterations: int = 3,
     convergence_threshold_minutes: float = 30.0,
     route_observer: Callable[[Route], None] | None = None,
-    ferry_observer: Callable[[list[FaehrSegment]], None] | None = None,
+    ferry_observer: Callable[[list[FerrySegment]], None] | None = None,
     weather_detail: WeatherDetailLevel = "high",
 ) -> TripSimulationResult:
     """Orchestrates the 11 data flow steps for trip planning.
@@ -676,16 +678,16 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
             (Default: FakeChargingStationProvider).
         start_soc_pct: Starting state of charge in percent (Default: 80%).
         destination_soc_pct: Target state of charge in percent (Default: 20%).
-        mindest_ankunfts_soc_pct: Minimum SoC allowed when arriving at a
+        min_arrival_soc_pct: Minimum SoC allowed when arriving at a
             charging station, as opposed to the general safety-reserve floor
             elsewhere on the route (Default: 5%). See
-            `OptimizationConstraints.mindest_ankunfts_soc_pct`.
-        mindest_ladezeit_s: Minimum duration of a charging stop, if any
+            `OptimizationConstraints.min_arrival_soc_pct`.
+        min_charging_time_s: Minimum duration of a charging stop, if any
             charging happens there at all (Default: 600s / 10 min). See
-            `OptimizationConstraints.mindest_ladezeit_s`.
-        max_lade_soc_pct: Upper limit for the target SoC at regular charging
+            `OptimizationConstraints.min_charging_time_s`.
+        max_charge_soc_pct: Upper limit for the target SoC at regular charging
             stops (Supercharger stations), in percent. 100.0 = disabled. See
-            `OptimizationConstraints.max_lade_soc_pct`.
+            `OptimizationConstraints.max_charge_soc_pct`.
         max_iterations: Max iterations for iterative ETA/weather convergence.
             Default: 3.
         convergence_threshold_minutes: Convergence threshold in minutes for early
@@ -693,7 +695,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
         route_observer: Optional callback called immediately after step 1 (routing)
             with the computed route (see `create_trip_endpoint`).
         ferry_observer: Optional callback called immediately after step 1 with the
-            detected ferries enriched with `request.faehr_zeitfenster` - same list
+            detected ferries enriched with `request.ferry_time_windows` - same list
             used for optimizer input (see `create_trip_endpoint`).
         weather_detail: Weather granularity level.  ``"low"``, ``"medium"``,
             and ``"high"`` all fetch weather once and never refetch (only
@@ -718,8 +720,8 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
         "Pipeline start: %d coordinate(s), start_soc=%.1f%%, "
         "destination_soc=%.1f%%, max_iterations=%d",
         len(request.start)
-        + len(request.ziel)
-        + sum(len(wp.koordinate) for wp in request.zwischenstopps),
+        + len(request.destination)
+        + sum(len(wp.coordinate) for wp in request.waypoints),
         start_soc_pct,
         destination_soc_pct,
         max_iterations,
@@ -733,7 +735,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
             route_observer(route)
 
     # Match user-specified ferry time windows against detected ferries
-    detected_ferries = _match_ferry_time_window(erkenne_faehren(route), request.faehr_zeitfenster)
+    detected_ferries = _match_ferry_time_window(detect_ferries(route), request.ferry_time_windows)
     if ferry_observer is not None:
         ferry_observer(detected_ferries)
 
@@ -747,15 +749,17 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
 
     # 5. Step 4: Initial ETA estimate
     with _log_step("estimate_initial_eta"):
-        segment_eta_list = _step_4_estimate_initial_eta(route, request.abfahrtszeit)
+        segment_eta_list = _step_4_estimate_initial_eta(route, request.departure_time)
 
     # Prepare ferry time windows as optimizer input
     ferry_pins = {
-        f.segment_index_start: (f.segment_index_end, f.abfahrt, f.ankunft)
+        f.segment_index_start: (f.segment_index_end, f.departure, f.arrival)
         for f in detected_ferries
-        if f.abfahrt is not None and f.ankunft is not None
+        if f.departure is not None and f.arrival is not None
     }
-    charging_duration_map = {v.station_id: v.ladedauer_s for v in request.ladedauer_vorgaben}
+    charging_duration_map = {
+        v.station_id: v.charging_duration_s for v in request.charging_duration_specifications
+    }
 
     loop_max_iterations = max_iterations if weather_detail == "off" else 1
     # 10. Iterative ETA/weather convergence loop
@@ -794,10 +798,10 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
             kosten = await precompute_detour_costs(
                 routing_provider=routing_provider or FakeRoutingProvider(),
                 elevation_provider=elevation_provider,
-                vehicle_profile=request.fahrzeugprofil,
+                vehicle_profile=request.vehicle_profile,
                 route=route,
                 station_segments=station_segments,
-                abfahrtszeit=request.abfahrtszeit,
+                departure_time=request.departure_time,
             )
         return stations, kosten
 
@@ -828,7 +832,7 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
             weather_samples = await _step_5_fetch_weather(
                 weather_provider,
                 segment_eta_list,
-                request.abfahrtszeit,
+                request.departure_time,
                 weather_detail=weather_detail,
             )
 
@@ -839,9 +843,9 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
                 segments,
                 segment_eta_list,
                 weather_samples,
-                request.fahrzeugprofil,
+                request.vehicle_profile,
                 construction_zones,
-                request.abfahrtszeit,
+                request.departure_time,
                 elevation_provider,
                 elevation_points,
             )
@@ -851,21 +855,21 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
             charging_plan = await _step_8_optimize_charging_plan(
                 route,
                 energy_results,
-                request.fahrzeugprofil,
+                request.vehicle_profile,
                 start_soc_pct,
                 destination_soc_pct,
                 construction_zones,
-                request.abfahrtszeit,
+                request.departure_time,
                 elevation_provider,
                 elevation_points,
-                zwischenstopps=request.zwischenstopps,
+                waypoints=request.waypoints,
                 charging_stations=charging_stations,
                 detour_kosten=detour_kosten,
-                ladedauer_vorgaben=charging_duration_map,
-                faehr_zeitfenster=ferry_pins,
-                mindest_ankunfts_soc_pct=mindest_ankunfts_soc_pct,
-                mindest_ladezeit_s=mindest_ladezeit_s,
-                max_lade_soc_pct=max_lade_soc_pct,
+                charging_duration_specifications=charging_duration_map,
+                ferry_time_windows=ferry_pins,
+                min_arrival_soc_pct=min_arrival_soc_pct,
+                min_charging_time_s=min_charging_time_s,
+                max_charge_soc_pct=max_charge_soc_pct,
             )
 
         # Update ETA with charging plan
@@ -878,8 +882,8 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
                 routing_provider,
                 route,
                 charging_plan,
-                request.abfahrtszeit,
-                request.fahrzeugprofil,
+                request.departure_time,
+                request.vehicle_profile,
             )
 
         # Convergence check: compare with previous iteration's ETA
@@ -903,8 +907,8 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
             segment_energy=energy_results,
             start_soc_pct=start_soc_pct,
             output_resolution_seconds=60,
-            abfahrtszeit=request.abfahrtszeit,
-            battery_capacity_kwh=request.fahrzeugprofil.batteriekapazitaet_kwh,
+            departure_time=request.departure_time,
+            battery_capacity_kwh=request.vehicle_profile.battery_capacity_kwh,
             charging_stop_detours=charging_stop_detours,
             construction_zones=construction_zones,
             # Wetterwerte NICHT an die Frames anhängen, wenn der Nutzer Wetter

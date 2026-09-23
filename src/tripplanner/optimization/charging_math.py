@@ -21,26 +21,26 @@ COST_INF: float = 1e9  # Unendlich für unzulässige Kanten
 MAX_SOC_PCT: float = 100.0
 
 
-def calc_soc_verbrauch_pct(energie_kwh: float, batteriekapazitaet_kwh: float) -> float:
+def calc_soc_verbrauch_pct(energie_kwh: float, battery_capacity_kwh: float) -> float:
     """Berechne SoC-Verbrauch in Prozent für einen gegebenen Energiebedarf.
 
     Args:
         energie_kwh: Energiebedarf in kWh (Verbrauch positiv, Rekuperation
             negativ) - typischerweise über eine Teilstrecke aggregiert
             (siehe `_add_drive_edge`).
-        batteriekapazitaet_kwh: Batteriekapazität des Fahrzeugs.
+        battery_capacity_kwh: Batteriekapazität des Fahrzeugs.
 
     Returns:
         SoC-Verbrauch in Prozent.
     """
-    return (energie_kwh / batteriekapazitaet_kwh) * MAX_SOC_PCT
+    return (energie_kwh / battery_capacity_kwh) * MAX_SOC_PCT
 
 
 def calc_ladezeit_s(
     start_soc_pct: float,
     end_soc_pct: float,
     ladekurve: ChargingCurve,
-    batteriekapazitaet_kwh: float,
+    battery_capacity_kwh: float,
     leistungsdeckel_kw: float | None = None,
 ) -> float:
     """Berechne Ladezeit in Sekunden für den Ladevorgang `start_soc_pct` → `end_soc_pct`.
@@ -76,7 +76,7 @@ def calc_ladezeit_s(
 
     # Energiebedarf in kWh
     delta_soc_pct = end_soc_pct - start_soc_pct
-    energie_kwh = (delta_soc_pct / MAX_SOC_PCT) * batteriekapazitaet_kwh
+    energie_kwh = (delta_soc_pct / MAX_SOC_PCT) * battery_capacity_kwh
 
     # Zeit in Sekunden
     return energie_kwh / mittlere_leistung_kw * 3600.0
@@ -111,7 +111,7 @@ def soc_nach_fester_ladezeit(
     start_soc_pct: float,
     ladezeit_s: float,
     ladekurve: ChargingCurve,
-    batteriekapazitaet_kwh: float,
+    battery_capacity_kwh: float,
     leistungsdeckel_kw: float | None = None,
 ) -> float:
     """Ermittelt den SoC nach einer FESTEN Ladedauer.
@@ -129,7 +129,7 @@ def soc_nach_fester_ladezeit(
         start_soc_pct=start_soc_pct,
         end_soc_pct=MAX_SOC_PCT,
         ladekurve=ladekurve,
-        batteriekapazitaet_kwh=batteriekapazitaet_kwh,
+        battery_capacity_kwh=battery_capacity_kwh,
         leistungsdeckel_kw=leistungsdeckel_kw,
     )
     if ladezeit_bei_max <= ladezeit_s:
@@ -152,7 +152,7 @@ def soc_nach_fester_ladezeit(
             start_soc_pct=start_soc_pct,
             end_soc_pct=start_soc_pct + mid,
             ladekurve=ladekurve,
-            batteriekapazitaet_kwh=batteriekapazitaet_kwh,
+            battery_capacity_kwh=battery_capacity_kwh,
             leistungsdeckel_kw=leistungsdeckel_kw,
         )
         if dauer < ladezeit_s:
@@ -163,7 +163,7 @@ def soc_nach_fester_ladezeit(
 
 
 def lade_ziel_kandidaten(  # noqa: PLR0913, PLR0917 -- Kandidatenermittlung braucht den vollen Reichweiten-/Kurvenkontext
-    ankunft_soc_pct: float,
+    arrival_soc_pct: float,
     seg_idx: int,
     checkpoints: list[int],
     station_segments: dict[int, list[tuple[ChargingStation, float]]],
@@ -173,7 +173,7 @@ def lade_ziel_kandidaten(  # noqa: PLR0913, PLR0917 -- Kandidatenermittlung brau
     vehicle_profile: VehicleProfile,
     constraints: OptimizationConstraints,
     ladekurve: ChargingCurve,
-    ziel_soc_target: float,
+    target_soc_target: float,
 ) -> list[float]:
     """Ermittelt informierte Ladeziel-SoC-Kandidaten (%) für einen Halt.
 
@@ -183,10 +183,10 @@ def lade_ziel_kandidaten(  # noqa: PLR0913, PLR0917 -- Kandidatenermittlung brau
 
     1. REICHWEITEN-Kandidaten (Lookahead ueber 2 Entscheidungspunkte):
        das MINIMALE Ladeziel, um den naechsten bzw. UEBERNAECHSTEN
-       Entscheidungspunkt (Ladestation, Zwischenstopp, Faehre oder Ziel)
+       Entscheidungspunkt (Ladestation, Zwischenstopp, Ferry oder Ziel)
        mit der jeweils dort geltenden Sicherheitsreserve zu erreichen
-       (`mindest_ankunfts_soc_pct` fuer eine weitere Ladestation,
-       `ziel_soc_target` fuers Fahrtziel, sonst `min_soc_pct`). Der
+       (`min_arrival_soc_pct` fuer eine weitere Ladestation,
+       `target_soc_target` fuers Fahrtziel, sonst `min_soc_pct`). Der
        Uebernaechste-Kandidat modelliert explizit die Alternative "hier
        etwas mehr laden, um die naechste Station ganz zu ueberspringen" -
        ohne ihn wuerde die Suche diese Option nur zufaellig ueber einen
@@ -212,10 +212,10 @@ def lade_ziel_kandidaten(  # noqa: PLR0913, PLR0917 -- Kandidatenermittlung brau
     Folgezustand "strahlt" so automatisch auf die Wahl am fruehreren
     Halt zurueck, weil dessen Gesamtkosten die Folgekosten einschliessen).
     """
-    cap_soc_pct = min(MAX_SOC_PCT, constraints.max_lade_soc_pct)
+    cap_soc_pct = min(MAX_SOC_PCT, constraints.max_charge_soc_pct)
     kandidaten: set[float] = {cap_soc_pct}
-    if constraints.ziel_soc_pct > ankunft_soc_pct:
-        kandidaten.add(constraints.ziel_soc_pct)
+    if constraints.target_soc_pct > arrival_soc_pct:
+        kandidaten.add(constraints.target_soc_pct)
 
     idx = bisect.bisect_right(checkpoints, seg_idx)
     nachfolger_seg_idx = [
@@ -226,38 +226,38 @@ def lade_ziel_kandidaten(  # noqa: PLR0913, PLR0917 -- Kandidatenermittlung brau
             continue
         verbrauch_pct = calc_soc_verbrauch_pct(
             energie_kwh=cum_energy_kwh[ziel_seg_idx] - cum_energy_kwh[seg_idx],
-            batteriekapazitaet_kwh=vehicle_profile.batteriekapazitaet_kwh,
+            battery_capacity_kwh=vehicle_profile.battery_capacity_kwh,
         )
         if ziel_seg_idx == total_segments:
-            puffer_pct = ziel_soc_target
+            puffer_pct = target_soc_target
         elif ziel_seg_idx in station_segments or ziel_seg_idx in waypoint_charge_segments:
-            puffer_pct = constraints.mindest_ankunfts_soc_pct
+            puffer_pct = constraints.min_arrival_soc_pct
         else:
             puffer_pct = constraints.min_soc_pct
         kandidaten.add(verbrauch_pct + puffer_pct)
 
     for punkt in ladekurve.points:
-        if punkt.soc_pct > ankunft_soc_pct:
+        if punkt.soc_pct > arrival_soc_pct:
             kandidaten.add(punkt.soc_pct)
 
-    return sorted(v for v in kandidaten if ankunft_soc_pct < v <= cap_soc_pct)
+    return sorted(v for v in kandidaten if arrival_soc_pct < v <= cap_soc_pct)
 
 
 def kandidaten_mit_mindestladedauer(  # noqa: PLR0913, PLR0917 -- Mindestdauer-Streckung braucht Ladekurve, Kapazität, Mindestdauer und Cap
     kandidaten: list[float],
-    ankunft_soc_pct: float,
+    arrival_soc_pct: float,
     ladekurve: ChargingCurve,
-    batteriekapazitaet_kwh: float,
-    mindest_ladezeit_s: float,
-    max_lade_soc_pct: float = 100.0,
+    battery_capacity_kwh: float,
+    min_charging_time_s: float,
+    max_charge_soc_pct: float = 100.0,
 ) -> list[float]:
-    """Hebt Kandidaten, deren Ladezeit unter `mindest_ladezeit_s` läge, auf das SoC an.
+    """Hebt Kandidaten, deren Ladezeit unter `min_charging_time_s` läge, auf das SoC an.
 
     Statt sie zu verwerfen, wird GENAU auf die Mindestdauer gestreckt.
 
     Eine echte Teilladung dauert danach entweder GAR NICHT (die parallele
     "Station überspringen"-Fahrtkante in `_add_drive_edge` bleibt
-    unberührt) oder mindestens `mindest_ladezeit_s`. Verhindert unnötig
+    unberührt) oder mindestens `min_charging_time_s`. Verhindert unnötig
     kurze Ladehalte (siehe Nutzer-Report: ein 1-Minuten-Stopp, gefolgt
     von einem weiteren Halt nach nur gut 10 Minuten Fahrt - beide Halte
     zusammen kosten durch Ein-/Ausparken, Stecker anschließen etc. mehr
@@ -268,26 +268,26 @@ def kandidaten_mit_mindestladedauer(  # noqa: PLR0913, PLR0917 -- Mindestdauer-S
     Ziel-SoC abgebildet werden - per `set` dedupliziert, damit nicht
     mehrfach identische Ladekanten erzeugt werden.
     """
-    if mindest_ladezeit_s <= 0.0:
+    if min_charging_time_s <= 0.0:
         return kandidaten
 
     angepasst: set[float] = set()
-    for ziel in kandidaten:
+    for destination in kandidaten:
         ladezeit_s = calc_ladezeit_s(
-            start_soc_pct=ankunft_soc_pct,
-            end_soc_pct=ziel,
+            start_soc_pct=arrival_soc_pct,
+            end_soc_pct=destination,
             ladekurve=ladekurve,
-            batteriekapazitaet_kwh=batteriekapazitaet_kwh,
+            battery_capacity_kwh=battery_capacity_kwh,
         )
-        ziel_gestreckt = ziel
-        if 0.0 < ladezeit_s < mindest_ladezeit_s:
+        ziel_gestreckt = destination
+        if 0.0 < ladezeit_s < min_charging_time_s:
             ziel_gestreckt = soc_nach_fester_ladezeit(
-                start_soc_pct=ankunft_soc_pct,
-                ladezeit_s=mindest_ladezeit_s,
+                start_soc_pct=arrival_soc_pct,
+                ladezeit_s=min_charging_time_s,
                 ladekurve=ladekurve,
-                batteriekapazitaet_kwh=batteriekapazitaet_kwh,
+                battery_capacity_kwh=battery_capacity_kwh,
             )
-        if ziel_gestreckt > ankunft_soc_pct:
-            angepasst.add(min(ziel_gestreckt, max_lade_soc_pct))
+        if ziel_gestreckt > arrival_soc_pct:
+            angepasst.add(min(ziel_gestreckt, max_charge_soc_pct))
 
     return sorted(angepasst)

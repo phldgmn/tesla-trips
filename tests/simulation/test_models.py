@@ -131,12 +131,12 @@ class TestChargingStopSummaryPricing:
             "station_id": "rhudensupercharger",
             "position": (51.947, 10.140),
             "distanz_m": 12000.0,
-            "ankunfts_soc_pct": 30.0,
-            "ziel_soc_pct": 80.0,
-            "ladedauer_s": 1500,
+            "arrival_soc_pct": 30.0,
+            "target_soc_pct": 80.0,
+            "charging_duration_s": 1500,
             "energie_geladen_kwh": 25.0,
             "ankunftszeit": datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
-            "abfahrtszeit": datetime(2026, 1, 1, 10, 25, tzinfo=UTC),
+            "departure_time": datetime(2026, 1, 1, 10, 25, tzinfo=UTC),
         }
 
     def test_pricing_fields_default_to_none(self) -> None:

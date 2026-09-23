@@ -73,7 +73,7 @@ def compute_charge_duration(  # noqa: PLR0913, PLR0917 -- alle 6 Parameter sind 
     if start_soc_pct >= target_soc_pct:
         return 0.0
 
-    capacity_kwh = parameters.batteriekapazitaet_kwh
+    capacity_kwh = parameters.battery_capacity_kwh
     efficiency = parameters.effizienz_ladeelektronik
     temp_factor = parameters.temperatur_korrekturfaktor
 

@@ -226,7 +226,7 @@ class ChargingStopAPI(CamelCaseResponseAPI):
     )
 
 
-class FaehrSegmentAPI(CamelCaseResponseAPI):
+class FerrySegmentAPI(CamelCaseResponseAPI):
     """API-Response für eine in der berechneten Route erkannte Fährverbindung."""
 
     name: str = Field(..., description="Fährname (aus GraphHopper street_name oder Fallback)")
@@ -237,11 +237,11 @@ class FaehrSegmentAPI(CamelCaseResponseAPI):
     bbox_ne: tuple[float, float] = Field(
         ..., description="Nordost-Ecke der gepufferten Bounding Box"
     )
-    abfahrt: str | None = Field(
+    departure: str | None = Field(
         default=None,
         description="Vom Nutzer vorgegebene Abfahrtszeit (ISO-8601), sofern vorhanden",
     )
-    ankunft: str | None = Field(
+    arrival: str | None = Field(
         default=None,
         description="Vom Nutzer vorgegebene Ankunftszeit (ISO-8601), sofern vorhanden",
     )
@@ -298,7 +298,7 @@ class WaypointStopAPI(CamelCaseResponseAPI):
     )
     arrival_time: str = Field(..., description="ISO-8601 Ankunftszeitpunkt am Zwischenstopp")
     departure_time: str = Field(..., description="ISO-8601 Zeitpunkt der (erzwungenen) Abfahrt")
-    ladeleistung_kw: float | None = Field(
+    charging_power_kw: float | None = Field(
         default=None, ge=0.0, description="Genutzte Ladeleistung in kW, None falls nicht geladen"
     )
     arrival_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
@@ -339,7 +339,7 @@ class TripSimulationResultAPI(CamelCaseResponseAPI):
             "Kartendarstellung."
         ),
     )
-    detected_ferries: list[FaehrSegmentAPI] = Field(
+    detected_ferries: list[FerrySegmentAPI] = Field(
         default_factory=list,
         description="In der berechneten Route erkannte Fährverbindungen (leer, falls keine)",
     )

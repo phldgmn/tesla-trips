@@ -26,7 +26,7 @@ from tripplanner.charging_infrastructure.client import TeslaLocationsClient
 from tripplanner.construction.models import ConstructionProvider
 from tripplanner.elevation import ElevationProvider
 from tripplanner.routing import RoutingProvider
-from tripplanner.routing.models import Coordinate, FaehrSegment, Route, RouteSegment
+from tripplanner.routing.models import Coordinate, FerrySegment, Route, RouteSegment
 from tripplanner.trip_input.models import TripInfeasibleError
 from tripplanner.weather.providers import WeatherProvider
 
@@ -45,7 +45,7 @@ from .pipeline import create_trip_simulation
 from .schemas import (
     ChargingCostByCurrencyAPI,
     ChargingStopAPI,
-    FaehrSegmentAPI,
+    FerrySegmentAPI,
     FrameAPI,
     SuperchargerPricingAPI,
     SuperchargerStationAPI,
@@ -309,48 +309,48 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
     # TripRequestAPI nach TripRequest konvertieren
     request_dict: dict[str, object] = {
         "start": request.start,
-        "ziel": request.destination,
-        "zwischenstopps": [
+        "destination": request.destination,
+        "waypoints": [
             {
-                "koordinate": wp.koordinate,
-                "aufenthaltsdauer": timedelta(seconds=wp.aufenthaltsdauer_s)
-                if wp.aufenthaltsdauer_s
+                "coordinate": wp.coordinate,
+                "stay_duration": timedelta(seconds=wp.stay_duration_s)
+                if wp.stay_duration_s
                 else None,
-                "geplante_abfahrt": wp.geplante_abfahrt,
-                "ladeleistung_kw": wp.ladeleistung_kw,
+                "planned_departure": wp.planned_departure,
+                "charging_power_kw": wp.charging_power_kw,
             }
             for wp in request.waypoints
         ],
-        "abfahrtszeit": request.departure_time,
-        "fahrzeugprofil": request.vehicle_profile.model_dump(),
-        "praeferenzen": request.preferences.model_dump(),
-        "alle_faehren_vermeiden": request.avoid_all_ferries,
-        "autobahn_praeferenz": request.highway_preference,
-        "vermiedene_faehren": [
-            {"name": f.name, "bbox_sw": f.bbox_sw, "bbox_no": f.bbox_ne}
+        "departure_time": request.departure_time,
+        "vehicle_profile": request.vehicle_profile.to_domain().model_dump(),
+        "preferences": request.preferences.model_dump(),
+        "avoid_all_ferries": request.avoid_all_ferries,
+        "highway_preference": request.highway_preference,
+        "avoided_ferries": [
+            {"name": f.name, "bbox_sw": f.bbox_sw, "bbox_ne": f.bbox_ne}
             for f in request.avoided_ferries
         ],
-        "faehr_zeitfenster": [
+        "ferry_time_windows": [
             {
                 "name": f.name,
                 "bbox_sw": f.bbox_sw,
-                "bbox_no": f.bbox_ne,
-                "abfahrt": f.abfahrt,
-                "ankunft": f.ankunft,
+                "bbox_ne": f.bbox_ne,
+                "departure": f.departure,
+                "arrival": f.arrival,
             }
             for f in request.ferry_time_windows
         ],
-        "ladedauer_vorgaben": [
-            {"station_id": v.station_id, "ladedauer_s": v.charging_duration_s}
+        "charging_duration_specifications": [
+            {"station_id": v.station_id, "charging_duration_s": v.charging_duration_s}
             for v in request.charging_duration_specifications
         ],
     }
 
-    detected_ferries: list[FaehrSegment] = []
+    detected_ferries: list[FerrySegment] = []
 
-    def _faehren_erfassen(faehren: list[FaehrSegment]) -> None:
+    def _record_ferries(ferries: list[FerrySegment]) -> None:
         nonlocal detected_ferries
-        detected_ferries = faehren
+        detected_ferries = ferries
 
     route_geometrie: list[Coordinate] = []
     route_segments: list[RouteSegment] = []
@@ -373,10 +373,10 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
             elevation_provider=elevation_provider,
             start_soc_pct=request.start_soc_pct,
             destination_soc_pct=request.target_soc_pct,
-            mindest_ankunfts_soc_pct=request.min_arrival_soc_pct,
-            mindest_ladezeit_s=request.min_charging_time_s,
-            max_lade_soc_pct=request.max_charge_soc_pct,
-            ferry_observer=_faehren_erfassen,
+            min_arrival_soc_pct=request.min_arrival_soc_pct,
+            min_charging_time_s=request.min_charging_time_s,
+            max_charge_soc_pct=request.max_charge_soc_pct,
+            ferry_observer=_record_ferries,
             route_observer=_route_erfassen,
         )
 
@@ -390,7 +390,7 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
             total_charging_time_min=ergebnis.gesamt_ladezeit_min,
             total_waiting_time_min=ergebnis.gesamt_wartezeit_min,
             start_soc_pct=ergebnis.start_soc_pct,
-            target_soc_pct=ergebnis.ziel_soc_pct,
+            target_soc_pct=ergebnis.target_soc_pct,
             frames=[
                 FrameAPI(
                     timestamp=f.zeitpunkt.isoformat(),
@@ -416,12 +416,12 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
                     route_index_before=stop.route_index_vor,
                     route_index_after=stop.route_index_nach,
                     detour_station_index=stop.detour_station_index,
-                    arrival_soc_pct=stop.ankunfts_soc_pct,
-                    target_soc_pct=stop.ziel_soc_pct,
-                    charging_duration_s=stop.ladedauer_s,
+                    arrival_soc_pct=stop.arrival_soc_pct,
+                    target_soc_pct=stop.target_soc_pct,
+                    charging_duration_s=stop.charging_duration_s,
                     energy_charged_kwh=stop.energie_geladen_kwh,
                     arrival_time=stop.ankunftszeit.isoformat(),
-                    departure_time=stop.abfahrtszeit.isoformat(),
+                    departure_time=stop.departure_time.isoformat(),
                     price_per_kwh=stop.price_per_kwh,
                     currency=stop.currency,
                     estimated_cost=stop.estimated_cost,
@@ -436,23 +436,23 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
                     position=stop.position,
                     distance_m=stop.distanz_m,
                     arrival_time=stop.ankunftszeit.isoformat(),
-                    departure_time=stop.abfahrtszeit.isoformat(),
-                    ladeleistung_kw=stop.ladeleistung_kw,
-                    arrival_soc_pct=stop.ankunfts_soc_pct,
-                    target_soc_pct=stop.ziel_soc_pct,
+                    departure_time=stop.departure_time.isoformat(),
+                    charging_power_kw=stop.charging_power_kw,
+                    arrival_soc_pct=stop.arrival_soc_pct,
+                    target_soc_pct=stop.target_soc_pct,
                     energy_charged_kwh=stop.energie_geladen_kwh,
                 )
                 for stop in ergebnis.waypoint_stops
             ],
             route_geometry=route_geometrie,
             detected_ferries=[
-                FaehrSegmentAPI(
+                FerrySegmentAPI(
                     name=f.name,
                     length_m=f.laenge_m,
                     bbox_sw=f.bbox_sw,
-                    bbox_ne=f.bbox_no,
-                    abfahrt=f.abfahrt.isoformat() if f.abfahrt else None,
-                    ankunft=f.ankunft.isoformat() if f.ankunft else None,
+                    bbox_ne=f.bbox_ne,
+                    departure=f.departure.isoformat() if f.departure else None,
+                    arrival=f.arrival.isoformat() if f.arrival else None,
                 )
                 for f in detected_ferries
             ],

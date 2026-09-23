@@ -8,7 +8,7 @@ from tripplanner.weather.models import WeatherSample
 
 
 def _cache_key(
-    koordinate: Coordinate,
+    coordinate: Coordinate,
     zeitpunkt: datetime,
 ) -> tuple[Coordinate, datetime]:
     """Builds a cache key with grid-rounded coordinates and hour-snapped timestamp.
@@ -21,13 +21,13 @@ def _cache_key(
     The returned ``WeatherSample`` still carries the *original* coordinate and
     timestamp — only the cache lookup/storage key is snapped.
     """
-    rounded_coord = (round(koordinate[0], 1), round(koordinate[1], 1))
+    rounded_coord = (round(coordinate[0], 1), round(coordinate[1], 1))
     snapped_time = zeitpunkt.replace(minute=0, second=0, microsecond=0)
     return (rounded_coord, snapped_time)
 
 
 def _cache_str_key(
-    koordinate: Coordinate,
+    coordinate: Coordinate,
     zeitpunkt: datetime,
 ) -> str:
     """Serialises a ``(Coordinate, datetime)`` cache key to a JSON string.
@@ -37,7 +37,7 @@ def _cache_str_key(
     ``tuple[Coordinate, datetime]`` as its key to avoid repeated
     serialisation round-trips on hot in-process lookups.
     """
-    rounded = (round(koordinate[0], 1), round(koordinate[1], 1))
+    rounded = (round(coordinate[0], 1), round(coordinate[1], 1))
     snapped = zeitpunkt.replace(minute=0, second=0, microsecond=0)
     return json.dumps((rounded, snapped.isoformat(timespec="minutes")))
 

@@ -20,7 +20,7 @@ HAMBURG: Coordinate = (53.5511, 9.9937)
 def weather_sample_north_wind() -> WeatherSample:
     """Wetterdaten mit Nordwind (0°)."""
     return WeatherSample(
-        koordinate=BERLIN,
+        coordinate=BERLIN,
         zeitpunkt=datetime(2026, 8, 2, 12, 0),
         temperatur_c=20.0,
         windgeschwindigkeit_ms=10.0,
@@ -38,7 +38,7 @@ def weather_sample_north_wind() -> WeatherSample:
 def weather_sample_east_wind() -> WeatherSample:
     """Wetterdaten mit Ostwind (90°)."""
     return WeatherSample(
-        koordinate=BERLIN,
+        coordinate=BERLIN,
         zeitpunkt=datetime(2026, 8, 2, 12, 0),
         temperatur_c=20.0,
         windgeschwindigkeit_ms=10.0,
@@ -56,7 +56,7 @@ def weather_sample_east_wind() -> WeatherSample:
 def weather_query_berlin_noon() -> WeatherSample:
     """Wetterabfrage für Berlin Mittag."""
     return WeatherSample(
-        koordinate=BERLIN,
+        coordinate=BERLIN,
         zeitpunkt=datetime(2026, 8, 2, 12, 0),
         temperatur_c=20.0,
         windgeschwindigkeit_ms=10.0,

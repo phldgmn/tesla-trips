@@ -41,7 +41,7 @@ def _neutral_weather_sample(query: WeatherQuery) -> WeatherSample:
         A `WeatherSample` with neutral placeholder values.
     """
     return WeatherSample(
-        koordinate=query.koordinate,
+        coordinate=query.coordinate,
         zeitpunkt=query.zeitpunkt,
         temperatur_c=15.0,
         windgeschwindigkeit_ms=3.0,
@@ -173,31 +173,31 @@ class LoadBalancedWeatherProvider:
         persisted: dict[str, object] = {}
         if self._persistent_cache is not None:
             missing_keys = [
-                _cache_str_key(q.koordinate, q.zeitpunkt)
+                _cache_str_key(q.coordinate, q.zeitpunkt)
                 for q in queries
-                if _cache_key(q.koordinate, q.zeitpunkt) not in self._cache
+                if _cache_key(q.coordinate, q.zeitpunkt) not in self._cache
             ]
             if missing_keys:
                 persisted = await asyncio.to_thread(self._persistent_cache.get_many, missing_keys)
 
         for idx, query in enumerate(queries):
-            ck = _cache_key(query.koordinate, query.zeitpunkt)
+            ck = _cache_key(query.coordinate, query.zeitpunkt)
             cached = self._cache.get(ck)
             if cached is None:
-                json_str = persisted.get(_cache_str_key(query.koordinate, query.zeitpunkt))
+                json_str = persisted.get(_cache_str_key(query.coordinate, query.zeitpunkt))
                 if json_str is not None:
                     cached = _cache_deserialize(json_str)
                     self._cache[ck] = cached
             if cached is not None:
                 results[idx] = cached.model_copy(
-                    update={"koordinate": query.koordinate, "zeitpunkt": query.zeitpunkt}
+                    update={"coordinate": query.coordinate, "zeitpunkt": query.zeitpunkt}
                 )
             else:
                 pending_indices.append(idx)
 
         groups: dict[Coordinate, list[int]] = {}
         for idx in pending_indices:
-            rounded = _cache_key(queries[idx].koordinate, queries[idx].zeitpunkt)[0]
+            rounded = _cache_key(queries[idx].coordinate, queries[idx].zeitpunkt)[0]
             groups.setdefault(rounded, []).append(idx)
 
         async def resolve_bounded(coordinate: Coordinate, group_indices: list[int]) -> None:
@@ -218,7 +218,7 @@ class LoadBalancedWeatherProvider:
         """Re-fetches weather for `updated_queries`.
 
         `original_queries` is accepted to satisfy the `WeatherProvider`
-        protocol; the composite's own `(koordinate, zeitpunkt)` cache
+        protocol; the composite's own `(coordinate, zeitpunkt)` cache
         (populated by any prior `fetch_weather`/`refetch_weather` call)
         already serves unchanged points, so no separate handling is needed.
         """
@@ -252,23 +252,23 @@ class LoadBalancedWeatherProvider:
             samples = await self._try_provider(entry, sub_queries, coordinate)
             if samples is None:
                 continue
-            by_key = {_cache_key(s.koordinate, s.zeitpunkt): s for s in samples}
+            by_key = {_cache_key(s.coordinate, s.zeitpunkt): s for s in samples}
             still_pending: list[int] = []
             for i in pending:
-                ck = _cache_key(queries[i].koordinate, queries[i].zeitpunkt)
+                ck = _cache_key(queries[i].coordinate, queries[i].zeitpunkt)
                 sample = by_key.get(ck)
                 if sample is None:
                     still_pending.append(i)
                 else:
                     results[i] = sample.model_copy(
                         update={
-                            "koordinate": queries[i].koordinate,
+                            "coordinate": queries[i].coordinate,
                             "zeitpunkt": queries[i].zeitpunkt,
                         }
                     )
                     # Store with original query time for this index
                     self._cache[ck] = sample
-                    to_persist[_cache_str_key(queries[i].koordinate, queries[i].zeitpunkt)] = (
+                    to_persist[_cache_str_key(queries[i].coordinate, queries[i].zeitpunkt)] = (
                         sample.model_dump(mode="json")
                     )
             pending = still_pending

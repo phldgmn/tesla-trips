@@ -306,10 +306,10 @@ class TestEnergieberechnung:
         """Zusaetzlicher Test: Dachbox erhoeht Verbrauch.
 
         Expected:
-        - Fahrzeug mit dachbox=True hat hoeheren Verbrauch als ohne.
+        - Fahrzeug mit roof_box=True hat hoeheren Verbrauch als ohne.
         """
-        params_without_roofbox = VehicleEnergyParameters(dachbox=False)
-        params_mit_dachbox = VehicleEnergyParameters(dachbox=True)
+        params_without_roofbox = VehicleEnergyParameters(roof_box=False)
+        params_mit_dachbox = VehicleEnergyParameters(roof_box=True)
 
         result_without = calculate_segment_consumption(
             segment=segment_eben,
@@ -511,16 +511,16 @@ class TestEnergyCalculationAdditional:
         ]
 
         vehicle_profile = VehicleProfile(
-            masse_kg=1800.0,
-            cw_wert=0.23,
-            stirnflaeche_m2=2.2,
-            rollwiderstandsbeiwert=0.01,
-            batteriekapazitaet_kwh=75.0,
+            mass_kg=1800.0,
+            drag_coefficient=0.23,
+            frontal_area_m2=2.2,
+            rolling_resistance_coefficient=0.01,
+            battery_capacity_kwh=75.0,
         )
         mock_elevation_provider = MagicMock()
         mock_elevation_provider.calculate_segment_gradients.return_value = [gradient_eben] * 6
 
-        abfahrtszeit = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        departure_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
         elevation_points: list = []
 
         ergebnisse = await _step_7_calculate_segment_energy(
@@ -530,7 +530,7 @@ class TestEnergyCalculationAdditional:
             weather_samples=weather_samples,
             vehicle_profile=vehicle_profile,
             construction_zones=construction_zones,
-            abfahrtszeit=abfahrtszeit,
+            departure_time=departure_time,
             elevation_provider=mock_elevation_provider,
             elevation_points=elevation_points,
         )
