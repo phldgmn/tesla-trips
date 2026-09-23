@@ -831,3 +831,18 @@ This is the highest-value, highest-risk phase: `api.py` (1979 lines) mixes five 
 
 - [ ] **Step 1:** Summarize the outcome of Task 5.3 (`battery/battery.py` vs `optimizer.py` duplication) and Task 4.5 (routing segment-construction duplication) for the user, since both were scoped as investigate-and-report-if-no-safe-action rather than guaranteed code changes.
 - [ ] **Step 2:** If either investigation surfaced a genuine dead-code or behavior-changing cleanup opportunity that this plan explicitly deferred (per its behavior-preservation constraint), list it as a follow-up recommendation, not as unfinished work under this plan.
+
+## Frontend phase (done)
+
+- `components/Map/MapVisualization.tsx` (1,014 → 256 lines): one hook per
+  layer under `components/Map/hooks/` (`useRouteLayer`,
+  `useConstructionZoneMarkers`, `useChargingStopMarkers`, `useStopMarkers`,
+  `useSuperchargerLayer`), each owning its `useEffect` and cleanup.
+- `components/TripPlannerForm/TripPlannerForm.tsx` (2,108 → 179 lines): state
+  in `useTripPlannerState` (on top of `persistent-state.ts`) and
+  `useGeocoding`; UI in `components/TripPlannerForm/sections/`
+  (`VehicleSection`, `RouteOptionsSection`, `RouteSection` with `StopCard`,
+  `ChargingStopCard`, `FerryCard`, and `IgnoredFerriesModal`), re-exported
+  from `index.ts`.
+- The basemap tile URL is configurable via `VITE_TILES_URL`
+  (default `http://localhost:8081`).
