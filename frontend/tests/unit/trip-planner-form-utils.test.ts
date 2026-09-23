@@ -6,11 +6,11 @@ import {
   validateForm,
   toggleFerryExclusion,
   setFerryTimeWindowFor,
-  setChargingDurationFor,
-  differsAsClockTime,
+  setChargingDurationPresetFor,
+  differsAsTime,
   formatChargingStationName,
-  formatDriveSegmentDistance,
-  formatDriveSegmentDuration,
+  formatDrivingSegmentDistance,
+  formatDrivingSegmentDuration,
 } from "@/components/TripPlannerForm";
 import type { Stop } from "@/types/trip-request";
 
@@ -512,38 +512,38 @@ describe("TripPlannerForm pure helpers", () => {
   });
 
   // =========================================================================
-  // setChargingDurationFor
+  // setChargingDurationPresetFor
   // =========================================================================
 
-  describe("setChargingDurationFor", () => {
+  describe("setChargingDurationPresetFor", () => {
     it("adds a duration override converted from minutes to seconds", () => {
-      const result = setChargingDurationFor([], "station-1", 30);
+      const result = setChargingDurationPresetFor([], "station-1", 30);
       expect(result).toEqual([
         { stationId: "station-1", chargingDurationS: 1800 },
       ]);
     });
 
     it("replaces an existing override for the same station instead of duplicating", () => {
-      const once = setChargingDurationFor([], "station-1", 30);
-      const updated = setChargingDurationFor(once, "station-1", 45);
+      const once = setChargingDurationPresetFor([], "station-1", 30);
+      const updated = setChargingDurationPresetFor(once, "station-1", 45);
       expect(updated).toEqual([
         { stationId: "station-1", chargingDurationS: 2700 },
       ]);
     });
 
     it("removes the override when the given minutes are zero or negative", () => {
-      const once = setChargingDurationFor([], "station-1", 30);
-      const cleared = setChargingDurationFor(once, "station-1", 0);
+      const once = setChargingDurationPresetFor([], "station-1", 30);
+      const cleared = setChargingDurationPresetFor(once, "station-1", 0);
       expect(cleared).toHaveLength(0);
     });
 
     it("keeps overrides for other stations untouched", () => {
-      const withTwo = setChargingDurationFor(
-        setChargingDurationFor([], "station-1", 30),
+      const withTwo = setChargingDurationPresetFor(
+        setChargingDurationPresetFor([], "station-1", 30),
         "station-2",
         15,
       );
-      const updated = setChargingDurationFor(withTwo, "station-1", 20);
+      const updated = setChargingDurationPresetFor(withTwo, "station-1", 20);
       expect(updated).toHaveLength(2);
       expect(
         updated.find((v) => v.stationId === "station-2")?.chargingDurationS,
@@ -552,26 +552,26 @@ describe("TripPlannerForm pure helpers", () => {
   });
 
   // =========================================================================
-  // differsAsClockTime
+  // differsAsTime
   // =========================================================================
 
-  describe("differsAsClockTime", () => {
+  describe("differsAsTime", () => {
     it("gibt false zurück, wenn beide Zeitpunkte auf dieselbe Minute fallen", () => {
-      expect(
-        differsAsClockTime("2026-08-17T01:14:00", "2026-08-17T01:14:00"),
-      ).toBe(false);
+      expect(differsAsTime("2026-08-17T01:14:00", "2026-08-17T01:14:00")).toBe(
+        false,
+      );
     });
 
     it("gibt true zurück, wenn sich die angezeigte Uhrzeit unterscheidet", () => {
-      expect(
-        differsAsClockTime("2026-08-17T00:40:00", "2026-08-17T00:53:00"),
-      ).toBe(true);
+      expect(differsAsTime("2026-08-17T00:40:00", "2026-08-17T00:53:00")).toBe(
+        true,
+      );
     });
 
     it("gibt true zurück, wenn einer der beiden Zeitpunkte unbekannt ist", () => {
-      expect(differsAsClockTime(null, "2026-08-17T00:53:00")).toBe(true);
-      expect(differsAsClockTime("2026-08-17T00:53:00", null)).toBe(true);
-      expect(differsAsClockTime(null, null)).toBe(true);
+      expect(differsAsTime(null, "2026-08-17T00:53:00")).toBe(true);
+      expect(differsAsTime("2026-08-17T00:53:00", null)).toBe(true);
+      expect(differsAsTime(null, null)).toBe(true);
     });
   });
 
@@ -600,27 +600,27 @@ describe("TripPlannerForm pure helpers", () => {
   });
 
   // =========================================================================
-  // formatDriveSegmentDistance / formatDriveSegmentDuration
+  // formatDrivingSegmentDistance / formatDrivingSegmentDuration
   // =========================================================================
 
-  describe("formatDriveSegmentDistance", () => {
+  describe("formatDrivingSegmentDistance", () => {
     it("formatiert km mit einer Nachkommastelle und deutschem Komma", () => {
-      expect(formatDriveSegmentDistance(42.05)).toBe("42,1 km");
-      expect(formatDriveSegmentDistance(0)).toBe("0,0 km");
+      expect(formatDrivingSegmentDistance(42.05)).toBe("42,1 km");
+      expect(formatDrivingSegmentDistance(0)).toBe("0,0 km");
     });
   });
 
-  describe("formatDriveSegmentDuration", () => {
+  describe("formatDrivingSegmentDuration", () => {
     it("formatiert unter einer Stunde nur in Minuten", () => {
-      expect(formatDriveSegmentDuration(35)).toBe("35min");
+      expect(formatDrivingSegmentDuration(35)).toBe("35min");
     });
 
     it("formatiert ab einer Stunde als 'Xh Ymin'", () => {
-      expect(formatDriveSegmentDuration(90)).toBe("1h 30min");
+      expect(formatDrivingSegmentDuration(90)).toBe("1h 30min");
     });
 
     it("rundet auf ganze Minuten", () => {
-      expect(formatDriveSegmentDuration(59.6)).toBe("1h 0min");
+      expect(formatDrivingSegmentDuration(59.6)).toBe("1h 0min");
     });
   });
 });

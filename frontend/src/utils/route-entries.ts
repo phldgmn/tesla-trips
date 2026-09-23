@@ -71,7 +71,7 @@ export type PointEntry =
  *  Zeit zwischen deren `connectionTime`en. Trägt KEIN eigenes
  *  Tageswechsel-Flag - Aufrufer prüfen `istTageswechsel(vonIso, bisIso)`
  *  direkt, um Strecke/Zeit/beide Daten in einer Zeile zu kombinieren (siehe
- *  `FahrsegmentZeile` in `TripPlannerForm.tsx`), statt separat einen
+ *  `DriveSegmentRow` in `timeline-rows.tsx`), statt separat einen
  *  `Tagestrenner` zu rendern. */
 export interface DrivingSegmentEntry {
   art: "Fahrsegment";
@@ -89,7 +89,7 @@ export interface DrivingSegmentEntry {
  *  von Ankunft/Abfahrt DESSELBEN Eintrags gebildet (das wäre ein
  *  Tageswechsel INNERHALB eines Aufenthalts, z. B. ein Ladehalt über
  *  Mitternacht - dafür zeigen die Zeit-Badges des jeweiligen Eintrags
- *  selbst das Datum an, siehe `Zeitbadge`/`istTageswechsel`-Aufruf in
+ *  selbst das Datum an, siehe `TimeBadge`/`istTageswechsel`-Aufruf in
  *  `TripPlannerForm.tsx`). */
 export interface DaySeparatorEntry {
   art: "Tagestrenner";
