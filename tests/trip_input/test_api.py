@@ -15,6 +15,7 @@ import logging
 import math
 import threading
 import time
+import types
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
@@ -4192,3 +4193,39 @@ async def test_health_responds_while_optimizer_runs(
         await trip
     assert health.status_code == 200
     assert elapsed < 0.1
+
+
+# =============================================================================
+# Readiness (Report-Item 12)
+# =============================================================================
+
+
+class _FakeGHClient:
+    def __init__(self, error: Exception | None) -> None:
+        self._error = error
+
+    async def info(self) -> dict[str, object]:
+        if self._error is not None:
+            raise self._error
+        return {"version": "test"}
+
+
+@pytest.mark.parametrize(
+    ("error", "status"),
+    [
+        (None, 200),
+        (httpx.ConnectError("refused"), 503),
+    ],
+)
+def test_ready_reflects_graphhopper_availability(
+    monkeypatch: pytest.MonkeyPatch, error: Exception | None, status: int
+) -> None:
+    providers = types.SimpleNamespace(routing=types.SimpleNamespace(client=_FakeGHClient(error)))
+    monkeypatch.setattr(app.state, "providers", providers, raising=False)
+    response = TestClient(app).get("/ready")
+    assert response.status_code == status
+
+
+def test_ready_is_503_before_startup(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delattr(app.state, "providers", raising=False)
+    assert TestClient(app).get("/ready").status_code == 503

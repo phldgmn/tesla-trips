@@ -5,28 +5,74 @@ Handles Authentifizierung, Request/Response Mapping für GraphHopper /route Endp
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import random
 from contextlib import suppress
 
-from httpx import AsyncClient, HTTPStatusError
+from httpx import AsyncClient, AsyncHTTPTransport, HTTPStatusError, Response, Timeout
 
 from tripplanner.routing.models import GraphHopperResponse
 
 Coordinate = tuple[float, float]
 
+logger = logging.getLogger(__name__)
+
+# Gateway-/Überlast-Status, die GraphHopper u. a. beim Warmlaufen liefert.
+# 4xx werden nie wiederholt (fehlerhafte Anfrage bleibt fehlerhaft).
+_RETRYABLE_STATUS = frozenset({502, 503, 504})
+
 
 class GraphHopperClient:
     """HTTP-Client für GraphHopper API. Handles Authentifizierung, Request/Response Mapping."""
 
-    def __init__(self, base_url: str = "http://localhost:8989", api_key: str | None = None):
+    def __init__(
+        self,
+        base_url: str = "http://localhost:8989",
+        api_key: str | None = None,
+        *,
+        max_attempts: int = 3,
+        backoff_base_s: float = 0.5,
+    ):
         """Initialisiert den GraphHopper Client.
 
         Args:
             base_url: Base URL des GraphHopper Servers (inkl. port, z. B. "http://localhost:8989")
             api_key: Optionaler API Key für Authentifizierung
+            max_attempts: Versuche bei 502/503/504 (inkl. des ersten)
+            backoff_base_s: Basis des exponentiellen Backoffs (mit Jitter)
         """
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
-        self._client = AsyncClient(base_url=base_url, timeout=60.0)
+        self._max_attempts = max_attempts
+        self._backoff_base_s = backoff_base_s
+        # retries=2 wiederholt nur Verbindungsfehler (connect/reset), keine
+        # HTTP-Statuscodes. Lange Routen mit `ch.disable=True` brauchen ein
+        # großzügiges Read-Timeout.
+        self._client = AsyncClient(
+            base_url=base_url,
+            transport=AsyncHTTPTransport(retries=2),
+            timeout=Timeout(60.0, connect=3.0),
+        )
+
+    async def _send_with_retry(self, method: str, url: str, **kwargs: object) -> Response:
+        """Sendet eine idempotente Anfrage; wiederholt 502/503/504 mit Backoff."""
+        for attempt in range(1, self._max_attempts):
+            response = await self._client.request(method, url, **kwargs)  # type: ignore[arg-type]
+            if response.status_code not in _RETRYABLE_STATUS:
+                return response
+            delay = self._backoff_base_s * 2 ** (attempt - 1) * random.uniform(0.5, 1.5)
+            logger.warning(
+                "GraphHopper %s %s returned %d (attempt %d/%d), retrying in %.2fs",
+                method,
+                url,
+                response.status_code,
+                attempt,
+                self._max_attempts,
+                delay,
+            )
+            await asyncio.sleep(delay)
+        return await self._client.request(method, url, **kwargs)  # type: ignore[arg-type]
 
     async def route(
         self,
@@ -77,7 +123,7 @@ class GraphHopperClient:
             # gesetzt werden, unabhängig vom Anwendungsfall.
             payload["ch.disable"] = True
 
-        response = await self._client.post("/route", json=payload)
+        response = await self._send_with_retry("POST", "/route", json=payload)
         try:
             response.raise_for_status()
         except HTTPStatusError as exc:
@@ -113,7 +159,7 @@ class GraphHopperClient:
         Raises:
             httpx.HTTPStatusError: Bei HTTP-Fehlern (4xx/5xx).
         """
-        response = await self._client.get("/info")
+        response = await self._send_with_retry("GET", "/info")
         response.raise_for_status()
         result: dict[str, object] = response.json()
         return result

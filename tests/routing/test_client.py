@@ -275,4 +275,68 @@ class TestInit:
         assert client.base_url == "http://localhost:8989"
         assert client.api_key is None
         assert client._client.base_url == httpx.URL("http://localhost:8989")
-        assert client._client.timeout == httpx.Timeout(60.0)
+        assert client._client.timeout == httpx.Timeout(60.0, connect=3.0)
+
+
+class TestRetry:
+    """Wiederholung bei 502/503/504 (Report-Item 12)."""
+
+    @staticmethod
+    def _client_with(handler: object, max_attempts: int = 3) -> GraphHopperClient:
+        client = GraphHopperClient(max_attempts=max_attempts, backoff_base_s=0.0)
+        client._client = httpx.AsyncClient(
+            base_url="http://localhost:8989",
+            transport=httpx.MockTransport(handler),  # type: ignore[arg-type]
+        )
+        return client
+
+    async def test_retries_503_then_succeeds(self) -> None:
+        calls: list[int] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(1)
+            if len(calls) < 3:
+                return httpx.Response(503)
+            return httpx.Response(200, text=VALID_RESPONSE_JSON)
+
+        client = self._client_with(handler)
+        result = await client.route([(52.5, 13.4), (48.1, 11.6)])
+        assert isinstance(result, GraphHopperResponse)
+        assert len(calls) == 3
+
+    async def test_gives_up_after_max_attempts(self) -> None:
+        calls: list[int] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(1)
+            return httpx.Response(504)
+
+        client = self._client_with(handler, max_attempts=3)
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.route([(52.5, 13.4), (48.1, 11.6)])
+        assert len(calls) == 3
+
+    async def test_does_not_retry_4xx(self) -> None:
+        calls: list[int] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(1)
+            return httpx.Response(400, json={"message": "Point out of bounds"})
+
+        client = self._client_with(handler)
+        with pytest.raises(httpx.HTTPStatusError, match="Point out of bounds"):
+            await client.route([(52.5, 13.4), (48.1, 11.6)])
+        assert len(calls) == 1
+
+    async def test_info_is_retried_too(self) -> None:
+        calls: list[int] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(1)
+            if len(calls) == 1:
+                return httpx.Response(502)
+            return httpx.Response(200, json={"version": "10"})
+
+        client = self._client_with(handler)
+        assert await client.info() == {"version": "10"}
+        assert len(calls) == 2

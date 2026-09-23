@@ -13,6 +13,7 @@ import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -41,6 +42,7 @@ __all__ = [
     "get_supercharger_provider",
     "get_weather_provider",
     "health_check",
+    "readiness_check",
     "require_admin_token",
 ]
 
@@ -89,6 +91,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     _configure_logging()
     providers = await build_production_providers()
     app.state.providers = providers
+    try:
+        await providers.routing.client.info()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning(
+            "GraphHopper is not reachable at startup (%s); /trips will fail "
+            "until it is up. Check GRAPHHOPPER_URL and GET /ready.",
+            exc,
+        )
     try:
         yield
     finally:
@@ -204,3 +214,20 @@ async def health_check() -> dict[str, str]:
     Ermöglicht dem Frontend zu prüfen, ob das Backend erreichbar ist.
     """
     return {"status": "ok"}
+
+
+@app.get("/ready")
+async def readiness_check(request: Request) -> JSONResponse:
+    """Readiness probe: 200 once GraphHopper answers `/info`, else 503.
+
+    Unlike `/health` (process is alive), this reports whether `/trips` can
+    actually route.
+    """
+    providers = getattr(request.app.state, "providers", None)
+    if providers is None:
+        return JSONResponse(status_code=503, content={"status": "starting"})
+    try:
+        await providers.routing.client.info()
+    except (httpx.HTTPError, ValueError):
+        return JSONResponse(status_code=503, content={"status": "graphhopper_unavailable"})
+    return JSONResponse(content={"status": "ready"})
