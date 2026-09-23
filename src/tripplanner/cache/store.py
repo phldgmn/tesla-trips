@@ -12,6 +12,7 @@ import json
 import os
 import sqlite3
 import time
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -19,6 +20,10 @@ if TYPE_CHECKING:
     from typing import Any  # noqa: F401
 
 __all__ = ["TTLCache"]
+
+
+# Stays well below SQLite's bound-parameter limit.
+_SQL_CHUNK = 500
 
 
 def _default_db_path() -> Path:
@@ -69,9 +74,13 @@ class TTLCache:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
+    def _connect(self) -> sqlite3.Connection:
+        """Open a connection; waits up to 5 s for a concurrent writer's lock."""
+        return sqlite3.connect(str(self._db_path), timeout=5)
+
     def _init_db(self) -> None:
-        """Create the cache table if it does not already exist."""
-        conn = sqlite3.connect(str(self._db_path))
+        """Create the cache table and enable WAL (persists in the DB file)."""
+        conn = self._connect()
         try:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute(
@@ -103,46 +112,56 @@ class TTLCache:
 
         Returns *None* when the key is missing or has expired.  Expired
         entries are removed during this call.
-
-        Args:
-            key: The cache key to look up.
-
-        Returns:
-            The deserialized value, or *None* if absent/expired.
         """
-        sql = "SELECT value FROM cache_entries WHERE namespace = ? AND key = ? AND expires_at > ?"
-        conn = sqlite3.connect(str(self._db_path))
+        return self.get_many([key]).get(key)
+
+    def get_many(self, keys: Sequence[str]) -> dict[str, object]:
+        """Retrieve several values over one connection.
+
+        Returns only keys that are present and unexpired.  If any key is
+        missing, expired entries of this namespace are purged once.
+        """
+        found: dict[str, object] = {}
+        unique = list(dict.fromkeys(keys))
+        now = time.time()
+        conn = self._connect()
         try:
-            conn.execute("PRAGMA journal_mode=WAL")
-            row = conn.execute(sql, (self._namespace, key, time.time())).fetchone()
+            for i in range(0, len(unique), _SQL_CHUNK):
+                chunk = unique[i : i + _SQL_CHUNK]
+                placeholders = ",".join("?" * len(chunk))
+                rows = conn.execute(
+                    "SELECT key, value FROM cache_entries WHERE namespace = ? "
+                    f"AND key IN ({placeholders}) AND expires_at > ?",
+                    (self._namespace, *chunk, now),
+                ).fetchall()
+                found.update((k, json.loads(v)) for k, v in rows)
         finally:
             conn.close()
-        if row is None:
+        if len(found) < len(unique):
             self.clear_expired()
-            return None
-        return json.loads(row[0])  # type: ignore[no-any-return]
+        return found
 
     def set(self, key: str, value: object) -> None:
         """Store a JSON-serializable value with the current TTL.
 
         The value is serialised with :func:`json.dumps`; only values that
         satisfy ``json.dumps(value)`` without error are accepted.
-
-        Args:
-            key: The cache key to store under.
-            value: The value to cache.  Must be JSON-serializable
-                (str, int, float, bool, list, dict, or None).
         """
-        payload: str = json.dumps(value)
+        self.set_many({key: value})
+
+    def set_many(self, items: Mapping[str, object]) -> None:
+        """Store several JSON-serializable values in one transaction."""
+        if not items:
+            return
         expires_at: float = time.time() + self._ttl
-        conn = sqlite3.connect(str(self._db_path))
+        rows = [(self._namespace, k, json.dumps(v), expires_at) for k, v in items.items()]
+        conn = self._connect()
         try:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute(
+            conn.executemany(
                 "INSERT OR REPLACE INTO cache_entries "
                 "(namespace, key, value, expires_at) "
                 "VALUES (?, ?, ?, ?)",
-                (self._namespace, key, payload, expires_at),
+                rows,
             )
             conn.commit()
             self._checkpoint(conn)
@@ -156,9 +175,8 @@ class TTLCache:
             The number of rows removed.
         """
         cutoff: float = time.time()
-        conn = sqlite3.connect(str(self._db_path))
+        conn = self._connect()
         try:
-            conn.execute("PRAGMA journal_mode=WAL")
             cursor = conn.execute(
                 "DELETE FROM cache_entries WHERE namespace = ? AND expires_at <= ?",
                 (self._namespace, cutoff),

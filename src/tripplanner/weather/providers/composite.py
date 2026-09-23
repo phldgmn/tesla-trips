@@ -167,13 +167,24 @@ class LoadBalancedWeatherProvider:
 
         results: list[WeatherSample | None] = [None] * len(queries)
         pending_indices: list[int] = []
+
+        # Persistent-cache fallback for in-memory misses: one bulk lookup in a
+        # worker thread instead of a blocking SQLite round trip per sample.
+        persisted: dict[str, object] = {}
+        if self._persistent_cache is not None:
+            missing_keys = [
+                _cache_str_key(q.koordinate, q.zeitpunkt)
+                for q in queries
+                if _cache_key(q.koordinate, q.zeitpunkt) not in self._cache
+            ]
+            if missing_keys:
+                persisted = await asyncio.to_thread(self._persistent_cache.get_many, missing_keys)
+
         for idx, query in enumerate(queries):
             ck = _cache_key(query.koordinate, query.zeitpunkt)
             cached = self._cache.get(ck)
-            if cached is None and self._persistent_cache is not None:
-                # Persistent cache fallback
-                str_key = _cache_str_key(query.koordinate, query.zeitpunkt)
-                json_str = self._persistent_cache.get(str_key)
+            if cached is None:
+                json_str = persisted.get(_cache_str_key(query.koordinate, query.zeitpunkt))
                 if json_str is not None:
                     cached = _cache_deserialize(json_str)
                     self._cache[ck] = cached
@@ -232,6 +243,7 @@ class LoadBalancedWeatherProvider:
         country = detect_country(coordinate)
         eligible = [e for e in self._entries if e.countries is None or country in e.countries]
         pending = list(group_indices)
+        to_persist: dict[str, object] = {}
 
         for entry in self._ordered_candidates(eligible):
             if not pending:
@@ -256,10 +268,13 @@ class LoadBalancedWeatherProvider:
                     )
                     # Store with original query time for this index
                     self._cache[ck] = sample
-                    if self._persistent_cache is not None:
-                        str_key = _cache_str_key(queries[i].koordinate, queries[i].zeitpunkt)
-                        self._persistent_cache.set(str_key, sample.model_dump(mode="json"))
+                    to_persist[_cache_str_key(queries[i].koordinate, queries[i].zeitpunkt)] = (
+                        sample.model_dump(mode="json")
+                    )
             pending = still_pending
+
+        if to_persist and self._persistent_cache is not None:
+            await asyncio.to_thread(self._persistent_cache.set_many, to_persist)
 
         if pending:
             logger.error(

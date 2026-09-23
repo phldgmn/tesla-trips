@@ -8,10 +8,13 @@ enthält:
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import logging
 import math
+import threading
+import time
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
@@ -4150,3 +4153,42 @@ def test_request_rejects_malformed_departure_time(
     api_request["departureTime"] = "morgen früh"
     response = client.post("/trips", json=api_request)
     assert response.status_code == 422
+
+
+# =============================================================================
+# Event-Loop-Blockade (Report-Item 5)
+# =============================================================================
+
+
+async def test_health_responds_while_optimizer_runs(
+    client: TestClient, valid_trip_request: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The CPU-bound optimizer runs off the event loop, so /health stays responsive."""
+    optimizer_started = threading.Event()
+
+    class _SlowOptimizer:
+        def optimize(self, **_kwargs: object) -> None:
+            optimizer_started.set()
+            time.sleep(1.0)  # blocking, like a long NetworkX search
+            raise RuntimeError("stop after the slow part")
+
+    monkeypatch.setattr("tripplanner.trip_input.pipeline.create_networkx_optimizer", _SlowOptimizer)
+    del client  # only needed for its dependency overrides
+    payload = {
+        "start": list(valid_trip_request["start"]),
+        "destination": list(valid_trip_request["ziel"]),
+        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+    }
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
+        trip = asyncio.create_task(ac.post("/trips", json=payload))
+        while not optimizer_started.is_set():
+            await asyncio.sleep(0.01)
+            assert not trip.done(), "trip finished before reaching the optimizer"
+        t0 = time.perf_counter()
+        health = await ac.get("/health")
+        elapsed = time.perf_counter() - t0
+        await trip
+    assert health.status_code == 200
+    assert elapsed < 0.1

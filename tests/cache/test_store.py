@@ -190,3 +190,34 @@ def test_cross_instance_clear_expired_sees_all(tmp_path: Path) -> None:
     assert second.clear_expired() == 1
     assert second.get("old") is None
     assert second.get("new") == "good"
+
+
+# ---------------------------------------------------------------------------
+# bulk get_many / set_many
+# ---------------------------------------------------------------------------
+
+
+def test_set_many_then_get_many_roundtrip(tmp_path: Path) -> None:
+    cache = _make_cache(tmp_path)
+    cache.set_many({"a": 1, "b": {"x": [1, 2]}})
+    assert cache.get_many(["a", "b", "missing"]) == {"a": 1, "b": {"x": [1, 2]}}
+
+
+def test_get_many_handles_more_keys_than_one_sql_chunk(tmp_path: Path) -> None:
+    cache = _make_cache(tmp_path)
+    items = {f"k{i}": i for i in range(1200)}
+    cache.set_many(items)
+    assert cache.get_many(list(items)) == items
+
+
+def test_get_many_skips_expired_entries(tmp_path: Path) -> None:
+    cache = _make_cache(tmp_path, ttl_seconds=0.05)
+    cache.set_many({"a": 1})
+    time.sleep(0.1)
+    assert cache.get_many(["a"]) == {}
+
+
+def test_set_many_with_no_items_is_a_noop(tmp_path: Path) -> None:
+    cache = _make_cache(tmp_path)
+    cache.set_many({})
+    assert cache.get_many(["a"]) == {}

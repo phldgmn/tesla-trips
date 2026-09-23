@@ -9,6 +9,7 @@ Wetter, Baustellen, Energie, Ladeplanung, Simulation, Preise).
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import time
 from collections.abc import Callable, Coroutine, Iterator
@@ -372,22 +373,30 @@ async def _step_8_optimize_charging_plan(  # noqa: PLR0913, PLR0917
 
     waypoints = list(zwischenstopps) if zwischenstopps else []
 
-    gradients = elevation_provider.calculate_segment_gradients(elevation_points, route)
+    # CPU-bound (gradients + NetworkX graph search): run off the event loop so
+    # concurrent requests (incl. /health) are not stalled. The optimizer is
+    # created per call above, so it holds no state shared between threads.
+    gradients = await asyncio.to_thread(
+        elevation_provider.calculate_segment_gradients, elevation_points, route
+    )
 
-    return optimizer.optimize(
-        route=route,
-        segments=route.segments,
-        gradients=gradients,
-        energy_results=segment_energy,
-        charging_stations=charging_stations,
-        waypoints=waypoints,
-        vehicle_profile=vehicle_profile,
-        constraints=constraints,
-        start_soc_pct=start_soc_pct,
-        abfahrtszeit=abfahrtszeit,
-        ladedauer_vorgaben=ladedauer_vorgaben,
-        faehr_zeitfenster=faehr_zeitfenster,
-        detour_kosten=detour_kosten,
+    return await asyncio.to_thread(
+        functools.partial(
+            optimizer.optimize,
+            route=route,
+            segments=route.segments,
+            gradients=gradients,
+            energy_results=segment_energy,
+            charging_stations=charging_stations,
+            waypoints=waypoints,
+            vehicle_profile=vehicle_profile,
+            constraints=constraints,
+            start_soc_pct=start_soc_pct,
+            abfahrtszeit=abfahrtszeit,
+            ladedauer_vorgaben=ladedauer_vorgaben,
+            faehr_zeitfenster=faehr_zeitfenster,
+            detour_kosten=detour_kosten,
+        )
     )
 
 
