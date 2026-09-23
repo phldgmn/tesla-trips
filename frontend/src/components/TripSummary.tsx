@@ -101,7 +101,7 @@ export function buildTimePlan(
   // durchgereicht wird.
   const stopEntries: TimePlanEntry[] = stops.map((stop, i) => {
     const waypointStop = stop.position
-      ? result.waypoint_stops.find(
+      ? result.waypointStops.find(
           (w) =>
             w.position[0] === stop.position?.[0] &&
             w.position[1] === stop.position?.[1],
@@ -112,63 +112,61 @@ export function buildTimePlan(
       art: "Stopp",
       label: stopLabel(stop),
       arrival: waypointStop?.arrivalTime ?? timings[i]?.arrival ?? null,
-      departure: waypointStop?.departure_time ?? timings[i]?.departure ?? null,
+      departure: waypointStop?.departureTime ?? timings[i]?.departure ?? null,
       distanceSinceLastKm: null,
       durationSinceLastMin: null,
-      ankunftsSocPct: waypointStop?.arrival_soc_pct ?? null,
-      abfahrtsSocPct: waypointStop?.target_soc_pct ?? null,
-      energieGeladenKwh: waypointStop?.energy_charged_kwh ?? null,
+      ankunftsSocPct: waypointStop?.arrivalSocPct ?? null,
+      abfahrtsSocPct: waypointStop?.targetSocPct ?? null,
+      energieGeladenKwh: waypointStop?.energyChargedKwh ?? null,
       estimatedCost: null,
       costCurrency: null,
     };
   });
 
-  const chargingStopEntries: TimePlanEntry[] = result.charging_stops.map(
+  const chargingStopEntries: TimePlanEntry[] = result.chargingStops.map(
     (stop) => ({
-      key: `ladehalt-${stop.station_id}-${stop.arrival_time}`,
+      key: `ladehalt-${stop.stationId}-${stop.arrivalTime}`,
       art: "Ladehalt",
       label: stop.name,
-      arrival: stop.arrival_time,
-      departure: stop.departure_time,
+      arrival: stop.arrivalTime,
+      departure: stop.departureTime,
       distanceSinceLastKm: null,
       durationSinceLastMin: null,
-      ankunftsSocPct: stop.arrival_soc_pct,
-      abfahrtsSocPct: stop.target_soc_pct,
-      energieGeladenKwh: stop.energy_charged_kwh,
-      estimatedCost: stop.estimated_cost,
+      ankunftsSocPct: stop.arrivalSocPct,
+      abfahrtsSocPct: stop.targetSocPct,
+      energieGeladenKwh: stop.energyChargedKwh,
+      estimatedCost: stop.estimatedCost,
       costCurrency: stop.currency,
     }),
   );
 
-  const ferryEntries: TimePlanEntry[] = result.detected_ferries.map(
-    (f, idx) => {
-      let arrival = f.abfahrt;
-      let departure = f.ankunft;
-      if (arrival === null || departure === null) {
-        const bboxCenter: [number, number] = [
-          (f.bbox_sw[0] + f.bbox_ne[0]) / 2,
-          (f.bbox_sw[1] + f.bbox_ne[1]) / 2,
-        ];
-        const estimated = estimatePositionTiming(bboxCenter, frames);
-        arrival = arrival ?? estimated.arrival;
-        departure = departure ?? estimated.departure;
-      }
-      return {
-        key: `faehre-${idx}-${f.name}`,
-        art: "Fähre",
-        label: f.name,
-        arrival,
-        departure,
-        distanceSinceLastKm: null,
-        durationSinceLastMin: null,
-        ankunftsSocPct: null,
-        abfahrtsSocPct: null,
-        energieGeladenKwh: null,
-        estimatedCost: null,
-        costCurrency: null,
-      };
-    },
-  );
+  const ferryEntries: TimePlanEntry[] = result.detectedFerries.map((f, idx) => {
+    let arrival = f.abfahrt;
+    let departure = f.ankunft;
+    if (arrival === null || departure === null) {
+      const bboxCenter: [number, number] = [
+        (f.bboxSw[0] + f.bboxNe[0]) / 2,
+        (f.bboxSw[1] + f.bboxNe[1]) / 2,
+      ];
+      const estimated = estimatePositionTiming(bboxCenter, frames);
+      arrival = arrival ?? estimated.arrival;
+      departure = departure ?? estimated.departure;
+    }
+    return {
+      key: `faehre-${idx}-${f.name}`,
+      art: "Fähre",
+      label: f.name,
+      arrival,
+      departure,
+      distanceSinceLastKm: null,
+      durationSinceLastMin: null,
+      ankunftsSocPct: null,
+      abfahrtsSocPct: null,
+      energieGeladenKwh: null,
+      estimatedCost: null,
+      costCurrency: null,
+    };
+  });
 
   const sorted = [...stopEntries, ...chargingStopEntries, ...ferryEntries].sort(
     (a, b) => {
@@ -216,12 +214,12 @@ export function buildTimePlan(
       if (entry.ankunftsSocPct === null) {
         entry.ankunftsSocPct =
           entry.arrival && arrivalIdx !== null
-            ? frames[arrivalIdx].soc_pct
+            ? frames[arrivalIdx].socPct
             : null;
       }
       if (entry.abfahrtsSocPct === null) {
         entry.abfahrtsSocPct =
-          entry.departure && exitIdx !== null ? frames[exitIdx].soc_pct : null;
+          entry.departure && exitIdx !== null ? frames[exitIdx].socPct : null;
       }
     }
 
@@ -242,8 +240,8 @@ function TripSummary({ result, stops }: TripSummaryProps) {
 
   useEffect(() => {
     let cancelled = false;
-    if (result.total_charging_cost.length > 0) {
-      convertAllToEUR(result.total_charging_cost).then(
+    if (result.totalChargingCost.length > 0) {
+      convertAllToEUR(result.totalChargingCost).then(
         ({ totalEUR, breakdown }) => {
           if (cancelled) return;
           setEurTotal(totalEUR);
@@ -260,7 +258,7 @@ function TripSummary({ result, stops }: TripSummaryProps) {
     return () => {
       cancelled = true;
     };
-  }, [result.total_charging_cost]);
+  }, [result.totalChargingCost]);
 
   return (
     <div
@@ -279,53 +277,53 @@ function TripSummary({ result, stops }: TripSummaryProps) {
         <tbody>
           <tr>
             <td style={labelCellStyle}>Distanz</td>
-            <td style={valueCellStyle}>{formatKm(result.total_distance_km)}</td>
+            <td style={valueCellStyle}>{formatKm(result.totalDistanceKm)}</td>
           </tr>
           <tr>
             <td style={labelCellStyle}>Fahrzeit</td>
             <td style={valueCellStyle}>
-              {formatMinutes(result.total_driving_time_min)}
+              {formatMinutes(result.totalDrivingTimeMin)}
             </td>
           </tr>
           <tr>
             <td style={labelCellStyle}>Ladezeit</td>
             <td style={valueCellStyle}>
-              {formatMinutes(result.total_charging_time_min)}
+              {formatMinutes(result.totalChargingTimeMin)}
             </td>
           </tr>
           <tr>
             <td style={labelCellStyle}>Reisezeit</td>
             <td style={valueCellStyle}>
               {formatMinutes(
-                result.total_driving_time_min + result.total_charging_time_min,
+                result.totalDrivingTimeMin + result.totalChargingTimeMin,
               )}
             </td>
           </tr>
-          {result.total_waiting_time_min > 0 && (
+          {result.totalWaitingTimeMin > 0 && (
             <tr>
               <td style={labelCellStyle}>Wartezeit</td>
               <td style={valueCellStyle}>
-                {formatMinutes(result.total_waiting_time_min)}
+                {formatMinutes(result.totalWaitingTimeMin)}
               </td>
             </tr>
           )}
           <tr>
             <td style={labelCellStyle}>Start-SoC</td>
-            <td style={valueCellStyle}>{formatSoc(result.start_soc_pct)}</td>
+            <td style={valueCellStyle}>{formatSoc(result.startSocPct)}</td>
           </tr>
           <tr>
             <td style={labelCellStyle}>Ziel-SoC</td>
-            <td style={valueCellStyle}>{formatSoc(result.target_soc_pct)}</td>
+            <td style={valueCellStyle}>{formatSoc(result.targetSocPct)}</td>
           </tr>
-          {result.detected_ferries.length > 0 && (
+          {result.detectedFerries.length > 0 && (
             <tr>
               <td style={labelCellStyle}>Fähren</td>
               <td style={valueCellStyle}>
-                {result.detected_ferries.map((f) => f.name).join(", ")}
+                {result.detectedFerries.map((f) => f.name).join(", ")}
               </td>
             </tr>
           )}
-          {result.charging_stops.length > 0 && (
+          {result.chargingStops.length > 0 && (
             <tr>
               <td style={labelCellStyle}>Ladekosten</td>
               <td style={valueCellStyle}>
@@ -353,7 +351,7 @@ function TripSummary({ result, stops }: TripSummaryProps) {
                             <span>= {formatCost(b.eurAmount, "EUR")}</span>
                           </div>
                         ))}
-                        {result.charging_stops_missing_pricing > 0 && (
+                        {result.chargingStopsMissingPricing > 0 && (
                           <div
                             style={{
                               marginTop: "0.25rem",
@@ -361,8 +359,8 @@ function TripSummary({ result, stops }: TripSummaryProps) {
                               opacity: 0.7,
                             }}
                           >
-                            ({result.charging_stops_missing_pricing} Halt
-                            {result.charging_stops_missing_pricing === 1
+                            ({result.chargingStopsMissingPricing} Halt
+                            {result.chargingStopsMissingPricing === 1
                               ? ""
                               : "e"}{" "}
                             ohne Preisdaten)
@@ -382,8 +380,8 @@ function TripSummary({ result, stops }: TripSummaryProps) {
                   </Popover>
                 ) : (
                   formatChargingCosts(
-                    result.total_charging_cost,
-                    result.charging_stops_missing_pricing,
+                    result.totalChargingCost,
+                    result.chargingStopsMissingPricing,
                   )
                 )}
               </td>

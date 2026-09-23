@@ -95,8 +95,8 @@ export interface WaypointInput {
  *  in einer nachfolgenden Routenberechnung (`FaehrAusschlussAPI`). */
 export interface FerryExclusion {
   name: string;
-  bbox_sw: [number, number];
-  bbox_ne: [number, number];
+  bboxSw: [number, number];
+  bboxNe: [number, number];
 }
 
 /** Eine vom Nutzer vorgegebene Abfahrts-/Ankunftszeit für eine zuvor erkannte
@@ -104,8 +104,8 @@ export interface FerryExclusion {
  *  Fährfahrplan. */
 export interface FerryTimeWindow {
   name: string;
-  bbox_sw: [number, number];
-  bbox_ne: [number, number];
+  bboxSw: [number, number];
+  bboxNe: [number, number];
   /** ISO-8601, lokal (ohne Zeitzone). */
   abfahrt: string;
   /** ISO-8601, lokal (ohne Zeitzone). */
@@ -115,8 +115,8 @@ export interface FerryTimeWindow {
 /** Eine vom Nutzer vorgegebene feste Ladedauer für eine bestimmte Ladestation
  *  (`LadedauerVorgabeAPI`), identifiziert über die stabile `station_id`. */
 export interface ChargingDurationTarget {
-  station_id: string;
-  charging_duration_s: number;
+  stationId: string;
+  chargingDurationS: number;
 }
 
 /** Vollständiger Request-Body für `POST /trips` (`TripRequestAPI`). */
@@ -128,25 +128,25 @@ export interface TripRequestPayload {
   departureTime: string;
   vehicleProfile: VehicleProfileInput;
   preferences: Record<string, unknown>;
-  start_soc_pct: number;
-  target_soc_pct: number;
-  min_charging_time_s: number;
-  min_arrival_soc_pct: number;
-  max_charge_soc_pct: number;
-  avoid_all_ferries: boolean;
+  startSocPct: number;
+  targetSocPct: number;
+  minChargingTimeS: number;
+  minArrivalSocPct: number;
+  maxChargeSocPct: number;
+  avoidAllFerries: boolean;
   /** Grad der Autobahnpräferenz bei der Berechnung: 'off' (keine Präferenz),
    *  'low'/'medium'/'high' (Nudge, keine Erzwingung; Toggle "Autobahn"). */
-  highway_preference: HighwayPreferenceLevel;
-  avoided_ferries: FerryExclusion[];
-  ferry_time_windows: FerryTimeWindow[];
-  charging_duration_specifications: ChargingDurationTarget[];
+  highwayPreference: HighwayPreferenceLevel;
+  avoidedFerries: FerryExclusion[];
+  ferryTimeWindows: FerryTimeWindow[];
+  chargingDurationSpecifications: ChargingDurationTarget[];
   /** Steuert die räumliche/zeitliche Auflösung der Wetterabfrage
    *  (siehe `TripPlannerForm`-Kontrolle "Routendetails"). `"off"` entspricht
    *  dem alten `wetter_beruecksichtigen: false`, `"high"` dem alten `true`. */
-  weather_detail_level: WeatherDetailLevel;
+  weatherDetailLevel: WeatherDetailLevel;
   /** Falls false, wird der Baustellen-Provider für diese Berechnung
    *  übersprungen, um sie zu beschleunigen (Toggle "Baustellen"). */
-  consider_construction_sites: boolean;
+  considerConstructionSites: boolean;
 }
 
 /** Re-exports payload-builder and validation logic. */

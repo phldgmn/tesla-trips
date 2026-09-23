@@ -1672,24 +1672,20 @@ export function TripPlannerForm({
           if (entry.art === "Ladehalt") {
             const stop = entry.chargingStop;
             const target = chargingDurationPresets.find(
-              (v) => v.station_id === stop.station_id,
+              (v) => v.stationId === stop.stationId,
             );
             const chargingDurationMin = Math.round(
-              (target?.charging_duration_s ?? stop.charging_duration_s) / 60,
+              (target?.chargingDurationS ?? stop.chargingDurationS) / 60,
             );
             const departureDateShort = isDayChange(
-              stop.arrival_time,
-              stop.departure_time,
+              stop.arrivalTime,
+              stop.departureTime,
             )
-              ? formatDayMonth(stop.departure_time)
+              ? formatDayMonth(stop.departureTime)
               : undefined;
 
             return (
-              <TimelineRow
-                key={stop.station_id}
-                icon={Zap}
-                background="#dcfce7"
-              >
+              <TimelineRow key={stop.stationId} icon={Zap} background="#dcfce7">
                 <div
                   style={{
                     position: "relative",
@@ -1704,13 +1700,13 @@ export function TripPlannerForm({
                 >
                   <TimeBadge
                     edge="oben"
-                    iso={stop.arrival_time}
-                    socPct={stop.arrival_soc_pct}
+                    iso={stop.arrivalTime}
+                    socPct={stop.arrivalSocPct}
                   />
                   <TimeBadge
                     edge="unten"
-                    iso={stop.departure_time}
-                    socPct={stop.target_soc_pct}
+                    iso={stop.departureTime}
+                    socPct={stop.targetSocPct}
                     shortDate={departureDateShort}
                   />
                   <strong>{formatChargingStationName(stop.name)}</strong>
@@ -1731,7 +1727,7 @@ export function TripPlannerForm({
                       onChange={(e) => {
                         const next = setChargingDurationPresetFor(
                           chargingDurationPresets,
-                          stop.station_id,
+                          stop.stationId,
                           parseFloat(e.target.value) || 0,
                         );
                         setChargingDurationPresets(next);
@@ -1784,8 +1780,8 @@ export function TripPlannerForm({
           const faehre = entry.faehre;
           const exclusionEntry: FerryExclusion = {
             name: faehre.name,
-            bbox_sw: faehre.bbox_sw,
-            bbox_ne: faehre.bbox_ne,
+            bboxSw: faehre.bboxSw,
+            bboxNe: faehre.bboxNe,
           };
           const timeWindowEntry = ferryTimeWindows.find((f) =>
             sameFerryExclusion(f, exclusionEntry),
@@ -1892,7 +1888,7 @@ export function TripPlannerForm({
                   }}
                 >
                   <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                    ⛴ {faehre.name} ({(faehre.length_m / 1000).toFixed(1)} km)
+                    ⛴ {faehre.name} ({(faehre.lengthM / 1000).toFixed(1)} km)
                   </span>
                   <button
                     type="button"
@@ -2001,10 +1997,10 @@ export function TripPlannerForm({
               const lengthM =
                 (erkannteFaehren ?? []).find((f) =>
                   sameFerryExclusion(
-                    { name: f.name, bbox_sw: f.bbox_sw, bbox_ne: f.bbox_ne },
+                    { name: f.name, bboxSw: f.bboxSw, bboxNe: f.bboxNe },
                     entry,
                   ),
-                )?.length_m ?? null;
+                )?.lengthM ?? null;
               return (
                 <div
                   key={ferryKey(entry)}

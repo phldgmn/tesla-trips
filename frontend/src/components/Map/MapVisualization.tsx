@@ -278,7 +278,7 @@ export function MapVisualization({
   ) {
     render({ status: "loading" });
     try {
-      const pricing = await refreshSuperchargerPricing(stop.station_id);
+      const pricing = await refreshSuperchargerPricing(stop.stationId);
       render({ status: "loaded", pricing });
     } catch (err: unknown) {
       render({
@@ -425,31 +425,31 @@ export function MapVisualization({
     // auf der Karte, unabhaengig davon, wie exakt die zugrundeliegenden
     // SoC-Werte sind). Das Splitting behebt das exakt wie bei Ladehalten.
     const splicedRoute = buildSplicedRoute(
-      simulationResult.route_geometry,
+      simulationResult.routeGeometry,
       [
-        ...simulationResult.charging_stops.map((stop) => ({
+        ...simulationResult.chargingStops.map((stop) => ({
           position: stop.position,
-          distanzM: stop.distance_m,
-          detourGeometrie: stop.detour_geometry,
-          stationIndex: stop.detour_station_index,
-          routeIndexVor: stop.route_index_before,
-          routeIndexNach: stop.route_index_after,
-          ankunftsSocPct: stop.arrival_soc_pct,
-          zielSocPct: stop.target_soc_pct,
-          ankunftszeit: stop.arrival_time,
-          abfahrtszeit: stop.departure_time,
+          distanzM: stop.distanceM,
+          detourGeometrie: stop.detourGeometry,
+          stationIndex: stop.detourStationIndex,
+          routeIndexVor: stop.routeIndexBefore,
+          routeIndexNach: stop.routeIndexAfter,
+          ankunftsSocPct: stop.arrivalSocPct,
+          zielSocPct: stop.targetSocPct,
+          ankunftszeit: stop.arrivalTime,
+          abfahrtszeit: stop.departureTime,
         })),
-        ...simulationResult.waypoint_stops.map((stop) => ({
+        ...simulationResult.waypointStops.map((stop) => ({
           position: stop.position,
-          distanzM: stop.distance_m,
+          distanzM: stop.distanceM,
           detourGeometrie: [],
           stationIndex: null,
           routeIndexVor: null,
           routeIndexNach: null,
-          ankunftsSocPct: stop.arrival_soc_pct,
-          zielSocPct: stop.target_soc_pct,
+          ankunftsSocPct: stop.arrivalSocPct,
+          zielSocPct: stop.targetSocPct,
           ankunftszeit: stop.arrivalTime,
-          abfahrtszeit: stop.departure_time,
+          abfahrtszeit: stop.departureTime,
         })),
       ],
       // Reine Fahr-Frames fuer den Gradienten innerhalb jeder Leg - die
@@ -458,15 +458,15 @@ export function MapVisualization({
       simulationResult.frames
         .filter((f) => f.state === "FAHREN")
         .map((f) => ({
-          distanzM: f.distance_m,
-          socPct: f.soc_pct,
+          distanzM: f.distanceM,
+          socPct: f.socPct,
           zeitpunkt: f.timestamp,
-          geschwindigkeitKmh: f.speed_kmh,
-          temperaturC: f.temperature_c ?? undefined,
+          geschwindigkeitKmh: f.speedKmh,
+          temperaturC: f.temperatureC ?? undefined,
           windgeschwindigkeitKmh:
-            f.wind_speed_ms !== null ? f.wind_speed_ms * 3.6 : undefined,
-          windrichtungDeg: f.wind_direction_deg ?? undefined,
-          niederschlagMm: f.precipitation_mm ?? undefined,
+            f.windSpeedMs !== null ? f.windSpeedMs * 3.6 : undefined,
+          windrichtungDeg: f.windDirectionDeg ?? undefined,
+          niederschlagMm: f.precipitationMm ?? undefined,
         })),
     );
     const routeCoordinates = splicedRoute.coordinates;
@@ -567,7 +567,7 @@ export function MapVisualization({
     // WICHTIG: Vor Ladehalt-Markern hinzufügen, damit Ladehalt-Marker
     // über den Baustellen-Markern liegen (reine DOM-Reihenfolge, siehe
     // `raiseStopMarkersToTop` fürs analoge Prinzip bei Stopp-Markern).
-    for (const zone of simulationResult.construction_zones) {
+    for (const zone of simulationResult.constructionZones) {
       const element = buildConstructionZoneMarkerElement();
       const marker = new Marker({ element })
         .setLngLat(toLngLat(zone.position))
@@ -579,7 +579,7 @@ export function MapVisualization({
         .addTo(map);
       constructionZoneMarkersRef.current.push({
         marker,
-        lengthM: zone.length_m,
+        lengthM: zone.lengthM,
       });
     }
     // Direkt nach dem Anlegen die Sichtbarkeit fuer den aktuellen Zoom
@@ -594,7 +594,7 @@ export function MapVisualization({
     // Fehlt die Preis-Info fuer diesen Halt (`price_per_kwh === null`),
     // zeigt das Popup zusaetzlich einen Preis-Refresh-Button (siehe
     // `buildChargingStopPopupElement`/`handleChargingStopPricingRefresh`).
-    for (const stop of simulationResult.charging_stops) {
+    for (const stop of simulationResult.chargingStops) {
       const element = buildChargingStopMarkerElement();
       const popup = new Popup({ offset: 14 });
       const renderChargingStopPopup = (state: PricingRefreshState) => {
@@ -639,7 +639,7 @@ export function MapVisualization({
     const map = mapRef.current;
     const markers = markersRef.current;
     const stops = stopsProp ?? [];
-    const waypointStops = simulationResult?.waypoint_stops ?? [];
+    const waypointStops = simulationResult?.waypointStops ?? [];
     const seen = new Set<string>();
 
     // Nur Stopps mit aufgelöster Position rendern.

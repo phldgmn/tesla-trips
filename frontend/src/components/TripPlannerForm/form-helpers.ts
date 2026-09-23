@@ -115,10 +115,10 @@ export function sameFerryExclusion(
 ): boolean {
   return (
     a.name === b.name &&
-    a.bbox_sw[0] === b.bbox_sw[0] &&
-    a.bbox_sw[1] === b.bbox_sw[1] &&
-    a.bbox_ne[0] === b.bbox_ne[0] &&
-    a.bbox_ne[1] === b.bbox_ne[1]
+    a.bboxSw[0] === b.bboxSw[0] &&
+    a.bboxSw[1] === b.bboxSw[1] &&
+    a.bboxNe[0] === b.bboxNe[0] &&
+    a.bboxNe[1] === b.bboxNe[1]
   );
 }
 
@@ -138,7 +138,7 @@ export function toggleFerryExclusion(
 /** Stabiler Identitäts-Schlüssel für eine Fährverbindung (Name + Bounding Box),
  *  zur Indizierung von React-State und -Listen abseits von Array-Index. */
 export function ferryKey(entry: FerryExclusion): string {
-  return `${entry.name}|${entry.bbox_sw.join(",")}|${entry.bbox_ne.join(",")}`;
+  return `${entry.name}|${entry.bboxSw.join(",")}|${entry.bboxNe.join(",")}`;
 }
 
 /** Icon + Hintergrundfarbe des Timeline-Markers für einen Stopp, abhängig

@@ -299,17 +299,17 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
     Routing uses the real GraphHopper server (via ``get_routing_provider``);
     without a running server the request fails with 502 (see README.md).
 
-    ``request.wetter_detailgrad`` (``"off"``, ``"low"``, ``"medium"``,
+    ``request.weather_detail_level`` (``"off"``, ``"low"``, ``"medium"``,
     ``"high"``) drives weather resolution.  ``"off"`` skips the weather
     provider (``None``); ``"high"`` passes it through unchanged;
     ``"low"``/``"medium"`` also pass the provider but with reduced
-    query granularity.  ``request.baustellen_beruecksichtigen`` controls
+    query granularity.  ``request.consider_construction_sites`` controls
     construction-site detection independently.
     """
     # TripRequestAPI nach TripRequest konvertieren
     request_dict: dict[str, object] = {
         "start": request.start,
-        "ziel": request.ziel,
+        "ziel": request.destination,
         "zwischenstopps": [
             {
                 "koordinate": wp.koordinate,
@@ -321,30 +321,30 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
                 else None,
                 "ladeleistung_kw": wp.ladeleistung_kw,
             }
-            for wp in request.zwischenstopps
+            for wp in request.waypoints
         ],
-        "abfahrtszeit": request.abfahrtszeit,
-        "fahrzeugprofil": request.fahrzeugprofil.model_dump(),
-        "praeferenzen": request.praeferenzen,
-        "alle_faehren_vermeiden": request.alle_faehren_vermeiden,
-        "autobahn_praeferenz": request.autobahn_praeferenz,
+        "abfahrtszeit": request.departure_time,
+        "fahrzeugprofil": request.vehicle_profile.model_dump(),
+        "praeferenzen": request.preferences,
+        "alle_faehren_vermeiden": request.avoid_all_ferries,
+        "autobahn_praeferenz": request.highway_preference,
         "vermiedene_faehren": [
-            {"name": f.name, "bbox_sw": f.bbox_sw, "bbox_no": f.bbox_no}
-            for f in request.vermiedene_faehren
+            {"name": f.name, "bbox_sw": f.bbox_sw, "bbox_no": f.bbox_ne}
+            for f in request.avoided_ferries
         ],
         "faehr_zeitfenster": [
             {
                 "name": f.name,
                 "bbox_sw": f.bbox_sw,
-                "bbox_no": f.bbox_no,
+                "bbox_no": f.bbox_ne,
                 "abfahrt": datetime.fromisoformat(f.abfahrt),
                 "ankunft": datetime.fromisoformat(f.ankunft),
             }
-            for f in request.faehr_zeitfenster
+            for f in request.ferry_time_windows
         ],
         "ladedauer_vorgaben": [
-            {"station_id": v.station_id, "ladedauer_s": v.ladedauer_s}
-            for v in request.ladedauer_vorgaben
+            {"station_id": v.station_id, "ladedauer_s": v.charging_duration_s}
+            for v in request.charging_duration_specifications
         ],
     }
 
@@ -367,17 +367,17 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
             request_dict,
             routing_provider=routing_provider,
             charging_provider=charging_provider,
-            weather_provider=(weather_provider if request.wetter_detailgrad != "off" else None),
-            weather_detail=request.wetter_detailgrad,
+            weather_provider=(weather_provider if request.weather_detail_level != "off" else None),
+            weather_detail=request.weather_detail_level,
             construction_provider=(
-                construction_provider if request.baustellen_beruecksichtigen else None
+                construction_provider if request.consider_construction_sites else None
             ),
             elevation_provider=elevation_provider,
             start_soc_pct=request.start_soc_pct,
-            destination_soc_pct=request.ziel_soc_pct,
-            mindest_ankunfts_soc_pct=request.mindest_ankunfts_soc_pct,
-            mindest_ladezeit_s=request.mindest_ladezeit_s,
-            max_lade_soc_pct=request.max_lade_soc_pct,
+            destination_soc_pct=request.target_soc_pct,
+            mindest_ankunfts_soc_pct=request.min_arrival_soc_pct,
+            mindest_ladezeit_s=request.min_charging_time_s,
+            max_lade_soc_pct=request.max_charge_soc_pct,
             ferry_observer=_faehren_erfassen,
             route_observer=_route_erfassen,
         )
@@ -387,24 +387,24 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
         )
 
         return TripSimulationResultAPI(
-            gesamt_distanz_km=ergebnis.gesamt_distanz_km,
-            gesamt_fahrzeit_min=ergebnis.gesamt_fahrzeit_min,
-            gesamt_ladezeit_min=ergebnis.gesamt_ladezeit_min,
-            gesamt_wartezeit_min=ergebnis.gesamt_wartezeit_min,
+            total_distance_km=ergebnis.gesamt_distanz_km,
+            total_driving_time_min=ergebnis.gesamt_fahrzeit_min,
+            total_charging_time_min=ergebnis.gesamt_ladezeit_min,
+            total_waiting_time_min=ergebnis.gesamt_wartezeit_min,
             start_soc_pct=ergebnis.start_soc_pct,
-            ziel_soc_pct=ergebnis.ziel_soc_pct,
+            target_soc_pct=ergebnis.ziel_soc_pct,
             frames=[
                 FrameAPI(
-                    zeitpunkt=f.zeitpunkt.isoformat(),
+                    timestamp=f.zeitpunkt.isoformat(),
                     position=f.position,
-                    distanz_m=f.distanz_m,
+                    distance_m=f.distanz_m,
                     soc_pct=f.soc_pct,
-                    zustand=f.zustand.value,
-                    geschwindigkeit_kmh=f.geschwindigkeit_kmh,
-                    temperatur_c=f.temperatur_c,
-                    windgeschwindigkeit_ms=f.windgeschwindigkeit_ms,
-                    windrichtung_deg=f.windrichtung_deg,
-                    niederschlag_mm=f.niederschlag_mm,
+                    state=f.zustand.value,
+                    speed_kmh=f.geschwindigkeit_kmh,
+                    temperature_c=f.temperatur_c,
+                    wind_speed_ms=f.windgeschwindigkeit_ms,
+                    wind_direction_deg=f.windrichtung_deg,
+                    precipitation_mm=f.niederschlag_mm,
                 )
                 for f in ergebnis.frames
             ],
@@ -413,17 +413,17 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
                     name=stop.name,
                     station_id=stop.station_id,
                     position=stop.position,
-                    distanz_m=stop.distanz_m,
-                    detour_geometrie=stop.detour_geometrie,
-                    route_index_vor=stop.route_index_vor,
-                    route_index_nach=stop.route_index_nach,
+                    distance_m=stop.distanz_m,
+                    detour_geometry=stop.detour_geometrie,
+                    route_index_before=stop.route_index_vor,
+                    route_index_after=stop.route_index_nach,
                     detour_station_index=stop.detour_station_index,
-                    ankunfts_soc_pct=stop.ankunfts_soc_pct,
-                    ziel_soc_pct=stop.ziel_soc_pct,
-                    ladedauer_s=stop.ladedauer_s,
-                    energie_geladen_kwh=stop.energie_geladen_kwh,
-                    ankunftszeit=stop.ankunftszeit.isoformat(),
-                    abfahrtszeit=stop.abfahrtszeit.isoformat(),
+                    arrival_soc_pct=stop.ankunfts_soc_pct,
+                    target_soc_pct=stop.ziel_soc_pct,
+                    charging_duration_s=stop.ladedauer_s,
+                    energy_charged_kwh=stop.energie_geladen_kwh,
+                    arrival_time=stop.ankunftszeit.isoformat(),
+                    departure_time=stop.abfahrtszeit.isoformat(),
                     price_per_kwh=stop.price_per_kwh,
                     currency=stop.currency,
                     estimated_cost=stop.estimated_cost,
@@ -436,23 +436,23 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
             waypoint_stops=[
                 WaypointStopAPI(
                     position=stop.position,
-                    distanz_m=stop.distanz_m,
-                    ankunftszeit=stop.ankunftszeit.isoformat(),
-                    abfahrtszeit=stop.abfahrtszeit.isoformat(),
+                    distance_m=stop.distanz_m,
+                    arrival_time=stop.ankunftszeit.isoformat(),
+                    departure_time=stop.abfahrtszeit.isoformat(),
                     ladeleistung_kw=stop.ladeleistung_kw,
-                    ankunfts_soc_pct=stop.ankunfts_soc_pct,
-                    ziel_soc_pct=stop.ziel_soc_pct,
-                    energie_geladen_kwh=stop.energie_geladen_kwh,
+                    arrival_soc_pct=stop.ankunfts_soc_pct,
+                    target_soc_pct=stop.ziel_soc_pct,
+                    energy_charged_kwh=stop.energie_geladen_kwh,
                 )
                 for stop in ergebnis.waypoint_stops
             ],
-            route_geometrie=route_geometrie,
-            erkannte_faehren=[
+            route_geometry=route_geometrie,
+            detected_ferries=[
                 FaehrSegmentAPI(
                     name=f.name,
-                    laenge_m=f.laenge_m,
+                    length_m=f.laenge_m,
                     bbox_sw=f.bbox_sw,
-                    bbox_no=f.bbox_no,
+                    bbox_ne=f.bbox_no,
                     abfahrt=f.abfahrt.isoformat() if f.abfahrt else None,
                     ankunft=f.ankunft.isoformat() if f.ankunft else None,
                 )

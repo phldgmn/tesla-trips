@@ -41,13 +41,13 @@ export function setChargingDurationPresetFor(
   stationId: string,
   chargingDurationMin: number,
 ): ChargingDurationTarget[] {
-  const rest = list.filter((v) => v.station_id !== stationId);
+  const rest = list.filter((v) => v.stationId !== stationId);
   if (!(chargingDurationMin > 0)) return rest;
   return [
     ...rest,
     {
-      station_id: stationId,
-      charging_duration_s: Math.round(chargingDurationMin * 60),
+      stationId: stationId,
+      chargingDurationS: Math.round(chargingDurationMin * 60),
     },
   ];
 }
@@ -55,5 +55,5 @@ export function setChargingDurationPresetFor(
 /** Stabiler Identitäts-Schlüssel für eine Fährverbindung (Name + Bounding Box),
  *  zur Indizierung von React-State und -Listen abseits von Array-Index. */
 export function ferryKey(entry: FerryExclusion): string {
-  return `${entry.name}|${entry.bbox_sw.join(",")}|${entry.bbox_ne.join(",")}`;
+  return `${entry.name}|${entry.bboxSw.join(",")}|${entry.bboxNe.join(",")}`;
 }

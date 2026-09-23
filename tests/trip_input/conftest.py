@@ -112,11 +112,11 @@ def api_request_payload(berlin_muenchen_request: dict) -> dict:
     """API-Request-Format für FastAPI-Tests."""
     return {
         "start": berlin_muenchen_request["start"],
-        "ziel": berlin_muenchen_request["ziel"],
-        "zwischenstopps": [],
-        "abfahrtszeit": berlin_muenchen_request["abfahrtszeit"].isoformat(),
-        "fahrzeugprofil": berlin_muenchen_request["fahrzeugprofil"].model_dump(),
-        "praeferenzen": {},
+        "destination": berlin_muenchen_request["ziel"],
+        "waypoints": [],
+        "departureTime": berlin_muenchen_request["abfahrtszeit"].isoformat(),
+        "vehicleProfile": berlin_muenchen_request["fahrzeugprofil"].model_dump(),
+        "preferences": {},
     }
 
 
@@ -126,8 +126,8 @@ def api_request_payload_with_stop(berlin_hamburg_request: dict) -> dict:
     wp = berlin_hamburg_request["zwischenstopps"][0]
     return {
         "start": berlin_hamburg_request["start"],
-        "ziel": berlin_hamburg_request["ziel"],
-        "zwischenstopps": [
+        "destination": berlin_hamburg_request["ziel"],
+        "waypoints": [
             {
                 "koordinate": list(wp.koordinate),
                 "aufenthaltsdauer_s": int(wp.aufenthaltsdauer.total_seconds())
@@ -135,7 +135,7 @@ def api_request_payload_with_stop(berlin_hamburg_request: dict) -> dict:
                 else None,
             }
         ],
-        "abfahrtszeit": berlin_hamburg_request["abfahrtszeit"].isoformat(),
-        "fahrzeugprofil": berlin_hamburg_request["fahrzeugprofil"].model_dump(),
-        "praeferenzen": {},
+        "departureTime": berlin_hamburg_request["abfahrtszeit"].isoformat(),
+        "vehicleProfile": berlin_hamburg_request["fahrzeugprofil"].model_dump(),
+        "preferences": {},
     }

@@ -31,10 +31,10 @@ import { isDayChange } from "./datetime-utils";
 function sameFerryExclusion(a: FerryExclusion, b: FerryExclusion): boolean {
   return (
     a.name === b.name &&
-    a.bbox_sw[0] === b.bbox_sw[0] &&
-    a.bbox_sw[1] === b.bbox_sw[1] &&
-    a.bbox_ne[0] === b.bbox_ne[0] &&
-    a.bbox_ne[1] === b.bbox_ne[1]
+    a.bboxSw[0] === b.bboxSw[0] &&
+    a.bboxSw[1] === b.bboxSw[1] &&
+    a.bboxNe[0] === b.bboxNe[0] &&
+    a.bboxNe[1] === b.bboxNe[1]
   );
 }
 
@@ -177,12 +177,12 @@ export function buildRouteEntries(args: {
   const chargingStopEntries: PointEntry[] = (chargingStops ?? []).map(
     (chargingStop) => ({
       art: "Ladehalt" as const,
-      sortKey: chargingStop.arrival_time,
+      sortKey: chargingStop.arrivalTime,
       timing: {
-        arrival: chargingStop.arrival_time,
-        departure: chargingStop.departure_time,
-        arrivalSocPct: chargingStop.arrival_soc_pct,
-        departureSocPct: chargingStop.target_soc_pct,
+        arrival: chargingStop.arrivalTime,
+        departure: chargingStop.departureTime,
+        arrivalSocPct: chargingStop.arrivalSocPct,
+        departureSocPct: chargingStop.targetSocPct,
       },
       chargingStop,
     }),
@@ -194,8 +194,8 @@ export function buildRouteEntries(args: {
       !vermiedeneFaehren.some((avoidedFerry) =>
         sameFerryExclusion(avoidedFerry, {
           name: faehre.name,
-          bbox_sw: faehre.bbox_sw,
-          bbox_ne: faehre.bbox_ne,
+          bboxSw: faehre.bboxSw,
+          bboxNe: faehre.bboxNe,
         }),
       ),
   );
@@ -204,8 +204,8 @@ export function buildRouteEntries(args: {
     recognizedFerriesWithoutAvoided ?? []
   ).map((faehre) => {
     // BBox-Mitte berechnen
-    const bbox_sw = faehre.bbox_sw;
-    const bbox_ne = faehre.bbox_ne;
+    const bbox_sw = faehre.bboxSw;
+    const bbox_ne = faehre.bboxNe;
     const bboxCenter: [number, number] = [
       (bbox_sw[0] + bbox_ne[0]) / 2,
       (bbox_sw[1] + bbox_ne[1]) / 2,

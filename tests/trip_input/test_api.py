@@ -1396,33 +1396,35 @@ def test_fastapi_endpoint_akzeptiert_faehr_zeitfenster_und_ladedauer_vorgaben(
     `.ankunftszeit`/`.abfahrtszeit`, `FaehrSegmentAPI.abfahrt`/`.ankunft`)."""
     api_request = {
         "start": (52.52, 13.405),
-        "ziel": (48.135, 11.582),
-        "zwischenstopps": [],
-        "abfahrtszeit": "2026-08-15T08:30:00",
-        "fahrzeugprofil": _make_fahrzeugprofil_dict(),
-        "start_soc_pct": 80.0,
-        "ziel_soc_pct": 20.0,
-        "faehr_zeitfenster": [
+        "destination": (48.135, 11.582),
+        "waypoints": [],
+        "departureTime": "2026-08-15T08:30:00",
+        "vehicleProfile": _make_fahrzeugprofil_dict(),
+        "startSocPct": 80.0,
+        "targetSocPct": 20.0,
+        "ferryTimeWindows": [
             {
                 "name": "Nicht in dieser Route vorhanden",
-                "bbox_sw": (0.0, 0.0),
-                "bbox_no": (1.0, 1.0),
+                "bboxSw": (0.0, 0.0),
+                "bboxNe": (1.0, 1.0),
                 "abfahrt": "2026-08-15T10:00:00",
                 "ankunft": "2026-08-15T11:00:00",
             }
         ],
-        "ladedauer_vorgaben": [{"station_id": "nurnberg-stop", "ladedauer_s": 1500}],
+        "chargingDurationSpecifications": [
+            {"stationId": "nurnberg-stop", "chargingDurationS": 1500}
+        ],
     }
     response = client.post("/trips", json=api_request)
     assert response.status_code == 201
     data = response.json()
-    assert data["erkannte_faehren"] == []
-    for stop in data["charging_stops"]:
-        assert "station_id" in stop
-        assert "ankunftszeit" in stop
-        assert "abfahrtszeit" in stop
-        if stop["station_id"] == "nurnberg-stop":
-            assert stop["ladedauer_s"] == 1500
+    assert data["detectedFerries"] == []
+    for stop in data["chargingStops"]:
+        assert "stationId" in stop
+        assert "arrivalTime" in stop
+        assert "departureTime" in stop
+        if stop["stationId"] == "nurnberg-stop":
+            assert stop["chargingDurationS"] == 1500
 
 
 def test_fastapi_endpoint_mit_geplanter_abfahrt_verzoegert_ankunft(client: TestClient) -> None:
@@ -1435,17 +1437,17 @@ def test_fastapi_endpoint_mit_geplanter_abfahrt_verzoegert_ankunft(client: TestC
     geplante_abfahrt = "2026-08-15T09:00:00"
     api_request = {
         "start": (52.52, 13.405),
-        "ziel": (53.5511, 9.9937),
-        "zwischenstopps": [
+        "destination": (53.5511, 9.9937),
+        "waypoints": [
             {
                 "koordinate": (52.6, 13.5),
                 "aufenthaltsdauer_s": None,
                 "geplante_abfahrt": geplante_abfahrt,
             }
         ],
-        "abfahrtszeit": "2026-08-15T08:30:00",
-        "fahrzeugprofil": _make_fahrzeugprofil_dict(),
-        "praeferenzen": {},
+        "departureTime": "2026-08-15T08:30:00",
+        "vehicleProfile": _make_fahrzeugprofil_dict(),
+        "preferences": {},
     }
 
     response = client.post("/trips", json=api_request)
@@ -1456,21 +1458,21 @@ def test_fastapi_endpoint_mit_geplanter_abfahrt_verzoegert_ankunft(client: TestC
     # Letzter Frame (Ankunft am Ziel) MUSS nach der geplanten Abfahrt am
     # Zwischenstopp liegen - eine umgangene Wartezeit wuerde stattdessen weit
     # davor ankommen (reine Fahrzeit ohne Wartezeit).
-    letzter_zeitpunkt = data["frames"][-1]["zeitpunkt"]
+    letzter_zeitpunkt = data["frames"][-1]["timestamp"]
     assert letzter_zeitpunkt > geplante_abfahrt
-    assert len(data["waypoint_stops"]) == 1
-    assert data["waypoint_stops"][0]["abfahrtszeit"] == geplante_abfahrt
+    assert len(data["waypointStops"]) == 1
+    assert data["waypointStops"][0]["departureTime"] == geplante_abfahrt
 
 
 def test_fastapi_endpoint_creates_trip(client: TestClient, valid_trip_request: dict) -> None:
     """Test: FastAPI-Endpunkt liefert 201 mit gültigem Response-Body."""
     api_request = {
         "start": valid_trip_request["start"],
-        "ziel": valid_trip_request["ziel"],
-        "zwischenstopps": [],
-        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-        "praeferenzen": {},
+        "destination": valid_trip_request["ziel"],
+        "waypoints": [],
+        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "preferences": {},
     }
 
     response = client.post("/trips", json=api_request)
@@ -1478,11 +1480,11 @@ def test_fastapi_endpoint_creates_trip(client: TestClient, valid_trip_request: d
     assert response.status_code == 201
     data = response.json()
 
-    assert "gesamt_distanz_km" in data
-    assert "gesamt_fahrzeit_min" in data
-    assert "gesamt_ladezeit_min" in data
-    assert "start_soc_pct" in data
-    assert "ziel_soc_pct" in data
+    assert "totalDistanceKm" in data
+    assert "totalDrivingTimeMin" in data
+    assert "totalChargingTimeMin" in data
+    assert "startSocPct" in data
+    assert "targetSocPct" in data
     assert "frames" in data
     assert len(data["frames"]) > 0
 
@@ -1494,18 +1496,18 @@ def test_fastapi_endpoint_response_includes_erkannte_faehren_key(
     keine road_environment-Daten liefert)."""
     api_request = {
         "start": valid_trip_request["start"],
-        "ziel": valid_trip_request["ziel"],
-        "zwischenstopps": [],
-        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-        "praeferenzen": {},
+        "destination": valid_trip_request["ziel"],
+        "waypoints": [],
+        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "preferences": {},
     }
 
     response = client.post("/trips", json=api_request)
 
     assert response.status_code == 201
     data = response.json()
-    assert data["erkannte_faehren"] == []
+    assert data["detectedFerries"] == []
 
 
 def test_fastapi_endpoint_accepts_ferry_avoidance_fields(
@@ -1514,15 +1516,13 @@ def test_fastapi_endpoint_accepts_ferry_avoidance_fields(
     """Endpunkt akzeptiert alle_faehren_vermeiden und vermiedene_faehren fehlerfrei."""
     api_request = {
         "start": valid_trip_request["start"],
-        "ziel": valid_trip_request["ziel"],
-        "zwischenstopps": [],
-        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-        "praeferenzen": {},
-        "alle_faehren_vermeiden": True,
-        "vermiedene_faehren": [
-            {"name": "Testfähre", "bbox_sw": [54.0, 11.0], "bbox_no": [55.0, 12.0]}
-        ],
+        "destination": valid_trip_request["ziel"],
+        "waypoints": [],
+        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "preferences": {},
+        "avoidAllFerries": True,
+        "avoidedFerries": [{"name": "Testfähre", "bboxSw": [54.0, 11.0], "bboxNe": [55.0, 12.0]}],
     }
 
     response = client.post("/trips", json=api_request)
@@ -1536,12 +1536,12 @@ def test_fastapi_endpoint_accepts_autobahn_praeferenz_field(
     """Endpunkt akzeptiert autobahn_praeferenz fehlerfrei."""
     api_request = {
         "start": valid_trip_request["start"],
-        "ziel": valid_trip_request["ziel"],
-        "zwischenstopps": [],
-        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-        "praeferenzen": {},
-        "autobahn_praeferenz": "high",
+        "destination": valid_trip_request["ziel"],
+        "waypoints": [],
+        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "preferences": {},
+        "highwayPreference": "high",
     }
 
     response = client.post("/trips", json=api_request)
@@ -1561,10 +1561,11 @@ def test_fastapi_endpoint_wetter_detailgrad_off_skips_weather_provider(
     app.dependency_overrides[get_weather_provider] = lambda: spy
     try:
         api_request = {
-            **valid_trip_request,
-            "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-            "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-            "wetter_detailgrad": "off",
+            "start": valid_trip_request["start"],
+            "destination": valid_trip_request["ziel"],
+            "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+            "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "weatherDetailLevel": "off",
         }
         response = client.post("/trips", json=api_request)
         assert response.status_code == 201
@@ -1572,8 +1573,8 @@ def test_fastapi_endpoint_wetter_detailgrad_off_skips_weather_provider(
         assert spy.refetch_weather_calls == []
         data = response.json()
         assert data["frames"]
-        assert all(f["temperatur_c"] is None for f in data["frames"])
-        assert all(f["windrichtung_deg"] is None for f in data["frames"])
+        assert all(f["temperatureC"] is None for f in data["frames"])
+        assert all(f["windDirectionDeg"] is None for f in data["frames"])
     finally:
         app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
 
@@ -1586,17 +1587,18 @@ def test_fastapi_endpoint_wetter_detailgrad_default_is_high(
     app.dependency_overrides[get_weather_provider] = lambda: spy
     try:
         api_request = {
-            **valid_trip_request,
-            "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-            "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "start": valid_trip_request["start"],
+            "destination": valid_trip_request["ziel"],
+            "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+            "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
         }
         response = client.post("/trips", json=api_request)
         assert response.status_code == 201
         assert len(spy.fetch_weather_calls) > 0
-        fahren_frames = [f for f in response.json()["frames"] if f["zustand"] == "FAHREN"]
+        fahren_frames = [f for f in response.json()["frames"] if f["state"] == "FAHREN"]
         assert fahren_frames
-        assert all(f["temperatur_c"] is not None for f in fahren_frames)
-        assert all(f["windrichtung_deg"] is not None for f in fahren_frames)
+        assert all(f["temperatureC"] is not None for f in fahren_frames)
+        assert all(f["windDirectionDeg"] is not None for f in fahren_frames)
     finally:
         app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
 
@@ -1610,9 +1612,10 @@ def test_fastapi_endpoint_wetter_beruecksichtigen_legacy_boolean(
     app.dependency_overrides[get_weather_provider] = lambda: spy
     try:
         api_request = {
-            **valid_trip_request,
-            "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-            "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "start": valid_trip_request["start"],
+            "destination": valid_trip_request["ziel"],
+            "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+            "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
             "wetter_beruecksichtigen": False,
         }
         response = client.post("/trips", json=api_request)
@@ -1639,9 +1642,10 @@ def test_fastapi_endpoint_legacy_non_bool_rejected(
     """A non-bool legacy 'wetter_beruecksichtigen' is not silently coerced;
     it produces a 422 validation error."""
     api_request = {
-        **valid_trip_request,
-        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "start": valid_trip_request["start"],
+        "destination": valid_trip_request["ziel"],
+        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
         "wetter_beruecksichtigen": "yes",
     }
     response = client.post("/trips", json=api_request)
@@ -1656,20 +1660,21 @@ def test_fastapi_endpoint_wetter_detailgrad_low_one_fetch(
     app.dependency_overrides[get_weather_provider] = lambda: spy
     try:
         api_request = {
-            **valid_trip_request,
-            "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-            "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-            "wetter_detailgrad": "low",
+            "start": valid_trip_request["start"],
+            "destination": valid_trip_request["ziel"],
+            "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+            "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "weatherDetailLevel": "low",
         }
         response = client.post("/trips", json=api_request)
         assert response.status_code == 201
         assert len(spy.fetch_weather_calls) == 1
         data = response.json()
         assert len(data["frames"]) > 0
-        fahren_frames = [f for f in data["frames"] if f["zustand"] == "FAHREN"]
+        fahren_frames = [f for f in data["frames"] if f["state"] == "FAHREN"]
         assert fahren_frames
-        assert all(f["temperatur_c"] is not None for f in fahren_frames)
-        assert all(f["windrichtung_deg"] is not None for f in fahren_frames)
+        assert all(f["temperatureC"] is not None for f in fahren_frames)
+        assert all(f["windDirectionDeg"] is not None for f in fahren_frames)
     finally:
         app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
 
@@ -1682,20 +1687,21 @@ def test_fastapi_endpoint_wetter_detailgrad_medium_one_fetch(
     app.dependency_overrides[get_weather_provider] = lambda: spy
     try:
         api_request = {
-            **valid_trip_request,
-            "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-            "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-            "wetter_detailgrad": "medium",
+            "start": valid_trip_request["start"],
+            "destination": valid_trip_request["ziel"],
+            "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+            "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "weatherDetailLevel": "medium",
         }
         response = client.post("/trips", json=api_request)
         assert response.status_code == 201
         assert len(spy.fetch_weather_calls) == 1
         data = response.json()
         assert len(data["frames"]) > 0
-        fahren_frames = [f for f in data["frames"] if f["zustand"] == "FAHREN"]
+        fahren_frames = [f for f in data["frames"] if f["state"] == "FAHREN"]
         assert fahren_frames
-        assert all(f["temperatur_c"] is not None for f in fahren_frames)
-        assert all(f["windrichtung_deg"] is not None for f in fahren_frames)
+        assert all(f["temperatureC"] is not None for f in fahren_frames)
+        assert all(f["windDirectionDeg"] is not None for f in fahren_frames)
     finally:
         app.dependency_overrides[get_weather_provider] = lambda: FakeWeatherProvider()  # noqa: PLW0108
 
@@ -1710,12 +1716,12 @@ def test_fastapi_endpoint_baustellen_beruecksichtigen_false_skips_construction_p
     try:
         api_request = {
             "start": valid_trip_request["start"],
-            "ziel": valid_trip_request["ziel"],
-            "zwischenstopps": [],
-            "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-            "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-            "praeferenzen": {},
-            "baustellen_beruecksichtigen": False,
+            "destination": valid_trip_request["ziel"],
+            "waypoints": [],
+            "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+            "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "preferences": {},
+            "considerConstructionSites": False,
         }
 
         response = client.post("/trips", json=api_request)
@@ -1738,11 +1744,11 @@ def test_fastapi_endpoint_baustellen_beruecksichtigen_default_true_calls_constru
     try:
         api_request = {
             "start": valid_trip_request["start"],
-            "ziel": valid_trip_request["ziel"],
-            "zwischenstopps": [],
-            "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-            "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-            "praeferenzen": {},
+            "destination": valid_trip_request["ziel"],
+            "waypoints": [],
+            "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+            "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "preferences": {},
         }
 
         response = client.post("/trips", json=api_request)
@@ -1776,25 +1782,25 @@ def test_fastapi_endpoint_construction_zone_with_segments_has_position(
     try:
         api_request = {
             "start": valid_trip_request["start"],
-            "ziel": valid_trip_request["ziel"],
-            "zwischenstopps": [],
-            "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-            "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-            "praeferenzen": {},
+            "destination": valid_trip_request["ziel"],
+            "waypoints": [],
+            "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+            "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "preferences": {},
         }
 
         response = client.post("/trips", json=api_request)
 
         assert response.status_code == 201
         data = response.json()
-        assert len(data["construction_zones"]) == 1
-        zone_api = data["construction_zones"][0]
-        zone_api = data["construction_zones"][0]
+        assert len(data["constructionZones"]) == 1
+        zone_api = data["constructionZones"][0]
+        zone_api = data["constructionZones"][0]
         assert len(zone_api["events"]) == 1
-        assert zone_api["events"][0]["sperrungstyp"] == "temporarySpeedLimit"
-        assert zone_api["events"][0]["tempolimit_kmh"] == 60
-        assert zone_api["events"][0]["umleitungshinweis"] == "Umleitung über B96"
-        assert zone_api["events"][0]["land"] == "DE"
+        assert zone_api["events"][0]["closureType"] == "temporarySpeedLimit"
+        assert zone_api["events"][0]["speedLimitKmh"] == 60
+        assert zone_api["events"][0]["detourNotice"] == "Umleitung über B96"
+        assert zone_api["events"][0]["country"] == "DE"
     finally:
         app.dependency_overrides[get_construction_provider] = (
             lambda: FakeConstructionProvider()  # noqa: PLW0108
@@ -1822,17 +1828,17 @@ def test_fastapi_endpoint_construction_zone_without_segments_is_skipped(
     try:
         api_request = {
             "start": valid_trip_request["start"],
-            "ziel": valid_trip_request["ziel"],
-            "zwischenstopps": [],
-            "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-            "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-            "praeferenzen": {},
+            "destination": valid_trip_request["ziel"],
+            "waypoints": [],
+            "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+            "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+            "preferences": {},
         }
 
         response = client.post("/trips", json=api_request)
 
         assert response.status_code == 201
-        assert response.json()["construction_zones"] == []
+        assert response.json()["constructionZones"] == []
     finally:
         app.dependency_overrides[get_construction_provider] = (
             lambda: FakeConstructionProvider()  # noqa: PLW0108
@@ -1846,30 +1852,30 @@ def test_fastapi_endpoint_no_construction_zones_defaults_to_empty_list(
     eine leere Liste (bestehendes Verhalten bleibt unverändert)."""
     api_request = {
         "start": valid_trip_request["start"],
-        "ziel": valid_trip_request["ziel"],
-        "zwischenstopps": [],
-        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-        "praeferenzen": {},
+        "destination": valid_trip_request["ziel"],
+        "waypoints": [],
+        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "preferences": {},
     }
 
     response = client.post("/trips", json=api_request)
 
     assert response.status_code == 201
-    assert response.json()["construction_zones"] == []
+    assert response.json()["constructionZones"] == []
 
 
 def test_fastapi_endpoint_custom_soc(client: TestClient, valid_trip_request: dict) -> None:
     """Test: FastAPI-Endpunkt akzeptiert benutzerdefinierte Start-/Ziel-SoC."""
     api_request = {
         "start": valid_trip_request["start"],
-        "ziel": valid_trip_request["ziel"],
-        "zwischenstopps": [],
-        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-        "praeferenzen": {},
-        "start_soc_pct": 95.0,
-        "ziel_soc_pct": 15.0,
+        "destination": valid_trip_request["ziel"],
+        "waypoints": [],
+        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "preferences": {},
+        "startSocPct": 95.0,
+        "targetSocPct": 15.0,
     }
 
     response = client.post("/trips", json=api_request)
@@ -1877,9 +1883,9 @@ def test_fastapi_endpoint_custom_soc(client: TestClient, valid_trip_request: dic
     assert response.status_code == 201
     data = response.json()
     # Start-SoC wird direkt durchgereicht (Eingabe = Ausgabe)
-    assert data["start_soc_pct"] == 95.0
+    assert data["startSocPct"] == 95.0
     # Ziel-SoC ist das tatsächliche Simulationsergebnis (kann vom Zielwert abweichen)
-    assert 0.0 <= data["ziel_soc_pct"] <= 100.0
+    assert 0.0 <= data["targetSocPct"] <= 100.0
 
 
 def test_fastapi_endpoint_custom_mindest_ankunfts_soc_pct(
@@ -1890,19 +1896,19 @@ def test_fastapi_endpoint_custom_mindest_ankunfts_soc_pct(
     mindest_ankunfts_soc_pct`, Default 5.0)."""
     api_request = {
         "start": valid_trip_request["start"],
-        "ziel": valid_trip_request["ziel"],
-        "zwischenstopps": [],
-        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-        "praeferenzen": {},
-        "mindest_ankunfts_soc_pct": 12.5,
+        "destination": valid_trip_request["ziel"],
+        "waypoints": [],
+        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "preferences": {},
+        "minArrivalSocPct": 12.5,
     }
 
     response = client.post("/trips", json=api_request)
 
     assert response.status_code == 201
-    for stop in response.json()["charging_stops"]:
-        assert stop["ankunfts_soc_pct"] >= 12.5
+    for stop in response.json()["chargingStops"]:
+        assert stop["arrivalSocPct"] >= 12.5
 
 
 def test_fastapi_endpoint_mindest_ankunfts_soc_pct_out_of_range_rejected(
@@ -1911,12 +1917,12 @@ def test_fastapi_endpoint_mindest_ankunfts_soc_pct_out_of_range_rejected(
     """Test: `mindest_ankunfts_soc_pct` außerhalb [0, 100] liefert 422."""
     api_request = {
         "start": valid_trip_request["start"],
-        "ziel": valid_trip_request["ziel"],
-        "zwischenstopps": [],
-        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-        "praeferenzen": {},
-        "mindest_ankunfts_soc_pct": 150.0,
+        "destination": valid_trip_request["ziel"],
+        "waypoints": [],
+        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "preferences": {},
+        "minArrivalSocPct": 150.0,
     }
 
     response = client.post("/trips", json=api_request)
@@ -1932,19 +1938,19 @@ def test_fastapi_endpoint_custom_mindest_ladezeit_s(
     Default 600)."""
     api_request = {
         "start": valid_trip_request["start"],
-        "ziel": valid_trip_request["ziel"],
-        "zwischenstopps": [],
-        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-        "praeferenzen": {},
-        "mindest_ladezeit_s": 300,
+        "destination": valid_trip_request["ziel"],
+        "waypoints": [],
+        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "preferences": {},
+        "minChargingTimeS": 300,
     }
 
     response = client.post("/trips", json=api_request)
 
     assert response.status_code == 201
-    for stop in response.json()["charging_stops"]:
-        assert stop["ladedauer_s"] >= 299  # int()-Rundung, siehe Kommentar oben
+    for stop in response.json()["chargingStops"]:
+        assert stop["chargingDurationS"] >= 299  # int()-Rundung, siehe Kommentar oben
 
 
 def test_fastapi_endpoint_mindest_ladezeit_s_out_of_range_rejected(
@@ -1953,12 +1959,12 @@ def test_fastapi_endpoint_mindest_ladezeit_s_out_of_range_rejected(
     """Test: `mindest_ladezeit_s` außerhalb [0, 1800] liefert 422."""
     api_request = {
         "start": valid_trip_request["start"],
-        "ziel": valid_trip_request["ziel"],
-        "zwischenstopps": [],
-        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-        "praeferenzen": {},
-        "mindest_ladezeit_s": 5000,
+        "destination": valid_trip_request["ziel"],
+        "waypoints": [],
+        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "preferences": {},
+        "minChargingTimeS": 5000,
     }
 
     response = client.post("/trips", json=api_request)
@@ -1974,21 +1980,21 @@ def test_fastapi_endpoint_custom_max_lade_soc_pct(
     `TripRequestAPI.max_lade_soc_pct`, Default 100.0)."""
     api_request = {
         "start": valid_trip_request["start"],
-        "ziel": valid_trip_request["ziel"],
-        "zwischenstopps": [],
-        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-        "praeferenzen": {},
-        "max_lade_soc_pct": 60.0,
+        "destination": valid_trip_request["ziel"],
+        "waypoints": [],
+        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "preferences": {},
+        "maxChargeSocPct": 60.0,
     }
 
     response = client.post("/trips", json=api_request)
 
     assert response.status_code == 201
-    charging_stops = response.json()["charging_stops"]
+    charging_stops = response.json()["chargingStops"]
     assert len(charging_stops) > 0
     for stop in charging_stops:
-        assert stop["ziel_soc_pct"] <= 60.0 + 1e-6
+        assert stop["targetSocPct"] <= 60.0 + 1e-6
 
 
 def test_fastapi_endpoint_max_lade_soc_pct_out_of_range_rejected(
@@ -1997,12 +2003,12 @@ def test_fastapi_endpoint_max_lade_soc_pct_out_of_range_rejected(
     """Test: `max_lade_soc_pct` außerhalb [0, 100] liefert 422."""
     api_request = {
         "start": valid_trip_request["start"],
-        "ziel": valid_trip_request["ziel"],
-        "zwischenstopps": [],
-        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-        "praeferenzen": {},
-        "max_lade_soc_pct": 150.0,
+        "destination": valid_trip_request["ziel"],
+        "waypoints": [],
+        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "preferences": {},
+        "maxChargeSocPct": 150.0,
     }
 
     response = client.post("/trips", json=api_request)
@@ -2014,11 +2020,11 @@ def test_fastapi_endpoint_invalid_coordinates(client: TestClient) -> None:
     """Test: Ungültige Koordinaten liefern Fehler."""
     api_request = {
         "start": (999, 999),  # Ungültig
-        "ziel": (52.52, 13.405),
-        "zwischenstopps": [],
-        "abfahrtszeit": "2026-08-15T08:30:00",
-        "fahrzeugprofil": _make_fahrzeugprofil_dict(),
-        "praeferenzen": {},
+        "destination": (52.52, 13.405),
+        "waypoints": [],
+        "departureTime": "2026-08-15T08:30:00",
+        "vehicleProfile": _make_fahrzeugprofil_dict(),
+        "preferences": {},
     }
 
     response = client.post("/trips", json=api_request)
@@ -2031,11 +2037,11 @@ def test_fastapi_endpoint_invalid_date(client: TestClient) -> None:
     """Test: Ungültiges Datumsformat liefert 422 oder 500."""
     api_request = {
         "start": (52.52, 13.405),
-        "ziel": (48.135, 11.582),
-        "zwischenstopps": [],
-        "abfahrtszeit": "ungueltiges-datum",  # Ungültig
-        "fahrzeugprofil": _make_fahrzeugprofil_dict(),
-        "praeferenzen": {},
+        "destination": (48.135, 11.582),
+        "waypoints": [],
+        "departureTime": "ungueltiges-datum",  # Ungültig
+        "vehicleProfile": _make_fahrzeugprofil_dict(),
+        "preferences": {},
     }
 
     response = client.post("/trips", json=api_request)
@@ -2047,16 +2053,16 @@ def test_fastapi_endpoint_mit_zwischenstopp(client: TestClient) -> None:
     """Test: Endpunkt akzeptiert Request mit Zwischenstopp."""
     api_request = {
         "start": (52.52, 13.405),
-        "ziel": (53.551, 9.994),
-        "zwischenstopps": [
+        "destination": (53.551, 9.994),
+        "waypoints": [
             {
                 "koordinate": (51.23, 6.78),
                 "aufenthaltsdauer_s": 1800,  # 30 Minuten
             }
         ],
-        "abfahrtszeit": "2026-08-15T08:30:00",
-        "fahrzeugprofil": _make_fahrzeugprofil_dict(),
-        "praeferenzen": {},
+        "departureTime": "2026-08-15T08:30:00",
+        "vehicleProfile": _make_fahrzeugprofil_dict(),
+        "preferences": {},
     }
 
     response = client.post("/trips", json=api_request)
@@ -2252,11 +2258,11 @@ def test_fastapi_endpoint_preserves_curved_graphhopper_geometry() -> None:
         with TestClient(app) as test_client:
             api_request = {
                 "start": (52.5200, 13.4050),
-                "ziel": (52.5300, 13.5200),
-                "zwischenstopps": [],
-                "abfahrtszeit": "2026-08-15T08:30:00",
-                "fahrzeugprofil": _make_fahrzeugprofil_dict(),
-                "praeferenzen": {},
+                "destination": (52.5300, 13.5200),
+                "waypoints": [],
+                "departureTime": "2026-08-15T08:30:00",
+                "vehicleProfile": _make_fahrzeugprofil_dict(),
+                "preferences": {},
             }
             response = test_client.post("/trips", json=api_request)
     finally:
@@ -2330,11 +2336,11 @@ def test_fastapi_endpoint_exposes_full_resolution_route_geometrie() -> None:
         with TestClient(app) as test_client:
             api_request = {
                 "start": detour_points[0],
-                "ziel": detour_points[-1],
-                "zwischenstopps": [],
-                "abfahrtszeit": "2026-08-15T08:30:00",
-                "fahrzeugprofil": _make_fahrzeugprofil_dict(),
-                "praeferenzen": {},
+                "destination": detour_points[-1],
+                "waypoints": [],
+                "departureTime": "2026-08-15T08:30:00",
+                "vehicleProfile": _make_fahrzeugprofil_dict(),
+                "preferences": {},
             }
             response = test_client.post("/trips", json=api_request)
     finally:
@@ -2348,10 +2354,10 @@ def test_fastapi_endpoint_exposes_full_resolution_route_geometrie() -> None:
 
     # Die volle, unreduzierte GraphHopper-Geometrie muss uebertragen werden -
     # nicht auf die (viel groebere) Frame-Anzahl reduziert.
-    assert len(data["route_geometrie"]) == len(detour_points)
-    assert len(data["route_geometrie"]) > len(data["frames"])
-    assert tuple(data["route_geometrie"][0]) == pytest.approx(detour_points[0])
-    assert tuple(data["route_geometrie"][-1]) == pytest.approx(detour_points[-1])
+    assert len(data["routeGeometry"]) == len(detour_points)
+    assert len(data["routeGeometry"]) > len(data["frames"])
+    assert tuple(data["routeGeometry"][0]) == pytest.approx(detour_points[0])
+    assert tuple(data["routeGeometry"][-1]) == pytest.approx(detour_points[-1])
 
 
 def test_fastapi_endpoint_frame_distanz_m_ist_monoton_und_erreicht_gesamtstrecke(
@@ -2365,23 +2371,23 @@ def test_fastapi_endpoint_frame_distanz_m_ist_monoton_und_erreicht_gesamtstrecke
     """
     api_request = {
         "start": valid_trip_request["start"],
-        "ziel": valid_trip_request["ziel"],
-        "zwischenstopps": [],
-        "abfahrtszeit": valid_trip_request["abfahrtszeit"].isoformat(),
-        "fahrzeugprofil": valid_trip_request["fahrzeugprofil"].model_dump(),
-        "praeferenzen": {},
+        "destination": valid_trip_request["ziel"],
+        "waypoints": [],
+        "departureTime": valid_trip_request["abfahrtszeit"].isoformat(),
+        "vehicleProfile": valid_trip_request["fahrzeugprofil"].model_dump(),
+        "preferences": {},
     }
 
     response = client.post("/trips", json=api_request)
 
     assert response.status_code == 201
     data = response.json()
-    distanzen = [f["distanz_m"] for f in data["frames"]]
+    distanzen = [f["distanceM"] for f in data["frames"]]
 
     assert distanzen[0] == pytest.approx(0.0, abs=1.0)
     for a, b in pairwise(distanzen):
         assert b >= a - 1e-6, "distanz_m muss monoton nicht-fallend sein"
-    assert distanzen[-1] == pytest.approx(data["gesamt_distanz_km"] * 1000.0, rel=0.01)
+    assert distanzen[-1] == pytest.approx(data["totalDistanceKm"] * 1000.0, rel=0.01)
 
 
 def test_fastapi_endpoint_graphhopper_unreachable_returns_502() -> None:
@@ -2398,11 +2404,11 @@ def test_fastapi_endpoint_graphhopper_unreachable_returns_502() -> None:
         with TestClient(app) as test_client:
             api_request = {
                 "start": (52.52, 13.405),
-                "ziel": (48.1351, 11.582),
-                "zwischenstopps": [],
-                "abfahrtszeit": "2026-08-15T08:30:00",
-                "fahrzeugprofil": _make_fahrzeugprofil_dict(),
-                "praeferenzen": {},
+                "destination": (48.1351, 11.582),
+                "waypoints": [],
+                "departureTime": "2026-08-15T08:30:00",
+                "vehicleProfile": _make_fahrzeugprofil_dict(),
+                "preferences": {},
             }
             response = test_client.post("/trips", json=api_request)
     finally:
@@ -2524,11 +2530,11 @@ def test_create_trip_endpoint_uses_open_meteo_provider_for_real_weather(
         with TestClient(app) as test_client:
             api_request = {
                 "start": (52.52, 13.405),
-                "ziel": (48.135, 11.582),
-                "zwischenstopps": [],
-                "abfahrtszeit": "2026-08-15T08:30:00",
-                "fahrzeugprofil": _make_fahrzeugprofil_dict(),
-                "praeferenzen": {},
+                "destination": (48.135, 11.582),
+                "waypoints": [],
+                "departureTime": "2026-08-15T08:30:00",
+                "vehicleProfile": _make_fahrzeugprofil_dict(),
+                "preferences": {},
             }
             response = test_client.post("/trips", json=api_request)
     finally:
@@ -2602,11 +2608,11 @@ def test_fastapi_endpoint_weather_provider_failure_degrades_gracefully(
         with TestClient(app) as test_client:
             api_request = {
                 "start": (52.52, 13.405),
-                "ziel": (48.135, 11.582),
-                "zwischenstopps": [],
-                "abfahrtszeit": "2026-08-15T08:30:00",
-                "fahrzeugprofil": _make_fahrzeugprofil_dict(),
-                "praeferenzen": {},
+                "destination": (48.135, 11.582),
+                "waypoints": [],
+                "departureTime": "2026-08-15T08:30:00",
+                "vehicleProfile": _make_fahrzeugprofil_dict(),
+                "preferences": {},
             }
             response = test_client.post("/trips", json=api_request)
     finally:
@@ -3502,11 +3508,11 @@ def test_fastapi_endpoint_logs_valueerror_as_422_warning(
         with TestClient(app) as test_client:
             api_request = {
                 "start": (52.52, 13.405),
-                "ziel": (48.1351, 11.582),
-                "zwischenstopps": [],
-                "abfahrtszeit": "2026-08-15T08:30:00",
-                "fahrzeugprofil": _make_fahrzeugprofil_dict(),
-                "praeferenzen": {},
+                "destination": (48.1351, 11.582),
+                "waypoints": [],
+                "departureTime": "2026-08-15T08:30:00",
+                "vehicleProfile": _make_fahrzeugprofil_dict(),
+                "preferences": {},
             }
             response = test_client.post("/trips", json=api_request)
     finally:
@@ -3542,11 +3548,11 @@ def test_fastapi_endpoint_logs_httpx_error_as_502_warning(
         with TestClient(app) as test_client:
             api_request = {
                 "start": (52.52, 13.405),
-                "ziel": (48.1351, 11.582),
-                "zwischenstopps": [],
-                "abfahrtszeit": "2026-08-15T08:30:00",
-                "fahrzeugprofil": _make_fahrzeugprofil_dict(),
-                "praeferenzen": {},
+                "destination": (48.1351, 11.582),
+                "waypoints": [],
+                "departureTime": "2026-08-15T08:30:00",
+                "vehicleProfile": _make_fahrzeugprofil_dict(),
+                "preferences": {},
             }
             response = test_client.post("/trips", json=api_request)
     finally:
@@ -3750,15 +3756,15 @@ def test_build_construction_zones_api_groups_nearby_zones() -> None:
 
     marker_near = result[0]
     assert len(marker_near.events) == 2
-    assert marker_near.events[0].sperrungstyp == "temporarySpeedLimit"
-    assert marker_near.events[0].tempolimit_kmh == 60
-    assert marker_near.events[1].sperrungstyp == "laneClosed"
-    assert marker_near.events[1].tempolimit_kmh == 80
-    assert marker_near.events[1].gueltig_bis is not None
+    assert marker_near.events[0].closure_type == "temporarySpeedLimit"
+    assert marker_near.events[0].speed_limit_kmh == 60
+    assert marker_near.events[1].closure_type == "laneClosed"
+    assert marker_near.events[1].speed_limit_kmh == 80
+    assert marker_near.events[1].valid_to is not None
 
     marker_far = result[1]
     assert len(marker_far.events) == 1
-    assert marker_far.events[0].sperrungstyp == "fullyClosed"
+    assert marker_far.events[0].closure_type == "fullyClosed"
 
 
 def test_build_construction_zones_api_all_separate_when_far_apart() -> None:
@@ -3836,7 +3842,7 @@ def test_build_construction_zones_api_all_separate_when_far_apart() -> None:
             Sperrungstyp.LANE_CLOSED,
             Sperrungstyp.FULLY_CLOSED,
         ][i]
-        assert marker.events[0].sperrungstyp == expected.value
+        assert marker.events[0].closure_type == expected.value
 
 
 def test_build_construction_zones_api_skips_empty_segmentes() -> None:
@@ -3879,7 +3885,7 @@ def test_build_construction_zones_api_skips_empty_segmentes() -> None:
 
     assert len(result) == 1
     assert len(result[0].events) == 1
-    assert result[0].events[0].sperrungstyp == "laneClosed"
+    assert result[0].events[0].closure_type == "laneClosed"
 
 
 def test_build_construction_zones_api_empty_input() -> None:
@@ -3960,7 +3966,7 @@ def test_build_construction_zones_api_three_consecutive_merge() -> None:
 
     assert len(result) == 1
     assert len(result[0].events) == 3
-    types = [e.sperrungstyp for e in result[0].events]
+    types = [e.closure_type for e in result[0].events]
     assert types == ["temporarySpeedLimit", "laneClosed", "fullyClosed"]
 
 
@@ -3979,11 +3985,11 @@ def test_fastapi_endpoint_hides_internal_error_details(
         with TestClient(app) as test_client:
             api_request = {
                 "start": (52.52, 13.405),
-                "ziel": (48.1351, 11.582),
-                "zwischenstopps": [],
-                "abfahrtszeit": "2026-08-15T08:30:00",
-                "fahrzeugprofil": _make_fahrzeugprofil_dict(),
-                "praeferenzen": {},
+                "destination": (48.1351, 11.582),
+                "waypoints": [],
+                "departureTime": "2026-08-15T08:30:00",
+                "vehicleProfile": _make_fahrzeugprofil_dict(),
+                "preferences": {},
             }
             response = test_client.post("/trips", json=api_request)
     finally:

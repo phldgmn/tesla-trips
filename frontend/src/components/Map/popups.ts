@@ -68,13 +68,13 @@ function formatLength(m: number): string {
 /** Popup-HTML fuer einen Ladehalt: Name, Ankunfts-/Ziel-SoC samt Uhrzeit, Dauer, geladene Energie, Preis. */
 export function buildChargingStopPopupHtml(stop: ChargingStop): string {
   const rows: [string, string][] = [
-    ["Ankunft", `${stop.arrival_soc_pct.toFixed(0)}% SoC`],
-    ["Ankunftszeit", formatTimestamp(stop.arrival_time)],
-    ["Abfahrt", `${stop.target_soc_pct.toFixed(0)}% SoC`],
-    ["Abfahrtszeit", formatTimestamp(stop.departure_time)],
-    ["Dauer", formatChargingDuration(stop.charging_duration_s)],
-    ["Geladen", `${stop.energy_charged_kwh.toFixed(1)} kWh`],
-    ["Preis", formatCostOrDash(stop.estimated_cost, stop.currency)],
+    ["Ankunft", `${stop.arrivalSocPct.toFixed(0)}% SoC`],
+    ["Ankunftszeit", formatTimestamp(stop.arrivalTime)],
+    ["Abfahrt", `${stop.targetSocPct.toFixed(0)}% SoC`],
+    ["Abfahrtszeit", formatTimestamp(stop.departureTime)],
+    ["Dauer", formatChargingDuration(stop.chargingDurationS)],
+    ["Geladen", `${stop.energyChargedKwh.toFixed(1)} kWh`],
+    ["Preis", formatCostOrDash(stop.estimatedCost, stop.currency)],
   ];
   const rowsHtml = rows.map(renderRow).join("");
   return (
@@ -101,7 +101,7 @@ export function buildChargingStopPopupElement(
 ): HTMLElement {
   const container = document.createElement("div");
   container.innerHTML = buildChargingStopPopupHtml(stop);
-  if (stop.price_per_kwh === null) {
+  if (stop.pricePerKwh === null) {
     const content = container.firstElementChild;
     content?.appendChild(
       buildPricingSection(pricing, {
@@ -137,17 +137,14 @@ export function buildStopPopupHtml(
     return `<div style="font-family:system-ui,sans-serif;font-size:13px;">${escapeHtml(title)}</div>`;
   }
   const rows: [string, string][] = [
-    ["Ankunft", `${waypointStop.arrival_soc_pct.toFixed(0)}% SoC`],
+    ["Ankunft", `${waypointStop.arrivalSocPct.toFixed(0)}% SoC`],
     ["Ankunftszeit", formatTimestamp(waypointStop.arrivalTime)],
-    ["Abfahrt", `${waypointStop.target_soc_pct.toFixed(0)}% SoC`],
-    ["Abfahrtszeit", formatTimestamp(waypointStop.departure_time)],
+    ["Abfahrt", `${waypointStop.targetSocPct.toFixed(0)}% SoC`],
+    ["Abfahrtszeit", formatTimestamp(waypointStop.departureTime)],
   ];
-  if (waypointStop.ladeleistung_kw !== null) {
-    rows.push([
-      "Ladeleistung",
-      `${waypointStop.ladeleistung_kw.toFixed(1)} kW`,
-    ]);
-    rows.push(["Geladen", `${waypointStop.energy_charged_kwh.toFixed(1)} kWh`]);
+  if (waypointStop.ladeleistungKw !== null) {
+    rows.push(["Ladeleistung", `${waypointStop.ladeleistungKw.toFixed(1)} kW`]);
+    rows.push(["Geladen", `${waypointStop.energyChargedKwh.toFixed(1)} kWh`]);
   }
   const rowsHtml = rows.map(renderRow).join("");
   return (
@@ -199,16 +196,16 @@ const CLOSURE_TYPE_LABELS: Record<string, string> = {
 export function buildConstructionZonePopupHtml(zone: ConstructionZone): string {
   function eventRowsHtml(event: ConstructionZoneEvent): string {
     const rows: [string, string][] = [];
-    if (event.speed_limit_kmh !== null) {
-      rows.push(["Tempolimit", `${event.speed_limit_kmh} km/h`]);
+    if (event.speedLimitKmh !== null) {
+      rows.push(["Tempolimit", `${event.speedLimitKmh} km/h`]);
     }
     if (event.detourNotice !== null) {
       rows.push(["Umleitung", event.detourNotice]);
     }
-    rows.push(["Gültig ab", formatTimestamp(event.valid_from)]);
+    rows.push(["Gültig ab", formatTimestamp(event.validFrom)]);
     rows.push([
       "Gültig bis",
-      event.valid_to !== null ? formatTimestamp(event.valid_to) : "unbestimmt",
+      event.validTo !== null ? formatTimestamp(event.validTo) : "unbestimmt",
     ]);
     return rows.map(renderRow).join("");
   }
@@ -235,8 +232,8 @@ export function buildConstructionZonePopupHtml(zone: ConstructionZone): string {
     .join("");
 
   const lengthRow =
-    zone.length_m !== null
-      ? `<div style="margin-bottom:12px;"><strong style="font-size:14px;">Länge</strong><table style="width:100%;border-collapse:collapse;margin-top:4px;"><tr><td style="padding:2px 4px;color:#666;">Länge</td><td style="padding:2px 4px;text-align:right;">${escapeHtml(formatLength(zone.length_m))}</td></tr></table></div>`
+    zone.lengthM !== null
+      ? `<div style="margin-bottom:12px;"><strong style="font-size:14px;">Länge</strong><table style="width:100%;border-collapse:collapse;margin-top:4px;"><tr><td style="padding:2px 4px;color:#666;">Länge</td><td style="padding:2px 4px;text-align:right;">${escapeHtml(formatLength(zone.lengthM))}</td></tr></table></div>`
       : "";
   return (
     `<div style="font-family:system-ui,sans-serif;font-size:13px;min-width:190px;">` +

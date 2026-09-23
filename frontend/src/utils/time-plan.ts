@@ -88,7 +88,7 @@ export function buildTimePlan(
   // durchgereicht wird.
   const stopEntries: TimePlanEntry[] = stops.map((stop, i) => {
     const waypointStop = stop.position
-      ? result.waypoint_stops.find(
+      ? result.waypointStops.find(
           (w) =>
             w.position[0] === stop.position?.[0] &&
             w.position[1] === stop.position?.[1],
@@ -99,63 +99,61 @@ export function buildTimePlan(
       art: "Stopp",
       label: stopLabel(stop),
       arrival: waypointStop?.arrivalTime ?? timings[i]?.arrival ?? null,
-      departure: waypointStop?.departure_time ?? timings[i]?.departure ?? null,
+      departure: waypointStop?.departureTime ?? timings[i]?.departure ?? null,
       distanceSinceLastKm: null,
       durationSinceLastMin: null,
-      ankunftsSocPct: waypointStop?.arrival_soc_pct ?? null,
-      abfahrtsSocPct: waypointStop?.target_soc_pct ?? null,
-      energieGeladenKwh: waypointStop?.energy_charged_kwh ?? null,
+      ankunftsSocPct: waypointStop?.arrivalSocPct ?? null,
+      abfahrtsSocPct: waypointStop?.targetSocPct ?? null,
+      energieGeladenKwh: waypointStop?.energyChargedKwh ?? null,
       estimatedCost: null,
       costCurrency: null,
     };
   });
 
-  const chargingStopEntries: TimePlanEntry[] = result.charging_stops.map(
+  const chargingStopEntries: TimePlanEntry[] = result.chargingStops.map(
     (stop) => ({
-      key: `ladehalt-${stop.station_id}-${stop.arrival_time}`,
+      key: `ladehalt-${stop.stationId}-${stop.arrivalTime}`,
       art: "Ladehalt",
       label: stop.name,
-      arrival: stop.arrival_time,
-      departure: stop.departure_time,
+      arrival: stop.arrivalTime,
+      departure: stop.departureTime,
       distanceSinceLastKm: null,
       durationSinceLastMin: null,
-      ankunftsSocPct: stop.arrival_soc_pct,
-      abfahrtsSocPct: stop.target_soc_pct,
-      energieGeladenKwh: stop.energy_charged_kwh,
-      estimatedCost: stop.estimated_cost,
+      ankunftsSocPct: stop.arrivalSocPct,
+      abfahrtsSocPct: stop.targetSocPct,
+      energieGeladenKwh: stop.energyChargedKwh,
+      estimatedCost: stop.estimatedCost,
       costCurrency: stop.currency,
     }),
   );
 
-  const ferryEntries: TimePlanEntry[] = result.detected_ferries.map(
-    (f, idx) => {
-      let arrival = f.abfahrt;
-      let departure = f.ankunft;
-      if (arrival === null || departure === null) {
-        const bboxCenter: [number, number] = [
-          (f.bbox_sw[0] + f.bbox_ne[0]) / 2,
-          (f.bbox_sw[1] + f.bbox_ne[1]) / 2,
-        ];
-        const estimated = estimatePositionTiming(bboxCenter, frames);
-        arrival = arrival ?? estimated.arrival;
-        departure = departure ?? estimated.departure;
-      }
-      return {
-        key: `faehre-${idx}-${f.name}`,
-        art: "Fähre",
-        label: f.name,
-        arrival,
-        departure,
-        distanceSinceLastKm: null,
-        durationSinceLastMin: null,
-        ankunftsSocPct: null,
-        abfahrtsSocPct: null,
-        energieGeladenKwh: null,
-        estimatedCost: null,
-        costCurrency: null,
-      };
-    },
-  );
+  const ferryEntries: TimePlanEntry[] = result.detectedFerries.map((f, idx) => {
+    let arrival = f.abfahrt;
+    let departure = f.ankunft;
+    if (arrival === null || departure === null) {
+      const bboxCenter: [number, number] = [
+        (f.bboxSw[0] + f.bboxNe[0]) / 2,
+        (f.bboxSw[1] + f.bboxNe[1]) / 2,
+      ];
+      const estimated = estimatePositionTiming(bboxCenter, frames);
+      arrival = arrival ?? estimated.arrival;
+      departure = departure ?? estimated.departure;
+    }
+    return {
+      key: `faehre-${idx}-${f.name}`,
+      art: "Fähre",
+      label: f.name,
+      arrival,
+      departure,
+      distanceSinceLastKm: null,
+      durationSinceLastMin: null,
+      ankunftsSocPct: null,
+      abfahrtsSocPct: null,
+      energieGeladenKwh: null,
+      estimatedCost: null,
+      costCurrency: null,
+    };
+  });
 
   const sorted = [...stopEntries, ...chargingStopEntries, ...ferryEntries].sort(
     (a, b) => {
@@ -204,12 +202,12 @@ export function buildTimePlan(
       if (entry.ankunftsSocPct === null) {
         entry.ankunftsSocPct =
           entry.arrival && arrivalIdx !== null
-            ? frames[arrivalIdx].soc_pct
+            ? frames[arrivalIdx].socPct
             : null;
       }
       if (entry.abfahrtsSocPct === null) {
         entry.abfahrtsSocPct =
-          entry.departure && exitIdx !== null ? frames[exitIdx].soc_pct : null;
+          entry.departure && exitIdx !== null ? frames[exitIdx].socPct : null;
       }
     }
 

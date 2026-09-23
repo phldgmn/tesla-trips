@@ -70,7 +70,7 @@ export function estimateWaypointTimings(
         arrival: null,
         departure: frames[0].timestamp,
         arrivalSocPct: null,
-        departureSocPct: frames[0].soc_pct,
+        departureSocPct: frames[0].socPct,
       };
     }
 
@@ -81,7 +81,7 @@ export function estimateWaypointTimings(
         stopId: stop.id,
         arrival: lastFrame.timestamp,
         departure: null,
-        arrivalSocPct: lastFrame.soc_pct,
+        arrivalSocPct: lastFrame.socPct,
         departureSocPct: null,
       };
     }
@@ -166,8 +166,8 @@ export function estimatePositionTiming(
   return {
     arrival: frames[leftIdx].timestamp,
     departure: frames[rightIdx].timestamp,
-    arrivalSocPct: frames[leftIdx].soc_pct,
-    departureSocPct: frames[rightIdx].soc_pct,
+    arrivalSocPct: frames[leftIdx].socPct,
+    departureSocPct: frames[rightIdx].socPct,
   };
 }
 

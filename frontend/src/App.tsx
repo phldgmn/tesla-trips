@@ -116,8 +116,8 @@ export function App() {
         onSubmit={handleSubmit}
         isSubmitting={isSubmitting}
         submitError={submitError}
-        detectedFerries={simulationResult?.detected_ferries}
-        chargingStops={simulationResult?.charging_stops}
+        detectedFerries={simulationResult?.detectedFerries}
+        chargingStops={simulationResult?.chargingStops}
         frames={simulationResult?.frames}
       />
       <div style={{ position: "relative", flex: 1 }}>

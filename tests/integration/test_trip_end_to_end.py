@@ -81,23 +81,23 @@ def _build_payload(
         abfahrtszeit = _now_iso()
     return {
         "start": start,
-        "ziel": ziel,
-        "zwischenstopps": zwischenstopps or [],
-        "abfahrtszeit": abfahrtszeit,
-        "fahrzeugprofil": {
+        "destination": ziel,
+        "waypoints": zwischenstopps or [],
+        "departureTime": abfahrtszeit,
+        "vehicleProfile": {
             "masse_kg": 1805.0,
             "cw_wert": 0.23,
             "stirnflaeche_m2": 2.22,
             "rollwiderstandsbeiwert": 0.011,
             "batteriekapazitaet_kwh": 75.0,
         },
-        "start_soc_pct": 80.0,
-        "ziel_soc_pct": 20.0,
-        "praeferenzen": {},
-        "alle_faehren_vermeiden": True,
-        "vermiedene_faehren": [],
-        "faehr_zeitfenster": [],
-        "ladedauer_vorgaben": [],
+        "startSocPct": 80.0,
+        "targetSocPct": 20.0,
+        "preferences": {},
+        "avoidAllFerries": True,
+        "avoidedFerries": [],
+        "ferryTimeWindows": [],
+        "chargingDurationSpecifications": [],
     }
 
 
@@ -189,15 +189,15 @@ async def test_end_to_end_multi_country_trip(client: TestClient) -> None:
     assert len(frames) > 0, "Antwort sollte Simulations-Frames enthalten"
 
     # Distanz und Zeit plausibel
-    distanz = data.get("gesamt_distanz_km", 0.0)
+    distanz = data.get("totalDistanceKm", 0.0)
     assert distanz > 20, f"Kopenhagen->Malmö sollte >20 km sein, bekam {distanz}"
 
-    gesamt_fahrzeit_min = data.get("gesamt_fahrzeit_min", 0.0)
+    gesamt_fahrzeit_min = data.get("totalDrivingTimeMin", 0.0)
     assert gesamt_fahrzeit_min > 15, (
         f"Gesamt-Fahrzeit sollte >15 min sein, bekam {gesamt_fahrzeit_min}"
     )
     # SoC-Werte variieren entlang der Route
-    soc_values: list[float] = [f["soc_pct"] for f in frames]
+    soc_values: list[float] = [f["socPct"] for f in frames]
     soc_range = max(soc_values) - min(soc_values)
     assert soc_range > 1.0, f"SoC sollte sich signifikant ändern. Range: {soc_range}"
 
@@ -223,14 +223,14 @@ async def test_elevation_real_data(client: TestClient) -> None:
     )
 
     data = response.json()
-    distanz = data.get("gesamt_distanz_km", 0.0)
+    distanz = data.get("totalDistanceKm", 0.0)
     assert distanz > 30, f"München->Garmisch sollte >30 km sein, bekam {distanz}"
 
     frames = data.get("frames", [])
     assert len(frames) > 0
 
     # Echte Steigungen führen zu variablerem Energieverbrauch
-    soc_values: list[float] = [f["soc_pct"] for f in frames]
+    soc_values: list[float] = [f["socPct"] for f in frames]
     soc_range = max(soc_values) - min(soc_values)
     assert soc_range > 1.0, (
         f"Echte Elevation sollte variablen Verbrauch erzeugen. Range: {soc_range}"
@@ -264,7 +264,7 @@ async def test_weather_real_values(client: TestClient) -> None:
     assert len(frames) > 0
 
     # Echte Wetterdaten führen zu variablerem Verbrauch
-    soc_values: list[float] = [f["soc_pct"] for f in frames]
+    soc_values: list[float] = [f["socPct"] for f in frames]
     soc_range = max(soc_values) - min(soc_values)
     assert soc_range > 0.5, f"OpenMeteo sollte variablen Verbrauch liefern. Range: {soc_range}"
 
