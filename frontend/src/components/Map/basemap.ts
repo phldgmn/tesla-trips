@@ -22,11 +22,13 @@ import libertyStyleRaw from "../../assets/liberty-style.json";
 
 setWorkerUrl(maplibreWorkerUrl);
 
-// Lokaler Vektor-Tile-Server (docker-compose.yml, Service "tiles"; siehe
-// scripts/build_basemap_tiles.sh, run.sh `start tiles`). Liefert PMTiles
-// per `pmtiles serve` als ZXY/TileJSON-Endpunkt aus, gebaut aus demselben
-// DE+DK+SE-OSM-Extrakt, den auch GraphHopper fuers Routing nutzt.
-const TILES_BASE_URL = "http://localhost:8081";
+// Local vector tile server (docker-compose.yml, service "tiles"; see
+// scripts/build_basemap_tiles.sh, run.sh `start tiles`). Serves PMTiles via
+// `pmtiles serve` as a ZXY/TileJSON endpoint, built from the same DE+DK+SE OSM
+// extract GraphHopper uses for routing. Override with `VITE_TILES_URL`.
+export const DEFAULT_TILES_URL = "http://localhost:8081";
+const TILES_BASE_URL: string =
+  import.meta.env.VITE_TILES_URL || DEFAULT_TILES_URL;
 
 /** Ersetzt in einem MapLibre-Style nur die `openmaptiles`-Vektor-Quelle
  * durch den selbst gehosteten Tile-Server; alle anderen Felder (Sprite,

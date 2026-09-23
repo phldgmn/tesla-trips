@@ -133,6 +133,9 @@ integration test job (`.github/workflows/ci.yml`, line 59).
 
 **Self-hosted vector basemap tiles (port 8081):**
 
+The frontend reads the tile server URL from `VITE_TILES_URL`
+(default `http://localhost:8081`), so a different host can be set at build time.
+
 The frontend map uses a self-hosted vector tile server instead of an external
 CDN, built from the same DE+DK+SE OSM extract that GraphHopper uses for
 routing (`data/de-dk-se.osm.pbf`). The build runs via
