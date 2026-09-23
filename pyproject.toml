@@ -58,7 +58,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "PL", "RUF"]
-extend-select = ["D", "S101"]
+extend-select = ["D", "S101", "BLE"]
 ignore = ["D102", "D203", "D213", "PLC0415"]
 
 [tool.ruff.lint.pydocstyle]

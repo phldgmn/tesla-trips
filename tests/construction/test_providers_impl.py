@@ -546,11 +546,11 @@ class TestFetchErrorHandling:
         assert not any(rec.levelno == logging.ERROR for rec in caplog.records)
 
     @pytest.mark.asyncio
-    async def test_generic_exception_returns_empty_list(self) -> None:
-        """Unerwartete Exceptions werden gefangen und liefern leere Liste."""
+    async def test_connect_error_returns_empty_list(self) -> None:
+        """Transportfehler (kein Status/Timeout) liefern eine leere Liste."""
         provider = _make_provider()
         provider._client.post = AsyncMock(return_value=self._make_token_resp())
-        provider._client.get = AsyncMock(side_effect=ValueError("unexpected"))
+        provider._client.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
 
         route = _make_route()
         strtree, seg_geoms = _build_strtree(route)
@@ -558,6 +558,18 @@ class TestFetchErrorHandling:
         zones = await provider._fetch_landscape_zones(route, Land.DK, strtree, seg_geoms)
 
         assert zones == []
+
+    async def test_unexpected_exception_propagates(self) -> None:
+        """Programmierfehler werden nicht als "keine Baustellen" verschluckt."""
+        provider = _make_provider()
+        provider._client.post = AsyncMock(return_value=self._make_token_resp())
+        provider._client.get = AsyncMock(side_effect=ValueError("unexpected"))
+
+        route = _make_route()
+        strtree, seg_geoms = _build_strtree(route)
+
+        with pytest.raises(ValueError, match="unexpected"):
+            await provider._fetch_landscape_zones(route, Land.DK, strtree, seg_geoms)
 
 
 class TestDkRequestAuth:

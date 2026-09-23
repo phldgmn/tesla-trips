@@ -623,7 +623,7 @@ def _log_step(
     t0 = time.perf_counter()
     try:
         yield
-    except BaseException as exc:
+    except Exception as exc:
         elapsed_ms = (time.perf_counter() - t0) * 1_000
         _logger.warning(
             "Pipeline step '%s'%s \u2014 FAILED after %.1f ms: %s",

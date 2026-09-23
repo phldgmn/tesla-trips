@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -25,6 +26,8 @@ from .record_mapping import (
     tesla_location_to_db_record,
 )
 from .spatial import _build_lat_bands, _stations_in_radius
+
+_logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from typing import Literal
@@ -332,6 +335,7 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
                     f"WAF-Block bei Slug '{slug}'. Setze --resume-from {slug} fort."
                 ) from None
             except Exception:
+                _logger.debug("Enrichment of %s failed", slug, exc_info=True)
                 tqdm.write(f"  err {slug} - ueberspringe")
                 continue
         return enriched

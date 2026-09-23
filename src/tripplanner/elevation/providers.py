@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Protocol, cast
 
 import rasterio
+from rasterio.errors import RasterioError
 from rasterio.windows import Window
 from typing_extensions import runtime_checkable
 
@@ -356,7 +357,8 @@ class CopernicusDEMDataSource:
             # ── Single bulk read of the whole band (Fix 1) ────────────
             try:
                 band = dataset.read(1)
-            except Exception:
+            # ValueError: dataset closed by a concurrent LRU eviction.
+            except (RasterioError, OSError, ValueError):
                 logger.warning(
                     "DEM-Tile %s konnte nicht gelesen werden - Fallback 0.0m",
                     uri,
@@ -374,7 +376,7 @@ class CopernicusDEMDataSource:
                     if nodata is not None and value_f == nodata:
                         continue
                     results[local_idx] = value_f
-                except Exception:
+                except (IndexError, ValueError, RasterioError):
                     # Out-of-bounds index, etc. → leave 0.0.
                     pass
 
@@ -405,7 +407,7 @@ class CopernicusDEMDataSource:
                 if not (0 <= row < dataset.height and 0 <= col < dataset.width):
                     return 0.0
                 value = dataset.read(1, window=Window(col, row, 1, 1))[0, 0]
-            except Exception:
+            except (RasterioError, OSError, IndexError, ValueError):
                 logger.warning(
                     "DEM-Range-Request für (%s, %s) fehlgeschlagen - Fallback 0.0m", lat, lon
                 )
@@ -499,7 +501,7 @@ class CopernicusDEMDataSource:
                 return None
             try:
                 data = dataset.read(1)
-            except Exception:
+            except (RasterioError, OSError, ValueError):
                 logger.warning(
                     "DEM-Kachel-Raster für (%s, %s) konnte nicht gelesen werden", lat, lon
                 )

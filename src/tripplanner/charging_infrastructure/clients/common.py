@@ -273,8 +273,9 @@ class TeslaJsonEndpointsMixin:
                 detail["_uuid"] = loc.get("uuid", "")
                 detail["_slug"] = slug
                 details.append(detail)
-            except Exception:
-                continue  # skip failed detail requests
+            except self.CurlError:
+                _logger.debug("Detail request for %s failed, skipping", slug, exc_info=True)
+                continue
             if effective_delay > 0:
                 await asyncio.sleep(effective_delay)
 

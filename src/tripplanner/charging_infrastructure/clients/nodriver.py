@@ -6,6 +6,7 @@ import asyncio
 import concurrent.futures
 import contextlib
 import json
+import logging
 import threading
 import time
 from collections.abc import Awaitable, Callable
@@ -22,6 +23,8 @@ from .common import (
     is_waf_block,
     waf_retry_delay_s,
 )
+
+_logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
 
@@ -154,7 +157,7 @@ class NodriverBrowserFetcher:
                     captured["status"] = int(code)
                     captured["mime_type"] = str(getattr(resp, "mime_type", "") or "")
             except Exception:
-                pass
+                _logger.debug("ResponseReceived handler failed", exc_info=True)
 
         await tab.send(cdp.network.enable())
         tab.add_handler(cdp.network.ResponseReceived, on_response)
@@ -206,6 +209,7 @@ class NodriverBrowserFetcher:
                 elif raw_body:
                     body = raw_body
             except Exception:
+                _logger.debug("Network.getResponseBody failed", exc_info=True)
                 body = ""
         if not body:
             mime = str(captured.get("mime_type", "")).lower()
@@ -284,11 +288,11 @@ class NodriverBrowserFetcher:
             return
         try:
             process.terminate()
-        except Exception:
+        except (ProcessLookupError, OSError):
             return
         try:
             await asyncio.wait_for(process.wait(), timeout=5.0)
-        except Exception:
+        except TimeoutError:
             with contextlib.suppress(Exception):
                 process.kill()
             with contextlib.suppress(Exception):
@@ -307,7 +311,7 @@ class NodriverBrowserFetcher:
         try:
             if getattr(process, "returncode", None) is None:
                 process.terminate()
-        except Exception:
+        except (ProcessLookupError, OSError):
             return
         deadline = time.monotonic() + 3.0
         while time.monotonic() < deadline:
@@ -327,6 +331,7 @@ class NodriverBrowserFetcher:
                 future = asyncio.run_coroutine_threadsafe(self._shutdown_browser(), self._loop)
                 future.result(timeout=15.0)
             except Exception:
+                _logger.debug("Browser shutdown via loop failed", exc_info=True)
                 # Loop-Thread nicht erreichbar (gestorben/Loop zu) ->
                 # deterministisch den Subprozess beenden und aus der
                 # nodriver-atexit-Liste nehmen. Browser.stop() wuerde
@@ -599,8 +604,9 @@ class NodriverTeslaClient:
                 detail["_uuid"] = loc.get("uuid", "")
                 detail["_slug"] = slug
                 details.append(detail)
-            except Exception:
-                continue  # skip failed detail requests
+            except self.CurlError:
+                _logger.debug("Detail request for %s failed, skipping", slug, exc_info=True)
+                continue
             if effective_delay > 0:
                 await asyncio.sleep(effective_delay)
 

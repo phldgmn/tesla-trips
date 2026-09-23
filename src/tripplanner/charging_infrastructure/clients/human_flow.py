@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import random
 import time
 from collections.abc import Awaitable, Callable
@@ -43,6 +44,8 @@ from urllib.parse import quote
 
 from .common import DEBUG_BODY_PREVIEW_CHARS, CurlError, _debug_log, is_waf_block, waf_retry_delay_s
 from .nodriver import NodriverBrowserFetcher, NodriverTeslaClient
+
+_logger = logging.getLogger(__name__)
 
 _SEARCH_INPUT_SELECTOR = "input.tds-form-input-search"
 _SEARCH_RESPONSE_TIMEOUT_S = 15.0
@@ -140,7 +143,7 @@ async def _collect_responses(
                     staged[req_id] = name
                     del pending[name]
         except Exception:
-            pass
+            _logger.debug("requestWillBeSent handler failed", exc_info=True)
 
     def on_finished(event: Any) -> None:
         """Startet den Body-Abruf, sobald ein vorgemerkter Request fertig geladen ist."""
@@ -150,7 +153,7 @@ async def _collect_responses(
             if name is not None:
                 fetch_tasks.append(asyncio.ensure_future(capture_body(req_id, name)))
         except Exception:
-            pass
+            _logger.debug("loadingFinished handler failed", exc_info=True)
 
     await tab.send(
         cdp.network.enable(

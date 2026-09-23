@@ -1,5 +1,6 @@
 """Tests für construction-Parser: DATEX II XML Parsing und Feld-Mapping."""
 
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 
@@ -139,10 +140,6 @@ def test_parse_empty_xml() -> None:
 
 
 def test_parse_invalid_xml() -> None:
-    """Test Parsing eines ungültigen XML."""
-    try:
-        zones = parse_datexii_xml("<invalid xml>", Land.DE)
-        assert zones == []
-    except Exception:
-        # If parsing fails completely, that's acceptable
-        pass
+    """Ungültiges XML wirft einen ParseError (kein stilles Leerergebnis)."""
+    with pytest.raises(ET.ParseError):
+        parse_datexii_xml("<invalid xml>", Land.DE)

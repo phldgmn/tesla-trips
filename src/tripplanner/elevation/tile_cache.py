@@ -13,6 +13,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 import rasterio
+from rasterio.errors import RasterioError
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +156,7 @@ class TileCache:
         local_path = self._cache_dir / f"{name}.tif"
         try:
             profile = dict(dataset.profile)
-        except Exception:
+        except (RasterioError, OSError):
             logger.warning("DEM-Tile %s: Profil konnte nicht gelesen werden", name)
             return
         threading.Thread(
@@ -280,7 +281,7 @@ class TileCache:
 
             try:
                 dataset = rasterio.open(uri)
-            except Exception:
+            except (RasterioError, OSError):
                 logger.warning("DEM-Kachel %s konnte nicht geöffnet werden - Fallback 0.0m", uri)
                 dataset = None
 

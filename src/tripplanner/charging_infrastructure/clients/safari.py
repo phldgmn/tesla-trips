@@ -283,7 +283,7 @@ class SafariTeslaClient(TeslaJsonEndpointsMixin):
                 stderr=asyncio.subprocess.PIPE,
             )
             await asyncio.wait_for(proc.communicate(), timeout=_CLEANUP_TIMEOUT_S)
-        except Exception as e:
+        except (OSError, TimeoutError) as e:
             _debug_log(
                 self._debug_log,
                 f"Safari-Tab-Cleanup fehlgeschlagen fuer {url}: {e}",

@@ -232,7 +232,7 @@ def trips(  # noqa: PLR0913, PLR0917
     except ValueError as e:
         typer.echo(f"Ungültige Eingabe: {e}", err=True)
         raise typer.Exit(code=1) from None
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - CLI boundary: report any failure as exit code 1
         typer.echo(f"Fehler bei der Berechnung: {e}", err=True)
         raise typer.Exit(code=1) from None
 

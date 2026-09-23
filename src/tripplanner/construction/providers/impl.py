@@ -278,8 +278,8 @@ class ConstructionProviderImpl(ConstructionProvider):
         except httpx.TimeoutException:
             logger.warning("Construction API %s: request timed out", land)
             return []
-        except Exception:
-            logger.warning("Construction API %s: request failed", land)
+        except httpx.HTTPError as exc:
+            logger.warning("Construction API %s: request failed: %s", land, exc)
             return []
 
         if land == Land.SE:
