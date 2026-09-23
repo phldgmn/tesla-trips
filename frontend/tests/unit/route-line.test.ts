@@ -628,9 +628,9 @@ describe("projectDistanceAlongLineM", () => {
 
 describe("findNearestRouteSample", () => {
   const samples: RouteSample[] = [
-    { distanzM: 0, socPct: 90, zeitpunkt: "2026-08-16T18:00:00" },
-    { distanzM: 1000, socPct: 70, zeitpunkt: "2026-08-16T18:10:00" },
-    { distanzM: 5000, socPct: 40, zeitpunkt: "2026-08-16T18:30:00" },
+    { distanzM: 0, socPct: 90, timestamp: "2026-08-16T18:00:00" },
+    { distanzM: 1000, socPct: 70, timestamp: "2026-08-16T18:10:00" },
+    { distanzM: 5000, socPct: 40, timestamp: "2026-08-16T18:30:00" },
   ];
 
   it("returns undefined for an empty sample list", () => {
@@ -690,8 +690,8 @@ describe("route-hover regression: post-charging SoC/time near a charging stop", 
         routeIndexNach: 3,
         ankunftsSocPct: 20,
         zielSocPct: 80,
-        ankunftszeit: "2026-08-16T19:17:00",
-        abfahrtszeit: "2026-08-16T19:30:00",
+        arrivalTime: "2026-08-16T19:17:00",
+        departureTime: "2026-08-16T19:30:00",
       },
     ],
     [],
@@ -711,7 +711,7 @@ describe("route-hover regression: post-charging SoC/time near a charging stop", 
     // Muss den Abfahrts- (post-Ladehalt) Zustand liefern, nicht den
     // Ankunfts-Zustand - trotz raeumlicher Naehe zu routeIndexVor.
     expect(sample!.socPct).toBe(80);
-    expect(sample!.zeitpunkt).toBe("2026-08-16T19:30:00");
+    expect(sample!.timestamp).toBe("2026-08-16T19:30:00");
   });
 
   it("still resolves the arrival SoC/time right before the detour, spatially near the same spot", () => {
@@ -724,7 +724,7 @@ describe("route-hover regression: post-charging SoC/time near a charging stop", 
 
     expect(sample).toBeDefined();
     expect(sample!.socPct).toBe(20);
-    expect(sample!.zeitpunkt).toBe("2026-08-16T19:17:00");
+    expect(sample!.timestamp).toBe("2026-08-16T19:17:00");
   });
 });
 
@@ -773,8 +773,8 @@ describe("buildSplicedRoute: FAHREN-Frames innerhalb des margin_m-Puffers", () =
         routeIndexNach: 3,
         ankunftsSocPct: 20,
         zielSocPct: 80,
-        ankunftszeit: "2026-08-16T19:17:00",
-        abfahrtszeit: "2026-08-16T19:30:00",
+        arrivalTime: "2026-08-16T19:17:00",
+        departureTime: "2026-08-16T19:30:00",
       },
     ],
     [
@@ -783,13 +783,13 @@ describe("buildSplicedRoute: FAHREN-Frames innerhalb des margin_m-Puffers", () =
       {
         distanzM: chargeDistanzM - 200,
         socPct: 21,
-        zeitpunkt: "2026-08-16T19:15:00",
+        timestamp: "2026-08-16T19:15:00",
       },
       // Kurz NACH dem Ladehalt, ebenfalls noch innerhalb des Puffers.
       {
         distanzM: chargeDistanzM + 200,
         socPct: 79,
-        zeitpunkt: "2026-08-16T19:32:00",
+        timestamp: "2026-08-16T19:32:00",
       },
     ],
   );

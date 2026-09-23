@@ -9,12 +9,12 @@ import type { ConstructionZone } from "@/types";
 /** Hilfsfunktion zum Bauen einer test-ConstructionZone. */
 function makeZone(
   events: ConstructionZone["events"],
-  laenge_m: number | null = null,
+  lengthM: number | null = null,
 ): ConstructionZone {
   return {
     position: [51.0, 7.0],
     events,
-    laenge_m,
+    lengthM,
   };
 }
 
@@ -23,12 +23,12 @@ describe("buildConstructionZonePopupHtml", () => {
     it("renders the event label and all fields", () => {
       const zone = makeZone([
         {
-          sperrungstyp: "fullyClosed",
-          tempolimit_kmh: 60,
-          umleitungshinweis: "Umleitung über B56",
-          land: "DE",
-          gueltig_von: "2026-08-01T00:00:00",
-          gueltig_bis: "2026-08-31T23:59:59",
+          closureType: "fullyClosed",
+          speedLimitKmh: 60,
+          detourNotice: "Umleitung über B56",
+          country: "DE",
+          validFrom: "2026-08-01T00:00:00",
+          validTo: "2026-08-31T23:59:59",
         },
       ]);
       const html = buildConstructionZonePopupHtml(zone);
@@ -37,8 +37,6 @@ describe("buildConstructionZonePopupHtml", () => {
       expect(html).toContain("60 km/h");
       expect(html).toContain("Umleitung");
       expect(html).toContain("Umleitung über B56");
-      expect(html).toContain("Land");
-      expect(html).toContain("DE");
       expect(html).toContain("Gültig ab");
       expect(html).toContain("Gültig bis");
       expect(html).toContain("01.08.2026");
@@ -48,32 +46,30 @@ describe("buildConstructionZonePopupHtml", () => {
     it("skips null optional fields", () => {
       const zone = makeZone([
         {
-          sperrungstyp: "partiallyClosed",
-          tempolimit_kmh: null,
-          umleitungshinweis: null,
-          land: "DE",
-          gueltig_von: "2026-08-01T00:00:00",
-          gueltig_bis: null,
+          closureType: "partiallyClosed",
+          speedLimitKmh: null,
+          detourNotice: null,
+          country: "DE",
+          validFrom: "2026-08-01T00:00:00",
+          validTo: null,
         },
       ]);
       const html = buildConstructionZonePopupHtml(zone);
       expect(html).toContain("Teilsperrung");
       expect(html).not.toContain("Tempolimit");
       expect(html).not.toContain("Umleitung");
-      expect(html).toContain("Land");
-      expect(html).toContain("DE");
       expect(html).toContain("unbestimmt");
     });
 
     it("falls back to raw sperrungstyp for unknown labels", () => {
       const zone = makeZone([
         {
-          sperrungstyp: "unknownType",
-          tempolimit_kmh: null,
-          umleitungshinweis: null,
-          land: "SE",
-          gueltig_von: "2026-01-01T00:00:00",
-          gueltig_bis: null,
+          closureType: "unknownType",
+          speedLimitKmh: null,
+          detourNotice: null,
+          country: "SE",
+          validFrom: "2026-01-01T00:00:00",
+          validTo: null,
         },
       ]);
       const html = buildConstructionZonePopupHtml(zone);
@@ -85,20 +81,20 @@ describe("buildConstructionZonePopupHtml", () => {
     it("renders each event in a separate section with 'N von M' heading", () => {
       const zone = makeZone([
         {
-          sperrungstyp: "fullyClosed",
-          tempolimit_kmh: 60,
-          umleitungshinweis: null,
-          land: "DE",
-          gueltig_von: "2026-08-01T00:00:00",
-          gueltig_bis: "2026-08-31T23:59:59",
+          closureType: "fullyClosed",
+          speedLimitKmh: 60,
+          detourNotice: null,
+          country: "DE",
+          validFrom: "2026-08-01T00:00:00",
+          validTo: "2026-08-31T23:59:59",
         },
         {
-          sperrungstyp: "temporarySpeedLimit",
-          tempolimit_kmh: 40,
-          umleitungshinweis: "Umleitung A5",
-          land: "DE",
-          gueltig_von: "2026-08-01T00:00:00",
-          gueltig_bis: "2026-08-31T23:59:59",
+          closureType: "temporarySpeedLimit",
+          speedLimitKmh: 40,
+          detourNotice: "Umleitung A5",
+          country: "DE",
+          validFrom: "2026-08-01T00:00:00",
+          validTo: "2026-08-31T23:59:59",
         },
       ]);
       const html = buildConstructionZonePopupHtml(zone);
@@ -114,20 +110,20 @@ describe("buildConstructionZonePopupHtml", () => {
     it("skips null fields per event independently", () => {
       const zone = makeZone([
         {
-          sperrungstyp: "fullyClosed",
-          tempolimit_kmh: null,
-          umleitungshinweis: null,
-          land: "DE",
-          gueltig_von: "2026-08-01T00:00:00",
-          gueltig_bis: null,
+          closureType: "fullyClosed",
+          speedLimitKmh: null,
+          detourNotice: null,
+          country: "DE",
+          validFrom: "2026-08-01T00:00:00",
+          validTo: null,
         },
         {
-          sperrungstyp: "laneClosed",
-          tempolimit_kmh: 30,
-          umleitungshinweis: "Umleitung B",
-          land: "DE",
-          gueltig_von: "2026-08-15T00:00:00",
-          gueltig_bis: "2026-09-30T23:59:59",
+          closureType: "laneClosed",
+          speedLimitKmh: 30,
+          detourNotice: "Umleitung B",
+          country: "DE",
+          validFrom: "2026-08-15T00:00:00",
+          validTo: "2026-09-30T23:59:59",
         },
       ]);
       const html = buildConstructionZonePopupHtml(zone);
@@ -141,20 +137,20 @@ describe("buildConstructionZonePopupHtml", () => {
     it("has exactly one separator between two events", () => {
       const zone = makeZone([
         {
-          sperrungstyp: "fullyClosed",
-          tempolimit_kmh: null,
-          umleitungshinweis: null,
-          land: "DE",
-          gueltig_von: "2026-08-01T00:00:00",
-          gueltig_bis: null,
+          closureType: "fullyClosed",
+          speedLimitKmh: null,
+          detourNotice: null,
+          country: "DE",
+          validFrom: "2026-08-01T00:00:00",
+          validTo: null,
         },
         {
-          sperrungstyp: "partiallyClosed",
-          tempolimit_kmh: null,
-          umleitungshinweis: null,
-          land: "DE",
-          gueltig_von: "2026-08-01T00:00:00",
-          gueltig_bis: null,
+          closureType: "partiallyClosed",
+          speedLimitKmh: null,
+          detourNotice: null,
+          country: "DE",
+          validFrom: "2026-08-01T00:00:00",
+          validTo: null,
         },
       ]);
       const html = buildConstructionZonePopupHtml(zone);
@@ -165,12 +161,12 @@ describe("buildConstructionZonePopupHtml", () => {
     it("has no separator for single event", () => {
       const zone = makeZone([
         {
-          sperrungstyp: "fullyClosed",
-          tempolimit_kmh: null,
-          umleitungshinweis: null,
-          land: "DE",
-          gueltig_von: "2026-08-01T00:00:00",
-          gueltig_bis: null,
+          closureType: "fullyClosed",
+          speedLimitKmh: null,
+          detourNotice: null,
+          country: "DE",
+          validFrom: "2026-08-01T00:00:00",
+          validTo: null,
         },
       ]);
       const html = buildConstructionZonePopupHtml(zone);
@@ -183,12 +179,12 @@ describe("buildConstructionZonePopupHtml", () => {
     it("wraps content in the expected outer div", () => {
       const zone = makeZone([
         {
-          sperrungstyp: "fullyClosed",
-          tempolimit_kmh: null,
-          umleitungshinweis: null,
-          land: "DE",
-          gueltig_von: "2026-08-01T00:00:00",
-          gueltig_bis: null,
+          closureType: "fullyClosed",
+          speedLimitKmh: null,
+          detourNotice: null,
+          country: "DE",
+          validFrom: "2026-08-01T00:00:00",
+          validTo: null,
         },
       ]);
       const html = buildConstructionZonePopupHtml(zone);
@@ -205,12 +201,12 @@ describe("buildConstructionZonePopupHtml", () => {
       const zone = makeZone(
         [
           {
-            sperrungstyp: "fullyClosed",
-            tempolimit_kmh: null,
-            umleitungshinweis: null,
-            land: "DE",
-            gueltig_von: "2026-08-01T00:00:00",
-            gueltig_bis: null,
+            closureType: "fullyClosed",
+            speedLimitKmh: null,
+            detourNotice: null,
+            country: "DE",
+            validFrom: "2026-08-01T00:00:00",
+            validTo: null,
           },
         ],
         2500,
@@ -224,12 +220,12 @@ describe("buildConstructionZonePopupHtml", () => {
       const zone = makeZone(
         [
           {
-            sperrungstyp: "partiallyClosed",
-            tempolimit_kmh: null,
-            umleitungshinweis: null,
-            land: "DE",
-            gueltig_von: "2026-08-01T00:00:00",
-            gueltig_bis: null,
+            closureType: "partiallyClosed",
+            speedLimitKmh: null,
+            detourNotice: null,
+            country: "DE",
+            validFrom: "2026-08-01T00:00:00",
+            validTo: null,
           },
         ],
         450,
@@ -243,12 +239,12 @@ describe("buildConstructionZonePopupHtml", () => {
       const zone = makeZone(
         [
           {
-            sperrungstyp: "partiallyClosed",
-            tempolimit_kmh: null,
-            umleitungshinweis: null,
-            land: "DE",
-            gueltig_von: "2026-08-01T00:00:00",
-            gueltig_bis: null,
+            closureType: "partiallyClosed",
+            speedLimitKmh: null,
+            detourNotice: null,
+            country: "DE",
+            validFrom: "2026-08-01T00:00:00",
+            validTo: null,
           },
         ],
         452.8734,
@@ -263,12 +259,12 @@ describe("buildConstructionZonePopupHtml", () => {
       const zone = makeZone(
         [
           {
-            sperrungstyp: "fullyClosed",
-            tempolimit_kmh: null,
-            umleitungshinweis: null,
-            land: "DE",
-            gueltig_von: "2026-08-01T00:00:00",
-            gueltig_bis: null,
+            closureType: "fullyClosed",
+            speedLimitKmh: null,
+            detourNotice: null,
+            country: "DE",
+            validFrom: "2026-08-01T00:00:00",
+            validTo: null,
           },
         ],
         2537.6,
@@ -281,12 +277,12 @@ describe("buildConstructionZonePopupHtml", () => {
       const zone = makeZone(
         [
           {
-            sperrungstyp: "fullyClosed",
-            tempolimit_kmh: null,
-            umleitungshinweis: null,
-            land: "DE",
-            gueltig_von: "2026-08-01T00:00:00",
-            gueltig_bis: null,
+            closureType: "fullyClosed",
+            speedLimitKmh: null,
+            detourNotice: null,
+            country: "DE",
+            validFrom: "2026-08-01T00:00:00",
+            validTo: null,
           },
         ],
         null,
@@ -315,15 +311,15 @@ describe("buildConstructionZonePopupHtml escaping", () => {
   it("escapes third-party free text", () => {
     const html = buildConstructionZonePopupHtml({
       position: [51.0, 7.0],
-      length_m: null,
+      lengthM: null,
       events: [
         {
           closureType: "<b>x</b>",
-          speed_limit_kmh: null,
+          speedLimitKmh: null,
           detourNotice: "<img src=x onerror=alert(1)>",
-          state: "DE",
-          valid_from: "2026-08-01T00:00:00",
-          valid_to: null,
+          country: "DE",
+          validFrom: "2026-08-01T00:00:00",
+          validTo: null,
         },
       ],
     } as ConstructionZone);

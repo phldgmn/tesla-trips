@@ -5,7 +5,7 @@ import { act } from "react-dom/test-utils";
 
 import {
   usePersistentState,
-  migrateWetterBeruecksichtigen,
+  migrateConsiderWeather,
 } from "@/utils/persistent-state";
 
 /** Rendert eine Test-Komponente, die `usePersistentState` verwendet, und
@@ -93,7 +93,7 @@ describe("usePersistentState", () => {
   });
 });
 
-describe("migrateWetterBeruecksichtigen", () => {
+describe("migrateConsiderWeather", () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
@@ -103,7 +103,7 @@ describe("migrateWetterBeruecksichtigen", () => {
       "tesla-trips:v1:wetter-beruecksichtigen",
       "true",
     );
-    const result = migrateWetterBeruecksichtigen();
+    const result = migrateConsiderWeather();
     expect(result).toBe("high");
     expect(
       window.localStorage.getItem("tesla-trips:v1:wetter-beruecksichtigen"),
@@ -115,7 +115,7 @@ describe("migrateWetterBeruecksichtigen", () => {
       "tesla-trips:v1:wetter-beruecksichtigen",
       "false",
     );
-    const result = migrateWetterBeruecksichtigen();
+    const result = migrateConsiderWeather();
     expect(result).toBe("off");
     expect(
       window.localStorage.getItem("tesla-trips:v1:wetter-beruecksichtigen"),
@@ -123,7 +123,7 @@ describe("migrateWetterBeruecksichtigen", () => {
   });
 
   it("returns default 'high' when old key is missing", () => {
-    const result = migrateWetterBeruecksichtigen();
+    const result = migrateConsiderWeather();
     expect(result).toBe("high");
     expect(
       window.localStorage.getItem("tesla-trips:v1:wetter-beruecksichtigen"),
@@ -135,7 +135,7 @@ describe("migrateWetterBeruecksichtigen", () => {
       "tesla-trips:v1:wetter-beruecksichtigen",
       "{not valid json",
     );
-    const result = migrateWetterBeruecksichtigen();
+    const result = migrateConsiderWeather();
     expect(result).toBe("high");
   });
 
@@ -144,7 +144,7 @@ describe("migrateWetterBeruecksichtigen", () => {
       "tesla-trips:v1:wetter-beruecksichtigen",
       '"foo"',
     );
-    const result = migrateWetterBeruecksichtigen();
+    const result = migrateConsiderWeather();
     expect(result).toBe("high");
   });
 });

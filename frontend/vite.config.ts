@@ -47,6 +47,9 @@ export default defineConfig({
     // erzeugen echte DOM-Elemente und brauchen daher eine DOM-Umgebung im Test.
     environment: "jsdom",
     setupFiles: ["./tests/setup.ts"],
+    // Node >= 25 exposes its own global `localStorage` (undefined without
+    // --localstorage-file), which shadows jsdom's implementation.
+    execArgv: ["--no-experimental-webstorage"],
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),

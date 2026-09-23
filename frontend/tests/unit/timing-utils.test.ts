@@ -4,24 +4,24 @@ import {
   estimatePositionTiming,
   cumulativeDistancesKm,
   findNearestFrameIndex,
-  berechneFahrsegment,
+  calculateDrivingSegment,
   type WaypointTiming,
 } from "@/utils/timing-utils";
 import type { TripSimulationResult } from "@/types";
 import type { Stop } from "@/types/trip-request";
 
 function makeFrame(
-  zeitpunkt: string,
+  timestamp: string,
   lat: number,
   lon: number,
   socPct = 80,
 ): TripSimulationResult["frames"][number] {
   return {
-    zeitpunkt,
+    timestamp,
     position: [lat, lon],
-    soc_pct: socPct,
-    zustand: "FAHREN",
-    geschwindigkeit_kmh: 100,
+    socPct: socPct,
+    state: "FAHREN",
+    speedKmh: 100,
   };
 }
 
@@ -65,12 +65,12 @@ describe("estimateWaypointTimings", () => {
 
     const result: TripSimulationResult = {
       frames,
-      gesamt_distanz_km: 585,
-      gesamt_fahrzeit_min: 210,
-      gesamt_ladezeit_min: 0,
-      start_soc_pct: 95,
-      ziel_soc_pct: 15,
-      erkannte_faehren: [],
+      totalDistanceKm: 585,
+      totalDrivingTimeMin: 210,
+      totalChargingTimeMin: 0,
+      startSocPct: 95,
+      targetSocPct: 15,
+      detectedFerries: [],
     };
 
     const timings = estimateWaypointTimings(result.frames, [
@@ -124,12 +124,12 @@ describe("estimateWaypointTimings", () => {
 
     const result: TripSimulationResult = {
       frames,
-      gesamt_distanz_km: 280,
-      gesamt_fahrzeit_min: 120,
-      gesamt_ladezeit_min: 0,
-      start_soc_pct: 100,
-      ziel_soc_pct: 40,
-      erkannte_faehren: [],
+      totalDistanceKm: 280,
+      totalDrivingTimeMin: 120,
+      totalChargingTimeMin: 0,
+      startSocPct: 100,
+      targetSocPct: 40,
+      detectedFerries: [],
     };
 
     const timings = estimateWaypointTimings(result.frames, [
@@ -162,12 +162,12 @@ describe("estimateWaypointTimings", () => {
       ];
       const result: TripSimulationResult = {
         frames: [],
-        gesamt_distanz_km: 0,
-        gesamt_fahrzeit_min: 0,
-        gesamt_ladezeit_min: 0,
-        start_soc_pct: 100,
-        ziel_soc_pct: 100,
-        erkannte_faehren: [],
+        totalDistanceKm: 0,
+        totalDrivingTimeMin: 0,
+        totalChargingTimeMin: 0,
+        startSocPct: 100,
+        targetSocPct: 100,
+        detectedFerries: [],
       };
 
       const timings = estimateWaypointTimings(result.frames, stops);
@@ -195,12 +195,12 @@ describe("estimateWaypointTimings", () => {
 
       const result: TripSimulationResult = {
         frames,
-        gesamt_distanz_km: 280,
-        gesamt_fahrzeit_min: 120,
-        gesamt_ladezeit_min: 0,
-        start_soc_pct: 100,
-        ziel_soc_pct: 40,
-        erkannte_faehren: [],
+        totalDistanceKm: 280,
+        totalDrivingTimeMin: 120,
+        totalChargingTimeMin: 0,
+        startSocPct: 100,
+        targetSocPct: 40,
+        detectedFerries: [],
       };
 
       const timings = estimateWaypointTimings(result.frames, [
@@ -239,12 +239,12 @@ describe("estimateWaypointTimings", () => {
       ];
       const result: TripSimulationResult = {
         frames,
-        gesamt_distanz_km: 100,
-        gesamt_fahrzeit_min: 30,
-        gesamt_ladezeit_min: 10,
-        start_soc_pct: 90,
-        ziel_soc_pct: 60,
-        erkannte_faehren: [],
+        totalDistanceKm: 100,
+        totalDrivingTimeMin: 30,
+        totalChargingTimeMin: 10,
+        startSocPct: 90,
+        targetSocPct: 60,
+        detectedFerries: [],
       };
 
       const timings = estimateWaypointTimings(result.frames, [
@@ -339,7 +339,7 @@ describe("findNearestFrameIndex", () => {
   });
 });
 
-describe("berechneFahrsegment", () => {
+describe("calculateDrivingSegment", () => {
   const frames = [
     makeFrame("2025-06-01T08:00:00", 52.0, 13.0),
     makeFrame("2025-06-01T08:30:00", 52.0, 13.1),
@@ -348,33 +348,33 @@ describe("berechneFahrsegment", () => {
   const cumulativeKm = cumulativeDistancesKm(frames);
 
   it("berechnet Distanz (aus cumulativeKm) und Dauer (aus den ISO-Zeitpunkten)", () => {
-    const segment = berechneFahrsegment(
+    const segment = calculateDrivingSegment(
       "2025-06-01T08:00:00",
       "2025-06-01T09:00:00",
       frames,
       cumulativeKm,
     );
     expect(segment).not.toBeNull();
-    expect(segment?.dauerMin).toBe(60);
-    expect(segment?.distanzKm).toBeCloseTo(cumulativeKm[2], 5);
+    expect(segment?.durationMin).toBe(60);
+    expect(segment?.distanceKm).toBeCloseTo(cumulativeKm[2], 5);
   });
 
   it("berechnet ein Teilsegment zwischen zwei mittleren Zeitpunkten", () => {
-    const segment = berechneFahrsegment(
+    const segment = calculateDrivingSegment(
       "2025-06-01T08:30:00",
       "2025-06-01T09:00:00",
       frames,
       cumulativeKm,
     );
-    expect(segment?.dauerMin).toBe(30);
-    expect(segment?.distanzKm).toBeCloseTo(
+    expect(segment?.durationMin).toBe(30);
+    expect(segment?.distanceKm).toBeCloseTo(
       cumulativeKm[2] - cumulativeKm[1],
       5,
     );
   });
 
   it("liefert null, wenn frames leer ist", () => {
-    const segment = berechneFahrsegment(
+    const segment = calculateDrivingSegment(
       "2025-06-01T08:00:00",
       "2025-06-01T09:00:00",
       [],

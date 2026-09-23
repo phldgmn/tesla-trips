@@ -1,20 +1,20 @@
 import { describe, it, expect } from "vitest";
-import { buildRouteEintraege } from "@/utils/route-eintraege";
+import { buildRouteEntries } from "@/utils/route-eintraege";
 import { cumulativeDistancesKm } from "@/utils/timing-utils";
 import type { Stop } from "@/types/trip-request";
-import type { TripSimulationResult, ChargingStop, FaehrSegment } from "@/types";
+import type { TripSimulationResult, ChargingStop, FerrySegment } from "@/types";
 
 function makeFrame(
-  zeitpunkt: string,
+  timestamp: string,
   lat: number,
   lon: number,
 ): TripSimulationResult["frames"][number] {
   return {
-    zeitpunkt,
+    timestamp,
     position: [lat, lon],
-    soc_pct: 80,
-    zustand: "FAHREN",
-    geschwindigkeit_kmh: 100,
+    socPct: 80,
+    state: "FAHREN",
+    speedKmh: 100,
   };
 }
 
@@ -35,24 +35,24 @@ function makeStop(
 function makeChargingStop(overrides: Partial<ChargingStop> = {}): ChargingStop {
   return {
     name: "Ladestation",
-    station_id: "station_1",
+    stationId: "station_1",
     position: [52.52, 13.405],
-    ankunfts_soc_pct: 60,
-    ziel_soc_pct: 80,
-    ladedauer_s: 1800,
-    energie_geladen_kwh: 15,
-    ankunftszeit: "2025-01-01T08:45:00",
-    abfahrtszeit: "2025-01-01T09:00:00",
+    arrivalSocPct: 60,
+    targetSocPct: 80,
+    chargingDurationS: 1800,
+    energyChargedKwh: 15,
+    arrivalTime: "2025-01-01T08:45:00",
+    departureTime: "2025-01-01T09:00:00",
     ...overrides,
   };
 }
 
-function makeFaehre(overrides: Partial<FaehrSegment> = {}): FaehrSegment {
+function makeFaehre(overrides: Partial<FerrySegment> = {}): FerrySegment {
   return {
     name: "Fähre Hela",
-    laenge_m: 5000,
-    bbox_sw: [52.51, 13.39],
-    bbox_no: [52.54, 13.42],
+    lengthM: 5000,
+    bboxSw: [52.51, 13.39],
+    bboxNe: [52.54, 13.42],
     abfahrt: null,
     ankunft: null,
     ...overrides,
@@ -61,17 +61,17 @@ function makeFaehre(overrides: Partial<FaehrSegment> = {}): FaehrSegment {
 
 function makeVermiedeneFaehre(
   name: string,
-  bbox_sw: [number, number],
-  bbox_no: [number, number],
+  bboxSw: [number, number],
+  bboxNe: [number, number],
 ) {
   return {
     name,
-    bbox_sw,
-    bbox_no,
+    bboxSw,
+    bboxNe,
   };
 }
 
-describe("buildRouteEintraege", () => {
+describe("buildRouteEntries", () => {
   describe("ohne frames", () => {
     it("gibt nur Stops in Originalreihenfolge zurueck", () => {
       const stops = [
@@ -79,12 +79,12 @@ describe("buildRouteEintraege", () => {
         makeStop("2", "Ziel", [52.53, 13.41]),
       ];
 
-      const result = buildRouteEintraege({
+      const result = buildRouteEntries({
         stops,
         frames: undefined,
         chargingStops: undefined,
         erkannteFaehren: undefined,
-        vermiedeneFaehren: [],
+        avoidedFerries: [],
       });
 
       expect(result).toHaveLength(2);
@@ -122,17 +122,17 @@ describe("buildRouteEintraege", () => {
       ];
 
       const chargingStops = [
-        makeChargingStop({ ankunftszeit: "2025-01-01T08:45:00" }),
+        makeChargingStop({ arrivalTime: "2025-01-01T08:45:00" }),
       ];
 
       const recognizedFerries = [makeFaehre({ name: "Fähre A" })];
 
-      const result = buildRouteEintraege({
+      const result = buildRouteEntries({
         stops,
         frames,
         chargingStops,
         erkannteFaehren: recognizedFerries,
-        vermiedeneFaehren: [],
+        avoidedFerries: [],
       });
 
       // 2 Stops + 1 Ladehalt + 1 Fähre = 4 Einträge
@@ -146,7 +146,7 @@ describe("buildRouteEintraege", () => {
       expect(result[1].faehre.name).toBe("Fähre A");
 
       expect(result[2].art).toBe("Ladehalt");
-      expect(result[2].chargingStop.ankunftszeit).toBe("2025-01-01T08:45:00");
+      expect(result[2].chargingStop.arrivalTime).toBe("2025-01-01T08:45:00");
 
       expect(result[3].art).toBe("Stopp");
       expect(result[3].stopIndex).toBe(1); // Ziel
@@ -170,15 +170,15 @@ describe("buildRouteEintraege", () => {
         makeVermiedeneFaehre("Fähre A", [52.51, 13.39], [52.54, 13.42]),
       ];
 
-      const result = buildRouteEintraege({
+      const result = buildRouteEntries({
         stops,
         frames,
         chargingStops: undefined,
         erkannteFaehren: recognizedFerries,
-        vermiedeneFaehren,
+        avoidedFerries: vermiedeneFaehren,
       });
 
-      // 2 Stops + 1 Fahrsegment dazwischen (1h Fahrzeit), keine Fähre!
+      // 2 Stops + 1 DrivingSegment dazwischen (1h Fahrzeit), keine Fähre!
       expect(result).toHaveLength(3);
       expect(result[0].art).toBe("Stopp");
       expect(result[1].art).toBe("Fahrsegment");
@@ -203,12 +203,12 @@ describe("buildRouteEintraege", () => {
         makeVermiedeneFaehre("Andere Fähre", [54.0, 12.0], [54.5, 12.5]),
       ];
 
-      const result = buildRouteEintraege({
+      const result = buildRouteEntries({
         stops,
         frames,
         chargingStops: undefined,
         erkannteFaehren: recognizedFerries,
-        vermiedeneFaehren,
+        avoidedFerries: vermiedeneFaehren,
       });
 
       // 2 Stops + 1 Fähre = 3 Einträge
@@ -230,12 +230,12 @@ describe("buildRouteEintraege", () => {
         makeStop("2", "Ziel", [53.0, 13.9]),
       ];
 
-      const result = buildRouteEintraege({
+      const result = buildRouteEntries({
         stops,
         frames,
         chargingStops: undefined,
         erkannteFaehren: undefined,
-        vermiedeneFaehren: [],
+        avoidedFerries: [],
       });
 
       const start = result.find((e) => e.art === "Stopp" && e.stopIndex === 0);
@@ -267,17 +267,17 @@ describe("buildRouteEintraege", () => {
       ];
       const chargingStops = [
         makeChargingStop({
-          ankunftszeit: "2025-01-01T08:30:00",
-          abfahrtszeit: "2025-01-01T08:50:00",
+          arrivalTime: "2025-01-01T08:30:00",
+          departureTime: "2025-01-01T08:50:00",
         }),
       ];
 
-      const result = buildRouteEintraege({
+      const result = buildRouteEntries({
         stops,
         frames,
         chargingStops,
         erkannteFaehren: undefined,
-        vermiedeneFaehren: [],
+        avoidedFerries: [],
       });
 
       const ladehalt = result.find((e) => e.art === "Ladehalt");
@@ -302,17 +302,17 @@ describe("buildRouteEintraege", () => {
       const recognizedFerries = [
         makeFaehre({
           name: "Fähre A",
-          bbox_sw: [52.51, 13.395],
-          bbox_no: [52.54, 13.415],
+          bboxSw: [52.51, 13.395],
+          bboxNe: [52.54, 13.415],
         }),
       ];
 
-      const result = buildRouteEintraege({
+      const result = buildRouteEntries({
         stops,
         frames,
         chargingStops: undefined,
         erkannteFaehren: recognizedFerries,
-        vermiedeneFaehren: [],
+        avoidedFerries: [],
       });
 
       const faehre = result.find((e) => e.art === "Fähre");
@@ -323,7 +323,7 @@ describe("buildRouteEintraege", () => {
   });
 
   describe("Fahrsegmente zwischen Einträgen", () => {
-    it("fügt zwischen zwei Einträgen mit unterschiedlichen Verbindungszeitpunkten ein Fahrsegment ein", () => {
+    it("fügt zwischen zwei Einträgen mit unterschiedlichen Verbindungszeitpunkten ein DrivingSegment ein", () => {
       const frames = [
         makeFrame("2025-01-01T08:00:00", 52.0, 13.0),
         makeFrame("2025-01-01T08:30:00", 52.0, 13.1),
@@ -334,12 +334,12 @@ describe("buildRouteEintraege", () => {
         makeStop("2", "Ziel", [52.0, 13.2]),
       ];
 
-      const result = buildRouteEintraege({
+      const result = buildRouteEntries({
         stops,
         frames,
         chargingStops: undefined,
         erkannteFaehren: undefined,
-        vermiedeneFaehren: [],
+        avoidedFerries: [],
       });
 
       expect(result).toHaveLength(3);
@@ -352,12 +352,12 @@ describe("buildRouteEintraege", () => {
       expect(fahrsegment.vonIso).toBe("2025-01-01T08:00:00");
       expect(fahrsegment.bisIso).toBe("2025-01-01T09:00:00");
       expect(fahrsegment.sortKey).toBe("2025-01-01T08:00:00");
-      expect(fahrsegment.dauerMin).toBe(60);
+      expect(fahrsegment.durationMin).toBe(60);
       const erwarteteDistanzKm = cumulativeDistancesKm(frames)[2];
-      expect(fahrsegment.distanzKm).toBeCloseTo(erwarteteDistanzKm, 5);
+      expect(fahrsegment.distanceKm).toBeCloseTo(erwarteteDistanzKm, 5);
     });
 
-    it("überspringt ein Fahrsegment, wenn beide Verbindungszeitpunkte identisch sind", () => {
+    it("überspringt ein DrivingSegment, wenn beide Verbindungszeitpunkte identisch sind", () => {
       const frames = [
         makeFrame("2025-01-01T08:00:00", 52.0, 13.0),
         makeFrame("2025-01-01T08:30:00", 52.0, 13.1),
@@ -368,23 +368,23 @@ describe("buildRouteEintraege", () => {
         makeStop("2", "Ziel", [52.0, 13.2]),
       ];
       // Ankunft exakt gleich der Start-Abfahrt -> zwischen Start und Ladehalt
-      // liegt kein Fahrsegment (von === bis).
+      // liegt kein DrivingSegment (von === bis).
       const chargingStops = [
         makeChargingStop({
-          ankunftszeit: "2025-01-01T08:00:00",
-          abfahrtszeit: "2025-01-01T08:05:00",
+          arrivalTime: "2025-01-01T08:00:00",
+          departureTime: "2025-01-01T08:05:00",
         }),
       ];
 
-      const result = buildRouteEintraege({
+      const result = buildRouteEntries({
         stops,
         frames,
         chargingStops,
         erkannteFaehren: undefined,
-        vermiedeneFaehren: [],
+        avoidedFerries: [],
       });
 
-      // Start, Ladehalt (kein Fahrsegment davor), Fahrsegment, Ziel
+      // Start, Ladehalt (kein DrivingSegment davor), DrivingSegment, Ziel
       expect(result).toHaveLength(4);
       expect(result.map((e) => e.art)).toEqual([
         "Stopp",
@@ -408,12 +408,12 @@ describe("buildRouteEintraege", () => {
         makeStop("2", "Ziel", [52.0, 13.0005]),
       ];
 
-      const result = buildRouteEintraege({
+      const result = buildRouteEntries({
         stops,
         frames,
         chargingStops: undefined,
         erkannteFaehren: undefined,
-        vermiedeneFaehren: [],
+        avoidedFerries: [],
       });
 
       expect(result).toHaveLength(2);
@@ -422,7 +422,7 @@ describe("buildRouteEintraege", () => {
   });
 
   describe("Tageswechsel-Handling", () => {
-    it("fügt einen Tagestrenner ein, wenn der Zeitpunkt-Sprung zu kurz für ein Fahrsegment ist, aber der Tag wechselt", () => {
+    it("fügt einen Tagestrenner ein, wenn der Zeitpunkt-Sprung zu kurz für ein DrivingSegment ist, aber der Tag wechselt", () => {
       const frames = [
         makeFrame("2025-01-01T23:59:50", 52.0, 13.0),
         makeFrame("2025-01-02T00:00:10", 52.0, 13.0002),
@@ -432,12 +432,12 @@ describe("buildRouteEintraege", () => {
         makeStop("2", "Ziel", [52.0, 13.0002]),
       ];
 
-      const result = buildRouteEintraege({
+      const result = buildRouteEntries({
         stops,
         frames,
         chargingStops: undefined,
         erkannteFaehren: undefined,
-        vermiedeneFaehren: [],
+        avoidedFerries: [],
       });
 
       expect(result.map((e) => e.art)).toEqual([
@@ -451,7 +451,7 @@ describe("buildRouteEintraege", () => {
       expect(trenner.bisIso).toBe("2025-01-02T00:00:10");
     });
 
-    it("erzeugt KEINEN separaten Tagestrenner, wenn ein Fahrsegment selbst den Tag wechselt", () => {
+    it("erzeugt KEINEN separaten Tagestrenner, wenn ein DrivingSegment selbst den Tag wechselt", () => {
       const frames = [
         makeFrame("2025-01-01T23:00:00", 52.0, 13.0),
         makeFrame("2025-01-01T23:30:00", 52.0, 13.1),
@@ -462,15 +462,15 @@ describe("buildRouteEintraege", () => {
         makeStop("2", "Ziel", [52.0, 13.2]),
       ];
 
-      const result = buildRouteEintraege({
+      const result = buildRouteEntries({
         stops,
         frames,
         chargingStops: undefined,
         erkannteFaehren: undefined,
-        vermiedeneFaehren: [],
+        avoidedFerries: [],
       });
 
-      // Nur EIN verbindender Eintrag (Fahrsegment) trägt den Tageswechsel -
+      // Nur EIN verbindender Eintrag (DrivingSegment) trägt den Tageswechsel -
       // kein zusätzlicher Tagestrenner daneben.
       expect(result.map((e) => e.art)).toEqual([
         "Stopp",
@@ -489,7 +489,7 @@ describe("buildRouteEintraege", () => {
       // zwischen zwei verschiedenen Einträgen. route-eintraege.ts vergleicht
       // für Connectoren nur `verbindungsZeitpunkt`e VERSCHIEDENER Einträge,
       // nie Ankunft/Abfahrt DESSELBEN Eintrags - hier darf also kein
-      // Tagestrenner/Fahrsegment entstehen (die Zeit-Badges des Ladehalts
+      // Tagestrenner/DrivingSegment entstehen (die Zeit-Badges des Ladehalts
       // selbst zeigen das Datum an, siehe TripPlannerForm.tsx).
       const frames = [
         makeFrame("2025-01-01T23:00:00", 52.0, 13.0),
@@ -501,20 +501,20 @@ describe("buildRouteEintraege", () => {
       ];
       const chargingStops = [
         makeChargingStop({
-          ankunftszeit: "2025-01-01T23:50:00",
-          abfahrtszeit: "2025-01-02T00:10:00",
+          arrivalTime: "2025-01-01T23:50:00",
+          departureTime: "2025-01-02T00:10:00",
         }),
       ];
 
-      const result = buildRouteEintraege({
+      const result = buildRouteEntries({
         stops,
         frames,
         chargingStops,
         erkannteFaehren: undefined,
-        vermiedeneFaehren: [],
+        avoidedFerries: [],
       });
 
-      // Start -[Fahrsegment]-> Ladehalt -[Fahrsegment]-> Ziel, kein
+      // Start -[DrivingSegment]-> Ladehalt -[DrivingSegment]-> Ziel, kein
       // zusätzlicher Tagestrenner rund um den Ladehalt selbst.
       expect(result.map((e) => e.art)).toEqual([
         "Stopp",

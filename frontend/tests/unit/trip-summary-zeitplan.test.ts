@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildTimePlan } from "@/components/TripSummary";
 import { createEmptyStop } from "@/types/trip-request";
 import type { Stop } from "@/types/trip-request";
-import type { TripSimulationResult, ChargingStop, FaehrSegment } from "@/types";
+import type { TripSimulationResult, ChargingStop, FerrySegment } from "@/types";
 
 /** Minimales TripSimulationResult mit den fuer buildTimePlan relevanten Feldern. */
 function makeResult(
@@ -11,31 +11,31 @@ function makeResult(
   return {
     frames: [
       {
-        zeitpunkt: "2026-08-15T08:00:00",
+        timestamp: "2026-08-15T08:00:00",
         position: [52.52, 13.405],
-        soc_pct: 80,
-        zustand: "FAHREN",
-        geschwindigkeit_kmh: 110,
+        socPct: 80,
+        state: "FAHREN",
+        speedKmh: 110,
       },
       {
-        zeitpunkt: "2026-08-15T14:00:00",
+        timestamp: "2026-08-15T14:00:00",
         position: [53.551, 9.993],
-        soc_pct: 40,
-        zustand: "FAHREN",
-        geschwindigkeit_kmh: 110,
+        socPct: 40,
+        state: "FAHREN",
+        speedKmh: 110,
       },
     ],
-    gesamt_distanz_km: 300,
-    gesamt_fahrzeit_min: 360,
-    gesamt_ladezeit_min: 0,
-    gesamt_wartezeit_min: 0,
-    start_soc_pct: 80,
-    ziel_soc_pct: 40,
-    charging_stops: [],
-    waypoint_stops: [],
-    erkannte_faehren: [],
-    total_charging_cost: [],
-    charging_stops_missing_pricing: 0,
+    totalDistanceKm: 300,
+    totalDrivingTimeMin: 360,
+    totalChargingTimeMin: 0,
+    totalWaitingTimeMin: 0,
+    startSocPct: 80,
+    targetSocPct: 40,
+    chargingStops: [],
+    waypointStops: [],
+    detectedFerries: [],
+    totalChargingCost: [],
+    chargingStopsMissingPricing: 0,
     ...overrides,
   };
 }
@@ -43,28 +43,28 @@ function makeResult(
 function makeChargingStop(overrides: Partial<ChargingStop> = {}): ChargingStop {
   return {
     name: "Tesla Supercharger - Dresden",
-    station_id: "dresden-stop",
+    stationId: "dresden-stop",
     position: [51.05, 13.74],
-    ankunfts_soc_pct: 40,
-    ziel_soc_pct: 80,
-    ladedauer_s: 1500,
-    energie_geladen_kwh: 25,
-    ankunftszeit: "2026-08-15T10:00:00",
-    abfahrtszeit: "2026-08-15T10:25:00",
-    price_per_kwh: null,
+    arrivalSocPct: 40,
+    targetSocPct: 80,
+    chargingDurationS: 1500,
+    energyChargedKwh: 25,
+    arrivalTime: "2026-08-15T10:00:00",
+    departureTime: "2026-08-15T10:25:00",
+    pricePerKwh: null,
     currency: null,
-    estimated_cost: null,
-    pricing_updated_utc: null,
+    estimatedCost: null,
+    pricingUpdatedUtc: null,
     ...overrides,
   };
 }
 
-function makeFaehre(overrides: Partial<FaehrSegment> = {}): FaehrSegment {
+function makeFaehre(overrides: Partial<FerrySegment> = {}): FerrySegment {
   return {
     name: "Rødby (DK) - Puttgarden (D)",
-    laenge_m: 22000,
-    bbox_sw: [54.5, 11.22],
-    bbox_no: [54.66, 11.36],
+    lengthM: 22000,
+    bboxSw: [54.5, 11.22],
+    bboxNe: [54.66, 11.36],
     abfahrt: null,
     ankunft: null,
     ...overrides,
@@ -88,7 +88,7 @@ describe("buildTimePlan", () => {
   });
 
   it("includes a charging stop with its real arrival/departure timestamps", () => {
-    const result = makeResult({ charging_stops: [makeChargingStop()] });
+    const result = makeResult({ chargingStops: [makeChargingStop()] });
     const schedule = buildTimePlan(result, makeStops());
     const ladehalt = schedule.find((e) => e.art === "Ladehalt");
     expect(ladehalt).toBeDefined();
@@ -99,12 +99,12 @@ describe("buildTimePlan", () => {
 
   it("propagates estimated cost and currency from a priced charging stop", () => {
     const result = makeResult({
-      charging_stops: [
+      chargingStops: [
         makeChargingStop({
-          price_per_kwh: 0.4,
+          pricePerKwh: 0.4,
           currency: "EUR",
-          estimated_cost: 10,
-          pricing_updated_utc: "2026-08-01T00:00:00",
+          estimatedCost: 10,
+          pricingUpdatedUtc: "2026-08-01T00:00:00",
         }),
       ],
     });
@@ -115,7 +115,7 @@ describe("buildTimePlan", () => {
   });
 
   it("leaves estimated cost null for a charging stop without cached pricing", () => {
-    const result = makeResult({ charging_stops: [makeChargingStop()] });
+    const result = makeResult({ chargingStops: [makeChargingStop()] });
     const schedule = buildTimePlan(result, makeStops());
     const ladehalt = schedule.find((e) => e.art === "Ladehalt");
     expect(ladehalt?.estimatedCost).toBeNull();
@@ -123,7 +123,7 @@ describe("buildTimePlan", () => {
   });
 
   it("leaves estimated cost null for stop and ferry entries", () => {
-    const result = makeResult({ erkannte_faehren: [makeFaehre()] });
+    const result = makeResult({ detectedFerries: [makeFaehre()] });
     const schedule = buildTimePlan(result, makeStops());
     for (const eintrag of schedule) {
       if (eintrag.art !== "Ladehalt") {
@@ -135,7 +135,7 @@ describe("buildTimePlan", () => {
 
   it("includes a pinned ferry with its scheduled departure/arrival", () => {
     const result = makeResult({
-      erkannte_faehren: [
+      detectedFerries: [
         makeFaehre({
           abfahrt: "2026-08-15T09:00:00",
           ankunft: "2026-08-15T09:45:00",
@@ -150,7 +150,7 @@ describe("buildTimePlan", () => {
   });
 
   it("includes a detected ferry without a user schedule, with unknown timing if not near a frame", () => {
-    const result = makeResult({ erkannte_faehren: [makeFaehre()] });
+    const result = makeResult({ detectedFerries: [makeFaehre()] });
     const schedule = buildTimePlan(result, makeStops());
     const faehre = schedule.find((e) => e.art === "Fähre");
     expect(faehre).toBeDefined();
@@ -160,8 +160,8 @@ describe("buildTimePlan", () => {
 
   it("includes an unpinned ferry with timing estimated from the nearest simulation frame", () => {
     const result = makeResult({
-      erkannte_faehren: [
-        makeFaehre({ bbox_sw: [52.5, 13.4], bbox_no: [52.54, 13.41] }),
+      detectedFerries: [
+        makeFaehre({ bboxSw: [52.5, 13.4], bboxNe: [52.54, 13.41] }),
       ],
     });
     const schedule = buildTimePlan(result, makeStops());
@@ -173,8 +173,8 @@ describe("buildTimePlan", () => {
 
   it("sorts all entries chronologically by arrival (falling back to departure)", () => {
     const result = makeResult({
-      charging_stops: [makeChargingStop()], // arrival 10:00
-      erkannte_faehren: [
+      chargingStops: [makeChargingStop()], // arrival 10:00
+      detectedFerries: [
         makeFaehre({
           abfahrt: "2026-08-15T09:00:00",
           ankunft: "2026-08-15T09:45:00",
@@ -209,7 +209,7 @@ describe("buildTimePlan - Strecke/Dauer/SoC/Energie", () => {
   });
 
   it("übernimmt SoC und geladene Energie eines Ladehalts exakt aus dem ChargingStop", () => {
-    const result = makeResult({ charging_stops: [makeChargingStop()] });
+    const result = makeResult({ chargingStops: [makeChargingStop()] });
     const schedule = buildTimePlan(result, makeStops());
     const ladehalt = schedule.find((e) => e.art === "Ladehalt");
     expect(ladehalt?.ankunftsSocPct).toBe(40);
@@ -219,7 +219,7 @@ describe("buildTimePlan - Strecke/Dauer/SoC/Energie", () => {
 
   it("lässt geladene Energie bei Stopp- und Fähre-Einträgen null", () => {
     const result = makeResult({
-      erkannte_faehren: [
+      detectedFerries: [
         makeFaehre({
           abfahrt: "2026-08-15T09:00:00",
           ankunft: "2026-08-15T09:45:00",

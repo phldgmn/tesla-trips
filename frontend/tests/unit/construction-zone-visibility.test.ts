@@ -1,20 +1,20 @@
 import { describe, it, expect } from "vitest";
 import {
   isConstructionZoneVisibleAtZoom,
-  minConstructionZoneLaengeForZoom,
+  minConstructionZoneLengthForZoom,
 } from "@/components/Map";
 
-describe("minConstructionZoneLaengeForZoom", () => {
+describe("minConstructionZoneLengthForZoom", () => {
   it("requires no minimum length when zoomed in close (city level)", () => {
-    expect(minConstructionZoneLaengeForZoom(14)).toBe(0);
-    expect(minConstructionZoneLaengeForZoom(11)).toBe(0);
+    expect(minConstructionZoneLengthForZoom(14)).toBe(0);
+    expect(minConstructionZoneLengthForZoom(11)).toBe(0);
   });
 
   it("raises the minimum length as zoom decreases", () => {
-    const atZoom10 = minConstructionZoneLaengeForZoom(10);
-    const atZoom8 = minConstructionZoneLaengeForZoom(8);
-    const atZoom6 = minConstructionZoneLaengeForZoom(6);
-    const atZoom2 = minConstructionZoneLaengeForZoom(2);
+    const atZoom10 = minConstructionZoneLengthForZoom(10);
+    const atZoom8 = minConstructionZoneLengthForZoom(8);
+    const atZoom6 = minConstructionZoneLengthForZoom(6);
+    const atZoom2 = minConstructionZoneLengthForZoom(2);
     expect(atZoom10).toBeLessThan(atZoom8);
     expect(atZoom8).toBeLessThan(atZoom6);
     expect(atZoom6).toBeLessThan(atZoom2);
@@ -22,7 +22,7 @@ describe("minConstructionZoneLaengeForZoom", () => {
 
   it("never returns a negative threshold for any realistic zoom", () => {
     for (const zoom of [0, 1, 3, 5, 7, 9, 11, 15, 20]) {
-      expect(minConstructionZoneLaengeForZoom(zoom)).toBeGreaterThanOrEqual(0);
+      expect(minConstructionZoneLengthForZoom(zoom)).toBeGreaterThanOrEqual(0);
     }
   });
 });
@@ -44,7 +44,7 @@ describe("isConstructionZoneVisibleAtZoom", () => {
   });
 
   it("hides a zone exactly at its threshold boundary minus an epsilon", () => {
-    const threshold = minConstructionZoneLaengeForZoom(7);
+    const threshold = minConstructionZoneLengthForZoom(7);
     expect(isConstructionZoneVisibleAtZoom(threshold, 7)).toBe(true);
     expect(isConstructionZoneVisibleAtZoom(threshold - 1, 7)).toBe(false);
   });

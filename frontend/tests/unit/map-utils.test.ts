@@ -26,7 +26,7 @@ import type { ChargingStop, WaypointStop } from "@/types";
 import type { RouteSample } from "@/utils/route-line";
 import type { SuperchargerStation } from "@/api/chargingApi";
 import type { StyleSpecification } from "maplibre-gl";
-import { formatZeitpunkt, formatKurzZeitpunkt } from "@/utils/datetime-utils";
+import { formatTimestamp, formatShortDateTime } from "@/utils/datetime-utils";
 
 describe("MapVisualization utilities", () => {
   describe("socToColor", () => {
@@ -199,7 +199,7 @@ describe("MapVisualization utilities", () => {
         stalls_v3: 8,
         stalls_v3_ultra: 0,
         stalls_v4: 0,
-        ist_24_7: true,
+        is_24_7: true,
         date_opened: "2020-01-01",
         ...overrides,
       };
@@ -385,13 +385,13 @@ describe("MapVisualization utilities", () => {
   describe("findWaypointStopAt", () => {
     const waypoint: WaypointStop = {
       position: [48.858844, 2.294351],
-      distanz_m: 12345,
-      ankunftszeit: "2024-05-01T10:00:00Z",
-      abfahrtszeit: "2024-05-01T10:30:00Z",
-      ladeleistung_kw: 11,
-      ankunfts_soc_pct: 40,
-      ziel_soc_pct: 80,
-      energie_geladen_kwh: 8,
+      distanceM: 12345,
+      arrivalTime: "2024-05-01T10:00:00Z",
+      departureTime: "2024-05-01T10:30:00Z",
+      ladeleistungKw: 11,
+      arrivalSocPct: 40,
+      targetSocPct: 80,
+      energyChargedKwh: 8,
     };
 
     it("finds the waypoint stop at (nearly) the same position", () => {
@@ -430,13 +430,13 @@ describe("MapVisualization utilities", () => {
     it("shows arrival/departure details when a waypoint stop matches", () => {
       const waypoint: WaypointStop = {
         position: [48.858844, 2.294351],
-        distanz_m: 12345,
-        ankunftszeit: "2024-05-01T10:00:00Z",
-        abfahrtszeit: "2024-05-01T10:30:00Z",
-        ladeleistung_kw: null,
-        ankunfts_soc_pct: 40,
-        ziel_soc_pct: 45,
-        energie_geladen_kwh: 0,
+        distanceM: 12345,
+        arrivalTime: "2024-05-01T10:00:00Z",
+        departureTime: "2024-05-01T10:30:00Z",
+        ladeleistungKw: null,
+        arrivalSocPct: 40,
+        targetSocPct: 45,
+        energyChargedKwh: 0,
       };
       const html = buildStopPopupHtml(stop, middleRole, waypoint);
       expect(html).toContain("Rastplatz Muster");
@@ -449,13 +449,13 @@ describe("MapVisualization utilities", () => {
     it("includes Ladeleistung/Geladen rows only when charging occurred", () => {
       const waypoint: WaypointStop = {
         position: [48.858844, 2.294351],
-        distanz_m: 12345,
-        ankunftszeit: "2024-05-01T10:00:00Z",
-        abfahrtszeit: "2024-05-01T10:30:00Z",
-        ladeleistung_kw: 11,
-        ankunfts_soc_pct: 40,
-        ziel_soc_pct: 80,
-        energie_geladen_kwh: 8,
+        distanceM: 12345,
+        arrivalTime: "2024-05-01T10:00:00Z",
+        departureTime: "2024-05-01T10:30:00Z",
+        ladeleistungKw: 11,
+        arrivalSocPct: 40,
+        targetSocPct: 80,
+        energyChargedKwh: 8,
       };
       const html = buildStopPopupHtml(stop, middleRole, waypoint);
       expect(html).toContain("Ladeleistung");
@@ -491,18 +491,18 @@ describe("MapVisualization utilities", () => {
   describe("buildChargingStopPopupHtml", () => {
     const stop: ChargingStop = {
       name: "Tesla Supercharger Hamm",
-      station_id: "hamm-1",
+      stationId: "hamm-1",
       position: [51.6806, 7.8206],
-      ankunfts_soc_pct: 22,
-      ziel_soc_pct: 80,
-      ladedauer_s: 1800,
-      energie_geladen_kwh: 33.5,
-      ankunftszeit: "2026-08-15T14:05:00",
-      abfahrtszeit: "2026-08-15T14:35:00",
-      price_per_kwh: 0.4,
+      arrivalSocPct: 22,
+      targetSocPct: 80,
+      chargingDurationS: 1800,
+      energyChargedKwh: 33.5,
+      arrivalTime: "2026-08-15T14:05:00",
+      departureTime: "2026-08-15T14:35:00",
+      pricePerKwh: 0.4,
       currency: "EUR",
-      estimated_cost: 13.4,
-      pricing_updated_utc: "2026-08-01T00:00:00",
+      estimatedCost: 13.4,
+      pricingUpdatedUtc: "2026-08-01T00:00:00",
     };
 
     it("should include the station name", () => {
@@ -519,8 +519,8 @@ describe("MapVisualization utilities", () => {
 
     it("should include arrival and departure time", () => {
       const html = buildChargingStopPopupHtml(stop);
-      expect(html).toContain(formatZeitpunkt(stop.ankunftszeit));
-      expect(html).toContain(formatZeitpunkt(stop.abfahrtszeit));
+      expect(html).toContain(formatTimestamp(stop.arrivalTime));
+      expect(html).toContain(formatTimestamp(stop.departureTime));
     });
 
     it("should include formatted charging duration", () => {
@@ -538,10 +538,10 @@ describe("MapVisualization utilities", () => {
     it("should show a dash when no pricing data is cached for the station", () => {
       const unpriced: ChargingStop = {
         ...stop,
-        price_per_kwh: null,
+        pricePerKwh: null,
         currency: null,
-        estimated_cost: null,
-        pricing_updated_utc: null,
+        estimatedCost: null,
+        pricingUpdatedUtc: null,
       };
       const rows = buildChargingStopPopupHtml(unpriced);
       expect(rows).toContain("Preis");
@@ -554,25 +554,25 @@ describe("MapVisualization utilities", () => {
   describe("buildChargingStopPopupElement", () => {
     const pricedStop: ChargingStop = {
       name: "Tesla Supercharger Hamm",
-      station_id: "hamm-1",
+      stationId: "hamm-1",
       position: [51.6806, 7.8206],
-      ankunfts_soc_pct: 22,
-      ziel_soc_pct: 80,
-      ladedauer_s: 1800,
-      energie_geladen_kwh: 33.5,
-      ankunftszeit: "2026-08-15T14:05:00",
-      abfahrtszeit: "2026-08-15T14:35:00",
-      price_per_kwh: 0.4,
+      arrivalSocPct: 22,
+      targetSocPct: 80,
+      chargingDurationS: 1800,
+      energyChargedKwh: 33.5,
+      arrivalTime: "2026-08-15T14:05:00",
+      departureTime: "2026-08-15T14:35:00",
+      pricePerKwh: 0.4,
       currency: "EUR",
-      estimated_cost: 13.4,
-      pricing_updated_utc: "2026-08-01T00:00:00",
+      estimatedCost: 13.4,
+      pricingUpdatedUtc: "2026-08-01T00:00:00",
     };
     const unpricedStop: ChargingStop = {
       ...pricedStop,
-      price_per_kwh: null,
+      pricePerKwh: null,
       currency: null,
-      estimated_cost: null,
-      pricing_updated_utc: null,
+      estimatedCost: null,
+      pricingUpdatedUtc: null,
     };
 
     it("omits the pricing-refresh action when pricing is already cached", () => {
@@ -742,7 +742,7 @@ describe("MapVisualization utilities", () => {
         stalls_v3: 8,
         stalls_v3_ultra: 0,
         stalls_v4: 0,
-        ist_24_7: true,
+        is_24_7: true,
         date_opened: "2020-01-01",
         ...overrides,
       };
@@ -852,19 +852,19 @@ describe("MapVisualization utilities", () => {
   describe("buildRouteHoverText", () => {
     const sample: RouteSample = {
       distanzM: 1000,
-      zeitpunkt: "2026-08-15T14:05:00",
+      timestamp: "2026-08-15T14:05:00",
       socPct: 63.4,
     };
 
     it("should include the short formatted date/time", () => {
       expect(buildRouteHoverText(sample)).toContain(
-        formatKurzZeitpunkt(sample.zeitpunkt ?? null),
+        formatShortDateTime(sample.timestamp ?? null),
       );
     });
 
     it("should not include the long formatted date/time", () => {
       expect(buildRouteHoverText(sample)).not.toContain(
-        formatZeitpunkt(sample.zeitpunkt ?? null),
+        formatTimestamp(sample.timestamp ?? null),
       );
     });
 
@@ -879,9 +879,9 @@ describe("MapVisualization utilities", () => {
     });
 
     it("should include the assumed speed when present", () => {
-      expect(
-        buildRouteHoverText({ ...sample, geschwindigkeitKmh: 118.6 }),
-      ).toContain("119 km/h");
+      expect(buildRouteHoverText({ ...sample, speedKmh: 118.6 })).toContain(
+        "119 km/h",
+      );
     });
 
     it("should omit speed when not present", () => {
@@ -891,8 +891,8 @@ describe("MapVisualization utilities", () => {
     it("should include temperature and wind when weather is assumed", () => {
       const text = buildRouteHoverText({
         ...sample,
-        temperaturC: 8.2,
-        windgeschwindigkeitKmh: 14.4,
+        temperatureC: 8.2,
+        windSpeedKmh: 14.4,
       });
       expect(text).toContain("8°C");
       expect(text).toContain("Wind 14 km/h");
@@ -901,9 +901,9 @@ describe("MapVisualization utilities", () => {
     it("should include the wind direction as a compass abbreviation", () => {
       const text = buildRouteHoverText({
         ...sample,
-        temperaturC: 8.2,
-        windgeschwindigkeitKmh: 14.4,
-        windrichtungDeg: 315,
+        temperatureC: 8.2,
+        windSpeedKmh: 14.4,
+        windDirectionDeg: 315,
       });
       expect(text).toContain("Wind NW 14 km/h");
     });
@@ -911,8 +911,8 @@ describe("MapVisualization utilities", () => {
     it("should show wind direction even without a wind speed", () => {
       const text = buildRouteHoverText({
         ...sample,
-        temperaturC: 8.2,
-        windrichtungDeg: 0,
+        temperatureC: 8.2,
+        windDirectionDeg: 0,
       });
       expect(text).toContain("Wind N");
     });
@@ -920,15 +920,15 @@ describe("MapVisualization utilities", () => {
     it("should include precipitation only when it is present", () => {
       const withRain = buildRouteHoverText({
         ...sample,
-        temperaturC: 8.2,
-        niederschlagMm: 2.5,
+        temperatureC: 8.2,
+        precipitationMm: 2.5,
       });
       expect(withRain).toContain("2.5 mm/h");
 
       const withoutRain = buildRouteHoverText({
         ...sample,
-        temperaturC: 8.2,
-        niederschlagMm: 0,
+        temperatureC: 8.2,
+        precipitationMm: 0,
       });
       expect(withoutRain).not.toContain("mm/h");
     });
@@ -940,14 +940,14 @@ describe("MapVisualization utilities", () => {
     it("should render each piece of information on its own line", () => {
       const text = buildRouteHoverText({
         ...sample,
-        geschwindigkeitKmh: 119,
-        temperaturC: 8,
-        windgeschwindigkeitKmh: 14,
-        windrichtungDeg: 315,
-        niederschlagMm: 2.5,
+        speedKmh: 119,
+        temperatureC: 8,
+        windSpeedKmh: 14,
+        windDirectionDeg: 315,
+        precipitationMm: 2.5,
       });
       expect(text.split("\n")).toEqual([
-        formatKurzZeitpunkt(sample.zeitpunkt ?? null),
+        formatShortDateTime(sample.timestamp ?? null),
         "63% SoC",
         "119 km/h",
         "8°C",

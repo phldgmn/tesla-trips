@@ -230,9 +230,9 @@ describe("TripPlannerForm pure helpers", () => {
       const errors = validateForm({
         stops: [makeStop({ address: "Berlin", position: [52.52, 13.405] })],
         startSoc: 80,
-        zielSoc: 30,
-        mindestAnkunftsSocPct: 5,
-        mindestLadezeitMin: 10,
+        targetSoc: 30,
+        minArrivalSocPct: 5,
+        minChargingTimeMin: 10,
       });
       expect(errors.length).toBeGreaterThan(0);
       expect(errors.some((e) => e.toLowerCase().includes("stop"))).toBe(true);
@@ -242,9 +242,9 @@ describe("TripPlannerForm pure helpers", () => {
       const errors = validateForm({
         stops: berlinToHamburg,
         startSoc: 80,
-        zielSoc: 30,
-        mindestAnkunftsSocPct: 5,
-        mindestLadezeitMin: 10,
+        targetSoc: 30,
+        minArrivalSocPct: 5,
+        minChargingTimeMin: 10,
       });
       expect(errors).toEqual([]);
     });
@@ -253,9 +253,9 @@ describe("TripPlannerForm pure helpers", () => {
       const errors = validateForm({
         stops: berlinToHamburg,
         startSoc: -1,
-        zielSoc: 30,
-        mindestAnkunftsSocPct: 5,
-        mindestLadezeitMin: 10,
+        targetSoc: 30,
+        minArrivalSocPct: 5,
+        minChargingTimeMin: 10,
       });
       expect(errors).toContain("Start-SoC muss zwischen 0 und 100 % liegen.");
     });
@@ -264,9 +264,9 @@ describe("TripPlannerForm pure helpers", () => {
       const errors = validateForm({
         stops: berlinToHamburg,
         startSoc: 101,
-        zielSoc: 30,
-        mindestAnkunftsSocPct: 5,
-        mindestLadezeitMin: 10,
+        targetSoc: 30,
+        minArrivalSocPct: 5,
+        minChargingTimeMin: 10,
       });
       expect(errors).toContain("Start-SoC muss zwischen 0 und 100 % liegen.");
     });
@@ -275,9 +275,9 @@ describe("TripPlannerForm pure helpers", () => {
       const errors = validateForm({
         stops: berlinToHamburg,
         startSoc: 80,
-        zielSoc: -5,
-        mindestAnkunftsSocPct: 5,
-        mindestLadezeitMin: 10,
+        targetSoc: -5,
+        minArrivalSocPct: 5,
+        minChargingTimeMin: 10,
       });
       expect(errors).toContain("Ziel-SoC muss zwischen 0 und 100 % liegen.");
     });
@@ -286,9 +286,9 @@ describe("TripPlannerForm pure helpers", () => {
       const errors = validateForm({
         stops: berlinToHamburg,
         startSoc: 80,
-        zielSoc: 120,
-        mindestAnkunftsSocPct: 5,
-        mindestLadezeitMin: 10,
+        targetSoc: 120,
+        minArrivalSocPct: 5,
+        minChargingTimeMin: 10,
       });
       expect(errors).toContain("Ziel-SoC muss zwischen 0 und 100 % liegen.");
     });
@@ -297,9 +297,9 @@ describe("TripPlannerForm pure helpers", () => {
       const errors = validateForm({
         stops: berlinToHamburg,
         startSoc: Number.NaN,
-        zielSoc: 30,
-        mindestAnkunftsSocPct: 5,
-        mindestLadezeitMin: 10,
+        targetSoc: 30,
+        minArrivalSocPct: 5,
+        minChargingTimeMin: 10,
       });
       expect(errors).toContain("Start-SoC muss zwischen 0 und 100 % liegen.");
     });
@@ -308,9 +308,9 @@ describe("TripPlannerForm pure helpers", () => {
       const errors = validateForm({
         stops: berlinToHamburg,
         startSoc: 80,
-        zielSoc: Number.NaN,
-        mindestAnkunftsSocPct: 5,
-        mindestLadezeitMin: 10,
+        targetSoc: Number.NaN,
+        minArrivalSocPct: 5,
+        minChargingTimeMin: 10,
       });
       expect(errors).toContain("Ziel-SoC muss zwischen 0 und 100 % liegen.");
     });
@@ -319,9 +319,9 @@ describe("TripPlannerForm pure helpers", () => {
       const errors = validateForm({
         stops: berlinToHamburg,
         startSoc: 0,
-        zielSoc: 100,
-        mindestAnkunftsSocPct: 5,
-        mindestLadezeitMin: 10,
+        targetSoc: 100,
+        minArrivalSocPct: 5,
+        minChargingTimeMin: 10,
       });
       // No SoC errors should appear (stops are valid).
       expect(errors).toEqual([]);
@@ -331,64 +331,64 @@ describe("TripPlannerForm pure helpers", () => {
       const errors = validateForm({
         stops: berlinToHamburg,
         startSoc: -1,
-        zielSoc: 200,
-        mindestAnkunftsSocPct: 5,
-        mindestLadezeitMin: 10,
+        targetSoc: 200,
+        minArrivalSocPct: 5,
+        minChargingTimeMin: 10,
       });
       expect(errors).toContain("Start-SoC muss zwischen 0 und 100 % liegen.");
       expect(errors).toContain("Ziel-SoC muss zwischen 0 und 100 % liegen.");
     });
 
-    it("reports an error when maxLadeSocPct is below 0", () => {
+    it("reports an error when maxChargeSocPct is below 0", () => {
       const errors = validateForm({
         stops: berlinToHamburg,
         startSoc: 80,
-        zielSoc: 30,
-        mindestAnkunftsSocPct: 5,
-        mindestLadezeitMin: 10,
-        maxLadeSocPct: -1,
+        targetSoc: 30,
+        minArrivalSocPct: 5,
+        minChargingTimeMin: 10,
+        maxChargeSocPct: -1,
       });
       expect(errors).toContain(
         "Max. Lade-SoC muss zwischen 0 und 100 % liegen.",
       );
     });
 
-    it("reports an error when maxLadeSocPct is above 100", () => {
+    it("reports an error when maxChargeSocPct is above 100", () => {
       const errors = validateForm({
         stops: berlinToHamburg,
         startSoc: 80,
-        zielSoc: 30,
-        mindestAnkunftsSocPct: 5,
-        mindestLadezeitMin: 10,
-        maxLadeSocPct: 150,
+        targetSoc: 30,
+        minArrivalSocPct: 5,
+        minChargingTimeMin: 10,
+        maxChargeSocPct: 150,
       });
       expect(errors).toContain(
         "Max. Lade-SoC muss zwischen 0 und 100 % liegen.",
       );
     });
 
-    it("accepts maxLadeSocPct at the boundaries 0 and 100", () => {
+    it("accepts maxChargeSocPct at the boundaries 0 and 100", () => {
       for (const value of [0, 100]) {
         const errors = validateForm({
           stops: berlinToHamburg,
           startSoc: 80,
-          zielSoc: 30,
-          mindestAnkunftsSocPct: 5,
-          mindestLadezeitMin: 10,
-          maxLadeSocPct: value,
+          targetSoc: 30,
+          minArrivalSocPct: 5,
+          minChargingTimeMin: 10,
+          maxChargeSocPct: value,
         });
         expect(errors).toEqual([]);
       }
     });
 
-    it("reports an error when maxLadeSocPct is NaN", () => {
+    it("reports an error when maxChargeSocPct is NaN", () => {
       const errors = validateForm({
         stops: berlinToHamburg,
         startSoc: 80,
-        zielSoc: 30,
-        mindestAnkunftsSocPct: 5,
-        mindestLadezeitMin: 10,
-        maxLadeSocPct: Number.NaN,
+        targetSoc: 30,
+        minArrivalSocPct: 5,
+        minChargingTimeMin: 10,
+        maxChargeSocPct: Number.NaN,
       });
       expect(errors).toContain(
         "Max. Lade-SoC muss zwischen 0 und 100 % liegen.",
@@ -403,8 +403,8 @@ describe("TripPlannerForm pure helpers", () => {
   describe("toggleFaehrAusschluss", () => {
     const faehre = {
       name: "Rødby (DK) - Puttgarden (D)",
-      bbox_sw: [54.5, 11.22] as [number, number],
-      bbox_no: [54.66, 11.36] as [number, number],
+      bboxSw: [54.5, 11.22] as [number, number],
+      bboxNe: [54.66, 11.36] as [number, number],
     };
 
     it("adds the ferry when toggled on and not already present", () => {
@@ -434,13 +434,13 @@ describe("TripPlannerForm pure helpers", () => {
       // Two ferries with the same name but different bounding boxes should be distinct
       const faehre1 = {
         name: "Fährverbindung A",
-        bbox_sw: [50.0, 10.0] as [number, number],
-        bbox_no: [50.5, 10.5] as [number, number],
+        bboxSw: [50.0, 10.0] as [number, number],
+        bboxNe: [50.5, 10.5] as [number, number],
       };
       const faehre2 = {
         name: "Fährverbindung A",
-        bbox_sw: [51.0, 11.0] as [number, number],
-        bbox_no: [51.5, 11.5] as [number, number],
+        bboxSw: [51.0, 11.0] as [number, number],
+        bboxNe: [51.5, 11.5] as [number, number],
       };
       const withFaehre1 = toggleFaehrAusschluss([], faehre1, true);
       expect(withFaehre1).toHaveLength(1);
@@ -454,7 +454,7 @@ describe("TripPlannerForm pure helpers", () => {
         false,
       );
       expect(afterRemoveFaehre1).toHaveLength(1);
-      expect(afterRemoveFaehre1[0].bbox_sw[0]).toBe(51.0);
+      expect(afterRemoveFaehre1[0].bboxSw[0]).toBe(51.0);
     });
   });
 
@@ -465,8 +465,8 @@ describe("TripPlannerForm pure helpers", () => {
   describe("setFaehrZeitfensterFuer", () => {
     const faehre = {
       name: "Rødby (DK) - Puttgarden (D)",
-      bbox_sw: [54.5, 11.22] as [number, number],
-      bbox_no: [54.66, 11.36] as [number, number],
+      bboxSw: [54.5, 11.22] as [number, number],
+      bboxNe: [54.66, 11.36] as [number, number],
     };
 
     it("adds a time window when both abfahrt and ankunft are given", () => {
@@ -522,13 +522,17 @@ describe("TripPlannerForm pure helpers", () => {
   describe("setLadedauerVorgabeFuer", () => {
     it("adds a duration override converted from minutes to seconds", () => {
       const result = setLadedauerVorgabeFuer([], "station-1", 30);
-      expect(result).toEqual([{ station_id: "station-1", ladedauer_s: 1800 }]);
+      expect(result).toEqual([
+        { stationId: "station-1", chargingDurationS: 1800 },
+      ]);
     });
 
     it("replaces an existing override for the same station instead of duplicating", () => {
       const once = setLadedauerVorgabeFuer([], "station-1", 30);
       const updated = setLadedauerVorgabeFuer(once, "station-1", 45);
-      expect(updated).toEqual([{ station_id: "station-1", ladedauer_s: 2700 }]);
+      expect(updated).toEqual([
+        { stationId: "station-1", chargingDurationS: 2700 },
+      ]);
     });
 
     it("removes the override when the given minutes are zero or negative", () => {
@@ -546,7 +550,7 @@ describe("TripPlannerForm pure helpers", () => {
       const updated = setLadedauerVorgabeFuer(withTwo, "station-1", 20);
       expect(updated).toHaveLength(2);
       expect(
-        updated.find((v) => v.station_id === "station-2")?.ladedauer_s,
+        updated.find((v) => v.stationId === "station-2")?.chargingDurationS,
       ).toBe(900);
     });
   });

@@ -159,8 +159,8 @@ function resolveDetours(
         chargeDistanzM: stop.distanzM,
         ankunftsSocPct: stop.ankunftsSocPct,
         zielSocPct: stop.zielSocPct,
-        ankunftszeit: stop.arrivalTime,
-        abfahrtszeit: stop.departureTime,
+        arrivalTime: stop.arrivalTime,
+        departureTime: stop.departureTime,
       };
     }
     // Fallback: keine geroutete Geometrie verfuegbar (siehe
@@ -176,8 +176,8 @@ function resolveDetours(
       chargeDistanzM: stop.distanzM,
       ankunftsSocPct: stop.ankunftsSocPct,
       zielSocPct: stop.zielSocPct,
-      ankunftszeit: stop.arrivalTime,
-      abfahrtszeit: stop.departureTime,
+      arrivalTime: stop.arrivalTime,
+      departureTime: stop.departureTime,
     };
   });
 }
