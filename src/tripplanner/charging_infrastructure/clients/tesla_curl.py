@@ -166,7 +166,7 @@ class TeslaLocationsClient(TeslaJsonEndpointsMixin):
             elif response.status_code != HTTPStatus.OK:
                 raise self.CurlError(f"Tesla API: HTTP {response.status_code}")
             else:
-                return body
+                return str(body)
 
             if attempt < WAF_RETRY_MAX_ATTEMPTS:
                 await self._rotate_session()

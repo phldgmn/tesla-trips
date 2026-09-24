@@ -10,7 +10,11 @@ from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
-from curl_cffi import AsyncSession
+
+try:
+    from curl_cffi import AsyncSession
+except ImportError:
+    AsyncSession = None  # type: ignore[assignment]
 
 from tripplanner.charging_infrastructure.client import (
     CurlError,
