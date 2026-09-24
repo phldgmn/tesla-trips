@@ -107,7 +107,7 @@ def _extract_dmi_sample(payload: dict[str, Any], query: WeatherQuery) -> Weather
     if not t_values:
         return None
     try:
-        idx = t_values.index(_snap_to_hour_z(query.zeitpunkt))
+        idx = t_values.index(_snap_to_hour_z(query.timestamp))
     except ValueError:
         return None
 
@@ -124,14 +124,14 @@ def _extract_dmi_sample(payload: dict[str, Any], query: WeatherQuery) -> Weather
 
     return WeatherSample(
         coordinate=query.coordinate,
-        zeitpunkt=query.zeitpunkt,
-        temperatur_c=value_at("temperature-2m", 273.15) - 273.15,
-        windgeschwindigkeit_ms=value_at("wind-speed-10m", 0.0),
-        windrichtung_deg=_clamp(value_at("wind-dir-10m", 0.0), 0.0, 360.0),
-        niederschlag_mm=rain_rate * 3600.0,
-        schneefall_cm=(snow_rate * 3600.0) / 10.0,
-        luftdruck_hpa=_clamp(value_at("pressure-sealevel", 101_325.0) / 100.0, 870.0, 1084.0),
-        luftfeuchtigkeit_pct=_clamp(value_at("relative-humidity-2m", 0.0), 0.0, 100.0),
-        globalstrahlung_wm2=max(0.0, value_at("downward-short-wave-radiation-flux", 0.0)),
-        bewoelkung_pct=_clamp(value_at("fraction-of-cloud-cover-2m", 0.0) * 100.0, 0.0, 100.0),
+        timestamp=query.timestamp,
+        temperature_c=value_at("temperature-2m", 273.15) - 273.15,
+        wind_speed_ms=value_at("wind-speed-10m", 0.0),
+        wind_direction_deg=_clamp(value_at("wind-dir-10m", 0.0), 0.0, 360.0),
+        precipitation_mm=rain_rate * 3600.0,
+        snowfall_cm=(snow_rate * 3600.0) / 10.0,
+        pressure_hpa=_clamp(value_at("pressure-sealevel", 101_325.0) / 100.0, 870.0, 1084.0),
+        humidity_pct=_clamp(value_at("relative-humidity-2m", 0.0), 0.0, 100.0),
+        solar_radiation_wm2=max(0.0, value_at("downward-short-wave-radiation-flux", 0.0)),
+        cloudiness_pct=_clamp(value_at("fraction-of-cloud-cover-2m", 0.0) * 100.0, 0.0, 100.0),
     )

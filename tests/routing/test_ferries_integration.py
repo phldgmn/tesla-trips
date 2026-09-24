@@ -10,7 +10,6 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
-
 from tripplanner.routing.client import GraphHopperClient
 from tripplanner.routing.ferries import detect_ferries
 from tripplanner.routing.providers import GraphHopperRoutingProvider
@@ -36,7 +35,7 @@ _HAGFORS = (60.033, 13.650)
 
 @pytest.fixture
 def vehicle_profile() -> VehicleProfile:
-    """Beispiel-Fahrzeugprofil für Integrationstests."""
+    """Beispiel-vehicle_profile für Integrationstests."""
     return VehicleProfile(
         mass_kg=1706.0,
         drag_coefficient=0.23,
@@ -94,7 +93,8 @@ async def test_specific_ferry_exclusion_reroutes_around_detected_segment(
     vehicle_profile: VehicleProfile,
 ) -> None:
     """Wird die zuvor erkannte Fähre gezielt ausgeschlossen, wird sie nicht erneut genutzt
-    (die Route darf jedoch eine ANDERE Fähre nutzen - Selbstkorrektur, siehe Design-Spec)."""
+    (die Route darf jedoch eine ANDERE Fähre nutzen - Selbstkorrektur, siehe Design-Spec).
+    """
     client = GraphHopperClient(base_url="http://localhost:8989")
     provider = GraphHopperRoutingProvider(client)
     baseline_anfrage = TripRequest(
@@ -137,7 +137,8 @@ async def test_long_distance_ferry_exclusion_does_not_hit_waypoint_distance_limi
 ) -> None:
     """Gummersbach -> Hagfors (~1070 km) mit gezielter Fährvermeidung darf nicht mit
     GraphHoppers `non_ch.max_waypoint_distance`-400-Fehler fehlschlagen (Regressionstest
-    für den ursprünglich gemeldeten Bug)."""
+    für den ursprünglich gemeldeten Bug).
+    """
     client = GraphHopperClient(base_url="http://localhost:8989")
     provider = GraphHopperRoutingProvider(client)
     baseline_anfrage = TripRequest(

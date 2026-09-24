@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-
 from tripplanner.optimization.discretizer import (
     bucket_to_soc,
     bucket_to_time,
@@ -106,7 +105,7 @@ class TestDiscretizerEdgeCases:
             time_to_bucket(base, base, time_step_min=-5)
 
     def test_time_to_bucket_negative_delta(self) -> None:
-        """Test: Zeitpunkt vor base_time ergibt negativen Bucket."""
+        """Test: timestamp vor base_time ergibt negativen Bucket."""
         base = datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC)
         earlier = base - timedelta(minutes=15)
 
@@ -147,7 +146,7 @@ class TestDiscretizerEdgeCases:
         assert time_to_bucket(t4, base) == 3
 
     def test_time_to_bucket_exact_boundaries(self) -> None:
-        """Test: Exakte Zeit-Grenzen."""
+        """Test: Exakte time-Grenzen."""
         base = datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC)
 
         assert time_to_bucket(base, base) == 0
@@ -157,7 +156,7 @@ class TestDiscretizerEdgeCases:
         assert time_to_bucket(base + timedelta(hours=1), base) == 4
 
     def test_time_to_bucket_custom_step(self) -> None:
-        """Test: Zeit-Bucket mit anderer Schrittweite."""
+        """Test: time-Bucket mit anderer Schrittweite."""
         base = datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC)
 
         # 10 min Schritte
@@ -210,24 +209,24 @@ class TestDiscretizerEdgeCases:
         """Test: create_state_node mit Default-Schrittweiten."""
         segment_index = 5
         soc_pct = 75.0
-        zeitpunkt = datetime(2026, 1, 1, 8, 30, 0, tzinfo=UTC)
+        timestamp = datetime(2026, 1, 1, 8, 30, 0, tzinfo=UTC)
 
-        result = create_state_node(segment_index, soc_pct, zeitpunkt)
+        result = create_state_node(segment_index, soc_pct, timestamp)
 
         assert isinstance(result, tuple)
         assert len(result) == 3
         seg_idx, soc_bucket, time_bucket = result
         assert seg_idx == segment_index
         assert soc_bucket == soc_to_bucket(soc_pct)
-        # create_state_node nutzt zeitpunkt als base_time für time_bucket
-        assert time_bucket == time_to_bucket(zeitpunkt, zeitpunkt)
+        # create_state_node nutzt timestamp als base_time für time_bucket
+        assert time_bucket == time_to_bucket(timestamp, timestamp)
 
     def test_create_state_node_custom_soc_step(self) -> None:
         """Test: create_state_node mit benutzerdefinierter SoC-Schrittweite."""
         result = create_state_node(
             segment_index=3,
             soc_pct=50.0,
-            zeitpunkt=datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC),
+            timestamp=datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC),
             soc_step_pct=5.0,
         )
         assert result[1] == soc_to_bucket(50.0, soc_step_pct=5.0)  # = 10
@@ -298,7 +297,7 @@ class TestGetAllTimeBucketsForDuration:
         assert len(buckets) == 5
 
     def test_get_all_time_buckets_custom_step(self) -> None:
-        """Test: Benutzerdefinierte Zeit-Schrittweite."""
+        """Test: Benutzerdefinierte time-Schrittweite."""
         # 30 min = 1800s, 10 min Schritte
         buckets = get_all_time_buckets_for_duration(1800.0, time_step_min=10)
         # 30/10 = 3, round(3) + 1 = 4 -> 0-3
@@ -306,7 +305,7 @@ class TestGetAllTimeBucketsForDuration:
         assert len(buckets) == 4
 
     def test_get_all_time_buckets_short_duration(self) -> None:
-        """Test: Kurze Dauer (< 1 Schritt)."""
+        """Test: Kurze duration (< 1 Schritt)."""
         # 5 Minuten = 300s, 15 min Default
         buckets = get_all_time_buckets_for_duration(300.0)
         # 5/15 = 0.33, round = 0, +1 = 1 -> nur [0]
@@ -314,7 +313,7 @@ class TestGetAllTimeBucketsForDuration:
         assert len(buckets) == 1
 
     def test_get_all_time_buckets_zero_duration(self) -> None:
-        """Test: Dauer 0."""
+        """Test: duration 0."""
         buckets = get_all_time_buckets_for_duration(0.0)
         # 0/15 = 0, round(0) + 1 = 1 -> [0]
         assert buckets == [0]
@@ -337,7 +336,7 @@ class TestGetAllTimeBucketsForDuration:
         assert len(buckets) == 3
 
     def test_get_all_time_buckets_large_duration(self) -> None:
-        """Test: Große Dauer."""
+        """Test: Große duration."""
         # 12 Stunden = 43200s
         buckets = get_all_time_buckets_for_duration(43200.0)
         # 720/15 = 48, +1 = 49
@@ -358,7 +357,7 @@ class TestDiscretizerRoundtripConsistency:
                 assert abs(back - soc) <= step / 2.0 + 1e-9
 
     def test_time_roundtrip_various_steps(self) -> None:
-        """Test: Zeit Roundtrip für verschiedene Schritte (nur positive Buckets)."""
+        """Test: time Roundtrip für verschiedene Schritte (nur positive Buckets)."""
         base = datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC)
         test_times = [
             base,
@@ -380,7 +379,7 @@ class TestDiscretizerRoundtripConsistency:
                     assert diff_min <= step / 2.0 + 1e-9
 
     def test_time_roundtrip_negative_times_produces_negative_buckets(self) -> None:
-        """Test: Zeit vor base_time produziert negative Buckets (kein Roundtrip möglich)."""
+        """Test: time vor base_time produziert negative Buckets (kein Roundtrip möglich)."""
         base = datetime(2026, 1, 1, 8, 0, 0, tzinfo=UTC)
         test_times = [
             base - timedelta(minutes=7),

@@ -107,7 +107,7 @@ async def _collect_responses(
 
     Returns:
         Mapping Name -> Response-Body fuer jede erfolgreich gelesene
-        Antwort; fehlende Eintraege bei Timeout oder nicht mehr
+        Antwort; fehlende Eintraege bei Timeout oder nicht more
         abrufbarem Body ausgelassen.
     """
     from nodriver import cdp
@@ -273,7 +273,7 @@ class _LocationLookup:
     """Such-/Auswahlparameter fuer einen Standort-Detail-Human-Flow.
 
     Buendelt die Argumente fuer ``_run_location_and_charger_details``, um
-    die Argumentanzahl der Funktion klein zu halten.
+    die Argumentanzahl der Funktion small zu halten.
     """
 
     location_slug: str

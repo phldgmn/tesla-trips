@@ -9,7 +9,6 @@ from typing import Any
 from unittest.mock import AsyncMock, call
 
 import pytest
-
 from tripplanner.charging_infrastructure.client import (
     SuperchargeInfoClient,
     TeslaLocationsClient,
@@ -44,7 +43,7 @@ class TestFakeChargingStationProvider:
         # Berlin Alexanderplatz
         stations = await provider.get_stations_in_radius((52.5234, 13.4114), radius_km=10.0)
         assert len(stations) >= 1
-        # Erste Station sollte Berlin Alexanderplatz sein (Distanz ~0)
+        # Erste Station sollte Berlin Alexanderplatz sein (distance ~0)
         assert stations[0].station_id == "test-berlin-1"
 
     @pytest.mark.asyncio
@@ -64,7 +63,7 @@ class TestFakeChargingStationProvider:
     async def test_get_stations_in_radius_distance_sorting(
         self, provider: FakeChargingStationProvider
     ) -> None:
-        """Testet, dass Stationen nach Distanz sortiert zurückgegeben werden."""
+        """Testet, dass Stationen nach distance sortiert zurückgegeben werden."""
         stations = await provider.get_stations_in_radius((52.5234, 13.4114), radius_km=100.0)
         distances = []
         for s in stations:
@@ -82,9 +81,9 @@ class TestFakeChargingStationProvider:
     ) -> None:
         """Testet Suche mit minimalem Radius."""
         # FakeProvider gibt immer Berlin Stationen zurück, auch bei radius=0.0
-        # Da Berlin Stationen im FakeProvider existieren, wird mindestens eine zurückgegeben
+        # Da Berlin Stationen im FakeProvider existieren, wird minimum eine zurückgegeben
         stations = await provider.get_stations_in_radius((52.5234, 13.4114), radius_km=0.0)
-        # Mindestens eine Station (Berlin Alexanderplatz) ist im 0km Radius enthalten
+        # minimum eine Station (Berlin Alexanderplatz) ist im 0km Radius enthalten
         assert len(stations) >= 1
 
     @pytest.mark.asyncio
@@ -94,14 +93,14 @@ class TestFakeChargingStationProvider:
             RouteSegment(
                 segment_index=0,
                 geometrie=[(52.5234, 13.4114), (52.61, 13.35)],
-                laenge_m=10000.0,
+                length_m=10000.0,
                 strassenklasse="MOTORWAY",
                 bearing_deg=315.0,
             ),
             RouteSegment(
                 segment_index=1,
                 geometrie=[(52.61, 13.35), (52.73, 13.2)],
-                laenge_m=15000.0,
+                length_m=15000.0,
                 strassenklasse="MOTORWAY",
                 bearing_deg=322.0,
             ),
@@ -124,7 +123,8 @@ class TestFakeChargingStationProvider:
         self, provider: FakeChargingStationProvider
     ) -> None:
         """Testet Route mit leeren Segmenten - neue Implementierung gibt leere
-        Liste zurueck, da keine Segmente existieren."""
+        Liste zurueck, da keine Segmente existieren.
+        """
         segments: list[RouteSegment] = []
         route = Route(
             segments=segments,
@@ -213,7 +213,7 @@ class TestLocalFileChargingStationProvider:
     async def test_get_stations_along_route_different_radius(
         self, provider: LocalFileChargingStationProvider, sample_route: dict
     ) -> None:
-        """Testet, dass größerer Radius mehr Stationen findet."""
+        """Testet, dass größerer Radius more Stationen findet."""
         segments = [RouteSegment(**seg) for seg in sample_route["segments"]]
         route = Route(
             segments=segments,
@@ -224,8 +224,8 @@ class TestLocalFileChargingStationProvider:
         result_small = await provider.get_stations_along_route(route, search_radius_km=1.0)
         result_large = await provider.get_stations_along_route(route, search_radius_km=15.0)
 
-        # Mit größerem Radius sollten mindestens so viele Segmente Stationen haben
-        # (oder mehr Stationen pro Segment)
+        # Mit größerem Radius sollten minimum so viele Segmente Stationen haben
+        # (oder more Stationen pro Segment)
         total_stations_small = sum(len(v) for v in result_small.values())
         total_stations_large = sum(len(v) for v in result_large.values())
         assert total_stations_large >= total_stations_small
@@ -375,7 +375,8 @@ class TestTeslaChargingStationProvider:
     async def test_non_open_status_excluded_from_routing(self, tmp_path: Path) -> None:
         """Stationen mit Status ungleich OPEN (im Bau/Permit/Plan, existieren
         noch nicht physisch - z. B. "Torsvik, Sweden" oder "Ringsted,
-        Denmark") duerfen nicht als Ladestopp-Kandidat auftauchen."""
+        Denmark") duerfen nicht als Ladestopp-Kandidat auftauchen.
+        """
         db_path = tmp_path / "status_filter.db"
         db = SQLiteDatabase(db_path)
         db.initialize()
@@ -598,7 +599,8 @@ class TestTeslaChargingStationProvider:
         `site_status` keinen erkannten Wert, wird die Station als
         `CONSTRUCTION` statt faelschlich als `OPEN` markiert (siehe Ladbergen-
         Bugreport: eine im Bau befindliche Station wurde durch den alten
-        Default 'Open' faelschlich als betriebsbereit uebernommen)."""
+        Default 'Open' faelschlich als betriebsbereit uebernommen).
+        """
         detail = {
             "_uuid": "10335",
             "_slug": "29721",
@@ -623,7 +625,8 @@ class TestTeslaChargingStationProvider:
     async def test_tesla_detail_mapping_zero_power_forces_non_open(self, tmp_path: Path) -> None:
         """Auch wenn ein Status-Feld explizit 'Open' meldet, wird eine Station
         mit 0 kW installierter Leistung nicht als OPEN uebernommen - 0 kW
-        bedeutet, dass noch keine funktionsfaehige Ladehardware existiert."""
+        bedeutet, dass noch keine funktionsfaehige Ladehardware existiert.
+        """
         detail = {
             "_uuid": "8393",
             "_slug": "29798",
@@ -650,7 +653,8 @@ class TestTeslaChargingStationProvider:
     async def test_tesla_detail_mapping_falls_back_to_project_status(self, tmp_path: Path) -> None:
         """Fehlt `key_data.status.name`, wird `supercharger_function.
         project_status` als naechster Kandidat herangezogen (beide Felder
-        tragen laut `docs/Tesla-Supercharger-API.md` dieselbe Vokabular)."""
+        tragen laut `docs/Tesla-Supercharger-API.md` dieselbe Vokabular).
+        """
         detail = {
             "_uuid": "4001",
             "_slug": "planned-site",
@@ -680,7 +684,7 @@ class TestTeslaChargingStationProvider:
             {
                 "supercharge_info_id": 4001,
                 "tesla_location_id": "muenchensupercharger",
-                "site_name": "Muenchen Supercharger (alt)",
+                "site_name": "Muenchen Supercharger (old)",
                 "latitude": 48.13,
                 "longitude": 11.58,
                 "country_code": "DE",
@@ -771,7 +775,8 @@ class TestTeslaChargingStationProviderPricing:
     ) -> None:
         """Station 3506 hat keine tesla_location_id (siehe fixture) - Aufloesung
         faellt auf die numerische supercharge_info_id zurueck, wie
-        `_db_record_to_charging_station` sie als `station_id` verwendet."""
+        `_db_record_to_charging_station` sie als `station_id` verwendet.
+        """
         assert tesla_provider_seeded._resolve_supercharge_info_id("3506") == 3506
 
     def test_resolve_supercharge_info_id_unknown_returns_none(
@@ -794,7 +799,8 @@ class TestTeslaChargingStationProviderPricing:
         self, tesla_provider_seeded: TeslaChargingStationProvider
     ) -> None:
         """refresh_pricing speichert die geparsten Tiers und entfernt die Station
-        aus der Warteschlange."""
+        aus der Warteschlange.
+        """
         tesla_provider_seeded.enqueue_stations_for_pricing_refresh(["kopenhagensupercharger"])
         mock_tesla = AsyncMock(spec=TeslaLocationsClient)
         mock_tesla.fetch_pricing_html.return_value = _pricing_html(_FLAT_OWNER_TIER)
@@ -814,7 +820,8 @@ class TestTeslaChargingStationProviderPricing:
         gueltige Tesla-URL (z. B. Malmoe "Toftanaes" als
         `tesla.com/findus/location/supercharger/405657`), daher wird sie
         zuerst direkt abgerufen, bevor irgendeine Aufloesung ueber Teslas
-        Standortliste versucht wird."""
+        Standortliste versucht wird.
+        """
         db_path = tmp_path / "numeric_slug_direct.db"
         db = SQLiteDatabase(db_path)
         db.initialize()
@@ -864,7 +871,8 @@ class TestTeslaChargingStationProviderPricing:
         aber keine Preistiers (z. B. Muenster/Bergkamen: generische
         Soft-404-Seite statt der echten Standortseite), wird - anders als bei
         einem harten Fehler - dennoch ueber Teslas Standortliste nach einem
-        echten Slug gesucht, bevor das leere Ergebnis akzeptiert wird."""
+        echten Slug gesucht, bevor das leere Ergebnis akzeptiert wird.
+        """
         db_path = tmp_path / "numeric_slug_empty.db"
         db = SQLiteDatabase(db_path)
         db.initialize()
@@ -926,7 +934,8 @@ class TestTeslaChargingStationProviderPricing:
     ) -> None:
         """Liefert weder der direkte numerische Abruf noch die Standortsuche
         eine bessere Alternative, bleibt das leere Ergebnis (legitim keine
-        veroeffentlichten Preise) ohne Fehler bestehen."""
+        veroeffentlichten Preise) ohne Fehler bestehen.
+        """
         db_path = tmp_path / "numeric_slug_empty_no_match.db"
         db = SQLiteDatabase(db_path)
         db.initialize()
@@ -974,7 +983,8 @@ class TestTeslaChargingStationProviderPricing:
         fehl (stale supercharge.info-`locationId`, z. B. "Rødekro East,
         Denmark" als "28500"), wird ueber Teslas eigene Standortliste in den
         echten Slug ("rodekrosupercharger") aufgeloest und damit erneut
-        versucht."""
+        versucht.
+        """
         db_path = tmp_path / "numeric_slug.db"
         db = SQLiteDatabase(db_path)
         db.initialize()
@@ -1042,7 +1052,8 @@ class TestTeslaChargingStationProviderPricing:
         """Schlaegt sowohl der direkte Abruf mit der numerischen ID als auch
         die Suche nach einem nahegelegenen Treffer in Teslas Standortliste
         fehl, wird ein CurlError geworfen und die Station dennoch aus der
-        Warteschlange entfernt."""
+        Warteschlange entfernt.
+        """
         db_path = tmp_path / "numeric_slug_unresolved.db"
         db = SQLiteDatabase(db_path)
         db.initialize()
@@ -1098,7 +1109,8 @@ class TestTeslaChargingStationProviderPricing:
         self, tesla_provider_seeded: TeslaChargingStationProvider
     ) -> None:
         """Ein Parse-Fehler entfernt die Station trotzdem aus der Warteschlange
-        (verhindert dauerhaftes Haengenbleiben, siehe drain_pricing_queue)."""
+        (verhindert dauerhaftes Haengenbleiben, siehe drain_pricing_queue).
+        """
         tesla_provider_seeded.enqueue_stations_for_pricing_refresh(["kopenhagensupercharger"])
         mock_tesla = AsyncMock(spec=TeslaLocationsClient)
         mock_tesla.fetch_pricing_html.return_value = "<html>no next data</html>"
@@ -1123,7 +1135,8 @@ class TestTeslaChargingStationProviderPricing:
         self, tesla_provider_seeded: TeslaChargingStationProvider
     ) -> None:
         """Nach refresh_pricing liefert get_cached_pricing die gespeicherten Tiers
-        samt Aktualisierungszeitpunkt."""
+        samt Aktualisierungszeitpunkt.
+        """
         mock_tesla = AsyncMock(spec=TeslaLocationsClient)
         mock_tesla.fetch_pricing_html.return_value = _pricing_html(_FLAT_OWNER_TIER)
         await tesla_provider_seeded.refresh_pricing(
@@ -1140,7 +1153,8 @@ class TestTeslaChargingStationProviderPricing:
         self, tesla_provider_seeded: TeslaChargingStationProvider
     ) -> None:
         """Eine kuerzlich aktualisierte Station wird nicht erneut eingereiht,
-        eine nie gescrapte schon."""
+        eine nie gescrapte schon.
+        """
         tesla_provider_seeded._db.upsert_pricing(
             5678,
             [
@@ -1215,7 +1229,8 @@ class TestTeslaChargingStationProviderPricing:
     ) -> None:
         """Ein WAF-Block wird als Fehlschlag erfasst, die Station trotzdem
         aus der Warteschlange entfernt (Retry erst bei naechster
-        Routen-Finalisierung, siehe enqueue_stations_for_pricing_refresh)."""
+        Routen-Finalisierung, siehe enqueue_stations_for_pricing_refresh).
+        """
         tesla_provider_seeded.enqueue_stations_for_pricing_refresh(["kopenhagensupercharger"])
         mock_tesla = AsyncMock(spec=TeslaLocationsClient)
         mock_tesla.fetch_pricing_html.side_effect = TeslaLocationsClient.CurlError("403")
@@ -1233,7 +1248,8 @@ class TestTeslaChargingStationProviderPricing:
     ) -> None:
         """Wird eine Station zwischenzeitlich anderweitig aktualisiert, prueft
         drain_pricing_queue das defensiv nach und ueberspringt sie ohne
-        Netzwerk-Request."""
+        Netzwerk-Request.
+        """
         tesla_provider_seeded._db.enqueue_pricing_refresh([5678])
         tesla_provider_seeded._db.upsert_pricing(
             5678,
@@ -1260,7 +1276,8 @@ class TestTeslaChargingStationProviderPricing:
         self, tesla_provider_seeded: TeslaChargingStationProvider
     ) -> None:
         """list_pricing_queue delegiert an SQLiteDatabase.load_pricing_queue
-        (nie gescrapt zuerst)."""
+        (nie gescrapt zuerst).
+        """
         tesla_provider_seeded._db.upsert_pricing(
             5678,
             [

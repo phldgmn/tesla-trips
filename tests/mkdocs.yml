@@ -1,0 +1,58 @@
+site_name: Tesla Trip Planner API
+theme:
+  name: "material"
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      primary: "indigo"
+    - media: "(prefers-color-scheme: dark)"
+      scheme: "default"
+      primary: "indigo"
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: "google"
+            show_root_heading: true
+            show_source: true
+            separate_signature: true
+            merge_init_into_class: true
+            heading_level: 2
+
+nav:
+  - Home: index.md
+  - Specification:
+      - Project Specification: 01-project-specifications.md
+      - Architecture: 02-architecture.md
+      - Module Specifications: 03-module-specifications.md
+      - Repo Tooling Setup: 04-repo-tooling-setup.md
+      - Agent Guidelines: 05-agent-guidelines.md
+      - Open Points: 06-open-points-contradictions.md
+  - Implementation Plan:
+      - Master Plan: 07-implementation-plan.md
+      - Foundation & Tooling: plans/00-foundation-tooling.md
+      - routing: plans/01-routing.md
+      - elevation: plans/02-elevation.md
+      - weather/wind: plans/03-weather-wind.md
+      - construction: plans/04-construction.md
+      - battery/charging_infrastructure: plans/05-battery-charging-infrastructure.md
+      - energy: plans/06-energy.md
+      - optimization: plans/07-optimization.md
+      - simulation/visualization/API: plans/08-simulation-visualization-api.md
+  - API Reference:
+      - routing: tripplanner.routing.md
+      - elevation: tripplanner.elevation.md
+      - weather: tripplanner.weather.md
+      - wind: tripplanner.wind.md
+      - construction: tripplanner.construction.md
+      - energy: tripplanner.energy.md
+      - battery: tripplanner.battery.md
+      - charging_infrastructure: tripplanner.charging_infrastructure.md
+      - optimization: tripplanner.optimization.md
+      - simulation: tripplanner.simulation.md
+      - trip_input: tripplanner.trip_input.md
+
+watch:
+  - src/tripplanner

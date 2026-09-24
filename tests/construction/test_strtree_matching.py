@@ -23,7 +23,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-
 from tripplanner.construction import matching
 from tripplanner.construction.models import ConstructionZone, Land
 from tripplanner.construction.parser import DATEXIIConstructionZoneInternal
@@ -67,11 +66,11 @@ def _make_n_segments(num: int, spacing_deg: float = 0.001) -> Route:
         seg = RouteSegment(
             segment_index=i,
             geometrie=[(lat, lon), (lat + spacing_deg, lon + spacing_deg)],
-            laenge_m=150.0,
+            length_m=150.0,
             strassenklasse="MOTORWAY",
-            tempolimit_kmh=100,
+            speed_limit_kmh=100,
             bearing_deg=45.0,
-            strassenname="A9",
+            street_name="A9",
         )
         segments.append(seg)
         lat += spacing_deg
@@ -86,15 +85,15 @@ def _make_n_segments(num: int, spacing_deg: float = 0.001) -> Route:
 
 def _make_linezone(
     koordinaten: list[tuple[float, float]],
-    sperrungstyp: str = "partiallyClosed",
+    ClosureType: str = "partiallyClosed",
 ) -> DATEXIIConstructionZoneInternal:
     return DATEXIIConstructionZoneInternal(
-        sperrungstyp=sperrungstyp,
+        closure_type=ClosureType,
         gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
         gueltig_bis=None,
         koordinaten=koordinaten,
         umleitungshinweis=None,
-        tempolimit_kmh=80,
+        speed_limit_kmh=80,
     )
 
 
@@ -132,9 +131,9 @@ class TestStrtreeBuiltOnce:
         provider = _make_provider()
         provider._de_provider = AutobahnConstructionProvider(client=provider._client)
         route = _make_n_segments(200)
-        # Give each segment a strassenref so _extract_autobahn_ids finds A 1 and A 9
+        # Give each segment a street_ref so _extract_autobahn_ids finds A 1 and A 9
         for i, seg in enumerate(route.segments):
-            seg.strassenref = "A 1" if i < 100 else "A 9"
+            seg.street_ref = "A 1" if i < 100 else "A 9"
 
         # Mock roadworks responses for the extracted IDs (A 1, A 9)
         roadworks_list = [

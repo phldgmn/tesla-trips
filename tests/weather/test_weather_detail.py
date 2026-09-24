@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pytest
-
 from tripplanner.geo import Coordinate
 from tripplanner.routing.models import Route, RouteSegment
 from tripplanner.weather.models import WeatherSample
@@ -27,20 +26,20 @@ from tripplanner.weather.weather import (
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
-ABFAHRTSZEIT = datetime(2026, 8, 15, 8, 0, 0)
+departure_time = datetime(2026, 8, 15, 8, 0, 0)
 
 
 def _make_segment(
     index: int,
     start: Coordinate,
     end: Coordinate,
-    laenge_m: float = 50_000.0,
+    length_m: float = 50_000.0,
 ) -> RouteSegment:
     """Create a minimal ``RouteSegment`` for testing."""
     return RouteSegment(
         segment_index=index,
         geometrie=[start, end],
-        laenge_m=laenge_m,
+        length_m=length_m,
         strassenklasse="MOTORWAY",
         bearing_deg=0.0,
     )
@@ -52,7 +51,7 @@ def _make_route(segment_count: int) -> tuple[Route, list[RouteSegment]]:
     segments = [_make_segment(i, coords[i], coords[i + 1]) for i in range(segment_count)]
     route = Route(
         segments=segments,
-        gesamtlaenge_m=sum(s.laenge_m for s in segments),
+        gesamtlaenge_m=sum(s.length_m for s in segments),
         geometrie=coords,
     )
     return route, segments
@@ -67,20 +66,20 @@ def _make_segment_eta(
     return [(seg, acc) for seg in segments] or []
 
 
-def _make_sample(coordinate: Coordinate, zeitpunkt: datetime, temperatur_c: float) -> WeatherSample:
+def _make_sample(coordinate: Coordinate, timestamp: datetime, temperature_c: float) -> WeatherSample:
     """Builds a distinguishable `WeatherSample` for interpolation/fan-out assertions."""
     return WeatherSample(
         coordinate=coordinate,
-        zeitpunkt=zeitpunkt,
-        temperatur_c=temperatur_c,
-        windgeschwindigkeit_ms=5.0,
-        windrichtung_deg=180.0,
-        niederschlag_mm=0.0,
-        schneefall_cm=0.0,
-        luftdruck_hpa=1013.25,
-        luftfeuchtigkeit_pct=60.0,
-        globalstrahlung_wm2=400.0,
-        bewoelkung_pct=20.0,
+        timestamp=timestamp,
+        temperature_c=temperature_c,
+        wind_speed_ms=5.0,
+        wind_direction_deg=180.0,
+        precipitation_mm=0.0,
+        snowfall_cm=0.0,
+        pressure_hpa=1013.25,
+        humidity_pct=60.0,
+        solar_radiation_wm2=400.0,
+        cloudiness_pct=20.0,
     )
 
 
@@ -88,16 +87,16 @@ def _weather_sample(**overrides: object) -> WeatherSample:
     """Builds a `WeatherSample` with sane defaults, overridable per field."""
     defaults: dict[str, object] = {
         "coordinate": (52.0, 13.0),
-        "zeitpunkt": ABFAHRTSZEIT,
-        "temperatur_c": 10.0,
-        "windgeschwindigkeit_ms": 5.0,
-        "windrichtung_deg": 90.0,
-        "niederschlag_mm": 1.0,
-        "schneefall_cm": 0.0,
-        "luftdruck_hpa": 1000.0,
-        "luftfeuchtigkeit_pct": 50.0,
-        "globalstrahlung_wm2": 200.0,
-        "bewoelkung_pct": 30.0,
+        "timestamp": departure_time,
+        "temperature_c": 10.0,
+        "wind_speed_ms": 5.0,
+        "wind_direction_deg": 90.0,
+        "precipitation_mm": 1.0,
+        "snowfall_cm": 0.0,
+        "pressure_hpa": 1000.0,
+        "humidity_pct": 50.0,
+        "solar_radiation_wm2": 200.0,
+        "cloudiness_pct": 30.0,
     }
     defaults.update(overrides)
     return WeatherSample(**defaults)  # type: ignore[arg-type]
@@ -282,11 +281,11 @@ class TestInterpolateSamples:
     """Pure unit tests for the `WeatherSample` interpolation helper."""
 
     def test_t_zero_returns_left_object(self) -> None:
-        left, right = _weather_sample(temperatur_c=10.0), _weather_sample(temperatur_c=20.0)
+        left, right = _weather_sample(temperature_c=10.0), _weather_sample(temperature_c=20.0)
         assert _interpolate_samples(left, right, 0.0) is left
 
     def test_t_one_returns_right_object(self) -> None:
-        left, right = _weather_sample(temperatur_c=10.0), _weather_sample(temperatur_c=20.0)
+        left, right = _weather_sample(temperature_c=10.0), _weather_sample(temperature_c=20.0)
         assert _interpolate_samples(left, right, 1.0) is right
 
     def test_same_object_shortcuts_without_copy(self) -> None:
@@ -295,42 +294,42 @@ class TestInterpolateSamples:
 
     def test_midpoint_linearly_interpolates_scalar_fields(self) -> None:
         left = _weather_sample(
-            temperatur_c=10.0,
-            windgeschwindigkeit_ms=2.0,
-            niederschlag_mm=0.0,
-            schneefall_cm=0.0,
-            luftdruck_hpa=1000.0,
-            luftfeuchtigkeit_pct=40.0,
-            globalstrahlung_wm2=100.0,
-            bewoelkung_pct=20.0,
+            temperature_c=10.0,
+            wind_speed_ms=2.0,
+            precipitation_mm=0.0,
+            snowfall_cm=0.0,
+            pressure_hpa=1000.0,
+            humidity_pct=40.0,
+            solar_radiation_wm2=100.0,
+            cloudiness_pct=20.0,
         )
         right = _weather_sample(
-            temperatur_c=20.0,
-            windgeschwindigkeit_ms=8.0,
-            niederschlag_mm=4.0,
-            schneefall_cm=2.0,
-            luftdruck_hpa=1020.0,
-            luftfeuchtigkeit_pct=80.0,
-            globalstrahlung_wm2=300.0,
-            bewoelkung_pct=60.0,
+            temperature_c=20.0,
+            wind_speed_ms=8.0,
+            precipitation_mm=4.0,
+            snowfall_cm=2.0,
+            pressure_hpa=1020.0,
+            humidity_pct=80.0,
+            solar_radiation_wm2=300.0,
+            cloudiness_pct=60.0,
         )
         mid = _interpolate_samples(left, right, 0.25)
-        assert mid.temperatur_c == pytest.approx(12.5)
-        assert mid.windgeschwindigkeit_ms == pytest.approx(3.5)
-        assert mid.niederschlag_mm == pytest.approx(1.0)
-        assert mid.schneefall_cm == pytest.approx(0.5)
-        assert mid.luftdruck_hpa == pytest.approx(1005.0)
-        assert mid.luftfeuchtigkeit_pct == pytest.approx(50.0)
-        assert mid.globalstrahlung_wm2 == pytest.approx(150.0)
-        assert mid.bewoelkung_pct == pytest.approx(30.0)
+        assert mid.temperature_c == pytest.approx(12.5)
+        assert mid.wind_speed_ms == pytest.approx(3.5)
+        assert mid.precipitation_mm == pytest.approx(1.0)
+        assert mid.snowfall_cm == pytest.approx(0.5)
+        assert mid.pressure_hpa == pytest.approx(1005.0)
+        assert mid.humidity_pct == pytest.approx(50.0)
+        assert mid.solar_radiation_wm2 == pytest.approx(150.0)
+        assert mid.cloudiness_pct == pytest.approx(30.0)
 
     def test_wind_direction_interpolates_circularly(self) -> None:
-        left = _weather_sample(windrichtung_deg=350.0)
-        right = _weather_sample(windrichtung_deg=10.0)
+        left = _weather_sample(wind_direction_deg=350.0)
+        right = _weather_sample(wind_direction_deg=10.0)
         mid = _interpolate_samples(left, right, 0.5)
-        assert mid.windrichtung_deg == pytest.approx(
+        assert mid.wind_direction_deg == pytest.approx(
             0.0, abs=1e-6
-        ) or mid.windrichtung_deg == pytest.approx(360.0, abs=1e-6)
+        ) or mid.wind_direction_deg == pytest.approx(360.0, abs=1e-6)
 
 
 # ── fetch_weather_by_detail — high detail ────────────────────────────────────
@@ -349,7 +348,7 @@ class TestFetchHigh:
             await fetch_weather_by_detail(
                 provider=provider,
                 segment_eta_list=segment_eta,
-                departure_time=ABFAHRTSZEIT,
+                departure_time=departure_time,
                 detail="high",
             )
 
@@ -373,7 +372,7 @@ class TestFetchHigh:
         """
         dense_segments = [
             _make_segment(
-                i, (52.0, 13.0 + i * 0.001), (52.0, 13.0 + (i + 1) * 0.001), laenge_m=200.0
+                i, (52.0, 13.0 + i * 0.001), (52.0, 13.0 + (i + 1) * 0.001), length_m=200.0
             )
             for i in range(500)
         ]
@@ -383,12 +382,12 @@ class TestFetchHigh:
         await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="high",
         )
 
         n_queries = len(provider.fetch_weather_calls[0])
-        total_distance_m = sum(s.laenge_m for s in dense_segments)
+        total_distance_m = sum(s.length_m for s in dense_segments)
         max_expected = total_distance_m / HIGH_DETAIL_SAMPLE_SPACING_M + 2
         assert n_queries <= max_expected
         assert n_queries < len(dense_segments)
@@ -403,7 +402,7 @@ class TestFetchHigh:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="high",
         )
 
@@ -421,7 +420,7 @@ class TestFetchHigh:
         await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="high",
         )
 
@@ -443,7 +442,7 @@ class TestFetchHigh:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="high",
         )
 
@@ -459,13 +458,13 @@ class TestFetchHigh:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=eta_list,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="high",
         )
 
         for i, sample in enumerate(result):
-            expected_time = _compute_segment_time(i, ABFAHRTSZEIT, eta_list)
-            assert sample.zeitpunkt == expected_time
+            expected_time = _compute_segment_time(i, departure_time, eta_list)
+            assert sample.timestamp == expected_time
 
 
 # ── fetch_weather_by_detail — low detail ─────────────────────────────────────
@@ -484,7 +483,7 @@ class TestFetchLow:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="low",
         )
 
@@ -502,7 +501,7 @@ class TestFetchLow:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="low",
         )
 
@@ -517,7 +516,7 @@ class TestFetchLow:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="low",
         )
 
@@ -536,13 +535,13 @@ class TestFetchLow:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=eta_list,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="low",
         )
 
         for i, sample in enumerate(result):
-            expected_time = _compute_segment_time(i, ABFAHRTSZEIT, eta_list)
-            assert sample.zeitpunkt == expected_time
+            expected_time = _compute_segment_time(i, departure_time, eta_list)
+            assert sample.timestamp == expected_time
 
     @pytest.mark.asyncio
     async def test_low_varies_across_a_long_trip(self) -> None:
@@ -559,18 +558,18 @@ class TestFetchLow:
         for idx in expected_indices:
             seg, _ = segment_eta[idx]
             coord = seg.geometrie[len(seg.geometrie) // 2]
-            t = _compute_segment_time(idx, ABFAHRTSZEIT, segment_eta)
-            seed_samples.append(_make_sample(coord, t, temperatur_c=float(idx)))
+            t = _compute_segment_time(idx, departure_time, segment_eta)
+            seed_samples.append(_make_sample(coord, t, temperature_c=float(idx)))
         provider = FakeWeatherProvider(samples=seed_samples)
 
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="low",
         )
 
-        distinct_temperatures = {sample.temperatur_c for sample in result}
+        distinct_temperatures = {sample.temperature_c for sample in result}
         assert len(distinct_temperatures) > 1
 
     @pytest.mark.asyncio
@@ -586,14 +585,14 @@ class TestFetchLow:
         for idx in expected_indices:
             seg, _ = segment_eta[idx]
             coord = seg.geometrie[len(seg.geometrie) // 2]
-            t = _compute_segment_time(idx, ABFAHRTSZEIT, segment_eta)
-            seed_samples.append(_make_sample(coord, t, temperatur_c=float(idx)))
+            t = _compute_segment_time(idx, departure_time, segment_eta)
+            seed_samples.append(_make_sample(coord, t, temperature_c=float(idx)))
         provider = FakeWeatherProvider(samples=seed_samples)
 
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="low",
         )
 
@@ -601,7 +600,7 @@ class TestFetchLow:
         for seg_idx in range(first, second + 1):
             frac = (distances[seg_idx] - distances[first]) / (distances[second] - distances[first])
             expected_temp = float(first) + frac * (float(second) - float(first))
-            assert result[seg_idx].temperatur_c == pytest.approx(expected_temp)
+            assert result[seg_idx].temperature_c == pytest.approx(expected_temp)
 
     @pytest.mark.asyncio
     async def test_long_stop_forces_fresh_point_at_departure(self) -> None:
@@ -625,21 +624,21 @@ class TestFetchLow:
         for idx in expected_indices:
             seg, _ = segment_eta[idx]
             coord = seg.geometrie[len(seg.geometrie) // 2]
-            t = _compute_segment_time(idx, ABFAHRTSZEIT, segment_eta)
+            t = _compute_segment_time(idx, departure_time, segment_eta)
             # Departure (post-wait) weather is drastically different from arrival.
             temp = -10.0 if idx >= 10 else 25.0
-            seed_samples.append(_make_sample(coord, t, temperatur_c=temp))
+            seed_samples.append(_make_sample(coord, t, temperature_c=temp))
         provider = FakeWeatherProvider(samples=seed_samples)
 
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="low",
         )
 
-        assert result[9].temperatur_c == pytest.approx(25.0)
-        assert result[10].temperatur_c == pytest.approx(-10.0)
+        assert result[9].temperature_c == pytest.approx(25.0)
+        assert result[10].temperature_c == pytest.approx(-10.0)
 
 
 # ── fetch_weather_by_detail — medium detail ──────────────────────────────────
@@ -658,7 +657,7 @@ class TestFetchMedium:
             await fetch_weather_by_detail(
                 provider=provider,
                 segment_eta_list=segment_eta,
-                departure_time=ABFAHRTSZEIT,
+                departure_time=departure_time,
                 detail="medium",
             )
 
@@ -684,7 +683,7 @@ class TestFetchMedium:
         """
         dense_segments = [
             _make_segment(
-                i, (52.0, 13.0 + i * 0.001), (52.0, 13.0 + (i + 1) * 0.001), laenge_m=200.0
+                i, (52.0, 13.0 + i * 0.001), (52.0, 13.0 + (i + 1) * 0.001), length_m=200.0
             )
             for i in range(500)
         ]
@@ -694,12 +693,12 @@ class TestFetchMedium:
         await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="medium",
         )
 
         n_queries = len(provider.fetch_weather_calls[0])
-        total_distance_m = sum(s.laenge_m for s in dense_segments)
+        total_distance_m = sum(s.length_m for s in dense_segments)
         max_expected = total_distance_m / MEDIUM_DETAIL_SAMPLE_SPACING_M + 2
         assert n_queries <= max_expected
         assert n_queries < len(dense_segments)
@@ -713,7 +712,7 @@ class TestFetchMedium:
         await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="medium",
         )
 
@@ -735,7 +734,7 @@ class TestFetchMedium:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="medium",
         )
 
@@ -757,7 +756,7 @@ class TestFetchMedium:
                 i,
                 (52.0 + i * 0.01, 13.0),
                 (52.0 + (i + 1) * 0.01, 13.0),
-                laenge_m=1.0 * scale,
+                length_m=1.0 * scale,
             )
             for i in range(12)
         ]
@@ -770,14 +769,14 @@ class TestFetchMedium:
         for idx in expected_indices:
             seg, _ = segment_eta[idx]
             coord = seg.geometrie[len(seg.geometrie) // 2]
-            t = _compute_segment_time(idx, ABFAHRTSZEIT, segment_eta)
-            seed_samples.append(_make_sample(coord, t, temperatur_c=float(idx)))
+            t = _compute_segment_time(idx, departure_time, segment_eta)
+            seed_samples.append(_make_sample(coord, t, temperature_c=float(idx)))
         provider = FakeWeatherProvider(samples=seed_samples)
 
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="medium",
         )
 
@@ -785,14 +784,14 @@ class TestFetchMedium:
         # Segments strictly between two sampled points (e.g. 6, 7, 8, 9
         # between samples 5 and 10) must show a strictly increasing gradient,
         # not a step held at either endpoint's value.
-        between = [result[i].temperatur_c for i in range(6, 10)]
+        between = [result[i].temperature_c for i in range(6, 10)]
         assert between == sorted(between)
         assert between[0] > 5.0
         assert between[-1] < 10.0
         for seg_idx in range(6, 10):
             frac = (distances[seg_idx] - distances[5]) / (distances[10] - distances[5])
             expected_temp = 5.0 + frac * (10.0 - 5.0)
-            assert result[seg_idx].temperatur_c == pytest.approx(expected_temp)
+            assert result[seg_idx].temperature_c == pytest.approx(expected_temp)
             expected_coord = segments[seg_idx].geometrie[len(segments[seg_idx].geometrie) // 2]
             assert result[seg_idx].coordinate == expected_coord
 
@@ -811,7 +810,7 @@ class TestEdgeCases:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=[],
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="high",
         )
 
@@ -823,7 +822,7 @@ class TestEdgeCases:
         result = await fetch_weather_by_detail(
             provider=FakeWeatherProvider(),
             segment_eta_list=[],
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="low",
         )
         assert result == []
@@ -833,7 +832,7 @@ class TestEdgeCases:
         result = await fetch_weather_by_detail(
             provider=FakeWeatherProvider(),
             segment_eta_list=[],
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="medium",
         )
         assert result == []
@@ -847,7 +846,7 @@ class TestEdgeCases:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="high",
         )
 
@@ -864,7 +863,7 @@ class TestEdgeCases:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="low",
         )
 
@@ -880,7 +879,7 @@ class TestEdgeCases:
         result = await fetch_weather_by_detail(
             provider=provider,
             segment_eta_list=segment_eta,
-            departure_time=ABFAHRTSZEIT,
+            departure_time=departure_time,
             detail="medium",
         )
 
@@ -897,7 +896,7 @@ class TestEdgeCases:
             await fetch_weather_by_detail(
                 provider=provider,
                 segment_eta_list=segment_eta,
-                departure_time=ABFAHRTSZEIT,
+                departure_time=departure_time,
                 detail="off",
             )
 
@@ -911,6 +910,6 @@ class TestEdgeCases:
             await fetch_weather_by_detail(
                 provider=provider,
                 segment_eta_list=segment_eta,
-                departure_time=ABFAHRTSZEIT,
+                departure_time=departure_time,
                 detail="super_high",  # type: ignore[arg-type]
             )

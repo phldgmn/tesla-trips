@@ -3,7 +3,7 @@
 Dieses Modul enthält die elf `_step_*`-Funktionen und die zentrale
 Orchestrierung `create_trip_simulation()`, die alle Schritte in der
 richtigen Reihenfolge ausführt (Routing, Höhenprofil, Segmentierung,
-Wetter, Baustellen, Energie, Ladeplanung, Simulation, Preise).
+Wetter, construction_zones, energy, Ladeplanung, Simulation, Preise).
 """
 
 from __future__ import annotations
@@ -109,25 +109,25 @@ def _step_4_estimate_initial_eta(
 ) -> list[tuple[RouteSegment, timedelta]]:
     """Schritt 4: Initiale ETA-Schätzung je Segment.
 
-    Grobe Schätzung basierend auf durchschnittlicher Geschwindigkeit
+    Grobe Schätzung basierend auf durchschnittlicher speed
     (Default: 110 km/h auf Autobahnen, 60 km/h sonst).
     """
     segment_eta_list: list[tuple[RouteSegment, timedelta]] = []
 
     for segment in route.segments:
-        laenge_km = segment.laenge_m / 1000.0
+        laenge_km = segment.length_m / 1000.0
 
-        # Geschwindigkeit basierend auf Straßenart schätzen
+        # speed basierend auf Straßenart schätzen
         durchschnittsgeschwindigkeit_kmh = 110.0  # Default: Autobahn
-        if segment.oberflaeche and "unpaved" in segment.oberflaeche.lower():
+        if segment.surface and "unpaved" in segment.surface.lower():
             durchschnittsgeschwindigkeit_kmh = 50.0
-        elif segment.oberflaeche and "paved" in segment.oberflaeche.lower():
+        elif segment.surface and "paved" in segment.surface.lower():
             durchschnittsgeschwindigkeit_kmh = 100.0
 
         duration_h = laenge_km / durchschnittsgeschwindigkeit_kmh
-        dauer = timedelta(hours=duration_h)
+        duration = timedelta(hours=duration_h)
 
-        segment_eta_list.append((segment, dauer))
+        segment_eta_list.append((segment, duration))
 
     return segment_eta_list
 
@@ -166,12 +166,12 @@ async def _step_5_fetch_weather(
     if weather_detail == "off":
         queries: list[WeatherQuery] = []
         current_time = departure_time
-        for segment, dauer in segment_eta_list:
+        for segment, duration in segment_eta_list:
             mitte_idx = len(segment.geometrie) // 2
             queries.append(
-                WeatherQuery(coordinate=segment.geometrie[mitte_idx], zeitpunkt=current_time)
+                WeatherQuery(coordinate=segment.geometrie[mitte_idx], timestamp=current_time)
             )
-            current_time += dauer
+            current_time += duration
         return await provider.fetch_weather(queries)
 
     return await fetch_weather_by_detail(provider, segment_eta_list, departure_time, weather_detail)
@@ -182,7 +182,7 @@ async def _step_6_construction_sites(
     route: Route,
     countries: list[str] | None = None,
 ) -> list[ConstructionZone]:
-    """Schritt 6: Baustellen entlang der Route einbeziehen.
+    """Schritt 6: construction_zones entlang der Route einbeziehen.
 
     Optional: Für die Erstimplementierung kann mit leerer Liste gearbeitet werden.
     Ein `ConstructionProvider` (z. B. `FakeConstructionProvider`) kann übergeben
@@ -206,16 +206,16 @@ async def _step_7_calculate_segment_energy(  # noqa: PLR0913, PLR0917
     elevation_provider: ElevationProvider,
     elevation_points: list[ElevationPoint],
 ) -> list[SegmentEnergyResult]:
-    """Schritt 7: Energieverbrauch je Segment berechnen.
+    """Schritt 7: energy_consumption je Segment berechnen.
 
-    Berücksichtigt Wetterdaten, Höhenprofil, Wind und Baustellen-Tempolimits.
+    Berücksichtigt Wetterdaten, Höhenprofil, Wind und construction_zones-Tempolimits.
     """
-    # Baustellen-Tempolimits pro Segment zuordnen
+    # construction_zones-Tempolimits pro Segment zuordnen
     segment_to_tempolimit: dict[int, int | None] = {}
     for zone in construction_zones:
         for segment_idx in zone.betroffene_segmente:
-            if zone.tempolimit_kmh is not None:
-                segment_to_tempolimit[segment_idx] = zone.tempolimit_kmh
+            if zone.speed_limit_kmh is not None:
+                segment_to_tempolimit[segment_idx] = zone.speed_limit_kmh
 
     # WindComponents für alle Segmente berechnen
     wind_components = compute_wind_components_for_route(weather_samples, route_segments)
@@ -235,7 +235,7 @@ async def _step_7_calculate_segment_energy(  # noqa: PLR0913, PLR0917
     # Reales Höhenprofil-basiertes Gradient je Segment
     gradients = elevation_provider.calculate_segment_gradients(elevation_points, route)
 
-    # Energieverbrauch pro Segment berechnen
+    # energy_consumption pro Segment berechnen
     ergebnisse: list[SegmentEnergyResult] = []
     for idx, segment in enumerate(route_segments):
         wetter = weather_samples[idx] if idx < len(weather_samples) else None
@@ -249,24 +249,24 @@ async def _step_7_calculate_segment_energy(  # noqa: PLR0913, PLR0917
             )
         )
         gradient = gradients[idx] if idx < len(gradients) else None
-        tempolimit = segment_to_tempolimit.get(idx)
+        speed_limit_kmh = segment_to_tempolimit.get(idx)
 
         # Wenn wetter None ist, erstelle Dummy
         if wetter is None:
             wetter = WeatherSample(
                 coordinate=segment.geometrie[0],
-                zeitpunkt=departure_time + segment_eta_list[idx][1]
+                timestamp=departure_time + segment_eta_list[idx][1]
                 if idx < len(segment_eta_list)
                 else departure_time,
-                temperatur_c=20.0,
-                windgeschwindigkeit_ms=5.0,
-                windrichtung_deg=180.0,
-                niederschlag_mm=0.0,
-                schneefall_cm=0.0,
-                luftdruck_hpa=1013.25,
-                luftfeuchtigkeit_pct=60.0,
-                globalstrahlung_wm2=400.0,
-                bewoelkung_pct=20.0,
+                temperature_c=20.0,
+                wind_speed_ms=5.0,
+                wind_direction_deg=180.0,
+                precipitation_mm=0.0,
+                snowfall_cm=0.0,
+                pressure_hpa=1013.25,
+                humidity_pct=60.0,
+                solar_radiation_wm2=400.0,
+                cloudiness_pct=20.0,
             )
 
         ergebnis = calculate_segment_consumption(
@@ -275,8 +275,8 @@ async def _step_7_calculate_segment_energy(  # noqa: PLR0913, PLR0917
             wetter=wetter,
             wind=wind,
             fahrzeug_params=energy_params,
-            baustellen=None,
-            tempolimit_override_kmh=float(tempolimit) if tempolimit else None,
+            construction_zones=None,
+            tempolimit_override_kmh=float(speed_limit_kmh) if speed_limit_kmh else None,
         )
         ergebnisse.append(ergebnis)
 
@@ -415,10 +415,10 @@ def _step_9_update_eta(
     `planned_departure`) - ohne Letzteres würden alle Segmente NACH einem
     Zwischenstopp mit Wartezeit (z. B. einer Übernachtung) mit einer ETA
     berechnet, die die tatsächliche Wartedauer ignoriert; nachgelagerte
-    Wetterabfragen (`fetch_weather_by_detail`) würden dann für die Zeit VOR
-    der Wartezeit statt für die tatsächliche Abfahrtszeit danach abgefragt.
+    Wetterabfragen (`fetch_weather_by_detail`) würden dann für die time VOR
+    der Wartezeit statt für die tatsächliche departure_time danach abgefragt.
     """
-    # Einfacher Aktualisierungsschritt: Lade-/Wartezeiten zu den ETA-Werten addieren
+    # simpler Aktualisierungsschritt: Lade-/Wartezeiten zu den ETA-Werten addieren
     neue_eta_liste: list[tuple[RouteSegment, timedelta]] = []
 
     ladezeiten_pro_segment: dict[int, timedelta] = {}
@@ -429,7 +429,7 @@ def _step_9_update_eta(
 
     wartezeiten_pro_segment: dict[int, timedelta] = {}
     for aufenthalt in charging_plan.zwischenstopp_aufenthalte:
-        wartezeit = aufenthalt.departure_time - aufenthalt.ankunftszeit
+        wartezeit = aufenthalt.departure_time - aufenthalt.arrival_time
         wartezeiten_pro_segment[aufenthalt.segment_index] = (
             wartezeiten_pro_segment.get(aufenthalt.segment_index, timedelta()) + wartezeit
         )
@@ -574,8 +574,8 @@ def _match_ferry_time_window(
 
     Identifikation über `name` (bei mehrdeutigem Namen über die nächste
     Bounding-Box-Mitte) - analog zur Identifikationskonvention von
-    `FerryExclusion`. Nicht (mehr) passende Zeitfenster (Name in der aktuellen
-    Route nicht mehr vorhanden) werden stillschweigend ignoriert - konsistent
+    `FerryExclusion`. Nicht (more) passende Zeitfenster (Name in der aktuellen
+    Route nicht more vorhanden) werden stillschweigend ignoriert - konsistent
     mit dem selbstkorrigierenden Ansatz der Fährvermeidung (siehe
     docs/superpowers/specs/2026-08-15-ferry-avoidance-design.md).
     """

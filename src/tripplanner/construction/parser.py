@@ -17,12 +17,12 @@ if TYPE_CHECKING:
 class DATEXIIConstructionZoneInternal(NamedTuple):
     """Internes Modell für DATEX II Parse-Ergebnis (nicht exportiert)."""
 
-    sperrungstyp: str
+    closure_type: str
     gueltig_von: datetime
     gueltig_bis: datetime | None
     koordinaten: list[tuple[float, float]]
     umleitungshinweis: str | None
-    tempolimit_kmh: int | None
+    speed_limit_kmh: int | None
     affected_direction_value: str | None = None
 
 
@@ -152,14 +152,14 @@ def _parse_situation_record(sr: ET.Element, land: Land) -> DATEXIIConstructionZo
                 gueltig_bis = _parse_datetime(end_elem.text)
 
     impact_elem = _find_element(sr, ".//impact")
-    tempolimit_kmh: int | None = None
+    speed_limit_kmh: int | None = None
 
     if impact_elem is not None:
         delays = _find_element(impact_elem, ".//delays")
         if delays is not None:
             delay_band = _find_element(delays, ".//delayBand")
             if delay_band is not None and delay_band.text:
-                tempolimit_kmh = _delay_band_to_speed(delay_band.text)
+                speed_limit_kmh = _delay_band_to_speed(delay_band.text)
 
     locations = _find_element(sr, ".//groupOfLocations")
     koordinaten: list[tuple[float, float]] = []
@@ -232,19 +232,19 @@ def _parse_situation_record(sr: ET.Element, land: Land) -> DATEXIIConstructionZo
         if source_name is not None and source_name.text:
             umleitungshinweis = source_name.text
 
-    sperrungstyp = xsi_type
-    if "Roadworks" in sperrungstyp:
-        sperrungstyp = sperrungstyp.split(":")[-1] if ":" in sperrungstyp else "Roadworks"
-    elif "MaintenanceWorks" in sperrungstyp:
-        sperrungstyp = sperrungstyp.split(":")[-1] if ":" in sperrungstyp else "MaintenanceWorks"
+    closure_type = xsi_type
+    if "Roadworks" in closure_type:
+        closure_type = closure_type.split(":")[-1] if ":" in closure_type else "Roadworks"
+    elif "MaintenanceWorks" in closure_type:
+        closure_type = closure_type.split(":")[-1] if ":" in closure_type else "MaintenanceWorks"
 
     return DATEXIIConstructionZoneInternal(
-        sperrungstyp=sperrungstyp,
+        closure_type=closure_type,
         gueltig_von=gueltig_von,
         gueltig_bis=gueltig_bis,
         koordinaten=koordinaten,
         umleitungshinweis=umleitungshinweis,
-        tempolimit_kmh=tempolimit_kmh,
+        speed_limit_kmh=speed_limit_kmh,
         affected_direction_value=None,
     )
 
@@ -260,7 +260,7 @@ def _parse_datetime(dt_str: str | None) -> datetime:
 
 
 def _delay_band_to_speed(delay_band: str | None) -> int | None:
-    """Mappe delayBand auf tempolimit_kmh (Konfiguration für feine Anpassung)."""
+    """Mappe delayBand auf speed_limit_kmh (Konfiguration für feine Anpassung)."""
     if not delay_band:
         return None
 

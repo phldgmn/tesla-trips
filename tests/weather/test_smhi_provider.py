@@ -8,7 +8,6 @@ from datetime import datetime
 
 import httpx
 import pytest
-
 from tripplanner.geo import Coordinate
 from tripplanner.weather.models import WeatherQuery
 from tripplanner.weather.providers import SmhiProvider
@@ -45,39 +44,39 @@ async def test_smhi_provider_fetch_weather_maps_fields() -> None:
         return httpx.Response(200, json=_smhi_json())
 
     provider = SmhiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(coordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+    query = WeatherQuery(coordinate=STOCKHOLM, timestamp=datetime(2026, 8, 17, 14, 0))
 
     results = await provider.fetch_weather([query])
 
     assert len(results) == 1
     sample = results[0]
-    assert sample.temperatur_c == 14.2
-    assert sample.windgeschwindigkeit_ms == 5.5
-    assert sample.windrichtung_deg == 310.0
-    assert sample.luftfeuchtigkeit_pct == 58.0
-    assert sample.luftdruck_hpa == 1010.0
-    assert sample.bewoelkung_pct == 50.0  # 4 oktas * 12.5
+    assert sample.temperature_c == 14.2
+    assert sample.wind_speed_ms == 5.5
+    assert sample.wind_direction_deg == 310.0
+    assert sample.humidity_pct == 58.0
+    assert sample.pressure_hpa == 1010.0
+    assert sample.cloudiness_pct == 50.0  # 4 oktas * 12.5
     # frozen_part_pct = -9 (SMHI's "no precipitation" sentinel) -> 0% frozen.
-    assert sample.niederschlag_mm == 1.2
-    assert sample.schneefall_cm == 0.0
-    assert sample.globalstrahlung_wm2 == 0.0
+    assert sample.precipitation_mm == 1.2
+    assert sample.snowfall_cm == 0.0
+    assert sample.solar_radiation_wm2 == 0.0
     await provider.close()
 
 
 @pytest.mark.asyncio
 async def test_smhi_provider_frozen_precipitation_routes_to_schneefall() -> None:
-    """`precipitation_frozen_part` = 100 routes all precipitation into `schneefall_cm`."""
+    """`precipitation_frozen_part` = 100 routes all precipitation into `snowfall_cm`."""
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=_smhi_json(frozen_part_pct=100.0))
 
     provider = SmhiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(coordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+    query = WeatherQuery(coordinate=STOCKHOLM, timestamp=datetime(2026, 8, 17, 14, 0))
 
     results = await provider.fetch_weather([query])
 
-    assert results[0].niederschlag_mm == 0.0
-    assert results[0].schneefall_cm == 0.12  # 1.2mm / 10
+    assert results[0].precipitation_mm == 0.0
+    assert results[0].snowfall_cm == 0.12  # 1.2mm / 10
 
 
 @pytest.mark.asyncio
@@ -88,12 +87,12 @@ async def test_smhi_provider_partial_frozen_precipitation_splits_proportionally(
         return httpx.Response(200, json=_smhi_json(frozen_part_pct=50.0))
 
     provider = SmhiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(coordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+    query = WeatherQuery(coordinate=STOCKHOLM, timestamp=datetime(2026, 8, 17, 14, 0))
 
     results = await provider.fetch_weather([query])
 
-    assert results[0].niederschlag_mm == pytest.approx(0.6)  # 1.2mm * 50%
-    assert results[0].schneefall_cm == pytest.approx(0.06)  # 1.2mm * 50% / 10
+    assert results[0].precipitation_mm == pytest.approx(0.6)  # 1.2mm * 50%
+    assert results[0].snowfall_cm == pytest.approx(0.06)  # 1.2mm * 50% / 10
 
 
 @pytest.mark.asyncio
@@ -104,7 +103,7 @@ async def test_smhi_provider_missing_hour_returns_no_sample() -> None:
         return httpx.Response(200, json=_smhi_json())
 
     provider = SmhiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(coordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 20, 9, 0))
+    query = WeatherQuery(coordinate=STOCKHOLM, timestamp=datetime(2026, 8, 20, 9, 0))
 
     results = await provider.fetch_weather([query])
 
@@ -134,7 +133,7 @@ async def test_smhi_provider_http_error_propagates() -> None:
         return httpx.Response(503, json={"error": "service unavailable"})
 
     provider = SmhiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(coordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+    query = WeatherQuery(coordinate=STOCKHOLM, timestamp=datetime(2026, 8, 17, 14, 0))
 
     with pytest.raises(httpx.HTTPStatusError):
         await provider.fetch_weather([query])
@@ -148,10 +147,10 @@ async def test_smhi_provider_refetch_weather_delegates_to_fetch() -> None:
         return httpx.Response(200, json=_smhi_json())
 
     provider = SmhiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    original = [WeatherQuery(coordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 12, 0))]
-    updated = [WeatherQuery(coordinate=STOCKHOLM, zeitpunkt=datetime(2026, 8, 17, 14, 0))]
+    original = [WeatherQuery(coordinate=STOCKHOLM, timestamp=datetime(2026, 8, 17, 12, 0))]
+    updated = [WeatherQuery(coordinate=STOCKHOLM, timestamp=datetime(2026, 8, 17, 14, 0))]
 
     results = await provider.refetch_weather(original, updated)
 
     assert len(results) == 1
-    assert results[0].zeitpunkt == datetime(2026, 8, 17, 14, 0)
+    assert results[0].timestamp == datetime(2026, 8, 17, 14, 0)

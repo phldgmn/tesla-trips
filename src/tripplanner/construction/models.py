@@ -1,4 +1,4 @@
-"""Datenmodelle für das construction-Modul: Baustellen, Sperrungstypen, Provider-Protocol.
+"""Datenmodelle für das construction-Modul: construction_zones, closure_types, Provider-Protocol.
 
 Alle Koordinaten im Projekt folgen der Konvention: (lat, lon) in Dezimalgrad (WGS84).
 """
@@ -13,8 +13,8 @@ from pydantic import BaseModel, Field, model_validator
 DEFAULT_ROADWORKS_SPEED_LIMIT_KMH = 80
 
 
-class Sperrungstyp(StrEnum):
-    """Sperrungstyp gemäß DATEX II RoadOrCarriagewayManagementType."""
+class ClosureType(StrEnum):
+    """closure_type gemäß DATEX II RoadOrCarriagewayManagementType."""
 
     FULLY_CLOSED = "fullyClosed"
     PARTIALLY_CLOSED = "partiallyClosed"
@@ -25,7 +25,7 @@ class Sperrungstyp(StrEnum):
 
 
 class Land(StrEnum):
-    """Ländercodes für Baustellen (DE=Deutschland, DK=Dänemark, SE=Schweden)."""
+    """Ländercodes für construction_zones (DE=Deutschland, DK=Dänemark, SE=Schweden)."""
 
     DE = "DE"
     DK = "DK"
@@ -33,62 +33,62 @@ class Land(StrEnum):
 
 
 class ConstructionZone(BaseModel):
-    """Ein Baustellen-Abschnitt mit Tempolimit, Sperrungstyp und Umleitungshinweis.
+    """Ein construction_zones-Abschnitt mit speed_limit_kmh, closure_type und Umleitungshinweis.
 
     Args:
         betroffene_segmente: Liste von RouteSegment-IDs (0-basiert), die von der
-            Baustelle betroffen sind.
-        tempolimit_kmh: Reduziertes Tempolimit in km/h (None wenn keine
+            construction_zone betroffen sind.
+        speed_limit_kmh: Reduziertes speed_limit_kmh in km/h (None wenn keine
             Beschränkung).
-        sperrungstyp: Art der Sperrung/Baustelle.
+        closure_type: Art der Sperrung/construction_zone.
         umleitungshinweis: Freitext-Information zur Umleitung (optional).
-        land: Land, in dem die Baustelle liegt.
-        gueltig_von: Startzeitpunkt der Baustelle (ISO 8601).
-        gueltig_bis: Endzeitpunkt der Baustelle (ISO 8601), None wenn
+        land: Land, in dem die construction_zone liegt.
+        gueltig_von: Startzeitpunkt der construction_zone (ISO 8601).
+        gueltig_bis: Endzeitpunkt der construction_zone (ISO 8601), None wenn
             unbestimmt.
-        laenge_m: Geschätzte Länge der betroffenen Straßenstrecke in Metern
+        length_m: Geschätzte Länge der betroffenen Straßenstrecke in Metern
             (None wenn nicht berechenbar).
     """
 
     betroffene_segmente: list[int] = Field(
-        description="Liste von RouteSegment-IDs (0-basiert), die von der Baustelle betroffen sind."
+        description="List of RouteSegment IDs (0-based) affected by the construction_zone."
     )
-    tempolimit_kmh: Annotated[int | None, Field(ge=0, le=200, default=None)] = Field(
-        description="Reduziertes Tempolimit in km/h (None wenn keine Beschränkung)."
+    speed_limit_kmh: Annotated[int | None, Field(ge=0, le=200, default=None)] = Field(
+        description="Reduziertes speed_limit_kmh in km/h (None wenn keine Beschränkung)."
     )
-    sperrungstyp: Sperrungstyp = Field(description="Art der Sperrung/Baustelle.")
+    closure_type: ClosureType = Field(description="Art der Sperrung/construction_zone.")
     umleitungshinweis: Annotated[str | None, Field(max_length=500, default=None)] = Field(
         description="Freitext-Information zur Umleitung (optional)."
     )
-    land: Land = Field(description="Land, in dem die Baustelle liegt.")
-    gueltig_von: datetime = Field(description="Startzeitpunkt der Baustelle (ISO 8601).")
+    land: Land = Field(description="Land, in dem die construction_zone liegt.")
+    gueltig_von: datetime = Field(description="Startzeitpunkt der construction_zone (ISO 8601).")
     gueltig_bis: Annotated[datetime | None, Field(default=None)] = Field(
-        description="Endzeitpunkt der Baustelle (ISO 8601), None wenn unbestimmt."
+        description="Endzeitpunkt der construction_zone (ISO 8601), None wenn unbestimmt."
     )
-    laenge_m: Annotated[float | None, Field(ge=0, default=None)] = Field(
+    length_m: Annotated[float | None, Field(ge=0, default=None)] = Field(
         description="Geschätzte Länge der betroffenen Straßenstrecke in Metern."
     )
 
     @model_validator(mode="after")
     def validate_tempolimit_for_sperrungstyp(self) -> Self:
-        """Validiert, dass tempolimit_kmh bei bestimmten Sperrungstypen gesetzt ist.
+        """Validiert, dass speed_limit_kmh bei bestimmten closure_types gesetzt ist.
 
         Raises:
-            ValueError: Wenn tempolimit_kmh bei TEMPORARY_SPEED_LIMIT,
+            ValueError: Wenn speed_limit_kmh bei TEMPORARY_SPEED_LIMIT,
                 PARTIALLY_CLOSED, LANE_CLOSED oder REDUCED_LANES fehlt.
         """
         if (
-            self.sperrungstyp
+            self.closure_type
             in (
-                Sperrungstyp.TEMPORARY_SPEED_LIMIT,
-                Sperrungstyp.PARTIALLY_CLOSED,
-                Sperrungstyp.LANE_CLOSED,
-                Sperrungstyp.REDUCED_LANES,
+                ClosureType.TEMPORARY_SPEED_LIMIT,
+                ClosureType.PARTIALLY_CLOSED,
+                ClosureType.LANE_CLOSED,
+                ClosureType.REDUCED_LANES,
             )
-            and self.tempolimit_kmh is None
+            and self.speed_limit_kmh is None
         ):
             raise ValueError(
-                f"tempolimit_kmh muss gesetzt sein für Sperrungstyp {self.sperrungstyp}."
+                f"speed_limit_kmh muss gesetzt sein für closure_type {self.closure_type}."
             )
         return self
 
@@ -105,7 +105,7 @@ class ConstructionProvider(Protocol):
         route: "tripplanner.routing.models.Route",
         laender: list[Land],
     ) -> list[ConstructionZone]:
-        """Abfrage von Baustellen entlang der Route für die angegebenen Länder."""
+        """Abfrage von construction_zones entlang der Route für die angegebenen Länder."""
         raise NotImplementedError
 
 

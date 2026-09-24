@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import polyline
 import pytest
-
 from tripplanner.routing.models import GraphHopperPath, GraphHopperResponse
 from tripplanner.routing.providers import GraphHopperRoutingProvider
 from tripplanner.trip_input.models import FerryExclusion, TripRequest
@@ -27,18 +26,18 @@ class TestMapPathToRoute:
         gh_provider: GraphHopperRoutingProvider,
         graphhopper_response_basic: GraphHopperResponse,
     ) -> None:
-        """Ohne Details: strassenklasse='OTHER', tempolimit/steigung/oberflaeche=None."""
+        """Ohne Details: strassenklasse='OTHER', speed_limit_kmh/gradient/surface=None."""
         route = gh_provider._map_path_to_route(graphhopper_response_basic.paths[0])
 
         assert route.gesamtlaenge_m > 0
         assert len(route.segments) >= 1
         first = route.segments[0]
         assert first.strassenklasse == "OTHER"
-        assert first.tempolimit_kmh is None
+        assert first.speed_limit_kmh is None
         assert first.steigung_rohdaten is None
-        assert first.oberflaeche is None
+        assert first.surface is None
         assert first.road_environment is None
-        assert first.strassenname is None
+        assert first.street_name is None
 
     def test_maps_response_with_details(
         self,
@@ -50,23 +49,24 @@ class TestMapPathToRoute:
 
         first = route.segments[0]
         assert first.strassenklasse == "MOTORWAY"
-        assert first.tempolimit_kmh == 130
+        assert first.speed_limit_kmh == 130
         assert first.steigung_rohdaten == pytest.approx(1.5)
-        assert first.oberflaeche == "asphalt"
-        assert first.strassenname is None
-        assert first.strassenref == "A 5"
+        assert first.surface == "asphalt"
+        assert first.street_name is None
+        assert first.street_ref == "A 5"
 
     def test_normalizes_lowercase_road_class_to_uppercase(
         self,
         gh_provider: GraphHopperRoutingProvider,
         graphhopper_response_with_details: GraphHopperResponse,
     ) -> None:
-        """GraphHopper liefert `road_class` klein geschrieben (z. B. "motorway") -
+        """GraphHopper liefert `road_class` small geschrieben (z. B. "motorway") -
         wird auf Grossschreibung normalisiert, damit z. B.
         `providers_de_autobahn._extract_autobahn_ids`'s `!= "MOTORWAY"`-Vergleich
         funktioniert (live gegen den echten GraphHopper-Server verifiziert:
         `road_class` liefert dort tatsaechlich Kleinbuchstaben, nicht wie in
-        dieser handgeschriebenen Fixture)."""
+        dieser handgeschriebenen Fixture).
+        """
         path = graphhopper_response_with_details.paths[0]
         lowercase_path = path.model_copy(
             update={
@@ -99,12 +99,12 @@ class TestMapPathToRoute:
         """Segmentlängen sind positiv und summieren sich zur Gesamtlänge."""
         route = gh_provider._map_path_to_route(graphhopper_response_basic.paths[0])
 
-        assert all(s.laenge_m > 0 for s in route.segments)
-        assert route.gesamtlaenge_m == pytest.approx(sum(s.laenge_m for s in route.segments))
+        assert all(s.length_m > 0 for s in route.segments)
+        assert route.gesamtlaenge_m == pytest.approx(sum(s.length_m for s in route.segments))
 
 
 class TestMapPathToRouteFerryDetails:
-    """Tests für road_environment/strassenname-Mapping (Grundlage der Fährerkennung)."""
+    """Tests für road_environment/street_name-Mapping (Grundlage der Fährerkennung)."""
 
     def test_ferry_segment_has_uppercased_road_environment(
         self,
@@ -126,29 +126,31 @@ class TestMapPathToRouteFerryDetails:
         route = gh_provider._map_path_to_route(graphhopper_response_with_ferry.paths[0])
 
         ferry_segment = next(s for s in route.segments if s.road_environment == "FERRY")
-        assert ferry_segment.strassenname == "Rødby (DK) - Puttgarden (D)"
+        assert ferry_segment.street_name == "Rødby (DK) - Puttgarden (D)"
 
     def test_road_segment_has_none_strassenname_when_street_name_null(
         self,
         gh_provider: GraphHopperRoutingProvider,
         graphhopper_response_with_ferry: GraphHopperResponse,
     ) -> None:
-        """Ein Segment mit street_name=null im JSON wird zu strassenname=None."""
+        """Ein Segment mit street_name=null im JSON wird zu street_name=None."""
         route = gh_provider._map_path_to_route(graphhopper_response_with_ferry.paths[0])
 
-        assert route.segments[0].strassenname is None
+        assert route.segments[0].street_name is None
         assert route.segments[0].road_environment == "ROAD"
 
 
 class TestMapPathToRouteViaPointIndices:
     """Tests für die Extraktion von `Route.via_point_indices` aus GraphHoppers
-    'reached via point'-Instruktionen (sign=5) - siehe Docstring dort."""
+    'reached via point'-Instruktionen (sign=5) - siehe Docstring dort.
+    """
 
     def test_extracts_via_point_index_from_reached_via_instruction(
         self, gh_provider: GraphHopperRoutingProvider
     ) -> None:
         """Eine sign=5-Instruktion liefert den exakten Koordinaten-Index als
-        Segment-Index, unabhängig von geometrischer Nähe anderer Punkte."""
+        Segment-Index, unabhängig von geometrischer Nähe anderer Punkte.
+        """
         coords = [(52.0 + i * 0.01, 13.0) for i in range(10)]
         path = GraphHopperPath(
             distance=1000.0,
@@ -178,7 +180,8 @@ class TestMapPathToRouteViaPointIndices:
         graphhopper_response_basic: GraphHopperResponse,
     ) -> None:
         """Eine Antwort ohne Zwischenstopps (keine sign=5-Instruktion) liefert
-        eine leere `via_point_indices`-Liste statt eines Fehlers."""
+        eine leere `via_point_indices`-Liste statt eines Fehlers.
+        """
         route = gh_provider._map_path_to_route(graphhopper_response_basic.paths[0])
 
         assert route.via_point_indices == []
@@ -310,7 +313,8 @@ class TestBuildCustomModel:
         erwarteter_multiplikator: float,
     ) -> None:
         """highway_preference in {low, medium, high} fügt die passende road_class==MOTORWAY
-        Priority-Regel (1.1/1.2/1.3) hinzu."""
+        Priority-Regel (1.1/1.2/1.3) hinzu.
+        """
         anfrage = trip_request.model_copy(update={"highway_preference": level})
 
         custom_model = gh_provider._build_custom_model(anfrage)

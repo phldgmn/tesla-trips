@@ -164,15 +164,15 @@ def _openweather_entries_by_time(payload: dict[str, Any]) -> dict[datetime, dict
 def _extract_openweather_sample(
     entries_by_time: dict[datetime, dict[str, Any]], query: WeatherQuery
 ) -> WeatherSample | None:
-    """Finds the nearest OpenWeather 3-hour slot to `query.zeitpunkt` and maps it.
+    """Finds the nearest OpenWeather 3-hour slot to `query.timestamp` and maps it.
 
     Returns `None` if no slot is within `_OPENWEATHER_MATCH_TOLERANCE` (e.g.
     the queried time is beyond the 5-day forecast horizon).
     """
     if not entries_by_time:
         return None
-    nearest = min(entries_by_time, key=lambda dt: abs(dt - query.zeitpunkt))
-    if abs(nearest - query.zeitpunkt) > _OPENWEATHER_MATCH_TOLERANCE:
+    nearest = min(entries_by_time, key=lambda dt: abs(dt - query.timestamp))
+    if abs(nearest - query.timestamp) > _OPENWEATHER_MATCH_TOLERANCE:
         return None
 
     entry = entries_by_time[nearest]
@@ -183,14 +183,14 @@ def _extract_openweather_sample(
 
     return WeatherSample(
         coordinate=query.coordinate,
-        zeitpunkt=query.zeitpunkt,
-        temperatur_c=float(main.get("temp", 0.0)),
-        windgeschwindigkeit_ms=float(wind.get("speed", 0.0)),
-        windrichtung_deg=_clamp(float(wind.get("deg", 0.0)), 0.0, 360.0),
-        niederschlag_mm=rain_3h / 3.0,
-        schneefall_cm=(snow_3h / 3.0) / 10.0,
-        luftdruck_hpa=_clamp(float(main.get("pressure", 1013.25)), 870.0, 1084.0),
-        luftfeuchtigkeit_pct=_clamp(float(main.get("humidity", 0.0)), 0.0, 100.0),
-        globalstrahlung_wm2=0.0,  # not exposed by the 2.5 forecast API
-        bewoelkung_pct=_clamp(float(entry.get("clouds", {}).get("all", 0.0)), 0.0, 100.0),
+        timestamp=query.timestamp,
+        temperature_c=float(main.get("temp", 0.0)),
+        wind_speed_ms=float(wind.get("speed", 0.0)),
+        wind_direction_deg=_clamp(float(wind.get("deg", 0.0)), 0.0, 360.0),
+        precipitation_mm=rain_3h / 3.0,
+        snowfall_cm=(snow_3h / 3.0) / 10.0,
+        pressure_hpa=_clamp(float(main.get("pressure", 1013.25)), 870.0, 1084.0),
+        humidity_pct=_clamp(float(main.get("humidity", 0.0)), 0.0, 100.0),
+        solar_radiation_wm2=0.0,  # not exposed by the 2.5 forecast API
+        cloudiness_pct=_clamp(float(entry.get("clouds", {}).get("all", 0.0)), 0.0, 100.0),
     )

@@ -514,7 +514,7 @@ class SQLiteDatabase:
     def get_pricing_recency(
         self, supercharge_info_ids: set[int] | None = None
     ) -> dict[int, datetime]:
-        """Liefert je Station den Zeitpunkt der zuletzt gespeicherten Preisdaten.
+        """Liefert je Station den timestamp der zuletzt gespeicherten Preisdaten.
 
         Stationen ohne jegliche `charging_pricing`-Zeilen (noch nie gescraped)
         fehlen im Ergebnis-Dict, statt eines `None`-Werts - der Aufrufer prueft
@@ -524,7 +524,7 @@ class SQLiteDatabase:
             supercharge_info_ids: Optionales Set von Station-IDs fuer Filterung.
 
         Returns:
-            Dict mapping supercharge_info_id -> Zeitpunkt der juengsten
+            Dict mapping supercharge_info_id -> timestamp der juengsten
             Preiszeile (ueber alle Tiers dieser Station).
         """
         self._ensure_initialized()
@@ -557,14 +557,14 @@ class SQLiteDatabase:
         """Fuegt Stationen zur Preis-Scrape-Warteschlange hinzu (idempotent).
 
         Bereits vorhandene Eintraege behalten ihren urspruenglichen
-        `enqueued_utc`-Zeitpunkt (`INSERT OR IGNORE`).
+        `enqueued_utc`-timestamp (`INSERT OR IGNORE`).
 
         Args:
             supercharge_info_ids: Station-IDs, die zur Warteschlange
                 hinzugefuegt werden sollen.
 
         Returns:
-            Anzahl der tatsaechlich neu hinzugefuegten Eintraege.
+            Anzahl der tatsaechlich new hinzugefuegten Eintraege.
         """
         self._ensure_initialized()
         with self._connect() as conn, conn:

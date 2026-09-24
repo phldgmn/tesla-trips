@@ -111,7 +111,7 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
             country_filter: Optionaler Länderfilter (DE/DK/SE)
 
         Returns:
-            Liste von ChargingStation, sortiert nach Distanz (aufsteigend)
+            Liste von ChargingStation, sortiert nach distance (aufsteigend)
         """
         stations = self._load_stations()
         if self._lat_bands is None or self._lat_bands_source is not stations:
@@ -122,7 +122,7 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
         if country_filter:
             candidates = [s for s in candidates if s.country == country_filter]
 
-        # Sortieren nach Distanz (aufsteigend)
+        # Sortieren nach distance (aufsteigend)
         paired = [(haversine_distance_m(coordinate, s.coordinate) / 1000.0, s) for s in candidates]
         paired.sort(key=lambda x: x[0])
         return [station for _, station in paired]

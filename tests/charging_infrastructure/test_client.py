@@ -408,7 +408,8 @@ class TestTeslaLocationsClient:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Akamai liefert die Blockseite manchmal mit HTTP 200 statt 403/429 -
-        muss trotzdem als Block erkannt werden statt als kaputtes JSON."""
+        muss trotzdem als Block erkannt werden statt als kaputtes JSON.
+        """
         import tripplanner.charging_infrastructure.clients.tesla_curl as tesla_curl_module
 
         monkeypatch.setattr(tesla_curl_module.asyncio, "sleep", AsyncMock())
@@ -481,7 +482,8 @@ class _FakeFetcher:
 
     def set_sequence(self, url: str, responses: list[tuple[int, str]]) -> None:
         """Liefert bei aufeinanderfolgenden Aufrufen von ``url`` je einen
-        Eintrag aus ``responses``; der letzte Eintrag wiederholt sich."""
+        Eintrag aus ``responses``; der letzte Eintrag wiederholt sich.
+        """
         self._sequences[url] = list(responses)
 
     def set_default(self, status: int, body: str) -> None:
@@ -498,13 +500,15 @@ class _FakeFetcher:
 
     def set_run_result(self, result: Any) -> None:
         """Jeder ``run()``-Aufruf liefert ``result`` (oder wirft es, falls
-        eine ``Exception``)."""
+        eine ``Exception``).
+        """
         self._run_result = result
 
     def set_run_sequence(self, results: list[Any]) -> None:
         """Liefert bei aufeinanderfolgenden ``run()``-Aufrufen je einen
         Eintrag aus ``results`` (Wert oder zu werfende ``Exception``); der
-        letzte Eintrag wiederholt sich."""
+        letzte Eintrag wiederholt sich.
+        """
         self._run_sequence = list(results)
 
     def run(self, coro_factory: Any, timeout_s: float) -> Any:
@@ -514,7 +518,8 @@ class _FakeFetcher:
         Objekt vorhanden) - Human-Flow-Unit-Tests pruefen ausschliesslich die
         Orchestrierung (Retry/Fallback/Parsing) des Clients, nicht die
         CDP-Interaktion selbst (siehe ``test_human_flow_integration.py`` fuer
-        Letzteres)."""
+        Letzteres).
+        """
         self.run_calls += 1
         if self._run_sequence:
             result = (
@@ -578,7 +583,6 @@ class TestNodriverTeslaClient:
     @pytest.mark.asyncio
     async def test_fetch_locations_parses_json(self) -> None:
         """Prueft fetch_locations gibt Liste zurueck."""
-
         fetcher = _FakeFetcher()
         locations_json = json.dumps(
             {
@@ -614,7 +618,6 @@ class TestNodriverTeslaClient:
     @pytest.mark.asyncio
     async def test_fetch_location_details_parses_json(self) -> None:
         """Prueft fetch_location_details."""
-
         detail_json = json.dumps(
             {
                 "data": {
@@ -641,7 +644,6 @@ class TestNodriverTeslaClient:
     @pytest.mark.asyncio
     async def test_fetch_pricing_html_returns_raw_body(self) -> None:
         """Prueft, dass fetch_pricing_html den Rohtext liefert (kein JSON-Parsing)."""
-
         html = '<html><script id="__NEXT_DATA__">{"a": 1}</script></html>'
         url = "https://www.tesla.com/de_de/findus/location/supercharger/rhudensupercharger"
         fetcher = _FakeFetcher()
@@ -685,7 +687,8 @@ class TestNodriverTeslaClient:
     ) -> None:
         """Tesla liefert die Akamai-Blockseite manchmal mit HTTP 200 statt 403 -
         muss trotzdem als Block erkannt und nicht als leeres/kaputtes JSON
-        durchgereicht werden."""
+        durchgereicht werden.
+        """
         import tripplanner.charging_infrastructure.clients.nodriver as nodriver_module
 
         monkeypatch.setattr(nodriver_module.asyncio, "sleep", AsyncMock())
@@ -712,7 +715,8 @@ class TestNodriverTeslaClient:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Ein einmaliger WAF-Block gefolgt von Erfolg liefert die Daten,
-        ohne dass der Aufrufer den Fehler sieht."""
+        ohne dass der Aufrufer den Fehler sieht.
+        """
         import tripplanner.charging_infrastructure.clients.nodriver as nodriver_module
 
         monkeypatch.setattr(nodriver_module.asyncio, "sleep", AsyncMock())
@@ -758,7 +762,6 @@ class TestNodriverTeslaClient:
     @pytest.mark.asyncio
     async def test_fetch_raises_on_server_error(self) -> None:
         """Ein 500 loest sofort (ohne Retry) CurlError aus - nicht WAF-bedingt."""
-
         fetcher = _FakeFetcher()
         fetcher.set_default(500, "boom")
 
@@ -792,7 +795,6 @@ class TestNodriverTeslaClient:
     @pytest.mark.asyncio
     async def test_close_only_closes_owned_fetcher(self) -> None:
         """Ein extern uebergebener Fetcher wird nicht geschlossen."""
-
         external = _FakeFetcher()
         client = NodriverTeslaClient(fetcher=external)
         await client.close()
@@ -801,7 +803,6 @@ class TestNodriverTeslaClient:
     @pytest.mark.asyncio
     async def test_close_closes_owned_fetcher(self) -> None:
         """Ein selbst erzeugter Fetcher wird via close() beendet."""
-
         client = NodriverTeslaClient()
         # Ersetze den echten Browser-Fetcher durch einen Fake, der nur den
         # ``closed``-Marker setzt - ohne den echten Browser zu starten.
@@ -816,7 +817,6 @@ class TestNodriverTeslaClient:
         self,
     ) -> None:
         """Prueft Vollstaendigen supercharger-detail-flow (Filter, Reihenfolge)."""
-
         locations_url = "https://www.tesla.com/api/findus/get-locations?country=DE&view=map"
         locations_json = json.dumps(
             {
@@ -983,7 +983,8 @@ class TestNodriverHumanFlowTeslaClient:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Nach erschoepften Human-Flow-Versuchen faellt der Client auf den
-        direkten JSON-API-GET der Basisklasse zurueck."""
+        direkten JSON-API-GET der Basisklasse zurueck.
+        """
         import tripplanner.charging_infrastructure.clients.human_flow as human_flow_module
         from tripplanner.charging_infrastructure.client import NodriverHumanFlowTeslaClient
 
@@ -1022,7 +1023,8 @@ class TestNodriverHumanFlowTeslaClient:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Ein Human-Flow-Fehler (z.B. Such-Input nicht gefunden) faellt ebenfalls
-        auf den direkten JSON-API-GET zurueck."""
+        auf den direkten JSON-API-GET zurueck.
+        """
         import tripplanner.charging_infrastructure.clients.human_flow as human_flow_module
         from tripplanner.charging_infrastructure.client import NodriverHumanFlowTeslaClient
 

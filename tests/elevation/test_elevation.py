@@ -6,7 +6,6 @@ from collections import OrderedDict
 
 import pytest
 import rasterio
-
 from tripplanner.elevation.elevation import ElevationProvider, calculate_horizontal_distance
 from tripplanner.elevation.models import ElevationPoint
 from tripplanner.elevation.providers import CopernicusDEMDataSource, FakeDataSource
@@ -95,7 +94,7 @@ class TestElevationProvider:
     def test_calculate_segment_gradients_negative_slope(
         self, elevation_provider: ElevationProvider
     ) -> None:
-        """Negativ-Steigung (Gefälle) wird korrekt berechnet."""
+        """Negativ-gradient (Gefälle) wird korrekt berechnet."""
         points = [
             ElevationPoint(coordinate=(47.0, 8.0), hoehe_m=100.0),
             ElevationPoint(coordinate=(47.0001, 8.0001), hoehe_m=90.0),
@@ -109,7 +108,7 @@ class TestElevationProvider:
     def test_calculate_segment_gradients_zero_distance(
         self, elevation_provider: ElevationProvider
     ) -> None:
-        """Steigung ist 0 wenn horizontale Distanz 0 ist."""
+        """gradient ist 0 wenn horizontale distance 0 ist."""
         points = [
             ElevationPoint(coordinate=(47.0, 8.0), hoehe_m=100.0),
             ElevationPoint(coordinate=(47.0, 8.0), hoehe_m=120.0),
@@ -140,13 +139,13 @@ class TestHorizontalDistanceCalculation:
     """Tests für calculate_horizontal_distance."""
 
     def test_distance_zero_for_identical_points(self) -> None:
-        """Distanz zwischen identischen Punkten ist 0."""
+        """distance zwischen identischen Punkten ist 0."""
         coord = (47.0, 8.0)
         dist = calculate_horizontal_distance(coord, coord)
         assert dist == pytest.approx(0.0, abs=1e-6)
 
     def test_distance_symmetric(self) -> None:
-        """Distanz(a, b) == Distanz(b, a)."""
+        """distance(a, b) == distance(b, a)."""
         coord1 = (47.0, 8.0)
         coord2 = (48.0, 9.0)
         dist1 = calculate_horizontal_distance(coord1, coord2)
@@ -154,14 +153,14 @@ class TestHorizontalDistanceCalculation:
         assert dist1 == pytest.approx(dist2, rel=1e-6)
 
     def test_distance_approximate_1_degree(self) -> None:
-        """Distanz von 1° Längengrad am Äquator ≈ 111 km."""
+        """distance von 1° Längengrad am Äquator ≈ 111 km."""
         coord1 = (0.0, 0.0)
         coord2 = (0.0, 1.0)
         dist = calculate_horizontal_distance(coord1, coord2)
         assert dist == pytest.approx(111_320, rel=0.01)
 
     def test_distance_1_degree_latitude(self) -> None:
-        """Distanz von 1° Breite ≈ 111 km."""
+        """distance von 1° latitude ≈ 111 km."""
         coord1 = (0.0, 0.0)
         coord2 = (1.0, 0.0)
         dist = calculate_horizontal_distance(coord1, coord2)
@@ -235,7 +234,8 @@ class TestAsyncGatherCallsToThreadPerTile:
         self,
     ) -> None:
         """Verify that asyncio.to_thread is called once per distinct tile,
-        not once per coordinate."""
+        not once per coordinate.
+        """
         coords = [
             (47.0, 8.0),
             (47.0, 8.0001),
@@ -274,7 +274,8 @@ class TestAsyncGatherCallsToThreadPerTile:
         now merged into one call per tile, held under that tile's lock for
         its whole duration (see `_get_tile_lock`) - this test now measures
         that single phase's concurrency across distinct tiles instead of
-        distinguishing an "open phase" from a "read phase"."""
+        distinguishing an "open phase" from a "read phase".
+        """
         coords = [
             (47.0, 8.0),
             (47.0001, 8.0),

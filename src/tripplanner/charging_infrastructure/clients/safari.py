@@ -41,7 +41,7 @@ from .common import (
 )
 
 _FIND_DOC_TIMEOUT_S: float = 5.0
-"""Max. Wartezeit, bis der neu erzeugte Tab unter seiner Ziel-URL in
+"""Max. Wartezeit, bis der new erzeugte Tab unter seiner Ziel-URL in
 ``documents`` auffindbar ist (die URL des Dokuments aktualisiert sich nicht
 synchron mit ``make new document``)."""
 
@@ -49,7 +49,7 @@ _LOAD_TIMEOUT_S: float = 20.0
 """Max. Wartezeit auf ``document.readyState == "complete"`` im neuen Tab."""
 
 _POLL_INTERVAL_S: float = 0.25
-"""Intervall zwischen den Polling-Versuchen (Tab-Suche und Ladezustand)."""
+"""interval zwischen den Polling-Versuchen (Tab-Suche und Ladezustand)."""
 
 _OSASCRIPT_TIMEOUT_S: float = 45.0
 """Hartes Timeout fuer den gesamten ``osascript``-Subprozess (Sicherheitsnetz
@@ -57,7 +57,7 @@ falls Safari/AppleScript haengen bleibt)."""
 
 _CLEANUP_TIMEOUT_S: float = 10.0
 """Timeout fuer den Rueckfall-``osascript``-Aufruf (``_build_cleanup_script``),
-der nach einem gekillten Fetch-Versuch verwaiste Safari-Tabs schliesst. Kurz
+der nach einem gekillten Fetch-Versuch verwaiste Safari-Tabs schliesst. short
 gehalten, da dies nur ein Aufraeum-Versuch ist und selbst nicht haengen
 bleiben soll."""
 

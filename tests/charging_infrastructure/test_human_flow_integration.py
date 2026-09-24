@@ -18,7 +18,6 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
-
 from tripplanner.charging_infrastructure.client import (
     NodriverBrowserFetcher,
     NodriverHumanFlowTeslaClient,
@@ -108,7 +107,8 @@ def client(base_url: str) -> NodriverHumanFlowTeslaClient:
 @pytest.mark.asyncio
 async def test_search_locations_via_real_browser(client: NodriverHumanFlowTeslaClient) -> None:
     """Zeichenweises Tippen in ``input.tds-form-input-search`` loest die
-    Such-XHR aus und deren JSON-Antwort wird abgefangen."""
+    Such-XHR aus und deren JSON-Antwort wird abgefangen.
+    """
     results = await client.search_locations("Test City", locale="de_DE")
     assert results == SEARCH_JSON["data"]
 
@@ -119,7 +119,8 @@ async def test_fetch_location_details_via_real_browser(
     client: NodriverHumanFlowTeslaClient,
 ) -> None:
     """Suche -> Ergebnisauswahl-Navigation loest beide Detail-Fetches aus;
-    beide Antworten werden abgefangen und zusammengefuehrt."""
+    beide Antworten werden abgefangen und zusammengefuehrt.
+    """
     detail = await client.fetch_location_details(
         "testsupercharger", locale="de_DE", search_query="Test City"
     )

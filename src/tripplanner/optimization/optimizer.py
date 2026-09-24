@@ -69,7 +69,7 @@ class NetworkXOptimizer(OptimizerInterface):
 
         Args:
             soc_step_pct: Schrittweite für SoC-Diskretisierung in Prozent.
-            time_step_min: Schrittweite für Zeit-Diskretisierung in Minuten.
+            time_step_min: Schrittweite für time-Diskretisierung in Minuten.
         """
         self.soc_step_pct = soc_step_pct
         self.time_step_min = time_step_min
@@ -96,9 +96,9 @@ class NetworkXOptimizer(OptimizerInterface):
     ) -> ChargingPlan:
         """Optimiert Ladeplan unter Verwendung eines diskretisierten Zustandsgraphen.
 
-        A*-Suche mit Heuristik = verbleibende Fahrzeit unter den tatsaechlichen, je
+        A*-Suche mit Heuristik = verbleibende drive_time_s unter den tatsaechlichen, je
         Segment ermittelten Geschwindigkeiten (siehe `_heuristik`,
-        `SegmentEnergyResult.fahrzeit_s`).
+        `SegmentEnergyResult.drive_time_s`).
 
         Args:
             route: Die vollständige Route mit Metadaten.
@@ -107,10 +107,10 @@ class NetworkXOptimizer(OptimizerInterface):
             energy_results: Ergebnisse der Energieberechnung je Segment.
             charging_stations: Liste verfügbarer Ladestationen.
             waypoints: Liste von Zwischenstopps mit optionaler Aufenthaltsdauer.
-            vehicle_profile: Physikalisches Fahrzeugprofil.
+            vehicle_profile: Physikalisches vehicle_profile.
             constraints: Optimierungs-Constraints (Min-SoC, Ziel-SoC, etc.).
             start_soc_pct: Start-SoC des Fahrzeugs in Prozent.
-            departure_time: Geplante Abfahrtszeit.
+            departure_time: Geplante departure_time.
             iteration: Iterationsnummer für spätere Wetter-Iter.
             charging_duration_specifications: Optionale feste Ladedauern (Sekunden) je Stations-ID.
             ferry_time_windows: Optionale feste Fährfahrpläne je
@@ -136,11 +136,11 @@ class NetworkXOptimizer(OptimizerInterface):
 
         # Zielknoten: letztes Segment, Ziel-SoC (inkl. Sicherheitsreserve).
         # Am Ziel endet die Fahrt - das allgemeine `min_soc_pct` (Reserve fuer
-        # WEITERFAHRT auf offener Strecke, siehe `OptimizationConstraints`)
+        # WEITERFAHRT auf offener segment, siehe `OptimizationConstraints`)
         # ist hier nicht einschlaegig (analog zu `min_arrival_soc_pct`
-        # an einer Ladestation: dort droht ebenfalls kein Liegenbleiben MEHR,
+        # an einer Ladestation: dort droht ebenfalls kein Liegenbleiben more,
         # weil ohnehin nicht weitergefahren wird, bevor geladen wurde). Ein
-        # vom Nutzer bewusst niedrig gewaehltes `target_soc_pct` (z. B. 5%) darf
+        # vom Nutzer bewusst low gewaehltes `target_soc_pct` (z. B. 5%) darf
         # daher nicht durch den default-15%-Sicherheitsreserve-Floor
         # ueberschrieben werden (siehe Nutzer-Report: Ziel-SoC 5% gesetzt,
         # Optimierung plante dennoch auf 15% - inkl. Folgefehler bei
@@ -151,7 +151,7 @@ class NetworkXOptimizer(OptimizerInterface):
         )
         ziel_soc_bucket = soc_to_bucket(target_soc_target, self.soc_step_pct)
 
-        # Erstelle Startknoten (segment_index=0, soc=start_soc, zeit=departure_time)
+        # Erstelle Startknoten (segment_index=0, soc=start_soc, time=departure_time)
         start_soc_bucket = soc_to_bucket(start_soc_pct, self.soc_step_pct)
         start_zeit_bucket = time_to_bucket(departure_time, departure_time, self.time_step_min)
 
@@ -160,7 +160,7 @@ class NetworkXOptimizer(OptimizerInterface):
             start_node,
             type="start",
             soc_pct=start_soc_pct,
-            zeitpunkt=departure_time,
+            timestamp=departure_time,
             segment_index=0,
         )
 
@@ -177,15 +177,15 @@ class NetworkXOptimizer(OptimizerInterface):
         # Mappe Ladestationen auf Segmente
         station_segments = self._map_stations_to_segments(charging_stations, segments)
 
-        # Erstelle Ladekurve für das Fahrzeug (V3-Standard)
+        # Erstelle Ladekurve für das vehicle (V3-Standard)
         ladekurve = LadekurveReferenz.model_3_sr()
 
-        # Setze Basiszeit für Zeit-Bucket Berechnungen
+        # Setze Basiszeit für time-Bucket Berechnungen
         self._base_time = departure_time
 
-        # Kumulative Energie-/Fahrzeit-Praefixsummen ueber die Roh-Segmente,
-        # aus den TATSAECHLICHEN, je Segment via `SegmentEnergyResult.fahrzeit_s`
-        # ermittelten Geschwindigkeiten (Tempolimit/Baustellen-Override, siehe
+        # Kumulative energy-/drive_time_s-Praefixsummen ueber die Roh-Segmente,
+        # aus den TATSAECHLICHEN, je Segment via `SegmentEnergyResult.drive_time_s`
+        # ermittelten Geschwindigkeiten (speed_limit_kmh/construction_zones-Override, siehe
         # `energy.calculate_segment_consumption`) - NICHT aus einer einzigen
         # Durchschnittsgeschwindigkeit ueber die gesamte Reise. Ermoeglichen
         # O(1)-Aggregation einer ganzen Teilstrecke zwischen zwei
@@ -196,29 +196,29 @@ class NetworkXOptimizer(OptimizerInterface):
         # Punktpaar), siehe docs/plans/07-optimization.md, Risiko
         # "Skalierbarkeit der NetworkX-Lösung". Nur mit dieser echten
         # Zeitbasis stimmen Ankunfts-/Abfahrtszeiten an Ladehalten
-        # (`ChargingStop.ankunftszeit`/`departure_time`) sowie `gesamtreisezeit_s`
+        # (`ChargingStop.arrival_time`/`departure_time`) sowie `gesamtreisezeit_s`
         # mit dem tatsaechlichen, je Segment unterschiedlichen Tempo ueberein -
         # eine pauschale Durchschnittsgeschwindigkeit fuehrt sonst dazu, dass
         # die Ankunft an einem Ladehalt (bzw. dessen `segment_index`) und die
-        # Fahrzeit bis dorthin auseinanderlaufen (sichtbar u. a. als falscher
+        # drive_time_s bis dorthin auseinanderlaufen (sichtbar u. a. als falscher
         # SoC/Position fuer mehrere Frames direkt nach einem Ladehalt in
         # `simulate_trip`).
         cum_energy_kwh = [0.0] * (len(segments) + 1)
         cum_time_s = [0.0] * (len(segments) + 1)
         for i, (_, er) in enumerate(zip(segments, energy_results, strict=True)):
             cum_energy_kwh[i + 1] = cum_energy_kwh[i] + er.energiebedarf_kwh
-            cum_time_s[i + 1] = cum_time_s[i] + er.fahrzeit_s
+            cum_time_s[i + 1] = cum_time_s[i] + er.drive_time_s
         self._cum_time_s = cum_time_s
 
-        # Durchschnittlicher Verbrauch (kWh/m) ueber die GESAMTE Route - dient
+        # Durchschnittlicher consumption (kWh/m) ueber die GESAMTE Route - dient
         # als Naeherung fuer den Energiebedarf eines Abstechers abseits der
         # Route zu einer Ladestation (siehe `_detour_kosten`). Exakte
-        # Segment-fuer-Segment-Energie fuer eine Strecke, die GraphHopper nie
+        # Segment-fuer-Segment-energy fuer eine segment, die GraphHopper nie
         # berechnet hat, existiert nicht - der Routendurchschnitt ist die
-        # naheliegende Naeherung (Topografie/Tempolimit der Route selbst sind
+        # naheliegende Naeherung (Topografie/speed_limit_kmh der Route selbst sind
         # ohnehin die beste verfuegbare Schaetzung fuer eine nahegelegene
         # Nebenstrecke).
-        gesamtlaenge_m = route.gesamtlaenge_m or sum(seg.laenge_m for seg in segments)
+        gesamtlaenge_m = route.gesamtlaenge_m or sum(seg.length_m for seg in segments)
         self._avg_verbrauch_kwh_pro_m = (
             cum_energy_kwh[-1] / gesamtlaenge_m if gesamtlaenge_m > 0.0 else 0.0
         )
@@ -320,13 +320,13 @@ class NetworkXOptimizer(OptimizerInterface):
         )
 
         # Berechne Gesamtreisezeit: der Zielknoten hat immer segment_index ==
-        # len(segments) (alle Segmente vollstaendig abgefahren). `zeitpunkt`
-        # ist die tatsaechliche kumulierte Ankunftszeit (siehe _add_drive_edge
-        # etc.) statt einer aus dem gerundeten Zeit-Bucket rekonstruierten
+        # len(segments) (alle Segmente vollstaendig abgefahren). `timestamp`
+        # ist die tatsaechliche kumulierte arrival_time (siehe _add_drive_edge
+        # etc.) statt einer aus dem gerundeten time-Bucket rekonstruierten
         # Naeherung, die bei feingranularen Segmenten Praezision verlieren
         # wuerde.
         last_node = path[-1]
-        last_zeitpunkt = G.nodes[last_node]["zeitpunkt"]
+        last_zeitpunkt = G.nodes[last_node]["timestamp"]
 
         gesamtreisezeit = int((last_zeitpunkt - departure_time).total_seconds())
 
@@ -476,7 +476,7 @@ class NetworkXOptimizer(OptimizerInterface):
         """
         return map_stations_to_segments(stations, segments)
 
-    def _estimate_max_time_buckets(  # noqa: PLR0913, PLR0917 -- Zeitbudget braucht Fahrzeit-, Lade- UND Wartezeit-Kontext
+    def _estimate_max_time_buckets(  # noqa: PLR0913, PLR0917 -- Zeitbudget braucht drive_time_s-, Lade- UND Wartezeit-Kontext
         self,
         total_time_s: float,
         total_energy_kwh: float,
@@ -485,31 +485,31 @@ class NetworkXOptimizer(OptimizerInterface):
         waypoints: list[Waypoint],
         departure_time: datetime,
     ) -> int:
-        """Schätze die maximale Anzahl an Zeit-Buckets für die gesamte Route.
+        """Schätze die maximale Anzahl an time-Buckets für die gesamte Route.
 
-        Das Zeitbudget MUSS die für notwendige Ladestopps benötigte Zeit mit
-        einschließen - ein reiner Fahrzeit-Puffer (ohne Ladezeit) würde jede
-        Route, die mehr als eine Handvoll Minuten Laden braucht, fälschlich
-        als "nicht fahrbar" verwerfen, sobald der kumulierte Zeit-Bucket-Pfad
-        durchs Laden über die reine Fahrzeit-Schätzung hinauswächst (siehe
+        Das Zeitbudget MUSS die für notwendige Ladestopps benötigte time mit
+        einschließen - ein reiner drive_time_s-Puffer (ohne Ladezeit) würde jede
+        Route, die more als eine Handvoll Minuten Laden braucht, fälschlich
+        als "nicht fahrbar" verwerfen, sobald der kumulierte time-Bucket-Pfad
+        durchs Laden über die reine drive_time_s-Schätzung hinauswächst (siehe
         docs/plans/07-optimization.md).
 
         Args:
-            total_time_s: Reale, aus `SegmentEnergyResult.fahrzeit_s` aufsummierte
+            total_time_s: Reale, aus `SegmentEnergyResult.drive_time_s` aufsummierte
                 Gesamtfahrzeit der Route (`cum_time_s[-1]` in `optimize()`) - kein
-                Distanz/Durchschnittsgeschwindigkeit-Schaetzwert, sonst koennte das
+                distance/Durchschnittsgeschwindigkeit-Schaetzwert, sonst koennte das
                 Budget bei tatsaechlich langsameren Streckenabschnitten
                 unterschaetzt werden und fahrbare, nur langsamere Routen faelschlich
                 als "nicht fahrbar" verwerfen.
             total_energy_kwh: Gesamtenergiebedarf der Route in kWh.
-            vehicle_profile: Physikalisches Fahrzeugprofil.
+            vehicle_profile: Physikalisches vehicle_profile.
             constraints: Optimierungs-Constraints (u. a. `max_ladezeit_s`).
             waypoints: Zwischenstopps, deren `stay_duration`/`planned_departure`
                 zusaetzliche, erzwungene Wartezeit ins Budget einbringen kann -
                 ohne das koennte ein ueber Nacht geplanter Zwischenstopp das
                 Zeitbudget sprengen und die Route faelschlich als "nicht
                 fahrbar" verwerfen, obwohl nur gewartet werden muss.
-            departure_time: Abfahrtszeitpunkt der gesamten Reise, Referenz fuer
+            departure_time: departure_time der gesamten Reise, Referenz fuer
                 eine absolute `planned_departure` an einem Zwischenstopp.
         """
         total_time_min = total_time_s / 60.0
@@ -525,9 +525,9 @@ class NetworkXOptimizer(OptimizerInterface):
 
         # Worst-Case-Wartezeit je Zwischenstopp: die groessere von Mindest-
         # stay_duration und (absoluter) geplanter Abfahrt relativ zur
-        # Gesamt-Abfahrtszeit - eine grobe, bewusst grosszuegige obere
-        # Schranke (keine Simulation der tatsaechlichen Ankunftszeit noetig,
-        # da ein zu grosses Budget nur die Zustandsgraph-Groesse, nie die
+        # Gesamt-departure_time - eine grobe, bewusst grosszuegige obere
+        # Schranke (keine Simulation der tatsaechlichen arrival_time noetig,
+        # da ein zu grosses Budget nur die Zustandsgraph-size, nie die
         # Korrektheit beeinflusst).
         wartezeit_puffer_min = 0.0
         for wp in waypoints:
@@ -548,19 +548,19 @@ class NetworkXOptimizer(OptimizerInterface):
 
     def _calc_soc_verbrauch_pct(
         self,
-        energie_kwh: float,
+        energy_kwh: float,
         vehicle_profile: VehicleProfile,
     ) -> float:
-        """Berechne SoC-Verbrauch in Prozent für einen gegebenen Energiebedarf.
+        """Berechne SoC-consumption in Prozent für einen gegebenen Energiebedarf.
 
         Args:
-            energie_kwh: Energiebedarf in kWh (Verbrauch positiv, Rekuperation
+            energy_kwh: Energiebedarf in kWh (consumption positiv, recuperation
                 negativ) - typischerweise über eine Teilstrecke aggregiert
                 (siehe `_add_drive_edge`).
-            vehicle_profile: Fahrzeugprofil (liefert die Batteriekapazität).
+            vehicle_profile: vehicle_profile (liefert die Batteriekapazität).
         """
         return charging_math.calc_soc_verbrauch_pct(
-            energie_kwh, vehicle_profile.battery_capacity_kwh
+            energy_kwh, vehicle_profile.battery_capacity_kwh
         )
 
     def _calc_ladezeit_s(
@@ -618,7 +618,7 @@ class NetworkXOptimizer(OptimizerInterface):
         v: tuple[int, int, int],
         segments: list[RouteSegment],
     ) -> float:
-        """Admissible Heuristik: verbleibende reale Fahrzeit unter idealen Bedingungen.
+        """Admissible Heuristik: verbleibende reale drive_time_s unter idealen Bedingungen.
 
         Ideale Bedingungen = ohne Ladestopps.
 
@@ -628,23 +628,23 @@ class NetworkXOptimizer(OptimizerInterface):
             segments: Liste aller Route-Segmente.
 
         Returns:
-            Geschätzte Zeit bis zum Ziel in Sekunden.
+            Geschätzte time bis zum Ziel in Sekunden.
         """
         u_seg, _, _ = u
 
-        # Exakte verbleibende Fahrzeit per O(1)-Lookup aus der in `optimize()`
+        # Exakte verbleibende drive_time_s per O(1)-Lookup aus der in `optimize()`
         # vorberechneten Praefixsumme der TATSAECHLICHEN, je Segment
         # ermittelten Fahrzeiten (`self._cum_time_s`, siehe
-        # `SegmentEnergyResult.fahrzeit_s`) statt einer Distanz/Pauschal-
-        # geschwindigkeit-Schaetzung. A* ruft die Heuristik pro expandiertem
+        # `SegmentEnergyResult.drive_time_s`) statt einer distance/Pauschal-
+        # speed-Schaetzung. A* ruft die Heuristik pro expandiertem
         # Knoten auf; bei feingranularen Routen mit tausenden Segmenten waere
         # eine O(n)-Neuberechnung sonst selbst nach der Aggregation der
         # Fahrtkanten (`_add_drive_edge`) noch ein spuerbarer Kostenfaktor.
         # Admissible, da die reine Restfahrzeit (ohne Ladestopps) niemals
-        # groesser als die tatsaechlichen Restkosten (Fahrzeit + evtl.
+        # groesser als die tatsaechlichen Restkosten (drive_time_s + evtl.
         # Ladezeit) sein kann - und straffer/informierter als eine pauschale
         # 110-km/h-Annahme, die auf Streckenabschnitten mit hoeherem
-        # Tempolimit sogar INADMISSIBLE waere (Heuristik > wahre Kosten).
+        # speed_limit_kmh sogar INADMISSIBLE waere (Heuristik > wahre Kosten).
         return self._cum_time_s[len(segments)] - self._cum_time_s[u_seg]
 
     def _extract_charging_stops(
@@ -692,7 +692,7 @@ def create_networkx_optimizer(
 
     Args:
         soc_step_pct: Schrittweite für SoC-Diskretisierung in Prozent.
-        time_step_min: Schrittweite für Zeit-Diskretisierung in Minuten.
+        time_step_min: Schrittweite für time-Diskretisierung in Minuten.
 
     Returns:
         NetworkXOptimizer-Instanz.
@@ -716,7 +716,7 @@ class ORToolsOptimizer(OptimizerInterface):
 
         Args:
             soc_step_pct: Schrittweite für SoC-Diskretisierung in Prozent.
-            time_step_min: Schrittweite für Zeit-Diskretisierung in Minuten.
+            time_step_min: Schrittweite für time-Diskretisierung in Minuten.
             use_cp_sat: True = CP-SAT Solver, False = Routing Solver.
         """
         self.soc_step_pct = soc_step_pct
@@ -759,7 +759,7 @@ def create_ortools_optimizer(
 
     Args:
         soc_step_pct: Schrittweite für SoC-Diskretisierung in Prozent.
-        time_step_min: Schrittweite für Zeit-Diskretisierung in Minuten.
+        time_step_min: Schrittweite für time-Diskretisierung in Minuten.
         use_cp_sat: True = CP-SAT Solver, False = Routing Solver.
 
     Returns:

@@ -20,7 +20,6 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
-
 from tripplanner.charging_infrastructure.client import (
     CurlError,
     NodriverBrowserFetcher,
@@ -158,7 +157,7 @@ async def test_fetch_pricing_html_keeps_next_data(client: NodriverTeslaClient) -
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_non_200_statuses_raise_curl_error(client: NodriverTeslaClient) -> None:
-    """403/429/404 loesen CurlError mit dem jeweiligen Statuscode aus."""
+    """403/429/404 loesen CurlError mit dem jeweiligen status_code aus."""
     fetcher: NodriverBrowserFetcher = client._fetcher  # type: ignore[assignment]
     origin = client.BASE_URL.rsplit("/api", 1)[0]
     for path, expected in (("/blocked", "WAF-Block"), ("/throttled", "429"), ("/nope", "HTTP 404")):

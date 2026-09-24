@@ -211,11 +211,11 @@ def trips(  # noqa: PLR0913, PLR0917
             "target_soc_pct": result.target_soc_pct,
             "frames": [
                 {
-                    "zeitpunkt": f.zeitpunkt.isoformat(),
+                    "timestamp": f.timestamp.isoformat(),
                     "position": list(f.position),
                     "soc_pct": f.soc_pct,
                     "zustand": f.zustand.value,
-                    "geschwindigkeit_kmh": f.geschwindigkeit_kmh,
+                    "speed_kmh": f.speed_kmh,
                 }
                 for f in result.frames
             ],

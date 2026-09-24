@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 # Public, unauthenticated DATEX II Situation Publication feeds operated by
 # NRW Mobilitätsdaten (Mobilithek exporter). "ld" = long-duration, "kd" =
-# short-duration ("kurze Dauer") Autobahn roadworks; both are fetched and
+# short-duration ("kurze duration") Autobahn roadworks; both are fetched and
 # combined since neither alone covers all active roadworks.
 NRW_ARBEITSSTELLEN_LD_URL = (
     "https://www.mobilitaetsdaten.nrw/api/systemadapter-mobilithek-exporter/"
@@ -167,23 +167,23 @@ class DatexIIGermanyConstructionProvider(ConstructionProvider):
             return None
 
         if len(zone.koordinaten) >= 2:
-            laenge_m: float | None = geodesic_length_m(zone.koordinaten)
+            length_m: float | None = geodesic_length_m(zone.koordinaten)
         else:
-            laenge_m = sum(
-                route.segments[i].laenge_m for i in segment_ids if 0 <= i < len(route.segments)
+            length_m = sum(
+                route.segments[i].length_m for i in segment_ids if 0 <= i < len(route.segments)
             )
 
         return ConstructionZone(
             betroffene_segmente=segment_ids,
-            tempolimit_kmh=(
-                zone.tempolimit_kmh
-                if zone.tempolimit_kmh is not None
+            speed_limit_kmh=(
+                zone.speed_limit_kmh
+                if zone.speed_limit_kmh is not None
                 else _DE_DATEXII_DEFAULT_SPEED_LIMIT_KMH
             ),
-            sperrungstyp=matching.map_closure_type(zone.sperrungstyp),
+            closure_type=matching.map_closure_type(zone.closure_type),
             umleitungshinweis=zone.umleitungshinweis,
             land=Land.DE,
             gueltig_von=zone.gueltig_von,
             gueltig_bis=zone.gueltig_bis,
-            laenge_m=laenge_m,
+            length_m=length_m,
         )

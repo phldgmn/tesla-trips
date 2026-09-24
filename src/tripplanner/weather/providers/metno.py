@@ -92,8 +92,8 @@ def _metno_precipitation(entry: dict[str, Any]) -> tuple[float, bool]:
     (`next_1_hours`, falling back to `next_6_hours` divided by 6 further
     out in the forecast horizon) and has no dedicated snowfall-amount
     field, so a `symbol_code` containing "snow" is used as a heuristic to
-    route the precipitation amount into `schneefall_cm` instead of
-    `niederschlag_mm`.
+    route the precipitation amount into `snowfall_cm` instead of
+    `precipitation_mm`.
 
     Args:
         entry: A single `timeseries[]` element.
@@ -123,9 +123,9 @@ def _extract_metno_sample(by_time: dict[Any, Any], query: WeatherQuery) -> Weath
         query: The query to answer.
 
     Returns:
-        `None` if `query.zeitpunkt` (snapped to the hour) has no matching entry.
+        `None` if `query.timestamp` (snapped to the hour) has no matching entry.
     """
-    entry = by_time.get(_snap_to_hour_z(query.zeitpunkt))
+    entry = by_time.get(_snap_to_hour_z(query.timestamp))
     if entry is None:
         return None
 
@@ -134,16 +134,16 @@ def _extract_metno_sample(by_time: dict[Any, Any], query: WeatherQuery) -> Weath
 
     return WeatherSample(
         coordinate=query.coordinate,
-        zeitpunkt=query.zeitpunkt,
-        temperatur_c=float(instant.get("air_temperature", 0.0)),
-        windgeschwindigkeit_ms=float(instant.get("wind_speed", 0.0)),
-        windrichtung_deg=_clamp(float(instant.get("wind_from_direction", 0.0)), 0.0, 360.0),
-        niederschlag_mm=0.0 if is_snow else precipitation_mm,
-        schneefall_cm=(precipitation_mm / 10.0) if is_snow else 0.0,
-        luftdruck_hpa=_clamp(
+        timestamp=query.timestamp,
+        temperature_c=float(instant.get("air_temperature", 0.0)),
+        wind_speed_ms=float(instant.get("wind_speed", 0.0)),
+        wind_direction_deg=_clamp(float(instant.get("wind_from_direction", 0.0)), 0.0, 360.0),
+        precipitation_mm=0.0 if is_snow else precipitation_mm,
+        snowfall_cm=(precipitation_mm / 10.0) if is_snow else 0.0,
+        pressure_hpa=_clamp(
             float(instant.get("air_pressure_at_sea_level", 1013.25)), 870.0, 1084.0
         ),
-        luftfeuchtigkeit_pct=_clamp(float(instant.get("relative_humidity", 0.0)), 0.0, 100.0),
-        globalstrahlung_wm2=0.0,  # not exposed by Locationforecast 2.0
-        bewoelkung_pct=_clamp(float(instant.get("cloud_area_fraction", 0.0)), 0.0, 100.0),
+        humidity_pct=_clamp(float(instant.get("relative_humidity", 0.0)), 0.0, 100.0),
+        solar_radiation_wm2=0.0,  # not exposed by Locationforecast 2.0
+        cloudiness_pct=_clamp(float(instant.get("cloud_area_fraction", 0.0)), 0.0, 100.0),
     )

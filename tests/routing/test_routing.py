@@ -6,7 +6,6 @@ from datetime import timedelta
 
 import pytest
 from pydantic import ValidationError
-
 from tripplanner.routing.models import FerrySegment, Route, RouteSegment
 from tripplanner.routing.providers import FakeRoutingProvider
 from tripplanner.trip_input.models import TripRequest
@@ -21,7 +20,7 @@ class TestRouteSegmentModel:
             RouteSegment(
                 segment_index=0,
                 geometrie=[(52.5, 13.4), (52.6, 13.5)],
-                laenge_m=1000.0,
+                length_m=1000.0,
                 strassenklasse="PRIMARY",
             )
 
@@ -31,60 +30,60 @@ class TestRouteSegmentModel:
             RouteSegment(
                 segment_index=0,
                 geometrie=[(52.5, 13.4), (52.6, 13.5)],
-                laenge_m=1000.0,
+                length_m=1000.0,
                 strassenklasse="PRIMARY",
                 bearing_deg=360.0,
             )
 
     def test_route_segment_oberflaeche_optional(self) -> None:
-        """oberflaeche ist optional (None wenn GraphHopper es nicht liefert)."""
+        """surface ist optional (None wenn GraphHopper es nicht liefert)."""
         segment = RouteSegment(
             segment_index=0,
             geometrie=[(52.5, 13.4), (52.6, 13.5)],
-            laenge_m=1000.0,
+            length_m=1000.0,
             strassenklasse="PRIMARY",
             bearing_deg=45.0,
         )
-        assert segment.oberflaeche is None
+        assert segment.surface is None
 
     def test_route_segment_road_environment_optional(self) -> None:
         """road_environment ist optional (None wenn GraphHopper es nicht liefert)."""
         segment = RouteSegment(
             segment_index=0,
             geometrie=[(52.5, 13.4), (52.6, 13.5)],
-            laenge_m=1000.0,
+            length_m=1000.0,
             strassenklasse="MOTORWAY",
             bearing_deg=45.0,
         )
         assert segment.road_environment is None
 
     def test_route_segment_strassenname_optional(self) -> None:
-        """strassenname ist optional (None wenn GraphHopper es nicht liefert)."""
+        """street_name ist optional (None wenn GraphHopper es nicht liefert)."""
         segment = RouteSegment(
             segment_index=0,
             geometrie=[(52.5, 13.4), (52.6, 13.5)],
-            laenge_m=1000.0,
+            length_m=1000.0,
             strassenklasse="MOTORWAY",
             bearing_deg=45.0,
         )
-        assert segment.strassenname is None
+        assert segment.street_name is None
 
 
 class TestFaehrSegmentModel:
     """Tests für das FerrySegment-Pydantic-Modell."""
 
     def test_faehr_segment_requires_all_fields(self) -> None:
-        """FerrySegment benötigt name, laenge_m, bbox_sw, bbox_ne, segment_index_start/end."""
+        """FerrySegment benötigt name, length_m, bbox_sw, bbox_ne, segment_index_start/end."""
         segment = FerrySegment(
             name="Rødby (DK) - Puttgarden (D)",
-            laenge_m=22000.0,
+            length_m=22000.0,
             bbox_sw=(54.50, 11.22),
             bbox_ne=(54.66, 11.36),
             segment_index_start=3,
             segment_index_end=7,
         )
         assert segment.name == "Rødby (DK) - Puttgarden (D)"
-        assert segment.laenge_m == 22000.0
+        assert segment.length_m == 22000.0
         assert segment.bbox_sw == (54.50, 11.22)
         assert segment.bbox_ne == (54.66, 11.36)
         assert segment.segment_index_start == 3
@@ -93,11 +92,11 @@ class TestFaehrSegmentModel:
         assert segment.arrival is None
 
     def test_faehr_segment_rejects_negative_laenge(self) -> None:
-        """laenge_m muss >= 0 sein."""
+        """length_m muss >= 0 sein."""
         with pytest.raises(ValidationError):
             FerrySegment(
                 name="X",
-                laenge_m=-1.0,
+                length_m=-1.0,
                 bbox_sw=(0.0, 0.0),
                 bbox_ne=(1.0, 1.0),
                 segment_index_start=0,
@@ -143,7 +142,7 @@ class TestFakeRoutingProvider:
     async def test_berechne_route_mit_waypoints_creates_segment_per_leg(
         self, provider: FakeRoutingProvider
     ) -> None:
-        """Bei N Zwischenpunkten entstehen mindestens N+1 Segmente (ein Segment pro Teilstrecke)."""
+        """Bei N Zwischenpunkten entstehen minimum N+1 Segmente (ein Segment pro Teilstrecke)."""
         start = (52.5200, 13.4050)
         destination = (53.5511, 9.9937)
         waypoints: list[tuple[tuple[float, float], timedelta | None]] = [
@@ -160,7 +159,8 @@ class TestFakeRoutingProvider:
         """`via_point_indices` zeigt exakt auf den Segment-Index, an dem jeder
         Zwischenstopp beginnt - Grundlage für `NetworkXOptimizer.
         _map_waypoints_to_segments`, das damit die Mehrdeutigkeit einer reinen
-        Naechster-Punkt-Suche auf sich kreuzenden Routen vermeidet."""
+        Naechster-Punkt-Suche auf sich kreuzenden Routen vermeidet.
+        """
         start = (52.5200, 13.4050)
         destination = (53.5511, 9.9937)
         waypoints: list[tuple[tuple[float, float], timedelta | None]] = [
@@ -185,7 +185,7 @@ class TestFakeRoutingProvider:
         trip_request: TripRequest,
         trip_request_with_waypoints: TripRequest,
     ) -> None:
-        """Eine TripRequest mit Zwischenstopp erzeugt mehr Segmente als ohne."""
+        """Eine TripRequest mit Zwischenstopp erzeugt more Segmente als ohne."""
         route_direct = await provider.berechne_route(trip_request)
         route_direct_should_have_one_segment = len(route_direct.segments)
 

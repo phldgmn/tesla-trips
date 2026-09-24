@@ -18,7 +18,7 @@ from shapely.geometry.base import BaseGeometry
 if TYPE_CHECKING:
     import tripplanner.routing.models as routing_models
 
-from tripplanner.construction.models import Sperrungstyp
+from tripplanner.construction.models import ClosureType
 from tripplanner.construction.parser import DATEXIIConstructionZoneInternal
 from tripplanner.geo import Coordinate, bearing_deg, haversine_distance_m
 
@@ -160,21 +160,21 @@ def zone_to_geometry(zone: DATEXIIConstructionZoneInternal) -> BaseGeometry:
     return LineString(coords)
 
 
-def map_closure_type(xsi_type: str) -> Sperrungstyp:
-    """Map a DATEX II xsi:type value to the Sperrungstyp enum."""
+def map_closure_type(xsi_type: str) -> ClosureType:
+    """Map a DATEX II xsi:type value to the ClosureType enum."""
     type_map = {
-        "fullyClosed": Sperrungstyp.FULLY_CLOSED,
-        "partiallyClosed": Sperrungstyp.PARTIALLY_CLOSED,
-        "laneClosed": Sperrungstyp.LANE_CLOSED,
-        "temporarySpeedLimit": Sperrungstyp.TEMPORARY_SPEED_LIMIT,
-        "reducedLanes": Sperrungstyp.REDUCED_LANES,
-        "detrourRequired": Sperrungstyp.DETOUR_REQUIRED,
-        "Roadworks": Sperrungstyp.PARTIALLY_CLOSED,
-        "MaintenanceWorks": Sperrungstyp.PARTIALLY_CLOSED,
-        "ConstructionWorks": Sperrungstyp.PARTIALLY_CLOSED,
-        "RoadOrCarriagewayOrLaneManagement": Sperrungstyp.PARTIALLY_CLOSED,
+        "fullyClosed": ClosureType.FULLY_CLOSED,
+        "partiallyClosed": ClosureType.PARTIALLY_CLOSED,
+        "laneClosed": ClosureType.LANE_CLOSED,
+        "temporarySpeedLimit": ClosureType.TEMPORARY_SPEED_LIMIT,
+        "reducedLanes": ClosureType.REDUCED_LANES,
+        "detrourRequired": ClosureType.DETOUR_REQUIRED,
+        "Roadworks": ClosureType.PARTIALLY_CLOSED,
+        "MaintenanceWorks": ClosureType.PARTIALLY_CLOSED,
+        "ConstructionWorks": ClosureType.PARTIALLY_CLOSED,
+        "RoadOrCarriagewayOrLaneManagement": ClosureType.PARTIALLY_CLOSED,
     }
-    return type_map.get(xsi_type, Sperrungstyp.PARTIALLY_CLOSED)
+    return type_map.get(xsi_type, ClosureType.PARTIALLY_CLOSED)
 
 
 def filter_opposite_direction(

@@ -19,7 +19,7 @@ _MAX_PAUSE_GESCHWINDIGKIT_KMH = 5.0
 
 
 class TripState(StrEnum):
-    """Zustand des Fahrzeugs zu einem Zeitpunkt in der Simulation."""
+    """Zustand des Fahrzeugs zu einem timestamp in der Simulation."""
 
     FAHREN = "FAHREN"
     LADEN = "LADEN"
@@ -27,58 +27,52 @@ class TripState(StrEnum):
 
 
 class SimulationFrame(BaseModel):
-    """Ein einzelner Zeitpunkt in der Reisesimulation."""
+    """Ein einzelner timestamp in der Reisesimulation."""
 
-    zeitpunkt: datetime
+    timestamp: datetime
     position: tuple[float, float] = Field(..., description="Position als (lat, lon) Tuple in WGS84")
-    distanz_m: float = Field(
-        ..., ge=0.0, description="Kumulierte Distanz vom Reisebeginn entlang der Route in Metern"
+    distance_m: float = Field(
+        ..., ge=0.0, description="Kumulierte distance vom Reisebeginn entlang der Route in Metern"
     )
     soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ladestand in Prozent")
     zustand: TripState
-    geschwindigkeit_kmh: float = Field(..., ge=0.0, description="Geschwindigkeit in km/h")
-    temperatur_c: float | None = Field(
+    speed_kmh: float = Field(..., ge=0.0, description="speed in km/h")
+    temperature_c: float | None = Field(
         default=None,
         description=(
-            "Fuer diesen Streckenpunkt angenommene Temperatur in Grad Celsius "
+            "Fuer diesen Streckenpunkt angenommene temperature in Grad Celsius "
             "(None, wenn Wetter bei der Berechnung nicht beruecksichtigt wurde, "
             "siehe `WeatherDetailLevel` 'off'). Fuer die Routen-Hover-Anzeige im "
             "Frontend (siehe `buildRouteHoverText` in `popups.ts`)."
         ),
     )
-    windgeschwindigkeit_ms: float | None = Field(
+    wind_speed_ms: float | None = Field(
         default=None,
         ge=0.0,
-        description="Fuer diesen Streckenpunkt angenommene Windgeschwindigkeit in m/s "
-        "(None wie temperatur_c).",
+        description="Fuer diesen Streckenpunkt angenommene wind_speed_ms in m/s "
+        "(None wie temperature_c).",
     )
-    windrichtung_deg: float | None = Field(
+    wind_direction_deg: float | None = Field(
         default=None,
         ge=0.0,
         le=360.0,
-        description="Fuer diesen Streckenpunkt angenommene Windrichtung in Grad "
-        "(0° = N, 90° = O; None wie temperatur_c).",
+        description="Fuer diesen Streckenpunkt angenommene wind_direction_deg in Grad "
+        "(0° = N, 90° = O; None wie temperature_c).",
     )
-    niederschlag_mm: float | None = Field(
+    precipitation_mm: float | None = Field(
         default=None,
         ge=0.0,
-        description="Fuer diesen Streckenpunkt angenommener Niederschlag in mm/h "
-        "(None wie temperatur_c).",
+        description="Fuer diesen Streckenpunkt angenommener precipitation in mm/h "
+        "(None wie temperature_c).",
     )
 
     @model_validator(mode="after")
     def validate_speed_state_consistency(self) -> SimulationFrame:
-        """Validiere Konsistenz zwischen Zustand und Geschwindigkeit."""
-        if (
-            self.zustand == TripState.LADEN
-            and self.geschwindigkeit_kmh > _MAX_LADE_GESCHWINDIGKIT_KMH
-        ):
-            raise ValueError("Beim Laden muss Geschwindigkeit ≈ 0 km/h sein")
-        if (
-            self.zustand == TripState.PAUSE
-            and self.geschwindigkeit_kmh > _MAX_PAUSE_GESCHWINDIGKIT_KMH
-        ):
-            raise ValueError("Bei Pause sollte Geschwindigkeit sehr gering sein")
+        """Validiere Konsistenz zwischen Zustand und speed."""
+        if self.zustand == TripState.LADEN and self.speed_kmh > _MAX_LADE_GESCHWINDIGKIT_KMH:
+            raise ValueError("Beim Laden muss speed ≈ 0 km/h sein")
+        if self.zustand == TripState.PAUSE and self.speed_kmh > _MAX_PAUSE_GESCHWINDIGKIT_KMH:
+            raise ValueError("Bei Pause sollte speed sehr gering sein")
         return self
 
 
@@ -95,14 +89,14 @@ class ChargingStopSummary(BaseModel):
         ...,
         min_length=1,
         description="Eindeutige ID der Ladestation, zur Identifikation "
-        "bei einer vom Nutzer vorgegebenen Ladedauer (siehe "
+        "bei einer vom Nutzer vorgegebenen charge_duration (siehe "
         "`tripplanner.trip_input.models.ChargingDurationSpecification`)",
     )
     position: tuple[float, float] = Field(
         ..., description="Position der Ladestation als (lat, lon)"
     )
-    distanz_m: float = Field(
-        ..., ge=0.0, description="Kumulierte Distanz entlang der Route, an der abgebogen wird"
+    distance_m: float = Field(
+        ..., ge=0.0, description="Kumulierte distance entlang der Route, an der abgebogen wird"
     )
     detour_geometrie: list[tuple[float, float]] = Field(
         default_factory=list,
@@ -141,12 +135,12 @@ class ChargingStopSummary(BaseModel):
     target_soc_pct: float = Field(
         ..., ge=0.0, le=100.0, description="Angestrebter SoC nach dem Laden in %"
     )
-    charging_duration_s: int = Field(..., ge=0, description="Ladedauer in Sekunden")
+    charging_duration_s: int = Field(..., ge=0, description="charge_duration in Sekunden")
     energie_geladen_kwh: float = Field(
         ..., ge=0.0, description="Waehrend des Ladehalts geladene Energiemenge in kWh"
     )
-    ankunftszeit: datetime = Field(..., description="Zeitpunkt der Ankunft an der Station")
-    departure_time: datetime = Field(..., description="Zeitpunkt der Abfahrt von der Station")
+    arrival_time: datetime = Field(..., description="timestamp der Ankunft an der Station")
+    departure_time: datetime = Field(..., description="timestamp der Abfahrt von der Station")
     price_per_kwh: float | None = Field(
         default=None,
         ge=0.0,
@@ -196,11 +190,11 @@ class WaypointStopSummary(BaseModel):
     position: tuple[float, float] = Field(
         ..., description="Position des Zwischenstopps als (lat, lon)"
     )
-    distanz_m: float = Field(
-        ..., ge=0.0, description="Kumulierte Distanz entlang der Route bei diesem Zwischenstopp"
+    distance_m: float = Field(
+        ..., ge=0.0, description="Kumulierte distance entlang der Route bei diesem Zwischenstopp"
     )
-    ankunftszeit: datetime = Field(..., description="Zeitpunkt der Ankunft am Zwischenstopp")
-    departure_time: datetime = Field(..., description="Zeitpunkt der (erzwungenen) Abfahrt")
+    arrival_time: datetime = Field(..., description="timestamp der Ankunft am Zwischenstopp")
+    departure_time: datetime = Field(..., description="timestamp der (erzwungenen) Abfahrt")
     charging_power_kw: float | None = Field(
         default=None, ge=0.0, description="Genutzte Ladeleistung in kW, None falls nicht geladen"
     )
@@ -229,9 +223,9 @@ class TripSimulationResult(BaseModel):
     """Vollständige Zeitreihe einer Reise."""
 
     frames: list[SimulationFrame]
-    gesamt_distanz_km: float = Field(..., ge=0, description="Gesamtdistanz in km")
+    gesamt_distanz_km: float = Field(..., ge=0, description="total_distance in km")
     gesamt_fahrzeit_min: float = Field(..., ge=0, description="Gesamtfahrzeit in Minuten")
-    gesamt_ladezeit_min: float = Field(..., ge=0, description="Gesamtladezeit in Minuten")
+    gesamt_ladezeit_min: float = Field(..., ge=0, description="total_charge_time in Minuten")
     gesamt_wartezeit_min: float = Field(
         default=0.0,
         ge=0,
@@ -271,7 +265,7 @@ class TripSimulationResult(BaseModel):
     )
     construction_zones: list[ConstructionZone] = Field(
         default_factory=list,
-        description="Baustellen entlang der Route fuer die Kartendarstellung",
+        description="construction_zones entlang der Route fuer die Kartendarstellung",
     )
 
 
@@ -287,7 +281,7 @@ class LadehaltDetour(BaseModel):
     (derselbe Punkt) ist fuer GraphHopper richtungsmehrdeutig und fuehrt zu
     unnoetigen Umwegen (an der falschen Ausfahrt vorbei, an der naechsten
     wenden). Mit zwei UNTERSCHIEDLICHEN, bereits auf der Hauptroute in
-    korrekter Fahrtrichtung liegenden Punkten ist die Fahrtrichtung dagegen
+    korrekter heading liegenden Punkten ist die heading dagegen
     von vornherein eindeutig.
     """
 

@@ -6,7 +6,6 @@ import json
 from datetime import UTC, datetime
 
 import pytest
-
 from tripplanner.charging_infrastructure.models import ChargingPricingTier
 from tripplanner.charging_infrastructure.pricing import (
     PricingParseError,
@@ -149,7 +148,8 @@ class TestParsePricingTiers:
 
     def test_non_positive_amount_is_skipped(self) -> None:
         """Ein Tier mit nicht-positivem Betrag (Pydantic-Validierung) wird
-        übersprungen, ohne den gesamten Parse-Vorgang scheitern zu lassen."""
+        übersprungen, ohne den gesamten Parse-Vorgang scheitern zu lassen.
+        """
         html = _charger_pricing_html(
             [
                 {"label": "Charging Fees for Tesla Owner", "price": "$0.00/kWh"},
@@ -228,7 +228,8 @@ class TestSelectOwnerRateForTime:
 
     def test_falls_back_to_single_tier_without_owner_keyword(self) -> None:
         """Ein einzelner, nicht als 'owner' gekennzeichneter Tier gilt per
-        Ausschlussverfahren als Owner-Rate."""
+        Ausschlussverfahren als Owner-Rate.
+        """
         html = _charger_pricing_html([{"label": "Charging Fees", "price": "DKK 4.50/kWh"}])
         tiers = parse_pricing_tiers(html)
         rate = select_owner_rate_for_time(tiers, datetime(2026, 1, 1, 9, 0, tzinfo=UTC))
@@ -237,7 +238,8 @@ class TestSelectOwnerRateForTime:
 
     def test_returns_none_when_only_other_ev_and_another_distinct_tier_exist(self) -> None:
         """Bei mehreren nicht als 'owner' erkennbaren Tiers ist die Zuordnung
-        mehrdeutig - kein Rate wird zurueckgegeben."""
+        mehrdeutig - kein Rate wird zurueckgegeben.
+        """
         html = _charger_pricing_html(
             [
                 {"label": "Members", "price": "$0.30/kWh"},

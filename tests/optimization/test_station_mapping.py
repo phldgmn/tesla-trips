@@ -27,14 +27,14 @@ def _make_segments() -> list[RouteSegment]:
         RouteSegment(
             segment_index=0,
             geometrie=[(52.0, 13.0), (52.1, 13.0)],
-            laenge_m=11_000.0,
+            length_m=11_000.0,
             strassenklasse="MOTORWAY",
             bearing_deg=0.0,
         ),
         RouteSegment(
             segment_index=1,
             geometrie=[(52.1, 13.0), (52.2, 13.0)],
-            laenge_m=11_000.0,
+            length_m=11_000.0,
             strassenklasse="MOTORWAY",
             bearing_deg=0.0,
         ),

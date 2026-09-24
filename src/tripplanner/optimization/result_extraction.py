@@ -41,11 +41,11 @@ def extract_charging_stops(
         # tatsaechlich im Pfad gewaehlte Kante ist aber immer eindeutig,
         # daher hier von der KANTE statt vom Knoten lesen (sonst wird der
         # Ladehalt bei einer solchen Kollision aus dem Ergebnis
-        # verschluckt, obwohl seine Kosten/Zeit sehr wohl im Pfad stecken).
+        # verschluckt, obwohl seine Kosten/time sehr wohl im Pfad stecken).
         edge_data = G.get_edge_data(prev_node, curr_node)
         station_id = edge_data.get("station_id") if edge_data else None
         if station_id is None:
-            continue  # Fahrt-/Faehr-/Wartekante, keine Ladekante
+            continue  # Fahrt-/ferry-/Wartekante, keine Ladekante
 
         # Station ueber die an der Kante hinterlegte `station_id`
         # auflösen - NICHT ueber eine erneute geografische Naechste-
@@ -53,11 +53,11 @@ def extract_charging_stops(
         # Ladekanten koennen am selben Segment fuer VERSCHIEDENE
         # Stationen existieren (z. B. wenn zwei Stationen auf denselben
         # naechstgelegenen Segment-Index abgebildet werden, siehe
-        # `_map_stations_to_segments`) - eine geografische Neu-Suche
+        # `_map_stations_to_segments`) - eine geografische new-Suche
         # wuerde dann unabhaengig von der TATSAECHLICH gewaehlten Kante
         # immer dieselbe (naechstgelegene) Station zurueckgeben und so
         # z. B. eine gezielt an einer ANDEREN Station vorgegebene feste
-        # Ladedauer (`charging_duration_specifications`) der falschen Station zuschreiben.
+        # charge_duration (`charging_duration_specifications`) der falschen Station zuschreiben.
         station = stations_by_id.get(station_id)
         if station is None:
             continue  # Sollte nicht vorkommen (station_id stets gueltig)
@@ -73,8 +73,8 @@ def extract_charging_stops(
         # Physisch ist das aber EIN einziger Ladehalt, kein zweiter -
         # aufeinanderfolgende Kanten mit derselben `station_id` werden
         # daher zu EINEM `ChargingStop` zusammengefuehrt: Ankunfts-SoC/
-        # -zeit von der ERSTEN Kante der Kette, Ziel-SoC/-zeit von der
-        # LETZTEN, Ladedauer als Summe aller Kettenglieder (sonst wuerde
+        # -time von der ERSTEN Kante der Kette, Ziel-SoC/-time von der
+        # LETZTEN, charge_duration als Summe aller Kettenglieder (sonst wuerde
         # ein Teil der tatsaechlich verbrachten Ladezeit im Ergebnis
         # verschwinden, siehe Regressionstest
         # `test_optimierer_findet_das_globale_zeitoptimum_ueber_ladehalte_hinweg`).
@@ -87,22 +87,22 @@ def extract_charging_stops(
                 target_soc_pct=edge_data["target_soc_pct"],
                 geschaetzte_ladedauer_s=vorheriger.geschaetzte_ladedauer_s
                 + int(edge_data["ladezeit_s"]),
-                ankunftszeit=vorheriger.ankunftszeit,
+                arrival_time=vorheriger.arrival_time,
                 departure_time=edge_data["departure_time"],
             )
             continue
 
-        # `arrival_soc_pct`/`target_soc_pct`/`ladezeit_s`/`ankunftszeit`/
+        # `arrival_soc_pct`/`target_soc_pct`/`ladezeit_s`/`arrival_time`/
         # `departure_time` direkt aus den Kanten-Attributen lesen (siehe
         # `_fuege_ladekante_hinzu`) statt aus den Knoten-`soc_pct`/
-        # `zeitpunkt`-Werten: bei einer Station abseits der Route
-        # enthaelt der Knoten-SoC/-Zeitpunkt bereits den Rueckweg-
+        # `timestamp`-Werten: bei einer Station abseits der Route
+        # enthaelt der Knoten-SoC/-timestamp bereits den Rueckweg-
         # Abstecher (siehe `_fuege_ladekante_hinzu`) - der tatsaechliche
         # Ladevorgang (Ankunft/Abfahrt AN der Station) waere daraus nicht
-        # mehr rekonstruierbar. Fuer eine vom Nutzer per
-        # `charging_duration_specifications` fest vorgegebene Ladedauer (siehe
+        # more rekonstruierbar. Fuer eine vom Nutzer per
+        # `charging_duration_specifications` fest vorgegebene charge_duration (siehe
         # `_add_charging_edges`) ist das zugleich die exakte, dort
-        # hinterlegte Dauer statt einer angenaeherten Neuberechnung.
+        # hinterlegte duration statt einer angenaeherten Neuberechnung.
         ladehalte.append(
             ChargingStop(
                 station=station,
@@ -110,7 +110,7 @@ def extract_charging_stops(
                 arrival_soc_pct=edge_data["arrival_soc_pct"],
                 target_soc_pct=edge_data["target_soc_pct"],
                 geschaetzte_ladedauer_s=int(edge_data["ladezeit_s"]),
-                ankunftszeit=edge_data["ankunftszeit"],
+                arrival_time=edge_data["arrival_time"],
                 departure_time=edge_data["departure_time"],
             )
         )
@@ -137,13 +137,13 @@ def extract_waypoint_aufenthalte(
         curr_node = path[i]
         edge_data = G.get_edge_data(prev_node, curr_node)
         if edge_data is None or "waypoint_ankunftszeit" not in edge_data:
-            continue  # Fahrt-/Faehr-/Ladekante, kein Zwischenstopp-Aufenthalt
+            continue  # Fahrt-/ferry-/Ladekante, kein Zwischenstopp-Aufenthalt
 
         aufenthalte.append(
             ZwischenstoppAufenthalt(
                 coordinate=edge_data["waypoint_koordinate"],
                 segment_index=curr_node[0],
-                ankunftszeit=edge_data["waypoint_ankunftszeit"],
+                arrival_time=edge_data["waypoint_ankunftszeit"],
                 departure_time=edge_data["waypoint_abfahrtszeit"],
                 charging_power_kw=edge_data["waypoint_ladeleistung_kw"],
                 arrival_soc_pct=edge_data["waypoint_ankunfts_soc_pct"],
@@ -168,7 +168,7 @@ def compute_waypoint_times(
             min_ankunftszeit[seg_idx] = departure_time
 
         if wp.stay_duration:
-            # Berechne Ankunftszeit + Aufenthaltsdauer
+            # Berechne arrival_time + Aufenthaltsdauer
             current_time = min_ankunftszeit[seg_idx] + wp.stay_duration
             min_ankunftszeit[seg_idx] = max(min_ankunftszeit[seg_idx], current_time)
 

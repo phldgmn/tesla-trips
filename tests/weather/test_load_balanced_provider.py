@@ -11,7 +11,6 @@ from datetime import datetime
 
 import httpx
 import pytest
-
 from tripplanner.geo import Coordinate
 from tripplanner.weather.models import WeatherQuery, WeatherSample
 from tripplanner.weather.providers import (
@@ -44,8 +43,8 @@ class _StubProvider:
         self.calls.append(list(queries))
         if self.error is not None:
             raise self.error
-        wanted = {(q.coordinate, q.zeitpunkt) for q in queries}
-        return [s for s in self.samples if (s.coordinate, s.zeitpunkt) in wanted]
+        wanted = {(q.coordinate, q.timestamp) for q in queries}
+        return [s for s in self.samples if (s.coordinate, s.timestamp) in wanted]
 
     async def refetch_weather(
         self, original_queries: Sequence[WeatherQuery], updated_queries: Sequence[WeatherQuery]
@@ -57,19 +56,19 @@ class _StubProvider:
         self.closed = True
 
 
-def _sample(coordinate: Coordinate, zeitpunkt: datetime, temp: float) -> WeatherSample:
+def _sample(coordinate: Coordinate, timestamp: datetime, temp: float) -> WeatherSample:
     return WeatherSample(
         coordinate=coordinate,
-        zeitpunkt=zeitpunkt,
-        temperatur_c=temp,
-        windgeschwindigkeit_ms=1.0,
-        windrichtung_deg=0.0,
-        niederschlag_mm=0.0,
-        schneefall_cm=0.0,
-        luftdruck_hpa=1013.25,
-        luftfeuchtigkeit_pct=50.0,
-        globalstrahlung_wm2=100.0,
-        bewoelkung_pct=10.0,
+        timestamp=timestamp,
+        temperature_c=temp,
+        wind_speed_ms=1.0,
+        wind_direction_deg=0.0,
+        precipitation_mm=0.0,
+        snowfall_cm=0.0,
+        pressure_hpa=1013.25,
+        humidity_pct=50.0,
+        solar_radiation_wm2=100.0,
+        cloudiness_pct=10.0,
     )
 
 
@@ -82,9 +81,9 @@ def test_load_balanced_provider_requires_at_least_one_entry() -> None:
 @pytest.mark.asyncio
 async def test_load_balanced_provider_uses_only_country_eligible_provider() -> None:
     """SMHI (SE-only) is never queried for a German coordinate; Open-Meteo is."""
-    zeitpunkt = datetime(2026, 8, 17, 14, 0)
-    global_provider = _StubProvider(samples=[_sample(BERLIN, zeitpunkt, 20.0)])
-    se_only_provider = _StubProvider(samples=[_sample(BERLIN, zeitpunkt, 50.0)])
+    timestamp = datetime(2026, 8, 17, 14, 0)
+    global_provider = _StubProvider(samples=[_sample(BERLIN, timestamp, 20.0)])
+    se_only_provider = _StubProvider(samples=[_sample(BERLIN, timestamp, 50.0)])
 
     composite = LoadBalancedWeatherProvider(
         [
@@ -93,55 +92,55 @@ async def test_load_balanced_provider_uses_only_country_eligible_provider() -> N
         ]
     )
 
-    results = await composite.fetch_weather([WeatherQuery(coordinate=BERLIN, zeitpunkt=zeitpunkt)])
+    results = await composite.fetch_weather([WeatherQuery(coordinate=BERLIN, timestamp=timestamp)])
 
     assert len(results) == 1
-    assert results[0].temperatur_c == 20.0
+    assert results[0].temperature_c == 20.0
     assert se_only_provider.calls == []
 
 
 @pytest.mark.asyncio
 async def test_load_balanced_provider_country_restricted_provider_used_in_its_country() -> None:
     """SMHI (SE-only) is queried, and used, for a Swedish coordinate."""
-    zeitpunkt = datetime(2026, 8, 17, 14, 0)
-    se_only_provider = _StubProvider(samples=[_sample(STOCKHOLM, zeitpunkt, 12.0)])
+    timestamp = datetime(2026, 8, 17, 14, 0)
+    se_only_provider = _StubProvider(samples=[_sample(STOCKHOLM, timestamp, 12.0)])
 
     composite = LoadBalancedWeatherProvider(
         [WeatherProviderEntry("se-only", se_only_provider, frozenset({"SE"}))]
     )
 
     results = await composite.fetch_weather(
-        [WeatherQuery(coordinate=STOCKHOLM, zeitpunkt=zeitpunkt)]
+        [WeatherQuery(coordinate=STOCKHOLM, timestamp=timestamp)]
     )
 
     assert len(results) == 1
-    assert results[0].temperatur_c == 12.0
+    assert results[0].temperature_c == 12.0
     assert len(se_only_provider.calls) == 1
 
 
 @pytest.mark.asyncio
 async def test_load_balanced_provider_country_restricted_provider_skipped_outside_country() -> None:
     """DMI (DK-only) is not eligible for a coordinate outside DE/DK/SE; falls back to neutral."""
-    zeitpunkt = datetime(2026, 8, 17, 14, 0)
+    timestamp = datetime(2026, 8, 17, 14, 0)
     dk_only_provider = _StubProvider(samples=[])
 
     composite = LoadBalancedWeatherProvider(
         [WeatherProviderEntry("dk-only", dk_only_provider, frozenset({"DK"}))]
     )
 
-    results = await composite.fetch_weather([WeatherQuery(coordinate=PARIS, zeitpunkt=zeitpunkt)])
+    results = await composite.fetch_weather([WeatherQuery(coordinate=PARIS, timestamp=timestamp)])
 
     assert len(results) == 1
     assert dk_only_provider.calls == []
-    assert results[0].temperatur_c == 15.0  # neutral fallback sentinel
+    assert results[0].temperature_c == 15.0  # neutral fallback sentinel
 
 
 @pytest.mark.asyncio
 async def test_load_balanced_provider_round_robins_across_calls() -> None:
     """Repeated calls to the same coordinate rotate the starting candidate."""
-    zeitpunkt = datetime(2026, 8, 17, 14, 0)
-    provider_a = _StubProvider(samples=[_sample(BERLIN, zeitpunkt, 1.0)])
-    provider_b = _StubProvider(samples=[_sample(BERLIN, zeitpunkt, 2.0)])
+    timestamp = datetime(2026, 8, 17, 14, 0)
+    provider_a = _StubProvider(samples=[_sample(BERLIN, timestamp, 1.0)])
+    provider_b = _StubProvider(samples=[_sample(BERLIN, timestamp, 2.0)])
 
     composite = LoadBalancedWeatherProvider(
         [
@@ -150,12 +149,12 @@ async def test_load_balanced_provider_round_robins_across_calls() -> None:
         ]
     )
 
-    await composite.fetch_weather([WeatherQuery(coordinate=BERLIN, zeitpunkt=zeitpunkt)])
+    await composite.fetch_weather([WeatherQuery(coordinate=BERLIN, timestamp=timestamp)])
     # Second call: different (cache-missing) time so it dispatches again.
     zeitpunkt_2 = datetime(2026, 8, 17, 15, 0)
     provider_a.samples.append(_sample(BERLIN, zeitpunkt_2, 1.0))
     provider_b.samples.append(_sample(BERLIN, zeitpunkt_2, 2.0))
-    await composite.fetch_weather([WeatherQuery(coordinate=BERLIN, zeitpunkt=zeitpunkt_2)])
+    await composite.fetch_weather([WeatherQuery(coordinate=BERLIN, timestamp=zeitpunkt_2)])
 
     # Both providers got a first attempt across the two rotated dispatches.
     assert len(provider_a.calls) == 1
@@ -165,11 +164,11 @@ async def test_load_balanced_provider_round_robins_across_calls() -> None:
 @pytest.mark.asyncio
 async def test_load_balanced_provider_fails_over_to_next_provider_on_error() -> None:
     """A provider raising `httpx.HTTPStatusError` (e.g. 429) is skipped in favor of the next."""
-    zeitpunkt = datetime(2026, 8, 17, 14, 0)
+    timestamp = datetime(2026, 8, 17, 14, 0)
     request = httpx.Request("GET", "https://example.invalid")
     response = httpx.Response(429, request=request)
     failing = _StubProvider(error=httpx.HTTPStatusError("429", request=request, response=response))
-    healthy = _StubProvider(samples=[_sample(BERLIN, zeitpunkt, 7.0)])
+    healthy = _StubProvider(samples=[_sample(BERLIN, timestamp, 7.0)])
 
     composite = LoadBalancedWeatherProvider(
         [
@@ -178,10 +177,10 @@ async def test_load_balanced_provider_fails_over_to_next_provider_on_error() -> 
         ]
     )
 
-    results = await composite.fetch_weather([WeatherQuery(coordinate=BERLIN, zeitpunkt=zeitpunkt)])
+    results = await composite.fetch_weather([WeatherQuery(coordinate=BERLIN, timestamp=timestamp)])
 
     assert len(results) == 1
-    assert results[0].temperatur_c == 7.0
+    assert results[0].temperature_c == 7.0
     assert len(failing.calls) == 1
     assert len(healthy.calls) == 1
 
@@ -210,13 +209,13 @@ async def test_load_balanced_provider_cooldown_deprioritizes_failed_provider() -
     )
 
     # First call: "flaky" is tried first (rotation offset 0), fails, "healthy" serves it.
-    await composite.fetch_weather([WeatherQuery(coordinate=BERLIN, zeitpunkt=zeitpunkt_a)])
+    await composite.fetch_weather([WeatherQuery(coordinate=BERLIN, timestamp=zeitpunkt_a)])
     flaky.error = None  # now it *would* succeed, but should still be deprioritized
     flaky.samples = [_sample(BERLIN, zeitpunkt_b, 3.0)]
 
     # Still within cooldown: "flaky" is moved after "healthy", so "healthy" is tried
     # first for the next coordinate group and satisfies it, "flaky" is never called.
-    await composite.fetch_weather([WeatherQuery(coordinate=BERLIN, zeitpunkt=zeitpunkt_b)])
+    await composite.fetch_weather([WeatherQuery(coordinate=BERLIN, timestamp=zeitpunkt_b)])
 
     assert len(flaky.calls) == 1  # only the initial failing call
     assert len(healthy.calls) == 2
@@ -225,7 +224,7 @@ async def test_load_balanced_provider_cooldown_deprioritizes_failed_provider() -
 @pytest.mark.asyncio
 async def test_load_balanced_provider_all_fail_uses_neutral_fallback_never_raises() -> None:
     """If every eligible provider fails, a neutral placeholder is used instead of raising."""
-    zeitpunkt = datetime(2026, 8, 17, 14, 0)
+    timestamp = datetime(2026, 8, 17, 14, 0)
     request = httpx.Request("GET", "https://example.invalid")
     response = httpx.Response(503, request=request)
     err = httpx.HTTPStatusError("503", request=request, response=response)
@@ -239,42 +238,42 @@ async def test_load_balanced_provider_all_fail_uses_neutral_fallback_never_raise
         ]
     )
 
-    results = await composite.fetch_weather([WeatherQuery(coordinate=BERLIN, zeitpunkt=zeitpunkt)])
+    results = await composite.fetch_weather([WeatherQuery(coordinate=BERLIN, timestamp=timestamp)])
 
     assert len(results) == 1
-    assert results[0].temperatur_c == 15.0
-    assert results[0].windgeschwindigkeit_ms == 3.0
+    assert results[0].temperature_c == 15.0
+    assert results[0].wind_speed_ms == 3.0
     assert results[0].coordinate == BERLIN
-    assert results[0].zeitpunkt == zeitpunkt
+    assert results[0].timestamp == timestamp
 
 
 @pytest.mark.asyncio
 async def test_load_balanced_provider_caches_successful_results() -> None:
     """A second `fetch_weather` for the same point hits the cache, not the provider."""
-    zeitpunkt = datetime(2026, 8, 17, 14, 0)
-    provider = _StubProvider(samples=[_sample(BERLIN, zeitpunkt, 5.0)])
+    timestamp = datetime(2026, 8, 17, 14, 0)
+    provider = _StubProvider(samples=[_sample(BERLIN, timestamp, 5.0)])
     composite = LoadBalancedWeatherProvider([WeatherProviderEntry("p", provider, None)])
-    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=zeitpunkt)
+    query = WeatherQuery(coordinate=BERLIN, timestamp=timestamp)
 
     first = await composite.fetch_weather([query])
     second = await composite.fetch_weather([query])
 
-    assert first[0].temperatur_c == second[0].temperatur_c == 5.0
+    assert first[0].temperature_c == second[0].temperature_c == 5.0
     assert len(provider.calls) == 1
 
 
 @pytest.mark.asyncio
 async def test_load_balanced_provider_refetch_weather_serves_unchanged_points_from_cache() -> None:
     """`refetch_weather` reuses the composite's cache for points already resolved."""
-    zeitpunkt = datetime(2026, 8, 17, 14, 0)
-    provider = _StubProvider(samples=[_sample(BERLIN, zeitpunkt, 6.0)])
+    timestamp = datetime(2026, 8, 17, 14, 0)
+    provider = _StubProvider(samples=[_sample(BERLIN, timestamp, 6.0)])
     composite = LoadBalancedWeatherProvider([WeatherProviderEntry("p", provider, None)])
-    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=zeitpunkt)
+    query = WeatherQuery(coordinate=BERLIN, timestamp=timestamp)
 
     await composite.fetch_weather([query])
     results = await composite.refetch_weather([query], [query])
 
-    assert results[0].temperatur_c == 6.0
+    assert results[0].temperature_c == 6.0
     assert len(provider.calls) == 1  # second (re)fetch served from cache
 
 
@@ -306,11 +305,11 @@ async def test_load_balanced_provider_close_closes_every_provider() -> None:
 @pytest.mark.asyncio
 async def test_load_balanced_provider_multiple_coordinates_dispatched_independently() -> None:
     """Queries for different coordinates within one call are each routed by their own country."""
-    zeitpunkt = datetime(2026, 8, 17, 14, 0)
+    timestamp = datetime(2026, 8, 17, 14, 0)
     global_provider = _StubProvider(
-        samples=[_sample(BERLIN, zeitpunkt, 20.0), _sample(COPENHAGEN, zeitpunkt, 18.0)]
+        samples=[_sample(BERLIN, timestamp, 20.0), _sample(COPENHAGEN, timestamp, 18.0)]
     )
-    dk_only_provider = _StubProvider(samples=[_sample(COPENHAGEN, zeitpunkt, 50.0)])
+    dk_only_provider = _StubProvider(samples=[_sample(COPENHAGEN, timestamp, 50.0)])
 
     composite = LoadBalancedWeatherProvider(
         [
@@ -321,14 +320,14 @@ async def test_load_balanced_provider_multiple_coordinates_dispatched_independen
 
     results = await composite.fetch_weather(
         [
-            WeatherQuery(coordinate=BERLIN, zeitpunkt=zeitpunkt),
-            WeatherQuery(coordinate=COPENHAGEN, zeitpunkt=zeitpunkt),
+            WeatherQuery(coordinate=BERLIN, timestamp=timestamp),
+            WeatherQuery(coordinate=COPENHAGEN, timestamp=timestamp),
         ]
     )
 
     by_coord = {r.coordinate: r for r in results}
-    assert by_coord[BERLIN].temperatur_c == 20.0
-    assert by_coord[COPENHAGEN].temperatur_c in (18.0, 50.0)  # either eligible provider may win
+    assert by_coord[BERLIN].temperature_c == 20.0
+    assert by_coord[COPENHAGEN].temperature_c in (18.0, 50.0)  # either eligible provider may win
 
 
 @pytest.mark.asyncio
@@ -339,15 +338,15 @@ async def test_load_balanced_provider_cache_hit_returns_each_query_own_koordinat
     Each returned WeatherSample.coordinate must match ITS OWN query's coordinate,
     not the coordinate of whichever query populated the cache slot first.
     """
-    zeitpunkt = datetime(2026, 8, 2, 1, 0)
+    timestamp = datetime(2026, 8, 2, 1, 0)
     coord1: Coordinate = (52.51, 13.41)
     coord2: Coordinate = (52.54, 13.38)
 
-    # Stub returns one sample per query, indexed by (coordinate, zeitpunkt)
+    # Stub returns one sample per query, indexed by (coordinate, timestamp)
     stub = _StubProvider(
         samples=[
-            _sample(coord1, zeitpunkt, 20.0),
-            _sample(coord2, zeitpunkt, 22.0),
+            _sample(coord1, timestamp, 20.0),
+            _sample(coord2, timestamp, 22.0),
         ]
     )
 
@@ -357,8 +356,8 @@ async def test_load_balanced_provider_cache_hit_returns_each_query_own_koordinat
         ]
     )
 
-    q1 = WeatherQuery(coordinate=coord1, zeitpunkt=zeitpunkt)
-    q2 = WeatherQuery(coordinate=coord2, zeitpunkt=zeitpunkt)
+    q1 = WeatherQuery(coordinate=coord1, timestamp=timestamp)
+    q2 = WeatherQuery(coordinate=coord2, timestamp=timestamp)
 
     results = await composite.fetch_weather([q1, q2])
 
@@ -384,16 +383,16 @@ async def test_load_balanced_provider_resolve_group_collision_same_cache_key() -
     `by_key` from the provider's returned samples. Without the fix, `by_key`
     would keep only the last sample and label both indices with that sample's
     coordinate. The fix ensures each result is copied with its own query's
-    coordinate and zeitpunkt.
+    coordinate and timestamp.
     """
-    zeitpunkt = datetime(2026, 8, 2, 1, 0)
+    timestamp = datetime(2026, 8, 2, 1, 0)
     coord1: Coordinate = (52.51, 13.41)
     coord2: Coordinate = (52.54, 13.38)
 
     stub = _StubProvider(
         samples=[
-            _sample(coord1, zeitpunkt, 20.0),
-            _sample(coord2, zeitpunkt, 22.0),
+            _sample(coord1, timestamp, 20.0),
+            _sample(coord2, timestamp, 22.0),
         ]
     )
 
@@ -403,33 +402,33 @@ async def test_load_balanced_provider_resolve_group_collision_same_cache_key() -
         ]
     )
 
-    q1 = WeatherQuery(coordinate=coord1, zeitpunkt=zeitpunkt)
-    q2 = WeatherQuery(coordinate=coord2, zeitpunkt=zeitpunkt)
+    q1 = WeatherQuery(coordinate=coord1, timestamp=timestamp)
+    q2 = WeatherQuery(coordinate=coord2, timestamp=timestamp)
 
     results = await composite.fetch_weather([q1, q2])
 
     assert len(results) == 2
-    # Build a set of (result.coordinate, result.zeitpunkt) pairs
-    result_pairs = {(r.coordinate, r.zeitpunkt) for r in results}
-    assert (coord1, zeitpunkt) in result_pairs
-    assert (coord2, zeitpunkt) in result_pairs
+    # Build a set of (result.coordinate, result.timestamp) pairs
+    result_pairs = {(r.coordinate, r.timestamp) for r in results}
+    assert (coord1, timestamp) in result_pairs
+    assert (coord2, timestamp) in result_pairs
 
     # Now populate composite's internal cache with a single entry that has
     # a DIFFERENT coordinate, then query both coords again — they'll hit
     # the same cache slot but must return their own original coordinates.
 
-    composite._cache[_cache_key(coord1, zeitpunkt)] = WeatherSample(
+    composite._cache[_cache_key(coord1, timestamp)] = WeatherSample(
         coordinate=(52.5, 13.4),  # grid-rounded (not coord1 or coord2)
-        zeitpunkt=zeitpunkt,
-        temperatur_c=20.0,
-        windgeschwindigkeit_ms=5.0,
-        windrichtung_deg=180.0,
-        niederschlag_mm=0.0,
-        schneefall_cm=0.0,
-        luftdruck_hpa=1013.25,
-        luftfeuchtigkeit_pct=60.0,
-        globalstrahlung_wm2=400.0,
-        bewoelkung_pct=20.0,
+        timestamp=timestamp,
+        temperature_c=20.0,
+        wind_speed_ms=5.0,
+        wind_direction_deg=180.0,
+        precipitation_mm=0.0,
+        snowfall_cm=0.0,
+        pressure_hpa=1013.25,
+        humidity_pct=60.0,
+        solar_radiation_wm2=400.0,
+        cloudiness_pct=20.0,
     )
 
     results2 = await composite.fetch_weather([q1, q2])

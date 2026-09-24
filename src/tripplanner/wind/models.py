@@ -13,18 +13,17 @@ class WindComponents(BaseModel):
 
     Attributes:
         segment_index: Nullbasierter Index des Segments in der Route.
-        gegenwind_ms: Gegenwind-/Rückenwind-Komponente in m/s.
-            Positiv = Gegenwind (bremsend), negativ = Rückenwind (unterstützend).
-        seitenwind_ms: Seitenwind-Komponente in m/s.
+        gegenwind_ms: headwind-/Rückenwind-Komponente in m/s.
+            Positiv = headwind (bremsend), negativ = Rückenwind (unterstützend).
+        seitenwind_ms: crosswind-Komponente in m/s.
             Positiv = von rechts, negativ = von links.
     """
 
     segment_index: int = Field(..., description="Nullbasierter Index dieses Segments in der Route")
     gegenwind_ms: float = Field(
         ...,
-        description="Gegenwind-/Rückenwind-Komponente in m/s (positiv=Gegenwind, "
-        "negativ=Rückenwind)",
+        description="headwind-/Rückenwind-Komponente in m/s (positiv=headwind, negativ=Rückenwind)",
     )
     seitenwind_ms: float = Field(
-        ..., description="Seitenwind-Komponente in m/s (positiv=von rechts, negativ=von links)"
+        ..., description="crosswind-Komponente in m/s (positiv=von rechts, negativ=von links)"
     )

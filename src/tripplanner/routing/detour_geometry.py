@@ -48,12 +48,12 @@ def find_bracket_points(
     distanz_zurueck = 0.0
     while vor_index > 0 and distanz_zurueck < margin_m:
         vor_index -= 1
-        distanz_zurueck += route.segments[vor_index].laenge_m
+        distanz_zurueck += route.segments[vor_index].length_m
 
     nach_index = segment_index
     distanz_vor = 0.0
     while nach_index < last_index and distanz_vor < margin_m:
-        distanz_vor += route.segments[nach_index].laenge_m
+        distanz_vor += route.segments[nach_index].length_m
         nach_index += 1
 
     return vor_index, nach_index

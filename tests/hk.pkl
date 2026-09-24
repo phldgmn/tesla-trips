@@ -1,0 +1,81 @@
+amends "package://github.com/jdx/hk/releases/download/v2.0.1/hk@2.0.1#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.0.1/hk@2.0.1#/Builtins.pkl"
+
+local python_files = List("*.py")
+local frontend_ts_files = List("frontend/**/*.ts", "frontend/**/*.tsx")
+
+local linters = new Mapping<String, Step> {
+    ["ruff-check"] {
+        glob = python_files
+        check = "uv run ruff check {{files}}"
+        fix = "uv run ruff check --fix {{files}}"
+    }
+    ["ruff-format"] {
+        glob = python_files
+        check = "uv run ruff format --check {{files}}"
+        fix = "uv run ruff format {{files}}"
+    }
+    ["mypy"] {
+        glob = python_files
+        check = "uv run mypy src"
+        // no fix — type errors are not auto-fixed,
+        // they deliberately block the commit
+    }
+    ["prettier"] = (Builtins.prettier) {
+        glob = List("frontend/**/*.ts", "frontend/**/*.tsx", "frontend/**/*.json")
+    }
+    ["eslint"] {
+        glob = frontend_ts_files
+        check = "npm --prefix frontend run lint"
+        fix = "npm --prefix frontend run lint:fix"
+    }
+    ["shellcheck"] = Builtins.shellcheck
+    ["shfmt"] = (Builtins.shfmt) {
+        // Repo convention: 2-space indentation instead of shfmt's default (tabs)
+        check_diff = "shfmt -i 2 -d --apply-ignore {{ files }}"
+        check_list_files =
+            """
+            files=$(shfmt -i 2 -l --apply-ignore {{ files }})
+            if [ -n "$files" ]; then
+              echo "$files"
+              exit 1
+            fi
+            """
+        fix = "shfmt -i 2 -w --apply-ignore {{ files }}"
+    }
+    ["yamllint"] = Builtins.yamllint
+    ["markdown-lint"] = Builtins.markdown_lint
+    ["mise"] = Builtins.mise
+    ["check-added-large-files"] = Builtins.check_added_large_files
+    ["no-log-files"] {
+        glob = List("*.log", "**/*.log")
+        // Scrape logs contain WAF tokens and request URLs - never commit them.
+        check = "echo 'refusing to commit log files: {{files}}' && exit 1"
+    }
+}
+
+hooks {
+    ["check"] {
+        // Enables `hk check --all` per AGENTS.md / docs/04-repo-tooling-setup.md;
+        // pure check without auto-fix (counterpart to `hk fix --all`).
+        steps = linters
+    }
+    ["fix"] {
+        fix = true
+        steps = linters
+    }
+    ["pre-commit"] {
+        fix = true       // auto-fix runs directly on commit
+        stash = "git"    // unstaged changes are stashed away meanwhile
+        steps = linters
+    }
+    ["pre-push"] {
+        steps {
+            ["pytest"] {
+                // Coverage run already exercises "not integration" tests;
+                // a separate plain pytest step would just rerun the same suite.
+                check = "uv run pytest -m 'not integration' --cov=src/tripplanner --cov-report=term-missing --cov-fail-under=85"
+            }
+        }
+    }
+}

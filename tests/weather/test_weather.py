@@ -9,7 +9,6 @@ Testfälle gemäß Plan Abschnitt 6:
 from datetime import datetime, timedelta
 
 import pytest
-
 from tripplanner.geo import Coordinate
 from tripplanner.weather.models import OpenMeteoResponse, WeatherQuery, WeatherSample
 from tripplanner.weather.providers import (
@@ -28,50 +27,50 @@ async def test_fetch_weather_for_route_single_coord_three_times() -> None:
     # Given: Fake-Provider mit vordefinierten Wetterdaten
     now = datetime(2026, 8, 2, 10, 0)
     queries = [
-        WeatherQuery(coordinate=BERLIN, zeitpunkt=now),
-        WeatherQuery(coordinate=BERLIN, zeitpunkt=now + timedelta(hours=1)),
-        WeatherQuery(coordinate=BERLIN, zeitpunkt=now + timedelta(hours=2)),
+        WeatherQuery(coordinate=BERLIN, timestamp=now),
+        WeatherQuery(coordinate=BERLIN, timestamp=now + timedelta(hours=1)),
+        WeatherQuery(coordinate=BERLIN, timestamp=now + timedelta(hours=2)),
     ]
 
     samples = [
         WeatherSample(
             coordinate=BERLIN,
-            zeitpunkt=now,
-            temperatur_c=20.0,
-            windgeschwindigkeit_ms=5.0,
-            windrichtung_deg=180.0,
-            niederschlag_mm=0.0,
-            schneefall_cm=0.0,
-            luftdruck_hpa=1013.25,
-            luftfeuchtigkeit_pct=60.0,
-            globalstrahlung_wm2=400.0,
-            bewoelkung_pct=20.0,
+            timestamp=now,
+            temperature_c=20.0,
+            wind_speed_ms=5.0,
+            wind_direction_deg=180.0,
+            precipitation_mm=0.0,
+            snowfall_cm=0.0,
+            pressure_hpa=1013.25,
+            humidity_pct=60.0,
+            solar_radiation_wm2=400.0,
+            cloudiness_pct=20.0,
         ),
         WeatherSample(
             coordinate=BERLIN,
-            zeitpunkt=now + timedelta(hours=1),
-            temperatur_c=21.0,
-            windgeschwindigkeit_ms=6.0,
-            windrichtung_deg=185.0,
-            niederschlag_mm=0.0,
-            schneefall_cm=0.0,
-            luftdruck_hpa=1013.0,
-            luftfeuchtigkeit_pct=58.0,
-            globalstrahlung_wm2=420.0,
-            bewoelkung_pct=18.0,
+            timestamp=now + timedelta(hours=1),
+            temperature_c=21.0,
+            wind_speed_ms=6.0,
+            wind_direction_deg=185.0,
+            precipitation_mm=0.0,
+            snowfall_cm=0.0,
+            pressure_hpa=1013.0,
+            humidity_pct=58.0,
+            solar_radiation_wm2=420.0,
+            cloudiness_pct=18.0,
         ),
         WeatherSample(
             coordinate=BERLIN,
-            zeitpunkt=now + timedelta(hours=2),
-            temperatur_c=22.0,
-            windgeschwindigkeit_ms=7.0,
-            windrichtung_deg=190.0,
-            niederschlag_mm=0.0,
-            schneefall_cm=0.0,
-            luftdruck_hpa=1012.8,
-            luftfeuchtigkeit_pct=55.0,
-            globalstrahlung_wm2=440.0,
-            bewoelkung_pct=15.0,
+            timestamp=now + timedelta(hours=2),
+            temperature_c=22.0,
+            wind_speed_ms=7.0,
+            wind_direction_deg=190.0,
+            precipitation_mm=0.0,
+            snowfall_cm=0.0,
+            pressure_hpa=1012.8,
+            humidity_pct=55.0,
+            solar_radiation_wm2=440.0,
+            cloudiness_pct=15.0,
         ),
     ]
 
@@ -81,12 +80,12 @@ async def test_fetch_weather_for_route_single_coord_three_times() -> None:
 
     # Then: Länge Ergebnis = 3, Werte korrekt
     assert len(results) == 3
-    assert results[0].temperatur_c == 20.0
-    assert results[1].temperatur_c == 21.0
-    assert results[2].temperatur_c == 22.0
-    assert results[0].windgeschwindigkeit_ms == 5.0
-    assert results[1].windgeschwindigkeit_ms == 6.0
-    assert results[2].windgeschwindigkeit_ms == 7.0
+    assert results[0].temperature_c == 20.0
+    assert results[1].temperature_c == 21.0
+    assert results[2].temperature_c == 22.0
+    assert results[0].wind_speed_ms == 5.0
+    assert results[1].wind_speed_ms == 6.0
+    assert results[2].wind_speed_ms == 7.0
 
 
 @pytest.mark.asyncio
@@ -105,24 +104,24 @@ async def test_fetch_weather_for_route_duplicate_coords_single_api_call() -> Non
             return [
                 WeatherSample(
                     coordinate=q.coordinate,
-                    zeitpunkt=q.zeitpunkt,
-                    temperatur_c=20.0,
-                    windgeschwindigkeit_ms=5.0,
-                    windrichtung_deg=180.0,
-                    niederschlag_mm=0.0,
-                    schneefall_cm=0.0,
-                    luftdruck_hpa=1013.25,
-                    luftfeuchtigkeit_pct=60.0,
-                    globalstrahlung_wm2=400.0,
-                    bewoelkung_pct=20.0,
+                    timestamp=q.timestamp,
+                    temperature_c=20.0,
+                    wind_speed_ms=5.0,
+                    wind_direction_deg=180.0,
+                    precipitation_mm=0.0,
+                    snowfall_cm=0.0,
+                    pressure_hpa=1013.25,
+                    humidity_pct=60.0,
+                    solar_radiation_wm2=400.0,
+                    cloudiness_pct=20.0,
                 )
                 for q in queries
             ]
 
     now = datetime(2026, 8, 2, 10, 0)
     queries = [
-        WeatherQuery(coordinate=BERLIN, zeitpunkt=now),
-        WeatherQuery(coordinate=BERLIN, zeitpunkt=now + timedelta(hours=1)),
+        WeatherQuery(coordinate=BERLIN, timestamp=now),
+        WeatherQuery(coordinate=BERLIN, timestamp=now + timedelta(hours=1)),
     ]
 
     provider = CountingFakeProvider()
@@ -137,7 +136,8 @@ async def test_fetch_weather_for_route_duplicate_coords_single_api_call() -> Non
 @pytest.mark.asyncio
 async def test_fetch_weather_for_route_multiple_coords_batching() -> None:
     """Test fetch_weather_for_route mit 100 Queries (50 gleiche + 50
-    andere Koordinaten, batch_size=20)."""
+    andere Koordinaten, batch_size=20).
+    """
     # Given: Fake-Provider mit Zähler für API-Calls
     call_count = 0
 
@@ -151,16 +151,16 @@ async def test_fetch_weather_for_route_multiple_coords_batching() -> None:
             return [
                 WeatherSample(
                     coordinate=q.coordinate,
-                    zeitpunkt=q.zeitpunkt,
-                    temperatur_c=20.0,
-                    windgeschwindigkeit_ms=5.0,
-                    windrichtung_deg=180.0,
-                    niederschlag_mm=0.0,
-                    schneefall_cm=0.0,
-                    luftdruck_hpa=1013.25,
-                    luftfeuchtigkeit_pct=60.0,
-                    globalstrahlung_wm2=400.0,
-                    bewoelkung_pct=20.0,
+                    timestamp=q.timestamp,
+                    temperature_c=20.0,
+                    wind_speed_ms=5.0,
+                    wind_direction_deg=180.0,
+                    precipitation_mm=0.0,
+                    snowfall_cm=0.0,
+                    pressure_hpa=1013.25,
+                    humidity_pct=60.0,
+                    solar_radiation_wm2=400.0,
+                    cloudiness_pct=20.0,
                 )
                 for q in queries
             ]
@@ -168,11 +168,11 @@ async def test_fetch_weather_for_route_multiple_coords_batching() -> None:
     now = datetime(2026, 8, 2, 10, 0)
     # 50 Queries für Berlin
     berlin_queries = [
-        WeatherQuery(coordinate=BERLIN, zeitpunkt=now + timedelta(hours=i)) for i in range(50)
+        WeatherQuery(coordinate=BERLIN, timestamp=now + timedelta(hours=i)) for i in range(50)
     ]
     # 50 Queries für Hamburg
     hamburg_queries = [
-        WeatherQuery(coordinate=HAMBURG, zeitpunkt=now + timedelta(hours=i)) for i in range(50)
+        WeatherQuery(coordinate=HAMBURG, timestamp=now + timedelta(hours=i)) for i in range(50)
     ]
     queries = berlin_queries + hamburg_queries
 
@@ -180,7 +180,7 @@ async def test_fetch_weather_for_route_multiple_coords_batching() -> None:
     # When: fetch_weather_for_route aufrufen mit batch_size=20
     results = await fetch_weather_for_route(provider, queries, batch_size=20)
 
-    # Then: Mindestens 4 API-Calls (50/20 + 50/20 = 2.5 + 2.5 -> 3 Calls
+    # Then: minimum 4 API-Calls (50/20 + 50/20 = 2.5 + 2.5 -> 3 Calls
     # pro Koordinate-Gruppe = min. 4 Calls)
     assert len(results) == 100
     # Pro Koordinate-Gruppe: ceil(50/20) = 3 Calls
@@ -236,28 +236,28 @@ def test_extract_sample_from_response() -> None:
             "cloud_cover": "%",
         },
     )
-    zeitpunkt = datetime.fromisoformat("2026-08-02T01:00:00")
+    timestamp = datetime.fromisoformat("2026-08-02T01:00:00")
     # When: _extract_sample_from_response aufrufen
-    sample = _extract_sample_from_response(response, zeitpunkt)
+    sample = _extract_sample_from_response(response, timestamp)
 
     # Then: WeatherSample mit korrekten Werten
     assert sample is not None
     assert sample.coordinate == (52.52, 13.405)
-    assert sample.zeitpunkt == zeitpunkt
-    assert sample.temperatur_c == 13.8
+    assert sample.timestamp == timestamp
+    assert sample.temperature_c == 13.8
     # wind_speed_10m: 11.8 km/h → 11.8 * 1000/3600 ≈ 3.28 m/s
-    assert sample.windgeschwindigkeit_ms == pytest.approx(11.8 * 1000 / 3600, abs=0.01)
-    assert sample.windrichtung_deg == 248
-    assert sample.niederschlag_mm == 0.0
-    assert sample.schneefall_cm == 0.0
-    assert sample.luftdruck_hpa == 1013.5
-    assert sample.luftfeuchtigkeit_pct == 74
-    assert sample.globalstrahlung_wm2 == 0.0
-    assert sample.bewoelkung_pct == 50
+    assert sample.wind_speed_ms == pytest.approx(11.8 * 1000 / 3600, abs=0.01)
+    assert sample.wind_direction_deg == 248
+    assert sample.precipitation_mm == 0.0
+    assert sample.snowfall_cm == 0.0
+    assert sample.pressure_hpa == 1013.5
+    assert sample.humidity_pct == 74
+    assert sample.solar_radiation_wm2 == 0.0
+    assert sample.cloudiness_pct == 50
 
 
 def test_extract_sample_from_response_missing_time() -> None:
-    """Test _extract_sample_from_response mit Zeitpunkt außerhalb des Zeitraums."""
+    """Test _extract_sample_from_response mit timestamp außerhalb des Zeitraums."""
     # Given: OpenMeteoResponse mit hourly-Daten für 00:00, 01:00, 02:00
     response = OpenMeteoResponse(
         latitude=52.52,
@@ -291,9 +291,9 @@ def test_extract_sample_from_response_missing_time() -> None:
         },
     )
 
-    zeitpunkt = datetime(2026, 8, 2, 3, 0)  # Außerhalb des Zeitraums
+    timestamp = datetime(2026, 8, 2, 3, 0)  # Außerhalb des Zeitraums
     # When: _extract_sample_from_response aufrufen
-    sample = _extract_sample_from_response(response, zeitpunkt)
+    sample = _extract_sample_from_response(response, timestamp)
 
     # Then: None zurückgeben
     assert sample is None

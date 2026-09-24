@@ -9,7 +9,6 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
-
 from tripplanner.energy.energy import calculate_segment_consumption
 from tripplanner.energy.models import VehicleEnergyParameters
 from tripplanner.weather.models import WeatherSample
@@ -19,10 +18,10 @@ from tripplanner.wind.models import WindComponents
 
 
 def _make_weather(
-    temperatur_c: float,
-    niederschlag_mm: float = 0.0,
-    schneefall_cm: float = 0.0,
-    luftdruck_hpa: float = 1013.25,
+    temperature_c: float,
+    precipitation_mm: float = 0.0,
+    snowfall_cm: float = 0.0,
+    pressure_hpa: float = 1013.25,
 ) -> WeatherSample:
     """Helper to create a WeatherSample with minimal required fields.
 
@@ -31,16 +30,16 @@ def _make_weather(
     """
     return WeatherSample(
         coordinate=(0.0, 0.0),
-        zeitpunkt=datetime.utcnow(),
-        temperatur_c=temperatur_c,
-        windgeschwindigkeit_ms=0.0,
-        windrichtung_deg=0.0,
-        niederschlag_mm=niederschlag_mm,
-        schneefall_cm=schneefall_cm,
-        luftdruck_hpa=luftdruck_hpa,
-        luftfeuchtigkeit_pct=50.0,
-        globalstrahlung_wm2=400.0,
-        bewoelkung_pct=20.0,
+        timestamp=datetime.utcnow(),
+        temperature_c=temperature_c,
+        wind_speed_ms=0.0,
+        wind_direction_deg=0.0,
+        precipitation_mm=precipitation_mm,
+        snowfall_cm=snowfall_cm,
+        pressure_hpa=pressure_hpa,
+        humidity_pct=50.0,
+        solar_radiation_wm2=400.0,
+        cloudiness_pct=20.0,
     )
 
 
@@ -74,8 +73,8 @@ def test_wet_road_increases_consumption(
     wind_still,
     vehicle_params,
 ):
-    dry = _make_weather(temperatur_c=20.0, niederschlag_mm=0.0, schneefall_cm=0.0)
-    wet = _make_weather(temperatur_c=20.0, niederschlag_mm=5.0, schneefall_cm=0.0)
+    dry = _make_weather(temperature_c=20.0, precipitation_mm=0.0, snowfall_cm=0.0)
+    wet = _make_weather(temperature_c=20.0, precipitation_mm=5.0, snowfall_cm=0.0)
 
     dry_res = calculate_segment_consumption(
         segment=flat_segment,
@@ -101,8 +100,8 @@ def test_snow_road_increases_consumption_more_than_wet(
     wind_still,
     vehicle_params,
 ):
-    wet = _make_weather(temperatur_c=0.0, niederschlag_mm=5.0, schneefall_cm=0.0)
-    snow = _make_weather(temperatur_c=-5.0, niederschlag_mm=0.0, schneefall_cm=2.0)
+    wet = _make_weather(temperature_c=0.0, precipitation_mm=5.0, snowfall_cm=0.0)
+    snow = _make_weather(temperature_c=-5.0, precipitation_mm=0.0, snowfall_cm=2.0)
 
     wet_res = calculate_segment_consumption(
         segment=flat_segment,
@@ -129,8 +128,8 @@ def test_colder_air_increases_drag_due_to_density(
     wind_still,
     vehicle_params,
 ):
-    warm = _make_weather(temperatur_c=20.0, luftdruck_hpa=1013.25)
-    cold = _make_weather(temperatur_c=-20.0, luftdruck_hpa=1013.25)
+    warm = _make_weather(temperature_c=20.0, pressure_hpa=1013.25)
+    cold = _make_weather(temperature_c=-20.0, pressure_hpa=1013.25)
 
     warm_res = calculate_segment_consumption(
         segment=flat_segment,

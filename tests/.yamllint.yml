@@ -1,0 +1,22 @@
+extends: default
+
+rules:
+  # docker-compose.yml/mkdocs.yml/ci.yml beginnen bewusst ohne "---".
+  document-start: disable
+  # GitHub-Actions-Workflows und mkdocs-nav-Zeilen sind stellenweise breiter
+  # als der yamllint-Default (80); 120 deckt die bestehenden Dateien ab.
+  line-length:
+    max: 120
+  # GitHub-Actions-Workflows verwenden den Schlüssel "on:", der in YAML 1.1
+  # als truthy-Wert interpretiert würde — das ist hier kein Formatierungsfehler.
+  truthy:
+    check-keys: false
+
+ignore: |
+  # Verbatim, byte-treue Kopie des im israelhikingmap/graphhopper:11.0-Image
+  # gebackenen config-example.yml (siehe docker-compose.yml-Kommentar) - nur
+  # eine Zeile (`routing.non_ch.max_waypoint_distance`) ist absichtlich
+  # geändert. Nicht umformatieren: sonst verliert die Datei ihren Wert als
+  # 1:1-Vergleichsbasis mit dem Original und das Risiko von Transkriptions-
+  # fehlern beim manuellen Reformatieren steigt unnötig.
+  docker/graphhopper/gh-config.yml

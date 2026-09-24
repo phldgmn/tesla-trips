@@ -21,19 +21,19 @@ COST_INF: float = 1e9  # Unendlich für unzulässige Kanten
 MAX_SOC_PCT: float = 100.0
 
 
-def calc_soc_verbrauch_pct(energie_kwh: float, battery_capacity_kwh: float) -> float:
-    """Berechne SoC-Verbrauch in Prozent für einen gegebenen Energiebedarf.
+def calc_soc_verbrauch_pct(energy_kwh: float, battery_capacity_kwh: float) -> float:
+    """Berechne SoC-consumption in Prozent für einen gegebenen Energiebedarf.
 
     Args:
-        energie_kwh: Energiebedarf in kWh (Verbrauch positiv, Rekuperation
+        energy_kwh: Energiebedarf in kWh (consumption positiv, recuperation
             negativ) - typischerweise über eine Teilstrecke aggregiert
             (siehe `_add_drive_edge`).
         battery_capacity_kwh: Batteriekapazität des Fahrzeugs.
 
     Returns:
-        SoC-Verbrauch in Prozent.
+        SoC-consumption in Prozent.
     """
-    return (energie_kwh / battery_capacity_kwh) * MAX_SOC_PCT
+    return (energy_kwh / battery_capacity_kwh) * MAX_SOC_PCT
 
 
 def calc_ladezeit_s(
@@ -76,10 +76,10 @@ def calc_ladezeit_s(
 
     # Energiebedarf in kWh
     delta_soc_pct = end_soc_pct - start_soc_pct
-    energie_kwh = (delta_soc_pct / MAX_SOC_PCT) * battery_capacity_kwh
+    energy_kwh = (delta_soc_pct / MAX_SOC_PCT) * battery_capacity_kwh
 
-    # Zeit in Sekunden
-    return energie_kwh / mittlere_leistung_kw * 3600.0
+    # time in Sekunden
+    return energy_kwh / mittlere_leistung_kw * 3600.0
 
 
 def mittlere_ladeleistung_kw(
@@ -114,7 +114,7 @@ def soc_nach_fester_ladezeit(
     battery_capacity_kwh: float,
     leistungsdeckel_kw: float | None = None,
 ) -> float:
-    """Ermittelt den SoC nach einer FESTEN Ladedauer.
+    """Ermittelt den SoC nach einer FESTEN charge_duration.
 
     Inverse zu `_calc_ladezeit_s` per Bisektion: `_calc_ladezeit_s` ist
     monoton steigend in `delta_soc_pct`, aber nicht analytisch invertierbar
@@ -133,7 +133,7 @@ def soc_nach_fester_ladezeit(
         leistungsdeckel_kw=leistungsdeckel_kw,
     )
     if ladezeit_bei_max <= ladezeit_s:
-        return MAX_SOC_PCT  # Batterie ist vor Ablauf der Ladedauer voll
+        return MAX_SOC_PCT  # Batterie ist vor Ablauf der charge_duration voll
 
     lo, hi = 0.0, max_delta
     # 20 Iterationen: Praezision `max_delta / 2^20` <= 100 / ~1.05e6 ~= 1e-4
@@ -148,14 +148,14 @@ def soc_nach_fester_ladezeit(
     # (siehe Nutzer-Report: ~58s fuer `optimize_charging_plan`).
     for _ in range(20):
         mid = (lo + hi) / 2.0
-        dauer = calc_ladezeit_s(
+        duration = calc_ladezeit_s(
             start_soc_pct=start_soc_pct,
             end_soc_pct=start_soc_pct + mid,
             ladekurve=ladekurve,
             battery_capacity_kwh=battery_capacity_kwh,
             leistungsdeckel_kw=leistungsdeckel_kw,
         )
-        if dauer < ladezeit_s:
+        if duration < ladezeit_s:
             lo = mid
         else:
             hi = mid
@@ -188,7 +188,7 @@ def lade_ziel_kandidaten(  # noqa: PLR0913, PLR0917 -- Kandidatenermittlung brau
        (`min_arrival_soc_pct` fuer eine weitere Ladestation,
        `target_soc_target` fuers Fahrtziel, sonst `min_soc_pct`). Der
        Uebernaechste-Kandidat modelliert explizit die Alternative "hier
-       etwas mehr laden, um die naechste Station ganz zu ueberspringen" -
+       etwas more laden, um die naechste Station ganz zu ueberspringen" -
        ohne ihn wuerde die Suche diese Option nur zufaellig ueber einen
        der anderen Kandidaten treffen (siehe Nutzer-Report: Ladehalt in
        Kamen auf 80%, obwohl Holdorf ohnehin mit 24% erreicht wurde -
@@ -202,7 +202,7 @@ def lade_ziel_kandidaten(  # noqa: PLR0913, PLR0917 -- Kandidatenermittlung brau
        noch"-Grenzen JEDER Ladekurve (nicht nur der Tesla-Referenzkurven
        mit ihren 20/50/80/90/100%-Stuetzstellen).
 
-    Der A*-Kostenoptimierer (Fahrzeit + echte kurvenbasierte Ladezeit
+    Der A*-Kostenoptimierer (drive_time_s + echte kurvenbasierte Ladezeit
     über `_calc_ladezeit_s`, siehe `_generate_graph`) waehlt aus diesen
     Kandidaten anschliessend selbst die zeitoptimale Kombination UEBER
     ALLE Ladehalte hinweg - eine nachtraegliche "Backpropagation" auf
@@ -225,7 +225,7 @@ def lade_ziel_kandidaten(  # noqa: PLR0913, PLR0917 -- Kandidatenermittlung brau
         if ziel_seg_idx <= seg_idx:
             continue
         verbrauch_pct = calc_soc_verbrauch_pct(
-            energie_kwh=cum_energy_kwh[ziel_seg_idx] - cum_energy_kwh[seg_idx],
+            energy_kwh=cum_energy_kwh[ziel_seg_idx] - cum_energy_kwh[seg_idx],
             battery_capacity_kwh=vehicle_profile.battery_capacity_kwh,
         )
         if ziel_seg_idx == total_segments:
@@ -260,8 +260,8 @@ def kandidaten_mit_mindestladedauer(  # noqa: PLR0913, PLR0917 -- Mindestdauer-S
     unberührt) oder mindestens `min_charging_time_s`. Verhindert unnötig
     kurze Ladehalte (siehe Nutzer-Report: ein 1-Minuten-Stopp, gefolgt
     von einem weiteren Halt nach nur gut 10 Minuten Fahrt - beide Halte
-    zusammen kosten durch Ein-/Ausparken, Stecker anschließen etc. mehr
-    Zeit als eine einzelne, etwas längere Ladung), ohne den Ladehalt an
+    zusammen kosten durch Ein-/Ausparken, Stecker anschließen etc. more
+    time als eine einzelne, etwas längere Ladung), ohne den Ladehalt an
     sich zu erzwingen.
 
     Mehrere zu kurze Roh-Kandidaten können dabei auf DASSELBE gestreckte

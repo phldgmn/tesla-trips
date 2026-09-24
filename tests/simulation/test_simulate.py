@@ -4,7 +4,7 @@ Testfaelle gemaeess Plan Abschnitt 6.1:
 - Positions-Interpolation (Segmentanfang/-ende/Mitte)
 - Zustandswechsel FAHREN->LADEN->FAHREN an einem Ladehalt
 - SoC faellt waehrend Fahrt und steigt waehrend Ladevorgang
-- Gesamtdistanz/-fahrzeit/-ladezeit korrekt aufsummiert
+- total_distance/-drive_time_s/-ladezeit korrekt aufsummiert
 - Zeitauflösung konfigurierbar
 - Grenzfall Route ohne Ladehalt (durchgehend FAHREN)
 """
@@ -14,7 +14,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-
 from tripplanner.charging_infrastructure.models import ChargingStation
 from tripplanner.energy.models import SegmentEnergyResult
 from tripplanner.optimization.models import ChargingPlan, ChargingStop, ZwischenstoppAufenthalt
@@ -31,15 +30,15 @@ FRANKFURT_COORD: Coordinate = (50.1109, 8.6821)
 def make_route_segment(
     segment_index: int,
     geometrie: list[Coordinate],
-    laenge_m: float,
+    length_m: float,
 ) -> RouteSegment:
     """Hilfsfunktion zur Erstellung von RouteSegment-Instanzen."""
     return RouteSegment(
         segment_index=segment_index,
         geometrie=geometrie,
-        laenge_m=laenge_m,
+        length_m=length_m,
         strassenklasse="MOTORWAY",
-        tempolimit_kmh=120,
+        speed_limit_kmh=120,
         bearing_deg=45.0,
     )
 
@@ -47,9 +46,9 @@ def make_route_segment(
 def make_energy_result(
     segment_index: int,
     energiebedarf_kwh: float,
-    fahrzeit_s: float,
-    geschwindigkeit_m_s: float,
-    streckenlaenge_m: float,
+    drive_time_s: float,
+    speed_ms: float,
+    segment_length_m: float,
 ) -> SegmentEnergyResult:
     """Hilfsfunktion zur Erstellung von SegmentEnergyResult-Instanzen."""
     return SegmentEnergyResult(
@@ -57,9 +56,9 @@ def make_energy_result(
         energiebedarf_kwh=energiebedarf_kwh,
         rekuperation_kwh=0.0,
         energiebedarf_brutto_kwh=energiebedarf_kwh,
-        geschwindigkeit_m_s=geschwindigkeit_m_s,
-        fahrzeit_s=fahrzeit_s,
-        streckenlaenge_m=streckenlaenge_m,
+        speed_ms=speed_ms,
+        drive_time_s=drive_time_s,
+        segment_length_m=segment_length_m,
     )
 
 
@@ -86,27 +85,27 @@ def energy_results_3_segments() -> list[SegmentEnergyResult]:
             energiebedarf_kwh=8.5,
             rekuperation_kwh=0.0,
             energiebedarf_brutto_kwh=8.5,
-            geschwindigkeit_m_s=33.33,
-            fahrzeit_s=1500,
-            streckenlaenge_m=50_000,
+            speed_ms=33.33,
+            drive_time_s=1500,
+            segment_length_m=50_000,
         ),
         SegmentEnergyResult(
             segment_index=1,
             energiebedarf_kwh=9.2,
             rekuperation_kwh=0.0,
             energiebedarf_brutto_kwh=9.2,
-            geschwindigkeit_m_s=33.33,
-            fahrzeit_s=1800,
-            streckenlaenge_m=60_000,
+            speed_ms=33.33,
+            drive_time_s=1800,
+            segment_length_m=60_000,
         ),
         SegmentEnergyResult(
             segment_index=2,
             energiebedarf_kwh=7.8,
             rekuperation_kwh=0.0,
             energiebedarf_brutto_kwh=7.8,
-            geschwindigkeit_m_s=33.33,
-            fahrzeit_s=1200,
-            streckenlaenge_m=40_000,
+            speed_ms=33.33,
+            drive_time_s=1200,
+            segment_length_m=40_000,
         ),
     ]
 
@@ -211,7 +210,7 @@ class TestStateTransitions:
                     arrival_soc_pct=30.0,
                     target_soc_pct=60.0,
                     geschaetzte_ladedauer_s=1800,
-                    ankunftszeit=base_time + timedelta(seconds=1500),
+                    arrival_time=base_time + timedelta(seconds=1500),
                     departure_time=base_time + timedelta(seconds=3300),
                 ),
             ],
@@ -249,7 +248,7 @@ class TestStateTransitions:
                     arrival_soc_pct=30.0,
                     target_soc_pct=80.0,
                     geschaetzte_ladedauer_s=1800,
-                    ankunftszeit=base_time + timedelta(seconds=1500),
+                    arrival_time=base_time + timedelta(seconds=1500),
                     departure_time=base_time + timedelta(seconds=3300),
                 ),
             ],
@@ -315,7 +314,7 @@ class TestSocChanges:
                     arrival_soc_pct=30.0,
                     target_soc_pct=60.0,
                     geschaetzte_ladedauer_s=1800,
-                    ankunftszeit=base_time + timedelta(seconds=1500),
+                    arrival_time=base_time + timedelta(seconds=1500),
                     departure_time=base_time + timedelta(seconds=3300),
                 ),
             ],
@@ -336,14 +335,14 @@ class TestSocChanges:
 
 
 class TestTotals:
-    """Tests fuer Gesamtberechnung (Distanz, Fahrzeit, Ladezeit)."""
+    """Tests fuer Gesamtberechnung (distance, drive_time_s, Ladezeit)."""
 
     def test_total_distance_correct(
         self,
         route_3_segments: Route,
         energy_results_3_segments: list[SegmentEnergyResult],
     ) -> None:
-        """Testfall 8: Gesamtdistanz ist korrekt."""
+        """Testfall 8: total_distance ist korrekt."""
         plan = ChargingPlan(
             ladehalte=[],
             gesamtreisezeit_s=4500,
@@ -387,7 +386,7 @@ class TestTotals:
         energy_results_3_segments: list[SegmentEnergyResult],
         charging_station_leipzig: ChargingStation,
     ) -> None:
-        """Testfall 10: Gesamtladezeit ist korrekt (1800s = 30 min)."""
+        """Testfall 10: total_charge_time ist korrekt (1800s = 30 min)."""
         base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
         plan = ChargingPlan(
             ladehalte=[
@@ -397,7 +396,7 @@ class TestTotals:
                     arrival_soc_pct=30.0,
                     target_soc_pct=60.0,
                     geschaetzte_ladedauer_s=1800,
-                    ankunftszeit=base_time + timedelta(seconds=1500),
+                    arrival_time=base_time + timedelta(seconds=1500),
                     departure_time=base_time + timedelta(seconds=3300),
                 ),
             ],
@@ -445,7 +444,7 @@ class TestResolution:
         route_3_segments: Route,
         energy_results_3_segments: list[SegmentEnergyResult],
     ) -> None:
-        """Testfall 12: Geringe Auflosung (600s) erzeugt weniger Frames."""
+        """Testfall 12: Geringe Auflosung (600s) erzeugt less Frames."""
         plan = ChargingPlan(
             ladehalte=[],
             gesamtreisezeit_s=3600,
@@ -498,7 +497,7 @@ class TestDepartureTimeBasis:
         route_3_segments: Route,
         energy_results_3_segments: list[SegmentEnergyResult],
     ) -> None:
-        """Erster Frame-Zeitpunkt entspricht exakt der uebergebenen departure_time (nicht 1970)."""
+        """Erster Frame-timestamp entspricht exakt der uebergebenen departure_time (nicht 1970)."""
         departure_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
         plan = ChargingPlan(ladehalte=[], gesamtreisezeit_s=600)
 
@@ -511,8 +510,8 @@ class TestDepartureTimeBasis:
             output_resolution_seconds=60,
         )
 
-        assert result.frames[0].zeitpunkt == departure_time
-        assert result.frames[1].zeitpunkt == departure_time + timedelta(seconds=60)
+        assert result.frames[0].timestamp == departure_time
+        assert result.frames[1].timestamp == departure_time + timedelta(seconds=60)
 
     def test_timepoint_with_other_departuretime(
         self,
@@ -532,16 +531,16 @@ class TestDepartureTimeBasis:
             output_resolution_seconds=60,
         )
 
-        assert result.frames[0].zeitpunkt == departure_time
-        assert result.frames[0].zeitpunkt.year == 2030
-        assert result.frames[-1].zeitpunkt > departure_time
+        assert result.frames[0].timestamp == departure_time
+        assert result.frames[0].timestamp.year == 2030
+        assert result.frames[-1].timestamp > departure_time
 
 
 class TestSocDepletionPhysikalischKorrekt:
-    """Regressionstests: Bug 2 - SoC-Abfall muss auf Energie/Batteriekapazitaet basieren."""
+    """Regressionstests: Bug 2 - SoC-Abfall muss auf energy/Batteriekapazitaet basieren."""
 
     def test_soc_consumption_proportional_to_energy_usage_and_battery_capacity(self) -> None:
-        """1 Segment, 10 kWh Verbrauch, 50 kWh Kapazitaet -> Abfall exakt 20 Prozentpunkte."""
+        """1 Segment, 10 kWh consumption, 50 kWh capacity -> Abfall exakt 20 Prozentpunkte."""
         route = Route(
             segments=[make_route_segment(0, [BERLIN_COORD, LEIPZIG_COORD], 100_000)],
             gesamtlaenge_m=100_000,
@@ -596,7 +595,7 @@ class TestSocBaselineAfterChargingStop:
     Fruehere Implementierung berechnete den SoC waehrend FAHREN immer als
     `start_soc_pct - kumulierte_energie_seit_reisebeginn`, unabhaengig davon,
     ob zwischendurch bereits geladen wurde. Dadurch wurde jeder Ladegewinn
-    verworfen, sobald wieder gefahren wurde, und der SoC fiel einfach auf der
+    verworfen, sobald wieder gefahren wurde, und der SoC fiel single auf der
     urspruenglichen (ungeladenen) Entladekurve weiter - bei laengeren Routen
     mit mehreren Ladehalten faelschlich bis auf 0% trotz erfolgter Ladehalte.
     """
@@ -649,9 +648,9 @@ class TestSocBaselineAfterChargingStop:
 class TestZwischenstoppAufenthalt:
     """Regressionstests: eine erzwungene Zwischenstopp-Wartezeit
     (`ChargingPlan.zwischenstopp_aufenthalte`) muss als stationaere Phase
-    simuliert werden (Fahrzeug steht an der Zwischenstopp-Koordinate) statt
-    als zusaetzliche, ueber die gesamte Route verschmierte Fahrzeit - sonst
-    "kriecht" das Fahrzeug waehrend der Wartezeit langsam entlang der Route
+    simuliert werden (vehicle steht an der Zwischenstopp-Koordinate) statt
+    als zusaetzliche, ueber die gesamte Route verschmierte drive_time_s - sonst
+    "kriecht" das vehicle waehrend der Wartezeit slow entlang der Route
     weiter, statt an der tatsaechlichen Stopp-Position stehen zu bleiben.
     """
 
@@ -661,13 +660,14 @@ class TestZwischenstoppAufenthalt:
         energy_results_3_segments: list[SegmentEnergyResult],
     ) -> None:
         """Ein Zwischenstopp-Aufenthalt ohne Ladeleistung erzeugt PAUSE-Frames
-        exakt an dessen Koordinate, mit unveraendertem SoC."""
+        exakt an dessen Koordinate, mit unveraendertem SoC.
+        """
         base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
         stopp_koordinate = (51.0, 12.0)
         aufenthalt = ZwischenstoppAufenthalt(
             coordinate=stopp_koordinate,
             segment_index=1,
-            ankunftszeit=base_time + timedelta(seconds=1500),
+            arrival_time=base_time + timedelta(seconds=1500),
             departure_time=base_time + timedelta(seconds=3300),
             charging_power_kw=None,
             arrival_soc_pct=55.0,
@@ -692,7 +692,7 @@ class TestZwischenstoppAufenthalt:
         assert len(pause_frames) >= 1
         for frame in pause_frames:
             assert frame.position == stopp_koordinate
-            assert frame.geschwindigkeit_kmh == 0.0
+            assert frame.speed_kmh == 0.0
             assert frame.soc_pct == pytest.approx(55.0, abs=0.5)
         assert result.gesamt_wartezeit_min == pytest.approx(30.0, abs=0.1)
         assert result.waypoint_stops[0].position == stopp_koordinate
@@ -704,13 +704,14 @@ class TestZwischenstoppAufenthalt:
         energy_results_3_segments: list[SegmentEnergyResult],
     ) -> None:
         """Ein Zwischenstopp-Aufenthalt MIT Ladeleistung erzeugt LADEN-Frames
-        mit zwischen Ankunfts-/Ziel-SoC interpoliertem SoC."""
+        mit zwischen Ankunfts-/Ziel-SoC interpoliertem SoC.
+        """
         base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
         stopp_koordinate = (51.0, 12.0)
         aufenthalt = ZwischenstoppAufenthalt(
             coordinate=stopp_koordinate,
             segment_index=1,
-            ankunftszeit=base_time + timedelta(seconds=1500),
+            arrival_time=base_time + timedelta(seconds=1500),
             departure_time=base_time + timedelta(seconds=3300),
             charging_power_kw=11.0,
             arrival_soc_pct=40.0,
@@ -753,12 +754,13 @@ class TestZwischenstoppAufenthalt:
         """Nach einer Zwischenstopp-Ladung muss der SoC waehrend der
         anschliessenden Fahrt vom dort erreichten Ziel-SoC ausgehen, nicht vom
         Start-SoC der gesamten Reise (analog zu Ladehalten an Superchargern,
-        siehe `TestSocBaselineAfterChargingStop`)."""
+        siehe `TestSocBaselineAfterChargingStop`).
+        """
         base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
         aufenthalt = ZwischenstoppAufenthalt(
             coordinate=(51.0, 12.0),
             segment_index=1,
-            ankunftszeit=base_time + timedelta(seconds=1500),
+            arrival_time=base_time + timedelta(seconds=1500),
             departure_time=base_time + timedelta(seconds=3300),
             charging_power_kw=11.0,
             arrival_soc_pct=30.0,
@@ -782,7 +784,7 @@ class TestZwischenstoppAufenthalt:
         fahren_frames_nach_aufenthalt = [
             f
             for f in result.frames
-            if f.zustand == TripState.FAHREN and f.zeitpunkt > aufenthalt.departure_time
+            if f.zustand == TripState.FAHREN and f.timestamp > aufenthalt.departure_time
         ]
         assert fahren_frames_nach_aufenthalt
         # Erster FAHREN-Frame nach der Ladung darf nicht weit unter 70% liegen
@@ -794,26 +796,27 @@ class TestZwischenstoppAufenthalt:
         route_3_segments: Route,
         energy_results_3_segments: list[SegmentEnergyResult],
     ) -> None:
-        """`WaypointStopSummary.distanz_m` MUSS exakt der kumulierten Distanz
+        """`WaypointStopSummary.distance_m` MUSS exakt der kumulierten distance
         am `segment_index` des Zwischenstopps entsprechen - unabhaengig von
         der zeitbasierten Positionsrekonstruktion (`_find_segment_for_time`),
         die bei einer globalen `time_scale != 1` (z. B. wenn `gesamtreisezeit_s`
         stark von der Summe der rohen Segment-Fahrzeiten abweicht, wie es bei
-        GraphHopper-Faehrsegmenten mit unrealistisch kurzer Roh-Fahrzeit, aber
+        GraphHopper-Faehrsegmenten mit unrealistisch kurzer Roh-drive_time_s, aber
         langer echter Ueberfahrtsdauer vorkommt) systematisch danebenliegt.
 
         `segment_index=2` liegt bei exakt 110.000 m (50.000 + 60.000 m, Ende
         von Segment 1 = Beginn von Segment 2). Die rohen Segment-Fahrzeiten
         summieren sich auf 4500s; `gesamtreisezeit_s` wird hier bewusst auf
-        das Doppelte der reinen Fahrzeit gesetzt (`time_scale = 2.0`) - die
+        das Doppelte der reinen drive_time_s gesetzt (`time_scale = 2.0`) - die
         zeitbasierte Rekonstruktion wuerde den Zwischenstopp dann faelschlich
         bei 55.000 m verorten (Segment 1 statt Segment 2, siehe Testkommentare
-        unten), 55 km vom tatsaechlichen Zwischenstopp entfernt."""
+        unten), 55 km vom tatsaechlichen Zwischenstopp entfernt.
+        """
         base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
         aufenthalt = ZwischenstoppAufenthalt(
             coordinate=(50.5, 9.0),
             segment_index=2,
-            ankunftszeit=base_time + timedelta(seconds=3300),
+            arrival_time=base_time + timedelta(seconds=3300),
             departure_time=base_time + timedelta(seconds=3900),
             charging_power_kw=11.0,
             arrival_soc_pct=30.0,
@@ -836,34 +839,35 @@ class TestZwischenstoppAufenthalt:
             departure_time=base_time,
         )
 
-        assert result.waypoint_stops[0].distanz_m == pytest.approx(110_000.0)
+        assert result.waypoint_stops[0].distance_m == pytest.approx(110_000.0)
 
 
 class TestWetterWirdAnFramesAngehaengt:
-    """`simulate_trip(weather_samples=...)` haengt Temperatur/Wind/Niederschlag
+    """`simulate_trip(weather_samples=...)` haengt temperature/Wind/precipitation
     an jeden Frame an - fuer den Routen-Hover-Tooltip im Frontend (siehe
-    `SimulationFrame.temperatur_c` und `buildRouteHoverText` in `popups.ts`)."""
+    `SimulationFrame.temperature_c` und `buildRouteHoverText` in `popups.ts`).
+    """
 
     @staticmethod
     def _make_weather_sample(
         coordinate: Coordinate,
-        temperatur_c: float,
-        windgeschwindigkeit_ms: float = 3.0,
-        windrichtung_deg: float = 270.0,
-        niederschlag_mm: float = 0.0,
+        temperature_c: float,
+        wind_speed_ms: float = 3.0,
+        wind_direction_deg: float = 270.0,
+        precipitation_mm: float = 0.0,
     ) -> WeatherSample:
         return WeatherSample(
             coordinate=coordinate,
-            zeitpunkt=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
-            temperatur_c=temperatur_c,
-            windgeschwindigkeit_ms=windgeschwindigkeit_ms,
-            windrichtung_deg=windrichtung_deg,
-            niederschlag_mm=niederschlag_mm,
-            schneefall_cm=0.0,
-            luftdruck_hpa=1013.25,
-            luftfeuchtigkeit_pct=60.0,
-            globalstrahlung_wm2=400.0,
-            bewoelkung_pct=20.0,
+            timestamp=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+            temperature_c=temperature_c,
+            wind_speed_ms=wind_speed_ms,
+            wind_direction_deg=wind_direction_deg,
+            precipitation_mm=precipitation_mm,
+            snowfall_cm=0.0,
+            pressure_hpa=1013.25,
+            humidity_pct=60.0,
+            solar_radiation_wm2=400.0,
+            cloudiness_pct=20.0,
         )
 
     def test_frames_tragen_segmentweise_wetterwerte(
@@ -871,14 +875,15 @@ class TestWetterWirdAnFramesAngehaengt:
         route_3_segments: Route,
         energy_results_3_segments: list[SegmentEnergyResult],
     ) -> None:
-        """Jeder Frame erhaelt Temperatur/Wind/Niederschlag des `WeatherSample`
+        """Jeder Frame erhaelt temperature/Wind/precipitation des `WeatherSample`
         seines aktuellen Segments (per Index, gleiche Reihenfolge wie
-        `route.segments`)."""
+        `route.segments`).
+        """
         plan = ChargingPlan(ladehalte=[], gesamtreisezeit_s=4500)
         weather_samples = [
-            self._make_weather_sample(BERLIN_COORD, temperatur_c=5.0, niederschlag_mm=2.0),
-            self._make_weather_sample(LEIPZIG_COORD, temperatur_c=10.0),
-            self._make_weather_sample(FRANKFURT_COORD, temperatur_c=15.0),
+            self._make_weather_sample(BERLIN_COORD, temperature_c=5.0, precipitation_mm=2.0),
+            self._make_weather_sample(LEIPZIG_COORD, temperature_c=10.0),
+            self._make_weather_sample(FRANKFURT_COORD, temperature_c=15.0),
         ]
 
         result = simulate_trip(
@@ -894,16 +899,16 @@ class TestWetterWirdAnFramesAngehaengt:
         fahren_frames = [f for f in result.frames if f.zustand == TripState.FAHREN]
         assert fahren_frames
         for frame in fahren_frames:
-            assert frame.temperatur_c is not None
-            assert frame.windgeschwindigkeit_ms is not None
-            assert frame.windrichtung_deg is not None
-            assert frame.niederschlag_mm is not None
-        # Erster Frame liegt auf Segment 0 -> dessen Wetter (5°C, 2mm Regen).
-        assert fahren_frames[0].temperatur_c == pytest.approx(5.0)
-        assert fahren_frames[0].niederschlag_mm == pytest.approx(2.0)
+            assert frame.temperature_c is not None
+            assert frame.wind_speed_ms is not None
+            assert frame.wind_direction_deg is not None
+            assert frame.precipitation_mm is not None
+        # Erster Frame liegt auf Segment 0 -> dessen Wetter (5°C, 2mm rain).
+        assert fahren_frames[0].temperature_c == pytest.approx(5.0)
+        assert fahren_frames[0].precipitation_mm == pytest.approx(2.0)
         # Letzter Frame liegt auf Segment 2 -> dessen Wetter (15°C).
-        assert fahren_frames[-1].temperatur_c == pytest.approx(15.0)
-        assert fahren_frames[0].windrichtung_deg == pytest.approx(270.0)
+        assert fahren_frames[-1].temperature_c == pytest.approx(15.0)
+        assert fahren_frames[0].wind_direction_deg == pytest.approx(270.0)
 
     def test_ohne_weather_samples_bleiben_wetterfelder_none(
         self,
@@ -914,7 +919,8 @@ class TestWetterWirdAnFramesAngehaengt:
         statt irrefuehrende Platzhalterwerte zu tragen - z. B. wenn der
         Nutzer die Wetterberuecksichtigung deaktiviert hat (siehe
         `WeatherDetailLevel` 'off', verdrahtet in
-        `tripplanner.trip_input.pipeline.create_trip_simulation`)."""
+        `tripplanner.trip_input.pipeline.create_trip_simulation`).
+        """
         plan = ChargingPlan(ladehalte=[], gesamtreisezeit_s=4500)
 
         result = simulate_trip(
@@ -928,7 +934,7 @@ class TestWetterWirdAnFramesAngehaengt:
 
         assert result.frames
         for frame in result.frames:
-            assert frame.temperatur_c is None
-            assert frame.windgeschwindigkeit_ms is None
-            assert frame.windrichtung_deg is None
-            assert frame.niederschlag_mm is None
+            assert frame.temperature_c is None
+            assert frame.wind_speed_ms is None
+            assert frame.wind_direction_deg is None
+            assert frame.precipitation_mm is None

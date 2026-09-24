@@ -33,9 +33,9 @@ class ChargingStop(BaseModel):
     target_soc_pct: float = Field(
         ge=0.0, le=100.0, description="Angestrebter SoC nach dem Laden in %"
     )
-    geschaetzte_ladedauer_s: int = Field(ge=0, description="Geschätzte Ladedauer in Sekunden")
-    ankunftszeit: datetime = Field(description="Zeitpunkt der Ankunft an der Station")
-    departure_time: datetime = Field(description="Zeitpunkt der Abfahrt von der Station")
+    geschaetzte_ladedauer_s: int = Field(ge=0, description="Geschätzte charge_duration in Sekunden")
+    arrival_time: datetime = Field(description="timestamp der Ankunft an der Station")
+    departure_time: datetime = Field(description="timestamp der Abfahrt von der Station")
 
     @field_validator("arrival_soc_pct", "target_soc_pct")
     @classmethod
@@ -69,7 +69,7 @@ class OptimizationConstraints(BaseModel):
     max_etappenlaenge_km: float = Field(
         default=500.0,
         gt=0.0,
-        description="Maximale Distanz zwischen Ladestopps (optional)",
+        description="Maximale distance zwischen Ladestopps (optional)",
     )
     sicherheitsreserve_pct: float = Field(
         default=5.0,
@@ -86,7 +86,7 @@ class OptimizationConstraints(BaseModel):
         le=100.0,
         description=(
             "Minimal zulässiger SoC beim ANKOMMEN an einer Ladestation (nicht "
-            "unterwegs auf offener Strecke - dort gilt weiterhin `min_soc_pct`). "
+            "unterwegs auf offener segment - dort gilt weiterhin `min_soc_pct`). "
             "Da an einer Ladestation garantiert nachgeladen wird, darf der SoC "
             "dort bewusst tiefer sinken als das allgemeine Sicherheits-Minimum - "
             "das ermöglicht, die besonders schnelle Ladeleistung im unteren "
@@ -98,14 +98,14 @@ class OptimizationConstraints(BaseModel):
         default=3600,
         ge=600,
         le=7200,
-        description="Maximale Dauer eines einzelnen Ladevorgangs (optional)",
+        description="Maximale duration eines einzelnen Ladevorgangs (optional)",
     )
     min_charging_time_s: int = Field(
         default=600,
         ge=0,
         le=1800,
         description=(
-            "Minimale Dauer eines einzelnen Ladevorgangs, WENN geladen wird. "
+            "Minimale duration eines einzelnen Ladevorgangs, WENN geladen wird. "
             "Ein Kandidat-Ladeziel, dessen Ladezeit darunter läge, wird auf "
             "genau diese Mindestdauer gestreckt statt verworfen - verhindert "
             "unnötig kurze Ladehalte (z. B. 1 Minute), ohne den Ladehalt an "
@@ -208,8 +208,8 @@ class ZwischenstoppAufenthalt(BaseModel):
 
     coordinate: Coordinate
     segment_index: int = Field(ge=0, description="Segment-Index des Zwischenstopps")
-    ankunftszeit: datetime = Field(description="Zeitpunkt der Ankunft am Zwischenstopp")
-    departure_time: datetime = Field(description="Zeitpunkt der (erzwungenen) Abfahrt")
+    arrival_time: datetime = Field(description="timestamp der Ankunft am Zwischenstopp")
+    departure_time: datetime = Field(description="timestamp der (erzwungenen) Abfahrt")
     charging_power_kw: float | None = Field(
         default=None,
         ge=0.0,
@@ -244,7 +244,7 @@ class StateNode(BaseModel):
 
     segment_index: int
     soc_pct: float  # diskretisiert
-    zeitpunkt: datetime
+    timestamp: datetime
 
 
 class OptimizerInterface(Protocol):
@@ -271,7 +271,7 @@ class OptimizerInterface(Protocol):
 
         `charging_duration_specifications` (optionale, vom Nutzer vorgegebene feste Ladedauern in
         Sekunden je Stations-ID) überschreibt die automatische SoC-basierte
-        Ladedauer-Berechnung für die betroffene Station. `ferry_time_windows`
+        charge_duration-Berechnung für die betroffene Station. `ferry_time_windows`
         (optionale, vom Nutzer vorgegebene Fährfahrpläne, als
         `segment_index_start -> (segment_index_end, departure, arrival)`, siehe
         `tripplanner.routing.models.FerrySegment`) lässt Segmente in diesem

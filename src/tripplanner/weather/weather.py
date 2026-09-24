@@ -68,13 +68,13 @@ def _cumulative_midpoint_distances_m(
     Returns:
         A list of length ``len(segment_eta_list)`` where entry *i* is the
         cumulative route distance (metres) to the midpoint of segment *i*,
-        computed from ``RouteSegment.laenge_m``.
+        computed from ``RouteSegment.length_m``.
     """
     distances: list[float] = []
     travelled = 0.0
     for segment, _ in segment_eta_list:
-        distances.append(travelled + segment.laenge_m / 2)
-        travelled += segment.laenge_m
+        distances.append(travelled + segment.length_m / 2)
+        travelled += segment.length_m
     return distances
 
 
@@ -232,7 +232,7 @@ def _interpolate_samples(left: WeatherSample, right: WeatherSample, t: float) ->
 
     Returns:
         A new `WeatherSample` with every numeric field interpolated.
-        ``coordinate``/``zeitpunkt`` are copied from *left* and are expected
+        ``coordinate``/``timestamp`` are copied from *left* and are expected
         to be overwritten by the caller with the target segment's own
         values.
     """
@@ -242,22 +242,20 @@ def _interpolate_samples(left: WeatherSample, right: WeatherSample, t: float) ->
         return right
     return left.model_copy(
         update={
-            "temperatur_c": left.temperatur_c + (right.temperatur_c - left.temperatur_c) * t,
-            "windgeschwindigkeit_ms": left.windgeschwindigkeit_ms
-            + (right.windgeschwindigkeit_ms - left.windgeschwindigkeit_ms) * t,
-            "windrichtung_deg": _interpolate_angle_deg(
-                left.windrichtung_deg, right.windrichtung_deg, t
+            "temperature_c": left.temperature_c + (right.temperature_c - left.temperature_c) * t,
+            "wind_speed_ms": left.wind_speed_ms + (right.wind_speed_ms - left.wind_speed_ms) * t,
+            "wind_direction_deg": _interpolate_angle_deg(
+                left.wind_direction_deg, right.wind_direction_deg, t
             ),
-            "niederschlag_mm": left.niederschlag_mm
-            + (right.niederschlag_mm - left.niederschlag_mm) * t,
-            "schneefall_cm": left.schneefall_cm + (right.schneefall_cm - left.schneefall_cm) * t,
-            "luftdruck_hpa": left.luftdruck_hpa + (right.luftdruck_hpa - left.luftdruck_hpa) * t,
-            "luftfeuchtigkeit_pct": left.luftfeuchtigkeit_pct
-            + (right.luftfeuchtigkeit_pct - left.luftfeuchtigkeit_pct) * t,
-            "globalstrahlung_wm2": left.globalstrahlung_wm2
-            + (right.globalstrahlung_wm2 - left.globalstrahlung_wm2) * t,
-            "bewoelkung_pct": left.bewoelkung_pct
-            + (right.bewoelkung_pct - left.bewoelkung_pct) * t,
+            "precipitation_mm": left.precipitation_mm
+            + (right.precipitation_mm - left.precipitation_mm) * t,
+            "snowfall_cm": left.snowfall_cm + (right.snowfall_cm - left.snowfall_cm) * t,
+            "pressure_hpa": left.pressure_hpa + (right.pressure_hpa - left.pressure_hpa) * t,
+            "humidity_pct": left.humidity_pct + (right.humidity_pct - left.humidity_pct) * t,
+            "solar_radiation_wm2": left.solar_radiation_wm2
+            + (right.solar_radiation_wm2 - left.solar_radiation_wm2) * t,
+            "cloudiness_pct": left.cloudiness_pct
+            + (right.cloudiness_pct - left.cloudiness_pct) * t,
         }
     )
 
@@ -386,7 +384,7 @@ async def _fetch_sampled(
         geo = segment.geometrie
         coord = geo[len(geo) // 2]
         seg_time = _compute_segment_time(idx, departure_time, segment_eta_list)
-        queries.append(WeatherQuery(coordinate=coord, zeitpunkt=seg_time))
+        queries.append(WeatherQuery(coordinate=coord, timestamp=seg_time))
 
     samples = await provider.fetch_weather(queries)
 
@@ -411,7 +409,7 @@ async def _fetch_sampled(
         seg_time = _compute_segment_time(seg_idx, departure_time, segment_eta_list)
         result.append(
             interpolated.model_copy(
-                update={"coordinate": seg_coord, "zeitpunkt": seg_time},
+                update={"coordinate": seg_coord, "timestamp": seg_time},
             )
         )
     return result
@@ -467,7 +465,7 @@ async def fetch_weather_for_route(
         samples = await provider.fetch_weather(batch)
         for sample in samples:
             for idx, query in enumerate(route_queries):
-                if query.coordinate == sample.coordinate and query.zeitpunkt == sample.zeitpunkt:
+                if query.coordinate == sample.coordinate and query.timestamp == sample.timestamp:
                     if results[idx] is None:
                         results[idx] = sample
                     break

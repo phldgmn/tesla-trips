@@ -11,7 +11,6 @@ from datetime import UTC, datetime, timedelta
 
 import networkx as nx
 import pytest
-
 from tripplanner.battery.models import LadekurveReferenz
 from tripplanner.charging_infrastructure.models import (
     ChargingStation,
@@ -85,7 +84,7 @@ class TestDiscretizerFunctions:
             assert result == soc
 
     def test_zeit_to_bucket(self) -> None:
-        """Test Zeit-Bucket-Konvertierung."""
+        """Test time-Bucket-Konvertierung."""
         base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
 
         assert time_to_bucket(base_time, base_time) == 0
@@ -94,7 +93,7 @@ class TestDiscretizerFunctions:
         assert time_to_bucket(base_time + timedelta(minutes=60), base_time) == 4
 
     def test_bucket_to_zeit(self) -> None:
-        """Test Bucket-zu-Zeit-Konvertierung."""
+        """Test Bucket-zu-time-Konvertierung."""
         base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
 
         assert bucket_to_time(0, base_time) == base_time
@@ -103,7 +102,7 @@ class TestDiscretizerFunctions:
         assert bucket_to_time(4, base_time) == base_time + timedelta(minutes=60)
 
     def test_bucket_to_zeit_roundtrip(self) -> None:
-        """Test Rundungstoleranz der Zeit-Bucket-Konvertierung."""
+        """Test Rundungstoleranz der time-Bucket-Konvertierung."""
         base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
         time_steps = [0, 1, 2, 4, 8, 16]
 
@@ -117,33 +116,33 @@ class TestNetworkXOptimizer:
     """Tests für den NetworkXOptimizer (Prototyp)."""
 
     def test_kein_ladehalt_noetig(self) -> None:
-        """Test: Einfache Route, keine Ladehalt nötig (100% Start, geringer Verbrauch)."""
+        """Test: Einfache Route, keine Ladehalt nötig (100% Start, geringer consumption)."""
         route = Route(
             segments=[
                 RouteSegment(
                     segment_index=0,
                     geometrie=[BERLIN_COORD, (53.0, 12.0)],
-                    laenge_m=50_000,
+                    length_m=50_000,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=130,
+                    speed_limit_kmh=130,
                     steigung_rohdaten=0.0,
                     bearing_deg=315.0,
                 ),
                 RouteSegment(
                     segment_index=1,
                     geometrie=[(53.0, 12.0), (53.3, 11.0)],
-                    laenge_m=30_000,
+                    length_m=30_000,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=120,
+                    speed_limit_kmh=120,
                     steigung_rohdaten=0.0,
                     bearing_deg=280.0,
                 ),
                 RouteSegment(
                     segment_index=2,
                     geometrie=[(53.3, 11.0), HAMBURG_COORD],
-                    laenge_m=20_000,
+                    length_m=20_000,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=110,
+                    speed_limit_kmh=110,
                     steigung_rohdaten=0.0,
                     bearing_deg=260.0,
                 ),
@@ -157,7 +156,7 @@ class TestNetworkXOptimizer:
                 segment_index=i,
                 steigung_prozent=0.0,
                 hoehendifferenz_m=0.0,
-                horizontale_distanz_m=seg.laenge_m,
+                horizontale_distanz_m=seg.length_m,
             )
             for i, seg in enumerate(route.segments)
         ]
@@ -168,27 +167,27 @@ class TestNetworkXOptimizer:
                 energiebedarf_kwh=3.0,
                 rekuperation_kwh=0.0,
                 energiebedarf_brutto_kwh=3.0,
-                geschwindigkeit_m_s=30.0,
-                fahrzeit_s=1667,
-                streckenlaenge_m=50_000,
+                speed_ms=30.0,
+                drive_time_s=1667,
+                segment_length_m=50_000,
             ),
             SegmentEnergyResult(
                 segment_index=1,
                 energiebedarf_kwh=2.0,
                 rekuperation_kwh=0.0,
                 energiebedarf_brutto_kwh=2.0,
-                geschwindigkeit_m_s=25.0,
-                fahrzeit_s=1200,
-                streckenlaenge_m=30_000,
+                speed_ms=25.0,
+                drive_time_s=1200,
+                segment_length_m=30_000,
             ),
             SegmentEnergyResult(
                 segment_index=2,
                 energiebedarf_kwh=2.0,
                 rekuperation_kwh=0.0,
                 energiebedarf_brutto_kwh=2.0,
-                geschwindigkeit_m_s=20.0,
-                fahrzeit_s=1000,
-                streckenlaenge_m=20_000,
+                speed_ms=20.0,
+                drive_time_s=1000,
+                segment_length_m=20_000,
             ),
         ]
 
@@ -226,12 +225,12 @@ class TestNetworkXOptimizer:
         assert plan.min_zwischenstopp_ankunftszeit == {}
 
     def test_grenzfall_minimaler_soc(self) -> None:
-        """Test: Grenzfall - Start-SoC knapp unter Verbrauch → muss laden.
+        """Test: Grenzfall - Start-SoC knapp unter consumption → muss laden.
 
         `target_soc_pct=45.0`: das einzige Segment kostet 40% SoC (25 kWh von
         62.5 kWh); ein Ankunfts-Ziel von >55% waere selbst mit einer Vollladung
         (100%) am Start physikalisch unerreichbar. 45% (minus 5% Reserve = 40%
-        Ziel-Bucket) ist mit einer Ladung auf 80-90% erreichbar und erfordert
+        Ziel-Bucket) ist mit einer Ladung auf 80-90% reachable und erfordert
         dennoch zwingend einen Ladehalt, da der Start-SoC (20%) allein nicht
         einmal die Segmentfahrt selbst decken wuerde.
         """
@@ -240,9 +239,9 @@ class TestNetworkXOptimizer:
                 RouteSegment(
                     segment_index=0,
                     geometrie=[BERLIN_COORD, (53.0, 12.0)],
-                    laenge_m=60_000,
+                    length_m=60_000,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=130,
+                    speed_limit_kmh=130,
                     steigung_rohdaten=0.0,
                     bearing_deg=315.0,
                 ),
@@ -257,9 +256,9 @@ class TestNetworkXOptimizer:
                 energiebedarf_kwh=25.0,
                 rekuperation_kwh=0.0,
                 energiebedarf_brutto_kwh=25.0,
-                geschwindigkeit_m_s=30.0,
-                fahrzeit_s=2000,
-                streckenlaenge_m=60_000,
+                speed_ms=30.0,
+                drive_time_s=2000,
+                segment_length_m=60_000,
             ),
         ]
 
@@ -318,18 +317,18 @@ class TestNetworkXOptimizer:
                 RouteSegment(
                     segment_index=0,
                     geometrie=[BERLIN_COORD, (52.0, 10.0)],
-                    laenge_m=100_000,
+                    length_m=100_000,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=130,
+                    speed_limit_kmh=130,
                     steigung_rohdaten=0.0,
                     bearing_deg=300.0,
                 ),
                 RouteSegment(
                     segment_index=1,
                     geometrie=[(52.0, 10.0), HAMBURG_COORD],
-                    laenge_m=100_000,
+                    length_m=100_000,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=120,
+                    speed_limit_kmh=120,
                     steigung_rohdaten=0.0,
                     bearing_deg=270.0,
                 ),
@@ -344,18 +343,18 @@ class TestNetworkXOptimizer:
                 energiebedarf_kwh=30.0,
                 rekuperation_kwh=0.0,
                 energiebedarf_brutto_kwh=30.0,
-                geschwindigkeit_m_s=30.0,
-                fahrzeit_s=3333,
-                streckenlaenge_m=100_000,
+                speed_ms=30.0,
+                drive_time_s=3333,
+                segment_length_m=100_000,
             ),
             SegmentEnergyResult(
                 segment_index=1,
                 energiebedarf_kwh=30.0,
                 rekuperation_kwh=0.0,
                 energiebedarf_brutto_kwh=30.0,
-                geschwindigkeit_m_s=25.0,
-                fahrzeit_s=4000,
-                streckenlaenge_m=100_000,
+                speed_ms=25.0,
+                drive_time_s=4000,
+                segment_length_m=100_000,
             ),
         ]
 
@@ -403,24 +402,24 @@ class TestNetworkXOptimizer:
 
 
 class TestSocQuantisierungBeiFeingranularenSegmenten:
-    """Regressionstest: Bug - SoC-Verbrauch pro Kante wurde vom bereits GERUNDETEN
+    """Regressionstest: Bug - SoC-consumption pro Kante wurde vom bereits GERUNDETEN
     Bucket abgezogen statt vom kontinuierlichen SoC des Vorgaengerknotens.
 
     Bei feingranularen Routen (z. B. ein Segment pro GraphHopper-Polyline-
-    Punktpaar, oft nur wenige zehn Meter) liegt der Verbrauch je Segment weit
-    unter der halben Bucket-Schrittweite (Default 1%). `round(verbrauch/1.0)`
+    Punktpaar, oft nur wenige zehn Meter) liegt der consumption je Segment weit
+    unter der halben Bucket-Schrittweite (Default 1%). `round(consumption/1.0)`
     ergab dann fuer praktisch jede Kante 0 - der gesamte Streckenverbrauch
     verschwand, der Optimierer hielt selbst physikalisch unmoegliche Strecken
-    (mehr Energiebedarf als Batteriekapazitaet) faelschlich fuer ladehaltfrei
+    (more Energiebedarf als Batteriekapazitaet) faelschlich fuer ladehaltfrei
     fahrbar.
     """
 
     def test_viele_kleine_segmente_erfordern_trotzdem_einen_ladehalt(self) -> None:
         """1000 Segmente à 50 m (50 km), 15 kWh Gesamtverbrauch bei 10 kWh Akku
         (0.015 kWh/Segment = 0.15% - weit unter der halben 1%-Bucket-Schrittweite):
-        Der Optimierer MUSS trotzdem mindestens einen Ladehalt einplanen, da
+        Der Optimierer MUSS trotzdem minimum einen Ladehalt einplanen, da
         50 km auch mit vollem Akku (100%) physikalisch nicht ohne Laden
-        schaffbar sind (15 kWh Bedarf > 10 kWh Kapazitaet).
+        schaffbar sind (15 kWh Bedarf > 10 kWh capacity).
         """
         anzahl_segmente = 1000
         segment_laenge_m = 50.0
@@ -438,9 +437,9 @@ class TestSocQuantisierungBeiFeingranularenSegmenten:
                 RouteSegment(
                     segment_index=i,
                     geometrie=[(lat, lon), (naechste_lat, naechste_lon)],
-                    laenge_m=segment_laenge_m,
+                    length_m=segment_laenge_m,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=110,
+                    speed_limit_kmh=110,
                     steigung_rohdaten=0.0,
                     bearing_deg=45.0,
                 )
@@ -451,9 +450,9 @@ class TestSocQuantisierungBeiFeingranularenSegmenten:
                     energiebedarf_kwh=energie_je_segment_kwh,
                     rekuperation_kwh=0.0,
                     energiebedarf_brutto_kwh=energie_je_segment_kwh,
-                    geschwindigkeit_m_s=30.0,
-                    fahrzeit_s=segment_laenge_m / 30.0,
-                    streckenlaenge_m=segment_laenge_m,
+                    speed_ms=30.0,
+                    drive_time_s=segment_laenge_m / 30.0,
+                    segment_length_m=segment_laenge_m,
                 )
             )
 
@@ -511,8 +510,8 @@ class TestSocQuantisierungBeiFeingranularenSegmenten:
 
 class TestZeitbudgetBeruecksichtigtLadezeit:
     """Regressionstest: Bug - das Zeitbudget der Suche (`_estimate_max_time_buckets`)
-    addierte nur einen fixen 5-Bucket-Sicherheitspuffer zur reinen Fahrzeit, ohne
-    die fuer notwendige Ladestopps benoetigte Zeit einzurechnen. Bei Routen, die
+    addierte nur einen fixen 5-Bucket-Sicherheitspuffer zur reinen drive_time_s, ohne
+    die fuer notwendige Ladestopps benoetigte time einzurechnen. Bei Routen, die
     mehrere Ladestopps brauchen, verwarf die Suche dadurch faelschlich jeden Pfad
     ueber das Zeitbudget hinaus als "nicht fahrbar" (ValueError), obwohl die Route
     mit ausreichend Ladezeit sehr wohl fahrbar gewesen waere.
@@ -535,7 +534,7 @@ class TestZeitbudgetBeruecksichtigtLadezeit:
         constraints = OptimizationConstraints(max_ladezeit_s=3600)
         optimizer = create_networkx_optimizer()
 
-        total_time_s = 300_000 / (110.0 * 1000 / 3600)  # reale Fahrzeit, Tempolimit 110 km/h, 300km
+        total_time_s = 300_000 / (110.0 * 1000 / 3600)  # reale drive_time_s, speed_limit_kmh 110 km/h, 300km
         buckets_ohne_laden = optimizer._estimate_max_time_buckets(
             total_time_s=total_time_s,
             total_energy_kwh=30.0,  # deutlich unter Akkukapazitaet - kein Laden noetig
@@ -557,13 +556,13 @@ class TestZeitbudgetBeruecksichtigtLadezeit:
 
     def test_route_mit_mehreren_ladestopps_bleibt_fahrbar(self) -> None:
         """End-to-end: Eine Route, die 4 volle Ladezyklen braucht, MUSS trotz der
-        dafuer noetigen Ladezeit (deutlich mehr als der alte fixe 75-Minuten-
+        dafuer noetigen Ladezeit (deutlich more als der alte fixe 75-Minuten-
         Puffer) als fahrbar erkannt werden, statt faelschlich mit
         'Kein erreichbarer Zielknoten' abgelehnt zu werden.
         """
         anzahl_segmente = 6
         segment_laenge_m = 200_000.0
-        energie_je_segment_kwh = 40.0  # 6 * 40 = 240 kWh bei 60 kWh Akku (4x Kapazitaet)
+        energie_je_segment_kwh = 40.0  # 6 * 40 = 240 kWh bei 60 kWh Akku (4x capacity)
 
         segments = []
         energy_results = []
@@ -581,9 +580,9 @@ class TestZeitbudgetBeruecksichtigtLadezeit:
                         ((lat + naechste_lat) / 2, (lon + naechste_lon) / 2),
                         (naechste_lat, naechste_lon),
                     ],
-                    laenge_m=segment_laenge_m,
+                    length_m=segment_laenge_m,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=110,
+                    speed_limit_kmh=110,
                     steigung_rohdaten=0.0,
                     bearing_deg=45.0,
                 )
@@ -594,9 +593,9 @@ class TestZeitbudgetBeruecksichtigtLadezeit:
                     energiebedarf_kwh=energie_je_segment_kwh,
                     rekuperation_kwh=0.0,
                     energiebedarf_brutto_kwh=energie_je_segment_kwh,
-                    geschwindigkeit_m_s=30.0,
-                    fahrzeit_s=segment_laenge_m / 30.0,
-                    streckenlaenge_m=segment_laenge_m,
+                    speed_ms=30.0,
+                    drive_time_s=segment_laenge_m / 30.0,
+                    segment_length_m=segment_laenge_m,
                 )
             )
             stations.append(
@@ -655,7 +654,7 @@ class TestLadehaltUeberlebtKnotenKollision:
     """Regressionstest: Bug - der Zustandsknoten-Schluessel `(segment_index,
     soc_bucket, time_bucket)` kann durch die Diskretisierung mit einer
     ANDEREN, bereits frueher angelegten Fahrtkante kollidieren (dieselbe
-    Kombination aus Segment, gerundetem SoC und gerundeter Zeit, aber ueber
+    Kombination aus Segment, gerundetem SoC und gerundeter time, aber ueber
     eine Route ohne Ladehalt erreicht). `_fuege_ladekante_hinzu` initialisiert
     `type`/`station_id` nur beim ERSTEN Anlegen eines Knotens
     (`if next_node not in G.nodes`) - kollidiert eine spaeter gefundene,
@@ -696,7 +695,7 @@ class TestLadehaltUeberlebtKnotenKollision:
             current,
             type="drive",
             soc_pct=15.0,
-            zeitpunkt=current_zeitpunkt,
+            timestamp=current_zeitpunkt,
             segment_index=5,
             total_cost=1000.0,
             parent=None,
@@ -718,7 +717,7 @@ class TestLadehaltUeberlebtKnotenKollision:
             target_key,
             type="drive",
             soc_pct=61.0,
-            zeitpunkt=base_time + timedelta(minutes=90),
+            timestamp=base_time + timedelta(minutes=90),
             segment_index=5,
             total_cost=1e8,
             parent=None,
@@ -746,7 +745,7 @@ class TestLadehaltUeberlebtKnotenKollision:
             heap=heap,
         )
 
-        # Vorbedingung des Bugs bestaetigt: der Knoten wurde NICHT neu
+        # Vorbedingung des Bugs bestaetigt: der Knoten wurde NICHT new
         # angelegt, sein `type` blieb "drive" ohne Node-`station_id`.
         assert G.nodes[target_key]["type"] == "drive"
         assert G.nodes[target_key].get("station_id") is None
@@ -766,7 +765,7 @@ class TestLadehaltUeberlebtKnotenKollision:
         assert ladehalt.arrival_soc_pct == 15.0
         assert ladehalt.target_soc_pct == target_soc_pct
         assert ladehalt.geschaetzte_ladedauer_s == int(ladezeit_s)
-        assert ladehalt.ankunftszeit == current_zeitpunkt
+        assert ladehalt.arrival_time == current_zeitpunkt
         assert ladehalt.departure_time == neuer_zeitpunkt
 
 
@@ -782,9 +781,9 @@ class TestORToolsOptimizer:
                 RouteSegment(
                     segment_index=0,
                     geometrie=[BERLIN_COORD, HAMBURG_COORD],
-                    laenge_m=100_000,
+                    length_m=100_000,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=130,
+                    speed_limit_kmh=130,
                     steigung_rohdaten=0.0,
                     bearing_deg=315.0,
                 ),
@@ -836,9 +835,9 @@ class TestLadedauerVorgabe:
                 RouteSegment(
                     segment_index=0,
                     geometrie=[BERLIN_COORD, (53.0, 12.0)],
-                    laenge_m=60_000,
+                    length_m=60_000,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=130,
+                    speed_limit_kmh=130,
                     steigung_rohdaten=0.0,
                     bearing_deg=315.0,
                 ),
@@ -860,9 +859,9 @@ class TestLadedauerVorgabe:
                 energiebedarf_kwh=25.0,
                 rekuperation_kwh=0.0,
                 energiebedarf_brutto_kwh=25.0,
-                geschwindigkeit_m_s=30.0,
-                fahrzeit_s=2000,
-                streckenlaenge_m=60_000,
+                speed_ms=30.0,
+                drive_time_s=2000,
+                segment_length_m=60_000,
             ),
         ]
         vehicle_profile = VehicleProfile(
@@ -884,9 +883,10 @@ class TestLadedauerVorgabe:
         return route, gradients, energy_results, vehicle_profile, station
 
     def test_feste_ladedauer_wird_exakt_uebernommen(self) -> None:
-        """Eine vorgegebene Ladedauer für die gewählte Station wird exakt (nicht nur
+        """Eine vorgegebene charge_duration für die gewählte Station wird exakt (nicht nur
         näherungsweise über die SoC-Ziel-Iteration) als `geschaetzte_ladedauer_s`
-        übernommen - unabhängig von `constraints.max_ladezeit_s`."""
+        übernommen - unabhängig von `constraints.max_ladezeit_s`.
+        """
         route, gradients, energy_results, vehicle_profile, station = self._basis_szenario()
         constraints = OptimizationConstraints(min_soc_pct=15.0, target_soc_pct=45.0)
         optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=15)
@@ -909,13 +909,14 @@ class TestLadedauerVorgabe:
         ladehalt = plan.ladehalte[0]
         assert ladehalt.station.station_id == "station_001"
         assert ladehalt.geschaetzte_ladedauer_s == 1800
-        assert (ladehalt.departure_time - ladehalt.ankunftszeit).total_seconds() == 1800
+        assert (ladehalt.departure_time - ladehalt.arrival_time).total_seconds() == 1800
         # Ziel-SoC muss höher als der Ankunfts-SoC sein (es wurde tatsächlich geladen).
         assert ladehalt.target_soc_pct > ladehalt.arrival_soc_pct
 
     def test_ohne_vorgabe_weicht_ladedauer_von_der_vorgabe_ab(self) -> None:
-        """Ohne `charging_duration_specifications` berechnet der Optimierer die Ladedauer wie bisher
-        automatisch - als Kontrast zum exakten Vorgabewert im anderen Test."""
+        """Ohne `charging_duration_specifications` berechnet der Optimierer die charge_duration wie bisher
+        automatisch - als Kontrast zum exakten Vorgabewert im anderen Test.
+        """
         route, gradients, energy_results, vehicle_profile, station = self._basis_szenario()
         constraints = OptimizationConstraints(min_soc_pct=15.0, target_soc_pct=45.0)
         optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=15)
@@ -939,7 +940,7 @@ class TestLadedauerVorgabe:
 
 class TestWaypointSegmentMatchingIgnoriertFrueheKreuzungen:
     """Regressionstest: Bug - `_waypoint_to_segment` suchte den naechstgelegenen
-    Segment-Startpunkt ueber die GESAMTE Route per reiner Luftlinien-Distanz,
+    Segment-Startpunkt ueber die GESAMTE Route per reiner Luftlinien-distance,
     unabhaengig davon, wo entlang der Route bereits vorherige Zwischenstopps
     aufgeloest wurden. Bei einer Route, die sich selbst kreuzt oder in der
     Naehe eines fruehen Streckenabschnitts eine Schleife dreht (z. B. eine
@@ -955,7 +956,8 @@ class TestWaypointSegmentMatchingIgnoriertFrueheKreuzungen:
         angefragten Zwischenstopp-Koordinate (eine fruehe, unabhaengige
         Kreuzung der Route), Segment 7 ist der tatsaechliche Via-Punkt (etwas
         weiter entfernt, aber der eigentlich gemeinte Zwischenstopp weiter
-        entlang der Route)."""
+        entlang der Route).
+        """
         segmente = []
         for i in range(10):
             if i == 2:
@@ -968,7 +970,7 @@ class TestWaypointSegmentMatchingIgnoriertFrueheKreuzungen:
                 RouteSegment(
                     segment_index=i,
                     geometrie=[start, (start[0] + 0.01, start[1] + 0.01)],
-                    laenge_m=1000.0,
+                    length_m=1000.0,
                     strassenklasse="MOTORWAY",
                     bearing_deg=0.0,
                 )
@@ -976,8 +978,9 @@ class TestWaypointSegmentMatchingIgnoriertFrueheKreuzungen:
         return segmente
 
     def test_unbeschraenkte_suche_findet_die_falsche_fruehe_kreuzung(self) -> None:
-        """Demonstriert den Bug: eine Suche ohne Mindest-Segment-Index landet
-        auf der geometrisch naeheren, aber falschen fruehen Kreuzung."""
+        """Demonstriert den Bug: eine Suche ohne minimum-Segment-Index landet
+        auf der geometrisch naeheren, aber falschen fruehen Kreuzung.
+        """
         optimizer = create_networkx_optimizer()
         segmente = self._kreuzende_segmente()
         wp = Waypoint(coordinate=(60.0, 14.0))
@@ -990,7 +993,8 @@ class TestWaypointSegmentMatchingIgnoriertFrueheKreuzungen:
         """Mit dem Fix: sobald ein vorheriger Zwischenstopp bereits Segment 5
         aufgeloest hat, schliesst die Suche fuer den naechsten Zwischenstopp
         die fruehere Kreuzung (Segment 2) aus und findet den tatsaechlichen
-        Via-Punkt (Segment 7)."""
+        Via-Punkt (Segment 7).
+        """
         optimizer = create_networkx_optimizer()
         segmente = self._kreuzende_segmente()
         wp = Waypoint(coordinate=(60.0, 14.0))
@@ -1004,13 +1008,14 @@ class TestWaypointSegmentMatchingIgnoriertFrueheKreuzungen:
         `GraphHopperRoutingProvider`/`FakeRoutingProvider`), wird dieser statt
         der mehrdeutigen Naechster-Punkt-Suche verwendet - selbst wenn diese
         (wie in `test_unbeschraenkte_suche_findet_die_falsche_fruehe_kreuzung`)
-        eine falsche, geometrisch naehere fruehe Kreuzung faende."""
+        eine falsche, geometrisch naehere fruehe Kreuzung faende.
+        """
         optimizer = create_networkx_optimizer()
         segmente = self._kreuzende_segmente()
         wp = Waypoint(coordinate=(60.0, 14.0))
         route = Route(
             segments=segmente,
-            gesamtlaenge_m=sum(s.laenge_m for s in segmente),
+            gesamtlaenge_m=sum(s.length_m for s in segmente),
             geometrie=[s.geometrie[0] for s in segmente] + [segmente[-1].geometrie[1]],
             via_point_indices=[7],
         )
@@ -1023,13 +1028,14 @@ class TestWaypointSegmentMatchingIgnoriertFrueheKreuzungen:
         self,
     ) -> None:
         """Ohne (oder mit einer laengenunpassenden) `route.via_point_indices`
-        faellt die Zuordnung auf die monotone Naechster-Punkt-Suche zurueck."""
+        faellt die Zuordnung auf die monotone Naechster-Punkt-Suche zurueck.
+        """
         optimizer = create_networkx_optimizer()
         segmente = self._kreuzende_segmente()
         wp = Waypoint(coordinate=(60.0, 14.0))
         route = Route(
             segments=segmente,
-            gesamtlaenge_m=sum(s.laenge_m for s in segmente),
+            gesamtlaenge_m=sum(s.length_m for s in segmente),
             geometrie=[s.geometrie[0] for s in segmente] + [segmente[-1].geometrie[1]],
         )
 
@@ -1042,8 +1048,8 @@ class TestZwischenstoppErzwingtWartezeit:
     """Regressionstest: Bug - eine an einem Zwischenstopp gesetzte
     `planned_departure`/`stay_duration` war nur ein optionaler Kostenfaktor,
     den der A*-Optimierer als teurer verworfen hat (die Fahrt "sprang" direkt
-    weiter, ohne zu warten) - sichtbar als falsche (zu frühe) Ankunftszeit am
-    Fahrtziel trotz gesetzter Abfahrtszeit an einem Zwischenstopp.
+    weiter, ohne zu warten) - sichtbar als falsche (zu frühe) arrival_time am
+    Fahrtziel trotz gesetzter departure_time an einem Zwischenstopp.
     """
 
     def _basis_szenario(
@@ -1054,27 +1060,27 @@ class TestZwischenstoppErzwingtWartezeit:
                 RouteSegment(
                     segment_index=0,
                     geometrie=[BERLIN_COORD, (52.5, 12.5)],
-                    laenge_m=50_000,
+                    length_m=50_000,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=130,
+                    speed_limit_kmh=130,
                     steigung_rohdaten=0.0,
                     bearing_deg=310.0,
                 ),
                 RouteSegment(
                     segment_index=1,
                     geometrie=[(52.5, 12.5), (53.0, 11.5)],
-                    laenge_m=50_000,
+                    length_m=50_000,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=120,
+                    speed_limit_kmh=120,
                     steigung_rohdaten=0.0,
                     bearing_deg=290.0,
                 ),
                 RouteSegment(
                     segment_index=2,
                     geometrie=[(53.0, 11.5), HAMBURG_COORD],
-                    laenge_m=50_000,
+                    length_m=50_000,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=110,
+                    speed_limit_kmh=110,
                     steigung_rohdaten=0.0,
                     bearing_deg=270.0,
                 ),
@@ -1088,27 +1094,27 @@ class TestZwischenstoppErzwingtWartezeit:
                 energiebedarf_kwh=8.0,
                 rekuperation_kwh=0.0,
                 energiebedarf_brutto_kwh=8.0,
-                geschwindigkeit_m_s=30.0,
-                fahrzeit_s=1667,
-                streckenlaenge_m=50_000,
+                speed_ms=30.0,
+                drive_time_s=1667,
+                segment_length_m=50_000,
             ),
             SegmentEnergyResult(
                 segment_index=1,
                 energiebedarf_kwh=8.0,
                 rekuperation_kwh=0.0,
                 energiebedarf_brutto_kwh=8.0,
-                geschwindigkeit_m_s=25.0,
-                fahrzeit_s=2000,
-                streckenlaenge_m=50_000,
+                speed_ms=25.0,
+                drive_time_s=2000,
+                segment_length_m=50_000,
             ),
             SegmentEnergyResult(
                 segment_index=2,
                 energiebedarf_kwh=8.0,
                 rekuperation_kwh=0.0,
                 energiebedarf_brutto_kwh=8.0,
-                geschwindigkeit_m_s=20.0,
-                fahrzeit_s=2500,
-                streckenlaenge_m=50_000,
+                speed_ms=20.0,
+                drive_time_s=2500,
+                segment_length_m=50_000,
             ),
         ]
         vehicle_profile = VehicleProfile(
@@ -1125,7 +1131,8 @@ class TestZwischenstoppErzwingtWartezeit:
         Gesamtreisezeit um die volle Wartezeit verlängern - nicht ignoriert
         werden (siehe Nutzer-Report: Start 6:15, Ankunft am Zwischenstopp
         18:44, geplante Abfahrt dort erst am Folgetag 6:30, aber Ankunft am
-        Ziel bereits um 22:55 desselben Tages berechnet)."""
+        Ziel bereits um 22:55 desselben Tages berechnet).
+        """
         route, energy_results, vehicle_profile = self._basis_szenario()
         constraints = OptimizationConstraints(min_soc_pct=15.0, target_soc_pct=35.0)
         optimizer = create_networkx_optimizer()
@@ -1149,16 +1156,17 @@ class TestZwischenstoppErzwingtWartezeit:
         ankunft_ziel = departure_time + timedelta(seconds=plan.gesamtreisezeit_s)
         # Die Ankunft am Ziel MUSS nach der geplanten Abfahrt am Zwischenstopp
         # liegen - eine bypassbare Wartezeit wuerde stattdessen weit vor
-        # `planned_departure` ankommen (reine Fahrzeit ohne Wartezeit).
+        # `planned_departure` ankommen (reine drive_time_s ohne Wartezeit).
         assert ankunft_ziel > planned_departure
         assert len(plan.zwischenstopp_aufenthalte) == 1
         aufenthalt = plan.zwischenstopp_aufenthalte[0]
         assert aufenthalt.departure_time == planned_departure
-        assert aufenthalt.ankunftszeit < planned_departure
+        assert aufenthalt.arrival_time < planned_departure
 
     def test_geplante_abfahrt_vor_ankunft_erzwingt_keine_wartezeit(self) -> None:
         """Liegt `planned_departure` vor der tatsaechlichen Ankunft, wird KEINE
-        Wartezeit erzwungen - der Zwischenstopp bleibt optional passierbar."""
+        Wartezeit erzwungen - der Zwischenstopp bleibt optional passierbar.
+        """
         route, energy_results, vehicle_profile = self._basis_szenario()
         constraints = OptimizationConstraints(min_soc_pct=15.0, target_soc_pct=35.0)
         optimizer = create_networkx_optimizer()
@@ -1180,7 +1188,7 @@ class TestZwischenstoppErzwingtWartezeit:
             departure_time=departure_time,
         )
 
-        # Reine Fahrzeit (keine erzwungene Wartezeit): Summe der drei
+        # Reine drive_time_s (keine erzwungene Wartezeit): Summe der drei
         # Segment-Fahrzeiten.
         assert plan.gesamtreisezeit_s == 1667 + 2000 + 2500
         assert plan.zwischenstopp_aufenthalte == []
@@ -1189,7 +1197,8 @@ class TestZwischenstoppErzwingtWartezeit:
         """Ist an einem Zwischenstopp mit erzwungener Wartezeit eine
         Ladeleistung angegeben, wird der SoC waehrend der Wartezeit erhoeht -
         die Ladeleistung ist optional und ohne sie bleibt der SoC unveraendert
-        (siehe `test_geplante_abfahrt_verzoegert_ankunft_am_ziel`)."""
+        (siehe `test_geplante_abfahrt_verzoegert_ankunft_am_ziel`).
+        """
         route, energy_results, vehicle_profile = self._basis_szenario()
         constraints = OptimizationConstraints(min_soc_pct=15.0, target_soc_pct=35.0)
         optimizer = create_networkx_optimizer()
@@ -1220,7 +1229,8 @@ class TestZwischenstoppErzwingtWartezeit:
 
     def test_ohne_ladeleistung_kw_bleibt_soc_waehrend_wartezeit_unveraendert(self) -> None:
         """Ohne `charging_power_kw` bleibt der SoC waehrend der erzwungenen
-        Wartezeit unveraendert (kein automatisches Laden ohne Ladepunkt)."""
+        Wartezeit unveraendert (kein automatisches Laden ohne Ladepunkt).
+        """
         route, energy_results, vehicle_profile = self._basis_szenario()
         constraints = OptimizationConstraints(min_soc_pct=15.0, target_soc_pct=35.0)
         optimizer = create_networkx_optimizer()
@@ -1258,16 +1268,16 @@ class TestFaehrZeitfenster:
                 RouteSegment(
                     segment_index=0,
                     geometrie=[BERLIN_COORD, (53.0, 12.0)],
-                    laenge_m=50_000,
+                    length_m=50_000,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=130,
+                    speed_limit_kmh=130,
                     steigung_rohdaten=0.0,
                     bearing_deg=315.0,
                 ),
                 RouteSegment(
                     segment_index=1,
                     geometrie=[(53.0, 12.0), (53.3, 11.0)],
-                    laenge_m=20_000,
+                    length_m=20_000,
                     strassenklasse="FERRY",
                     road_environment="FERRY",
                     bearing_deg=280.0,
@@ -1275,9 +1285,9 @@ class TestFaehrZeitfenster:
                 RouteSegment(
                     segment_index=2,
                     geometrie=[(53.3, 11.0), HAMBURG_COORD],
-                    laenge_m=30_000,
+                    length_m=30_000,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=110,
+                    speed_limit_kmh=110,
                     steigung_rohdaten=0.0,
                     bearing_deg=260.0,
                 ),
@@ -1290,7 +1300,7 @@ class TestFaehrZeitfenster:
                 segment_index=i,
                 steigung_prozent=0.0,
                 hoehendifferenz_m=0.0,
-                horizontale_distanz_m=seg.laenge_m,
+                horizontale_distanz_m=seg.length_m,
             )
             for i, seg in enumerate(route.segments)
         ]
@@ -1306,27 +1316,27 @@ class TestFaehrZeitfenster:
                 energiebedarf_kwh=5.0,
                 rekuperation_kwh=0.0,
                 energiebedarf_brutto_kwh=5.0,
-                geschwindigkeit_m_s=30.0,
-                fahrzeit_s=1667,
-                streckenlaenge_m=50_000,
+                speed_ms=30.0,
+                drive_time_s=1667,
+                segment_length_m=50_000,
             ),
             SegmentEnergyResult(
                 segment_index=1,
                 energiebedarf_kwh=500.0,
                 rekuperation_kwh=0.0,
                 energiebedarf_brutto_kwh=500.0,
-                geschwindigkeit_m_s=10.0,
-                fahrzeit_s=2000,
-                streckenlaenge_m=20_000,
+                speed_ms=10.0,
+                drive_time_s=2000,
+                segment_length_m=20_000,
             ),
             SegmentEnergyResult(
                 segment_index=2,
                 energiebedarf_kwh=3.0,
                 rekuperation_kwh=0.0,
                 energiebedarf_brutto_kwh=3.0,
-                geschwindigkeit_m_s=20.0,
-                fahrzeit_s=1000,
-                streckenlaenge_m=30_000,
+                speed_ms=20.0,
+                drive_time_s=1000,
+                segment_length_m=30_000,
             ),
         ]
         vehicle_profile = VehicleProfile(
@@ -1339,9 +1349,10 @@ class TestFaehrZeitfenster:
         return route, gradients, energy_results, vehicle_profile
 
     def test_faehre_wird_in_einem_sprung_ohne_soc_verbrauch_ueberquert(self) -> None:
-        """Eine gepinnte Fähre wird als ein Sprung ohne SoC-Verbrauch modelliert; die
+        """Eine gepinnte Fähre wird als ein Sprung ohne SoC-consumption modelliert; die
         Gesamtreisezeit ergibt sich aus Wartezeit bis zur Abfahrt plus Überfahrts-
-        und Restfahrzeit."""
+        und Restfahrzeit.
+        """
         route, gradients, energy_results, vehicle_profile = self._basis_szenario()
         constraints = OptimizationConstraints(min_soc_pct=15.0, target_soc_pct=50.0)
         optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=15)
@@ -1365,19 +1376,20 @@ class TestFaehrZeitfenster:
 
         assert plan.ladehalte == []  # kein Ladehalt noetig (Segment 1 kostet kein SoC)
 
-        # Restfahrzeit nach der Ferry = das TATSAECHLICHE `fahrzeit_s` von
+        # Restfahrzeit nach der Ferry = das TATSAECHLICHE `drive_time_s` von
         # Segment 2 (siehe `_basis_szenario`/`energy_results[2]`), nicht eine
         # pauschale 110-km/h-Annahme (siehe optimizer.py: `_add_drive_edge`
-        # nutzt jetzt `SegmentEnergyResult.fahrzeit_s` je Segment).
-        drive_seg2_s = energy_results[2].fahrzeit_s
+        # nutzt jetzt `SegmentEnergyResult.drive_time_s` je Segment).
+        drive_seg2_s = energy_results[2].drive_time_s
         erwartete_gesamtzeit_s = (ferry_arrival - departure_time).total_seconds() + drive_seg2_s
         assert plan.gesamtreisezeit_s == pytest.approx(erwartete_gesamtzeit_s, abs=1.0)
 
     def test_missed_ferry_makes_route_infeasible(self) -> None:
         """Liegt die vorgegebene Abfahrt VOR der tatsächlichen Ankunft am Fähr-
-        Terminal, ist die Fähre für diesen Pfad nicht mehr nutzbar - die Route
+        Terminal, ist die Fähre für diesen Pfad nicht more nutzbar - die Route
         gilt als nicht fahrbar (keine andere Kante ersetzt die übersprungene
-        Fahrtkante)."""
+        Fahrtkante).
+        """
         route, gradients, energy_results, vehicle_profile = self._basis_szenario()
         constraints = OptimizationConstraints(min_soc_pct=15.0, target_soc_pct=50.0)
         optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=15)
@@ -1406,14 +1418,14 @@ class TestFaehrZeitfenster:
 class TestDominanzPruningVerhindertKombinatorischeExplosion:
     """Regressionstest: Bug - jeder Zustandsknoten war ueber das volle Tripel
     `(segment_index, soc_bucket, time_bucket)` eindeutig, obwohl `total_cost`
-    in diesem Modell ueberall EXAKT der seit Abfahrt verstrichenen Zeit
-    entspricht (jede Kante ist eine Zeitdauer - Fahrzeit/Ladezeit/Wartezeit)
+    in diesem Modell ueberall EXAKT der seit Abfahrt verstrichenen time
+    entspricht (jede Kante ist eine Zeitdauer - drive_time_s/Ladezeit/Wartezeit)
     und kein Folgezustand je von einer SPAETEREN Ankunft bei GLEICHER
-    Position+SoC profitiert (weder Energieverbrauch noch Ladekurve noch
+    Position+SoC profitiert (weder energy_consumption noch Ladekurve noch
     `max_time_buckets` noch Fähr-Abfahrtsfenster haengen vom Kalenderzeit-
     punkt ab - fruehere Ankunft heisst hoechstens laenger warten, nie eine
     Ferry verpassen). Ohne Pruning wurden pro Entscheidungspunkt bis zu
-    O(SoC-Buckets x Zeit-Buckets) tatsaechlich erweiterte (dominierte)
+    O(SoC-Buckets x time-Buckets) tatsaechlich erweiterte (dominierte)
     Knoten gehalten statt O(SoC-Buckets) - bei Routen mit vielen
     Ladestationen UND einer teuren Kandidaten-Bewertung pro Knoten (siehe
     `_lade_ziel_kandidaten`/`_kandidaten_mit_mindestladedauer`, beide mit
@@ -1428,7 +1440,7 @@ class TestDominanzPruningVerhindertKombinatorischeExplosion:
         Mindestladedauer) in wenigen Sekunden optimieren - nicht in Minuten.
         Ohne das Dominanz-Pruning uebersteigt dieselbe Route (verifiziert
         manuell gegen den Stand vor diesem Fix) bereits bei 200 Stationen
-        180s, ohne innerhalb dieser Zeit ueberhaupt fertigzuwerden.
+        180s, ohne innerhalb dieser time ueberhaupt fertigzuwerden.
         """
         anzahl_stationen = 150
         segment_laenge_m = 20_000.0
@@ -1441,7 +1453,7 @@ class TestDominanzPruningVerhindertKombinatorischeExplosion:
         for i in range(anzahl_stationen):
             naechste_lat = lat + dlat
             naechste_lon = lon + dlat * 0.5
-            energie_kwh = rng.uniform(10.0, 30.0)
+            energy_kwh = rng.uniform(10.0, 30.0)
             segments.append(
                 RouteSegment(
                     segment_index=i,
@@ -1450,9 +1462,9 @@ class TestDominanzPruningVerhindertKombinatorischeExplosion:
                         ((lat + naechste_lat) / 2, (lon + naechste_lon) / 2),
                         (naechste_lat, naechste_lon),
                     ],
-                    laenge_m=segment_laenge_m,
+                    length_m=segment_laenge_m,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=110,
+                    speed_limit_kmh=110,
                     steigung_rohdaten=0.0,
                     bearing_deg=45.0,
                 )
@@ -1460,12 +1472,12 @@ class TestDominanzPruningVerhindertKombinatorischeExplosion:
             energy_results.append(
                 SegmentEnergyResult(
                     segment_index=i,
-                    energiebedarf_kwh=energie_kwh,
+                    energiebedarf_kwh=energy_kwh,
                     rekuperation_kwh=0.0,
-                    energiebedarf_brutto_kwh=energie_kwh,
-                    geschwindigkeit_m_s=30.0,
-                    fahrzeit_s=segment_laenge_m / 30.0,
-                    streckenlaenge_m=segment_laenge_m,
+                    energiebedarf_brutto_kwh=energy_kwh,
+                    speed_ms=30.0,
+                    drive_time_s=segment_laenge_m / 30.0,
+                    segment_length_m=segment_laenge_m,
                 )
             )
             lat, lon = naechste_lat, naechste_lon
@@ -1485,7 +1497,7 @@ class TestDominanzPruningVerhindertKombinatorischeExplosion:
 
         route = Route(
             segments=segments,
-            gesamtlaenge_m=sum(s.laenge_m for s in segments),
+            gesamtlaenge_m=sum(s.length_m for s in segments),
             geometrie=[s.geometrie[0] for s in segments] + [segments[-1].geometrie[-1]],
         )
         vehicle_profile = VehicleProfile(
@@ -1548,10 +1560,10 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
     blieben dabei auf dem VERALTETEN (schlechteren) Zustand basiert. Das
     fuehrte dazu, dass der A*-Suchraum den wahren guenstigsten Pfad gar
     nicht erst enthielt, obwohl er physikalisch fahrbar gewesen waere -
-    sichtbar u. a. als unnoetig lang dauernder Ladehalt (Nutzer-Report:
+    sichtbar u. a. als unnoetig long dauernder Ladehalt (Nutzer-Report:
     Ladehalt in Kamen von 70% auf 80%, obwohl der naechste Halt in Holdorf
     ohnehin mit 24% SoC erreicht wurde - die 10 Prozentpunkte Ladung in
-    Kamen waren komplett unnoetig und kosteten nur Zeit).
+    Kamen waren komplett unnoetig und kosteten nur time).
     """
 
     def _sechs_segmente_szenario(
@@ -1564,7 +1576,7 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
         VehicleProfile,
     ]:
         # 6 gleich lange Segmente mit unterschiedlichem Energiebedarf -
-        # erzeugt an den Ladestationen mehrere SoC-/Zeit-Diskretisierungs-
+        # erzeugt an den Ladestationen mehrere SoC-/time-Diskretisierungs-
         # Buckets, die sich je nach gewaehltem Ladeziel an einer FRUEHEREN
         # Station spaeter wieder ueberschneiden koennen (Voraussetzung fuer
         # den oben beschriebenen FIFO-Bug).
@@ -1572,7 +1584,7 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
         segments = []
         energy_results = []
         lat, lon = BERLIN_COORD
-        for i, energie_kwh in enumerate(energie_je_segment_kwh):
+        for i, energy_kwh in enumerate(energie_je_segment_kwh):
             naechste_lat = lat + 1.0
             naechste_lon = lon + 1.0
             segments.append(
@@ -1583,9 +1595,9 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
                         ((lat + naechste_lat) / 2, (lon + naechste_lon) / 2),
                         (naechste_lat, naechste_lon),
                     ],
-                    laenge_m=100_000.0,
+                    length_m=100_000.0,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=110,
+                    speed_limit_kmh=110,
                     steigung_rohdaten=0.0,
                     bearing_deg=45.0,
                 )
@@ -1593,12 +1605,12 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
             energy_results.append(
                 SegmentEnergyResult(
                     segment_index=i,
-                    energiebedarf_kwh=energie_kwh,
+                    energiebedarf_kwh=energy_kwh,
                     rekuperation_kwh=0.0,
-                    energiebedarf_brutto_kwh=energie_kwh,
-                    geschwindigkeit_m_s=30.0,
-                    fahrzeit_s=100_000.0 / 30.0,
-                    streckenlaenge_m=100_000.0,
+                    energiebedarf_brutto_kwh=energy_kwh,
+                    speed_ms=30.0,
+                    drive_time_s=100_000.0 / 30.0,
+                    segment_length_m=100_000.0,
                 )
             )
             lat, lon = naechste_lat, naechste_lon
@@ -1622,7 +1634,7 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
 
         route = Route(
             segments=segments,
-            gesamtlaenge_m=sum(s.laenge_m for s in segments),
+            gesamtlaenge_m=sum(s.length_m for s in segments),
             geometrie=[s.geometrie[0] for s in segments] + [segments[-1].geometrie[-1]],
         )
         vehicle_profile = VehicleProfile(
@@ -1644,7 +1656,7 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
         return route, gradients, energy_results, stations, vehicle_profile
 
     def test_optimierer_findet_das_globale_zeitoptimum_ueber_ladehalte_hinweg(self) -> None:
-        """End-to-end: die Gesamtreisezeit MUSS dem echten globalen Zeit-
+        """End-to-end: die Gesamtreisezeit MUSS dem echten globalen time-
         optimum ueber ALLE Ladehalte hinweg entsprechen (21744s bei dieser
         bewusst groben Diskretisierung), nicht einer schlechteren Naeherung.
 
@@ -1657,19 +1669,19 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
            (`_lade_ziel_kandidaten`) statt starrer 80/90/100%-Rundwerte -
            mit dem Default `min_arrival_soc_pct=5.0` darf die Suche an
            der LETZTEN Station bis auf 5% herunterfahren (statt vorzeitig an
-           einer FRUEHEREN Station mehr zu laden als noetig) und dort die
+           einer FRUEHEREN Station more zu laden als noetig) und dort die
            besonders schnelle Ladeleistung im unteren SoC-Bereich der
            Ladekurve ausnutzen. Das eigentliche Fahrtziel (kein weiterer
            Entscheidungspunkt nach station-5) verlangt selbst nur noch
            `target_soc_target` (hier 5.0%, siehe `optimize()`) statt des
            allgemeinen `min_soc_pct` - die Fahrt endet dort, ein zusaetzliches
-           Offene-Strecke-Sicherheitsminimum ist nicht einschlaegig.
+           Offene-segment-Sicherheitsminimum ist nicht einschlaegig.
 
-        Die erwartete Gesamtzeit (21744s) und die Ankunfts-SoC-Werte wurden
+        Die erwartete total_time (21744s) und die Ankunfts-SoC-Werte wurden
         fuer die produktiv genutzte `model_3_sr`-Ladekurve (siehe Commit
-        "use the actual model_3_sr charging curve") neu ermittelt: ein Lauf
+        "use the actual model_3_sr charging curve") new ermittelt: ein Lauf
         mit deutlich feinerer Diskretisierung (`soc_step_pct=1.0,
-        time_step_min=5`) liefert 21723s - nur 21s weniger, was bestaetigt,
+        time_step_min=5`) liefert 21723s - nur 21s less, was bestaetigt,
         dass 21744s bei DIESER bewusst groben Test-Diskretisierung bereits
         nahe am echten Optimum liegt, statt einer zufaelligen schlechteren
         Naeherung zu entsprechen.
@@ -1729,7 +1741,7 @@ class TestMindestLadedauerVerhindertKurzeLadehalte:
     Ladeziel, dessen Ladezeit darunter läge, wird auf die Mindestdauer
     gestreckt statt verworfen (siehe `_kandidaten_mit_mindestladedauer`) -
     ein tatsächlicher Ladehalt dauert dadurch entweder gar nicht oder
-    mindestens `min_charging_time_s` (Nutzer-Report: 1-Minuten-Ladehalt,
+    minimum `min_charging_time_s` (Nutzer-Report: 1-Minuten-Ladehalt,
     gefolgt von einem weiteren Halt nach nur gut 10 Minuten Fahrt).
     """
 
@@ -1739,7 +1751,8 @@ class TestMindestLadedauerVerhindertKurzeLadehalte:
         das GENAU die Mindestdauer ergibt; ein bereits ausreichend langer
         Kandidat bleibt unverändert; mehrere zu kurze Kandidaten, die auf
         dasselbe gestreckte Ziel abgebildet werden, sind im Ergebnis nur
-        einmal enthalten (Deduplizierung)."""
+        einmal enthalten (Deduplizierung).
+        """
         create_networkx_optimizer()
         ladekurve = LadekurveReferenz.model_3_lr_v3()
         battery_capacity_kwh = 75.0
@@ -1796,7 +1809,8 @@ class TestMindestLadedauerVerhindertKurzeLadehalte:
         Mindestladedauer waehlt die Optimierung einen 376s-Kurzhalt an
         station-4. Mit der Produktions-Default-Mindestladedauer (600s) MUSS
         dieser Kurzhalt verschwinden - JEDER verbleibende Ladehalt dauert
-        entweder gar nicht (uebersprungen) oder mindestens 600s."""
+        entweder gar nicht (uebersprungen) oder minimum 600s.
+        """
         szenario = TestGraphKonstruktionFindetDijkstraOptimum()
         route, gradients, energy_results, stations, vehicle_profile = (
             szenario._sechs_segmente_szenario()
@@ -1834,7 +1848,8 @@ class TestMindestLadedauerVerhindertKurzeLadehalte:
 
 class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
     """Tests for `detour_costs.detour_kosten`'s real-vs-heuristic fallback
-    logic (see `optimization.detour_routing`)."""
+    logic (see `optimization.detour_routing`).
+    """
 
     def test_nutzt_reale_kosten_wenn_station_in_map(self) -> None:
         real_kosten = DetourKosten(
@@ -1873,13 +1888,14 @@ class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
         dem Fix zu EINEM symmetrischen "je Richtung"-Wert gemittelt und dieser
         fuer BEIDE Richtungen wiederverwendet. Bei einer real asymmetrischen
         Station (kurzer Hinweg, langer Rückweg oder umgekehrt) verfaelschte
-        das genau die Richtung, deren TATSAECHLICHER Wert klein war - die
+        das genau die Richtung, deren TATSAECHLICHER Wert small war - die
         Ankunfts-SoC-Pruefung in `_add_charging_edges` sah dann eine
         kuenstlich schlechtere Station, als sie real war (siehe Nutzer-
         Report: Kristinehamn - naeher an der Route, real mit 43% SoC
-        erreichbar - wurde zugunsten des weiter entfernten Mariestad
+        reachable - wurde zugunsten des weiter entfernten Mariestad
         verworfen). `detour_kosten` MUSS die beiden Richtungen unveraendert
-        durchreichen statt sie zu mitteln."""
+        durchreichen statt sie zu mitteln.
+        """
         vehicle_profile = VehicleProfile(
             mass_kg=1800.0,
             drag_coefficient=0.23,
@@ -1980,10 +1996,11 @@ class TestAsymmetrischerDetourWirdNichtFaelschlichVerworfen:
     Wert (siehe `DetourKosten`-Docstring). Bei einer real asymmetrischen
     Station (kurzer Hinweg, langer Rückweg) verfaelschte das ausgerechnet die
     Ankunfts-SoC-Pruefung in `_add_charging_edges` - eine Station, die real
-    ueber der Sicherheitsreserve erreichbar gewesen waere, wurde faelschlich
+    ueber der Sicherheitsreserve reachable gewesen waere, wurde faelschlich
     als unerreichbar verworfen (siehe Nutzer-Report: Kristinehamn - naeher an
-    der Route, real mit 43% SoC erreichbar - wurde zugunsten des weiter
-    entfernten Mariestad verworfen)."""
+    der Route, real mit 43% SoC reachable - wurde zugunsten des weiter
+    entfernten Mariestad verworfen).
+    """
 
     def test_station_mit_kurzem_hinweg_aber_langem_rueckweg_bleibt_nutzbar(self) -> None:
         coords = [(58.0, 14.0), (58.25, 14.0), (58.5, 14.0)]
@@ -1991,18 +2008,18 @@ class TestAsymmetrischerDetourWirdNichtFaelschlichVerworfen:
             RouteSegment(
                 segment_index=0,
                 geometrie=[coords[0], coords[1]],
-                laenge_m=100_000,
+                length_m=100_000,
                 strassenklasse="MOTORWAY",
-                tempolimit_kmh=110,
+                speed_limit_kmh=110,
                 steigung_rohdaten=0.0,
                 bearing_deg=0.0,
             ),
             RouteSegment(
                 segment_index=1,
                 geometrie=[coords[1], coords[2]],
-                laenge_m=100_000,
+                length_m=100_000,
                 strassenklasse="MOTORWAY",
-                tempolimit_kmh=110,
+                speed_limit_kmh=110,
                 steigung_rohdaten=0.0,
                 bearing_deg=0.0,
             ),
@@ -2023,9 +2040,9 @@ class TestAsymmetrischerDetourWirdNichtFaelschlichVerworfen:
                 energiebedarf_kwh=25.0,
                 rekuperation_kwh=0.0,
                 energiebedarf_brutto_kwh=25.0,
-                geschwindigkeit_m_s=27.0,
-                fahrzeit_s=3600,
-                streckenlaenge_m=100_000,
+                speed_ms=27.0,
+                drive_time_s=3600,
+                segment_length_m=100_000,
             )
             for i in range(2)
         ]
@@ -2155,13 +2172,15 @@ class TestMaxChargeSocCapsRegularStops:
         """The cap is hard: a cap below the physically required charging
         target (station-5 must reach 38.3% to clear the final leg with the
         5% destination floor) leaves no feasible plan, so the optimizer
-        reports the trip as undrivable."""
+        reports the trip as undrivable.
+        """
         with pytest.raises(ValueError, match="Route nicht fahrbar"):
             self._optimiere(35.0)
 
     def test_cap_at_or_above_physical_minimum_leaves_plan_unchanged(self) -> None:
         """A cap at/above the natural charging target does not alter the
-        plan (38.3% < 38.4% cap): the natural plan is already minimal."""
+        plan (38.3% < 38.4% cap): the natural plan is already minimal.
+        """
         halte = self._optimiere(38.4)
         assert [(s.station.station_id, round(s.target_soc_pct, 1)) for s in halte] == [
             ("station-3", 30.0),
@@ -2172,7 +2191,8 @@ class TestMaxChargeSocCapsRegularStops:
     def test_cap_does_not_affect_charging_at_waypoints(self) -> None:
         """`max_charge_soc_pct` affects ONLY regular charging stops:
         charging at a waypoint (`charging_power_kw` during a forced wait) is
-        unaffected - it keeps charging to its (uncapped) target SoC."""
+        unaffected - it keeps charging to its (uncapped) target SoC.
+        """
         szenario = TestZwischenstoppErzwingtWartezeit()
         route, energy_results, vehicle_profile = szenario._basis_szenario()
         constraints = OptimizationConstraints(
@@ -2252,7 +2272,8 @@ class TestMaxChargeSocStretchClamping:
     """`_kandidaten_mit_mindestladedauer` stretches candidates whose charge
     time would fall below the minimum duration - the result MUST stay
     clamped to `max_charge_soc_pct` (the charge limit is hard, the minimum
-    duration only soft)."""
+    duration only soft).
+    """
 
     def test_stretched_target_is_clamped_to_cap(self) -> None:
         ladekurve = LadekurveReferenz.model_3_sr()
@@ -2271,7 +2292,8 @@ class TestMaxChargeSocStretchClamping:
 
     def test_without_cap_stretch_is_unchanged(self) -> None:
         """Without a cap (default) the stretched target stays at ~100%
-        (regression: default behavior unchanged)."""
+        (regression: default behavior unchanged).
+        """
         ladekurve = LadekurveReferenz.model_3_sr()
         ergebnis = charging_math.kandidaten_mit_mindestladedauer(
             kandidaten=[70.0],
@@ -2286,7 +2308,7 @@ class TestMaxChargeSocStretchClamping:
 class TestZielUndZwischenstoppFloorNutztAnkunftsMinimum:
     """Regressionstest: Bug - ein niedriges, vom Nutzer gesetztes Ziel-SoC
     (z. B. 5%) wurde von `min_soc_pct` (Sicherheitsreserve fuer offene
-    Strecke, nie vom Frontend/API gesetzt, Default 15%) ueberschrieben, UND
+    segment, nie vom Frontend/API gesetzt, Default 15%) ueberschrieben, UND
     die Fahrtkante zu einem ladefaehigen Zwischenstopp (`Waypoint.
     charging_power_kw` + erzwungene Wartezeit) verlangte faelschlich densel-
     ben Sicherheitsreserve-Floor statt des niedrigeren
@@ -2310,18 +2332,18 @@ class TestZielUndZwischenstoppFloorNutztAnkunftsMinimum:
                 RouteSegment(
                     segment_index=0,
                     geometrie=[berlin, wegpunkt],
-                    laenge_m=50_000,
+                    length_m=50_000,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=130,
+                    speed_limit_kmh=130,
                     steigung_rohdaten=0.0,
                     bearing_deg=310.0,
                 ),
                 RouteSegment(
                     segment_index=1,
                     geometrie=[wegpunkt, hamburg],
-                    laenge_m=50_000,
+                    length_m=50_000,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=130,
+                    speed_limit_kmh=130,
                     steigung_rohdaten=0.0,
                     bearing_deg=290.0,
                 ),
@@ -2340,18 +2362,18 @@ class TestZielUndZwischenstoppFloorNutztAnkunftsMinimum:
                 energiebedarf_kwh=53.0,
                 rekuperation_kwh=0.0,
                 energiebedarf_brutto_kwh=53.0,
-                geschwindigkeit_m_s=30.0,
-                fahrzeit_s=1667,
-                streckenlaenge_m=50_000,
+                speed_ms=30.0,
+                drive_time_s=1667,
+                segment_length_m=50_000,
             ),
             SegmentEnergyResult(
                 segment_index=1,
                 energiebedarf_kwh=57.0,
                 rekuperation_kwh=0.0,
                 energiebedarf_brutto_kwh=57.0,
-                geschwindigkeit_m_s=30.0,
-                fahrzeit_s=1667,
-                streckenlaenge_m=50_000,
+                speed_ms=30.0,
+                drive_time_s=1667,
+                segment_length_m=50_000,
             ),
         ]
         vehicle_profile = VehicleProfile(
@@ -2367,9 +2389,10 @@ class TestZielUndZwischenstoppFloorNutztAnkunftsMinimum:
         """`min_soc_pct` bleibt auf Produktions-Default (15%, wird von
         Frontend/API nie gesetzt) - die Route MUSS trotzdem planbar sein,
         weil sowohl der ladefaehige Zwischenstopp als auch das (bewusst
-        niedrig gesetzte) Fahrtziel `min_arrival_soc_pct`/`ziel_soc_
+        low gesetzte) Fahrtziel `min_arrival_soc_pct`/`ziel_soc_
         target` statt des allgemeinen Sicherheitsreserve-Floors nutzen
-        muessen."""
+        muessen.
+        """
         route, energy_results, vehicle_profile = self._szenario()
         constraints = OptimizationConstraints(
             target_soc_pct=5.0, sicherheitsreserve_pct=0.0, min_charging_time_s=0
@@ -2407,7 +2430,7 @@ class TestZielUndZwischenstoppFloorNutztAnkunftsMinimum:
 
 
 class TestLadeTiebreakVermeidetUnnoetigesLadenVorZwischenstopp:
-    """Regressionstest: Bug - eine Ladestation kurz vor einem ladefaehigen
+    """Regressionstest: Bug - eine Ladestation short vor einem ladefaehigen
     Zwischenstopp mit langer erzwungener Wartezeit (`Waypoint.
     planned_departure`/`stay_duration` + `charging_power_kw`) lud bis zum
     `max_charge_soc_pct`-Deckel (bzw. ohne Deckel bis 100%) statt auf das
@@ -2417,11 +2440,11 @@ class TestLadeTiebreakVermeidetUnnoetigesLadenVorZwischenstopp:
     SoC-Floor-Bug).
 
     Ursache: verlaengert eine Ladekante VOR einer erzwungenen, spaeten
-    Abfahrtszeit die Ladezeit, verkuerzt sich die anschliessende
+    departure_time die Ladezeit, verkuerzt sich die anschliessende
     Wartezeit am Zwischenstopp um EXAKT denselben Betrag (`add_
     waypoint_wait_edge`: `kosten = wait_time_s = required_departure -
-    ankunftszeit`) - die Gesamtkosten (reine Fahrzeit-Optimierung) sind
-    fuer JEDES Ladeziel, das die Abfahrtszeit noch einhaelt, exakt
+    arrival_time`) - die Gesamtkosten (reine drive_time_s-Optimierung) sind
+    fuer JEDES Ladeziel, das die departure_time noch einhaelt, exakt
     identisch. Ohne einen Tie-Breaker waehlt Dijkstra bei diesem echten
     Gleichstand ein beliebiges (oft das laut Kandidatenliste zuletzt
     erreichte, unnoetig hohe) Ladeziel statt des sparsameren Minimums.
@@ -2438,9 +2461,9 @@ class TestLadeTiebreakVermeidetUnnoetigesLadenVorZwischenstopp:
             return RouteSegment(
                 segment_index=i,
                 geometrie=[(lat0, lon0), ((lat0 + lat1) / 2, (lon0 + lon1) / 2), (lat1, lon1)],
-                laenge_m=50_000,
+                length_m=50_000,
                 strassenklasse="MOTORWAY",
-                tempolimit_kmh=130,
+                speed_limit_kmh=130,
                 steigung_rohdaten=0.0,
                 bearing_deg=45.0,
             )
@@ -2451,9 +2474,9 @@ class TestLadeTiebreakVermeidetUnnoetigesLadenVorZwischenstopp:
             gesamtlaenge_m=150_000,
             geometrie=[s.geometrie[0] for s in segments] + [segments[-1].geometrie[-1]],
         )
-        # Kapazitaet 60 kWh: Segment 0 verbraucht 60% (Ankunft an der Station
+        # capacity 60 kWh: Segment 0 verbraucht 60% (Ankunft an der Station
         # bei 40%), Segment 1 verbraucht 40% (informierter Reichweiten-
-        # Kandidat fuer die Station = 40% Verbrauch + 5% `mindest_ankunfts_
+        # Kandidat fuer die Station = 40% consumption + 5% `mindest_ankunfts_
         # soc_pct` = exakt 45% - klar unter jedem Kurven-Stuetzpunkt/Deckel).
         capacity = 60.0
         energy_results = [
@@ -2462,9 +2485,9 @@ class TestLadeTiebreakVermeidetUnnoetigesLadenVorZwischenstopp:
                 energiebedarf_kwh=anteil * capacity,
                 rekuperation_kwh=0.0,
                 energiebedarf_brutto_kwh=anteil * capacity,
-                geschwindigkeit_m_s=30.0,
-                fahrzeit_s=1667,
-                streckenlaenge_m=50_000,
+                speed_ms=30.0,
+                drive_time_s=1667,
+                segment_length_m=50_000,
             )
             for i, anteil in enumerate([0.60, 0.40, 0.10])
         ]
@@ -2513,7 +2536,7 @@ class TestLadeTiebreakVermeidetUnnoetigesLadenVorZwischenstopp:
 
         assert len(plan.ladehalte) == 1
         halt = plan.ladehalte[0]
-        # Das sparsame Minimum (40% Verbrauch + 5% Floor = 45%) MUSS
+        # Das sparsame Minimum (40% consumption + 5% Floor = 45%) MUSS
         # gewaehlt werden, NICHT der (hier unbeschraenkte, also 100%)
         # `max_charge_soc_pct`-Deckel.
         assert halt.arrival_soc_pct == pytest.approx(40.0, abs=0.1)

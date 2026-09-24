@@ -11,7 +11,6 @@ from types import ModuleType
 
 import pytest
 import rasterio
-
 from tripplanner.elevation.elevation import calculate_horizontal_distance
 from tripplanner.elevation.providers import CopernicusDEMDataSource, FakeDataSource
 
@@ -195,7 +194,7 @@ class TestCopernicusDEMDataSource:
         source = CopernicusDEMDataSource(base_url=str(copernicus_tile_dir), max_open_tiles=1)
         # Fordert zunächst die vorhandene, dann eine fehlende Kachel an (verdrängt die
         # erste aus dem Cache), und dann erneut die vorhandene - muss weiterhin
-        # funktionieren (Dataset wird bei Bedarf neu geöffnet).
+        # funktionieren (Dataset wird bei Bedarf new geöffnet).
         first = source.get_elevation(47.000075, 8.000075)
         _ = source.get_elevation(0.0, 0.0)
         second = source.get_elevation(47.000075, 8.000075)
@@ -224,7 +223,7 @@ class TestCopernicusDEMDataSource:
         Die 5x5-Pixel-Test-Kacheln werden in Mikrosekunden gelesen - zu schnell,
         um das Race-Fenster in-process zuverlässig zu öffnen (anders als die
         echten ca. 3600x3600 Copernicus-Kacheln, deren ca. 40MB-`read(1)`
-        zig Millisekunden dauert - lang genug, damit eine nebenläufige
+        zig Millisekunden dauert - long genug, damit eine nebenläufige
         Eviction mitten in den Read fällt). Eine kleine gemonkeypatchte
         Verzögerung auf `DatasetReader.read` stellt dieses Fenster
         deterministisch wieder her, ohne echte DEM-Kacheln zu benötigen.
@@ -278,13 +277,13 @@ class TestCalculateHorizontalDistance:
     """Tests für calculate_horizontal_distance."""
 
     def test_distance_zero_for_identical_points(self) -> None:
-        """Distanz zwischen identischen Punkten ist 0."""
+        """distance zwischen identischen Punkten ist 0."""
         coord = (47.0, 8.0)
         dist = calculate_horizontal_distance(coord, coord)
         assert dist == pytest.approx(0.0, abs=1e-6)
 
     def test_distance_symmetric(self) -> None:
-        """Distanz(a, b) == Distanz(b, a)."""
+        """distance(a, b) == distance(b, a)."""
         coord1 = (47.0, 8.0)
         coord2 = (48.0, 9.0)
         dist1 = calculate_horizontal_distance(coord1, coord2)
@@ -292,14 +291,14 @@ class TestCalculateHorizontalDistance:
         assert dist1 == pytest.approx(dist2)
 
     def test_distance_approximate_1_degree(self) -> None:
-        """Distanz von 1° Längengrad am Äquator ≈ 111 km."""
+        """distance von 1° Längengrad am Äquator ≈ 111 km."""
         coord1 = (0.0, 0.0)
         coord2 = (0.0, 1.0)
         dist = calculate_horizontal_distance(coord1, coord2)
         assert dist == pytest.approx(111_320, rel=0.01)
 
     def test_distance_1_degree_latitude(self) -> None:
-        """Distanz von 1° Breite ≈ 111 km."""
+        """distance von 1° latitude ≈ 111 km."""
         coord1 = (0.0, 0.0)
         coord2 = (1.0, 0.0)
         dist = calculate_horizontal_distance(coord1, coord2)
@@ -402,7 +401,6 @@ class TestCacheDir:
 
     def test_cache_write_failure_does_not_break_lookup(self, tmp_path: Path) -> None:
         """If cache_dir is non-writable, get_elevations_batch still returns correct values."""
-
         # Create a non-writable directory for cache
         readonly_dir = tmp_path / "readonly_cache"
         readonly_dir.mkdir()

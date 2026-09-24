@@ -18,7 +18,7 @@ class FakeRoutingProvider:
     pro Polyline-Punktpaar) vergleichbar sind. `NetworkXOptimizer` modelliert
     Ladehalte und die "letztes Segment vor dem Ziel"-Heuristik pro Segment; mit
     nur einem einzigen, riesigen Segment pro Teilstrecke waeren diese Modelle
-    unbrauchbar (Fahrzeit/Energiebedarf des Segments wuerden effektiv nicht
+    unbrauchbar (drive_time_s/Energiebedarf des Segments wuerden effektiv nicht
     granular genug abgebildet).
     """
 
@@ -51,22 +51,22 @@ class FakeRoutingProvider:
         via_point_indices: list[int] = []
 
         for i in range(len(points) - 1):
-            for seg_start, seg_ende, laenge_m in self._diskretisiere_teilstrecke(
+            for seg_start, seg_ende, length_m in self._diskretisiere_teilstrecke(
                 points[i], points[i + 1]
             ):
                 segments.append(
                     RouteSegment(
                         segment_index=len(segments),
                         geometrie=[seg_start, seg_ende],
-                        laenge_m=laenge_m,
+                        length_m=length_m,
                         strassenklasse="PRIMARY",
-                        oberflaeche="asphalt",
-                        tempolimit_kmh=100,
+                        surface="asphalt",
+                        speed_limit_kmh=100,
                         steigung_rohdaten=1.5,
                         bearing_deg=bearing_deg(seg_start, seg_ende),
                     )
                 )
-                total_distance += laenge_m
+                total_distance += length_m
                 full_geometrie.append(seg_ende)
             # points[i + 1] is a waypoint unless it is the destination (last item).
             if i + 1 < len(points) - 1:
@@ -77,10 +77,10 @@ class FakeRoutingProvider:
                 RouteSegment(
                     segment_index=0,
                     geometrie=[start, start],
-                    laenge_m=0.0,
+                    length_m=0.0,
                     strassenklasse="OTHER",
-                    oberflaeche="asphalt",
-                    tempolimit_kmh=0,
+                    surface="asphalt",
+                    speed_limit_kmh=0,
                     steigung_rohdaten=0.0,
                     bearing_deg=0.0,
                 )
@@ -105,7 +105,7 @@ class FakeRoutingProvider:
     ) -> list[tuple[Coordinate, Coordinate, float]]:
         """Zerlegt eine Teilstrecke in mehrere kuerzere Segmente (~SEGMENT_LAENGE_ZIEL_M).
 
-        Identische Start-/Endkoordinaten (Laenge 0) liefern eine leere Liste,
+        Identische Start-/Endkoordinaten (length_m 0) liefern eine leere Liste,
         sodass der Aufrufer diese Teilstrecke automatisch überspringt.
         """
         gesamtlaenge_m = haversine_distance_m(start, end)
@@ -127,7 +127,7 @@ class FakeRoutingProvider:
         ergebnis: list[tuple[Coordinate, Coordinate, float]] = []
         for i in range(len(punkte) - 1):
             seg_start, seg_ende = punkte[i], punkte[i + 1]
-            laenge_m = haversine_distance_m(seg_start, seg_ende)
-            if laenge_m > 0:
-                ergebnis.append((seg_start, seg_ende, laenge_m))
+            length_m = haversine_distance_m(seg_start, seg_ende)
+            if length_m > 0:
+                ergebnis.append((seg_start, seg_ende, length_m))
         return ergebnis

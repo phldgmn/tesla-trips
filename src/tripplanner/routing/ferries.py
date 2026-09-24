@@ -1,7 +1,7 @@
 """Detection of ferry connections in a computed `Route`.
 
 There is no static ferry registry: ferry sections are detected solely from the
-`road_environment`/`strassenname` fields that `GraphHopperRoutingProvider`
+`road_environment`/`street_name` fields that `GraphHopperRoutingProvider`
 extracts per segment from the GraphHopper path details
 `road_environment`/`street_name` (see
 `docs/superpowers/specs/2026-08-15-ferry-avoidance-design.md`).
@@ -24,8 +24,8 @@ def detect_ferries(route: Route) -> list[FerrySegment]:
 
     Makes one linear pass over `route.segments` and merges consecutive segments
     with `road_environment == "FERRY"` into one `FerrySegment` each (name from the
-    first non-empty `strassenname` of the run, otherwise "Unnamed ferry"; length
-    as the sum of `laenge_m`; bounding box from all `geometrie` coordinates,
+    first non-empty `street_name` of the run, otherwise "Unnamed ferry"; length
+    as the sum of `length_m`; bounding box from all `geometrie` coordinates,
     buffered by `FERRY_BUFFER_DEG`).
 
     Args:
@@ -56,8 +56,8 @@ def detect_ferries(route: Route) -> list[FerrySegment]:
 
 def run_to_ferry_segment(run: list[RouteSegment]) -> FerrySegment:
     """Build a `FerrySegment` from a contiguous run of ferry `RouteSegment`s."""
-    name = next((s.strassenname for s in run if s.strassenname), None) or UNNAMED_FERRY
-    length_m = sum(s.laenge_m for s in run)
+    name = next((s.street_name for s in run if s.street_name), None) or UNNAMED_FERRY
+    length_m = sum(s.length_m for s in run)
 
     coordinates: list[Coordinate] = [coord for s in run for coord in s.geometrie]
     lats = [c[0] for c in coordinates]
@@ -65,7 +65,7 @@ def run_to_ferry_segment(run: list[RouteSegment]) -> FerrySegment:
 
     return FerrySegment(
         name=name,
-        laenge_m=length_m,
+        length_m=length_m,
         bbox_sw=(min(lats) - FERRY_BUFFER_DEG, min(lons) - FERRY_BUFFER_DEG),
         bbox_ne=(max(lats) + FERRY_BUFFER_DEG, max(lons) + FERRY_BUFFER_DEG),
         segment_index_start=run[0].segment_index,

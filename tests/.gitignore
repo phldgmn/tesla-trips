@@ -1,0 +1,38 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+# Persistent external API cache (SQLite-backed TTLCache)
+.cache/
+.coverage
+htmlcov/
+site/
+*.egg-info/
+dist/
+build/
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Data (large, not committed)
+/data/
+
+# Runtime state (PIDs, logs from scripts/run.sh)
+.run/
+
+# OS
+.DS_Store
+
+# Agent worktrees
+.worktrees/
+
+.code-translate/
+
+*.local
+*.local.*
+# Logs (scrape debug logs go to .cache/logs/)
+*.log

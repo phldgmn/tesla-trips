@@ -10,7 +10,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pytest
-
 from tripplanner.trip_input.models import VehicleProfile, Waypoint
 from tripplanner.trip_input.schemas.request import VehicleProfileAPI
 
@@ -88,14 +87,14 @@ def kurze_reise_request() -> dict:
 
 @pytest.fixture
 def heavy_vehicle_request() -> dict:
-    """TripRequest mit schwerem Fahrzeug (z. B. mit Anhänger)."""
+    """TripRequest mit schwerem vehicle (z. B. mit Anhänger)."""
     return {
         "start": (52.52, 13.405),
         "destination": (48.135, 11.582),
         "waypoints": [],
         "departure_time": datetime(2026, 8, 15, 8, 30, 0),
         "vehicle_profile": VehicleProfile(
-            mass_kg=2500.0,  # Schwereres Fahrzeug
+            mass_kg=2500.0,  # Schwereres vehicle
             drag_coefficient=0.35,  # Schlechtere Aerodynamik
             frontal_area_m2=3.0,
             rolling_resistance_coefficient=0.015,

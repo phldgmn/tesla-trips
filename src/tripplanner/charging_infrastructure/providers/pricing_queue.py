@@ -22,7 +22,7 @@ class CachedPricing(NamedTuple):
     tiers: list[ChargingPricingTier]
     """Preistiers, leer wenn nie gescraped oder Station ohne veroeffentlichte Preise."""
     updated_utc: datetime | None
-    """Zeitpunkt der juengsten gespeicherten Preiszeile, None wenn nie gescraped."""
+    """timestamp der juengsten gespeicherten Preiszeile, None wenn nie gescraped."""
 
 
 class PricingQueueDrainResult(NamedTuple):
@@ -165,7 +165,7 @@ class PricingQueueMixin:
             tesla_client: Optionaler TeslaClient (fuer Tests).
 
         Returns:
-            Die neu gespeicherten Preistiers (kann leer sein).
+            Die new gespeicherten Preistiers (kann leer sein).
 
         Raises:
             ValueError: Wenn `slug` keiner bekannten Station entspricht.
@@ -245,14 +245,14 @@ class PricingQueueMixin:
         return tiers
 
     def get_cached_pricing(self, station_id: str) -> CachedPricing:
-        """Liest gespeicherte Preisdaten einer Station, ohne sie neu abzurufen.
+        """Liest gespeicherte Preisdaten einer Station, ohne sie new abzurufen.
 
         Args:
             station_id: `ChargingStation.station_id` (Slug oder numerischer
                 Fallback, siehe `_resolve_supercharge_info_id`).
 
         Returns:
-            `CachedPricing` mit den gespeicherten Tiers und dem Zeitpunkt der
+            `CachedPricing` mit den gespeicherten Tiers und dem timestamp der
             juengsten Preiszeile (leer/None, wenn nie gescraped oder Station
             unbekannt).
         """
@@ -296,7 +296,7 @@ class PricingQueueMixin:
         - das eigentliche Scrapen laeuft NICHT synchron dabei, sondern
         asynchron/out-of-band (siehe `drain_pricing_queue`, CLI-Befehl
         `charger scrape-pricing`), da Requests gegen die Tesla-API zu
-        langsam/WAF-riskant fuer den Request/Response-Zyklus sind.
+        slow/WAF-riskant fuer den Request/Response-Zyklus sind.
 
         Args:
             station_ids: `ChargingStation.station_id`-Werte, die geprueft
@@ -306,7 +306,7 @@ class PricingQueueMixin:
                 gelten (Default: `PRICING_MAX_AGE`).
 
         Returns:
-            Anzahl der tatsaechlich neu eingereihten Stationen.
+            Anzahl der tatsaechlich new eingereihten Stationen.
         """
         if max_age is None:
             max_age = self.PRICING_MAX_AGE

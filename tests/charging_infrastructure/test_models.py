@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
-
 from tripplanner.charging_infrastructure.models import (
     ChargingPricingTier,
     ChargingStation,
@@ -72,7 +71,7 @@ class TestChargingStation:
         assert station.status == "online"  # Default
 
     def test_invalid_latitude_too_high(self) -> None:
-        """Testet, dass Breitengrad > 90 fehlschlägt."""
+        """Testet, dass latitude > 90 fehlschlägt."""
         with pytest.raises(ValidationError) as exc_info:
             ChargingStation(
                 station_id="test",
@@ -83,10 +82,10 @@ class TestChargingStation:
                 connector_types=[ConnectorType.CCS2],
                 country="DE",
             )
-        assert "Breitengrad muss zwischen -90 und 90 liegen" in str(exc_info.value)
+        assert "latitude muss zwischen -90 und 90 liegen" in str(exc_info.value)
 
     def test_invalid_latitude_too_low(self) -> None:
-        """Testet, dass Breitengrad < -90 fehlschlägt."""
+        """Testet, dass latitude < -90 fehlschlägt."""
         with pytest.raises(ValidationError) as exc_info:
             ChargingStation(
                 station_id="test",
@@ -97,7 +96,7 @@ class TestChargingStation:
                 connector_types=[ConnectorType.CCS2],
                 country="DE",
             )
-        assert "Breitengrad muss zwischen -90 und 90 liegen" in str(exc_info.value)
+        assert "latitude muss zwischen -90 und 90 liegen" in str(exc_info.value)
 
     def test_invalid_longitude_too_high(self) -> None:
         """Testet, dass Längengrad > 180 fehlschlägt."""
@@ -139,7 +138,7 @@ class TestChargingStation:
                 connector_types=[ConnectorType.CCS2],
                 country="DE",
             )
-        assert "Breitengrad muss zwischen -90 und 90 liegen" in str(exc_info.value)
+        assert "latitude muss zwischen -90 und 90 liegen" in str(exc_info.value)
 
     def test_invalid_coordinate_inf(self) -> None:
         """Testet, dass Inf-Koordinaten fehlschlagen."""
@@ -181,7 +180,7 @@ class TestChargingStation:
                 connector_types=[ConnectorType.CCS2],
                 country="DE",
             )
-        assert "unrealistisch hoch" in str(exc_info.value)
+        assert "unrealistisch high" in str(exc_info.value)
 
     def test_invalid_country(self) -> None:
         """Testet, dass ungültiger Ländercode fehlschlägt."""

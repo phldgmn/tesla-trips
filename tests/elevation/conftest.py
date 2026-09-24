@@ -6,7 +6,6 @@ Fixtures und shared test utilities.
 from pathlib import Path
 
 import pytest
-
 from tripplanner.elevation.elevation import ElevationProvider
 from tripplanner.elevation.models import ElevationPoint, SegmentGradient
 from tripplanner.elevation.providers import FakeDataSource

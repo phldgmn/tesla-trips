@@ -25,10 +25,9 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import polyline
 import pytest
+import tripplanner.trip_input.pipeline as trip_pipeline
 from fastapi import params as fastapi_params
 from fastapi.testclient import TestClient
-
-import tripplanner.trip_input.pipeline as trip_pipeline
 from tripplanner.charging_infrastructure import (
     CachedPricing,
     FakeChargingStationProvider,
@@ -45,7 +44,7 @@ from tripplanner.charging_infrastructure.providers import (
     LocalFileChargingStationProvider,
     TeslaChargingStationProvider,
 )
-from tripplanner.construction.models import ConstructionZone, Land, Sperrungstyp
+from tripplanner.construction.models import ClosureType, ConstructionZone, Land
 from tripplanner.construction.providers import FakeConstructionProvider
 from tripplanner.elevation import ElevationProvider
 from tripplanner.elevation.providers import FakeDataSource
@@ -95,7 +94,7 @@ from tripplanner.weather.providers import (
 
 
 def _vehicle_payload(trip_request: dict) -> dict:
-    """camelCase `vehicleProfile` payload for a domain trip-request fixture."""
+    """CamelCase `vehicleProfile` payload for a domain trip-request fixture."""
     return VehicleProfileAPI.from_domain(trip_request["vehicle_profile"]).model_dump()
 
 
@@ -132,7 +131,6 @@ def client(
     GraphHopper-Server (keine Live-Calls externer Datenquellen in Unit-Tests,
     siehe AGENTS.md).
     """
-
     app.dependency_overrides[get_routing_provider] = FakeRoutingProvider
     app.dependency_overrides[get_charging_provider] = lambda: fake_charging_provider_berlin_munich
     app.dependency_overrides[get_elevation_provider] = lambda: ElevationProvider(
@@ -323,7 +321,7 @@ async def test_create_trip_simulation_complete_run(
         assert len(frame.position) == 2
         assert 0 <= frame.soc_pct <= 100
         assert frame.zustand.value in ("FAHREN", "LADEN", "PAUSE")
-        assert frame.geschwindigkeit_kmh >= 0
+        assert frame.speed_kmh >= 0
 
 
 @pytest.mark.asyncio
@@ -356,18 +354,18 @@ async def test_create_trip_simulation_e2e_regression_departure_time_and_soc(
     )
 
     departure_time = valid_trip_request["departure_time"]
-    assert result.frames[0].zeitpunkt.year == departure_time.year
-    assert result.frames[0].zeitpunkt.date() == departure_time.date()
-    assert all(f.zeitpunkt.year != 1970 for f in result.frames)
+    assert result.frames[0].timestamp.year == departure_time.year
+    assert result.frames[0].timestamp.date() == departure_time.date()
+    assert all(f.timestamp.year != 1970 for f in result.frames)
 
     # Zeitstempel muessen monoton steigen und mit departure_time beginnen
-    assert result.frames[0].zeitpunkt >= departure_time
+    assert result.frames[0].timestamp >= departure_time
     for a, b in zip(result.frames, result.frames[1:], strict=False):
-        assert b.zeitpunkt >= a.zeitpunkt
+        assert b.timestamp >= a.timestamp
 
     # SoC darf nicht unrealistisch auf (nahezu) 0% abstuerzen, solange
     # kein realer Reichweitenmangel vorliegt. Am Ende der letzten Etappe
-    # vor dem Ziel kann der SoC kurz unter 1% fallen, bevor die finale
+    # vor dem Ziel kann der SoC short unter 1% fallen, bevor die finale
     # Ladung erfolgt (physikalisch korrekt bei grossen letzten Etappen).
     fahren_frames = [f for f in result.frames if f.zustand.value == "FAHREN"]
     assert all(f.soc_pct >= 0.0 for f in fahren_frames), (
@@ -466,7 +464,7 @@ async def test_create_trip_simulation_different_vehicle_profiles(
         "waypoints": [],
         "departure_time": datetime(2026, 8, 15, 8, 30, 0),
         "vehicle_profile": VehicleProfile(
-            mass_kg=1900.0,  # Schwereres Fahrzeug (max 1900)
+            mass_kg=1900.0,  # Schwereres vehicle (max 1900)
             drag_coefficient=0.25,
             frontal_area_m2=2.4,
             rolling_resistance_coefficient=0.012,
@@ -499,7 +497,7 @@ async def test_create_trip_simulation_without_construction_provider(
     fake_weather_provider: FakeWeatherProvider,
     fake_charging_provider_berlin_munich: FakeChargingStationProvider,
 ) -> None:
-    """Test: Ohne ConstructionProvider wird leere Baustellen-Liste angenommen."""
+    """Test: Ohne ConstructionProvider wird leere construction_zones-Liste angenommen."""
     result = await create_trip_simulation(
         valid_trip_request,
         routing_provider=fake_routing_provider,
@@ -545,7 +543,8 @@ async def test_create_trip_simulation_weather_off_leaves_frame_weather_fields_no
     weiterhin neutrale `FakeWeatherProvider`-Platzhalterwerte fuer die
     Energieberechnung verwendet werden - andernfalls wuerde der Routen-
     Hover-Tooltip im Frontend (`buildRouteHoverText`) faelschlich ein
-    "angenommenes Wetter" anzeigen, obwohl der Nutzer es deaktiviert hat."""
+    "angenommenes Wetter" anzeigen, obwohl der Nutzer es deaktiviert hat.
+    """
     result = await create_trip_simulation(
         valid_trip_request,
         routing_provider=fake_routing_provider,
@@ -558,10 +557,10 @@ async def test_create_trip_simulation_weather_off_leaves_frame_weather_fields_no
 
     assert result.frames
     for frame in result.frames:
-        assert frame.temperatur_c is None
-        assert frame.windgeschwindigkeit_ms is None
-        assert frame.windrichtung_deg is None
-        assert frame.niederschlag_mm is None
+        assert frame.temperature_c is None
+        assert frame.wind_speed_ms is None
+        assert frame.wind_direction_deg is None
+        assert frame.precipitation_mm is None
 
 
 @pytest.mark.asyncio
@@ -573,7 +572,8 @@ async def test_create_trip_simulation_weather_high_attaches_frame_weather_fields
 ) -> None:
     """Mit aktivierter Wetterberuecksichtigung (Default `weather_detail=
     "high"`) tragen FAHREN-Frames die vom `WeatherProvider` gelieferte
-    Temperatur (siehe `SimulationFrame.temperatur_c`)."""
+    temperature (siehe `SimulationFrame.temperature_c`).
+    """
     result = await create_trip_simulation(
         valid_trip_request,
         routing_provider=fake_routing_provider,
@@ -586,10 +586,10 @@ async def test_create_trip_simulation_weather_high_attaches_frame_weather_fields
     fahren_frames = [f for f in result.frames if f.zustand.value == "FAHREN"]
     assert fahren_frames
     for frame in fahren_frames:
-        assert frame.temperatur_c is not None
-        assert frame.windgeschwindigkeit_ms is not None
-        assert frame.windrichtung_deg is not None
-        assert frame.niederschlag_mm is not None
+        assert frame.temperature_c is not None
+        assert frame.wind_speed_ms is not None
+        assert frame.wind_direction_deg is not None
+        assert frame.precipitation_mm is not None
 
 
 @pytest.mark.asyncio
@@ -623,11 +623,11 @@ async def test_create_trip_simulation_mindest_ankunfts_soc_pct_erlaubt_niedriger
     """`min_arrival_soc_pct` steuert, wie tief der SoC beim Ankommen an
     einer Ladestation sinken darf (siehe `OptimizationConstraints.
     min_arrival_soc_pct`) - im Gegensatz zur allgemeinen Sicherheits-
-    reserve auf offener Strecke.
+    reserve auf offener segment.
 
-    Mit dem niedrigen Default (5.0) MUSS die Gesamtladezeit fuer die Berlin
-    -> Muenchen-Strecke kleiner sein als mit einem strengeren, hoeheren Wert
-    (20.0) - ein hoeherer Mindest-Ankunfts-SoC zwingt die Optimierung, schon
+    Mit dem niedrigen Default (5.0) MUSS die total_charge_time fuer die Berlin
+    -> Muenchen-segment kleiner sein als mit einem strengeren, hoeheren Wert
+    (20.0) - ein hoeherer minimum-Ankunfts-SoC zwingt die Optimierung, schon
     am Start voller (und damit im langsameren Kurvenbereich) nachzuladen
     bzw. zusaetzliche Halte einzulegen, statt die schnelle Ladeleistung im
     unteren SoC-Bereich auszunutzen (siehe Nutzer-Report: unnoetig fruehe/
@@ -676,7 +676,7 @@ async def test_create_trip_simulation_mindest_ladezeit_s_verhindert_kurze_ladeha
 
     Mit deaktivierter Mindestladedauer (0s) kann ein einzelner Ladehalt
     kürzer als die Produktions-Default-Mindestdauer (600s) ausfallen. Mit
-    der Default-Mindestdauer MUSS JEDER tatsächliche Ladehalt mindestens so
+    der Default-Mindestdauer MUSS JEDER tatsächliche Ladehalt minimum so
     lange dauern (Nutzer-Report: ein 1-Minuten-Ladehalt, gefolgt von einem
     weiteren Halt nach nur gut 10 Minuten Fahrt).
     """
@@ -703,7 +703,7 @@ async def test_create_trip_simulation_mindest_ladezeit_s_verhindert_kurze_ladeha
         destination_soc_pct=20.0,
         min_charging_time_s=600,
     )
-    # `int()`-Rundung der Ladedauer (siehe `_extract_charging_stops`) kann bis
+    # `int()`-Rundung der charge_duration (siehe `_extract_charging_stops`) kann bis
     # zu 1s unter der exakten Mindestdauer liegen - kein Bug.
     assert all(stop.charging_duration_s >= 599 for stop in mit_mindestdauer.charging_stops)
 
@@ -719,7 +719,7 @@ async def test_create_trip_simulation_max_lade_soc_pct_begrenzt_ladeziele(
     (siehe `OptimizationConstraints.max_charge_soc_pct`).
 
     Praemisse: OHNE Cap (Default 100.0) erzeugt das Berlin -> Muenchen-
-    Szenario mindestens einen Ladehalt mit Ziel-SoC > 60%; MIT Cap 60.0
+    Szenario minimum einen Ladehalt mit Ziel-SoC > 60%; MIT Cap 60.0
     liegen alle Ziel-SoC-Werte <= 60.
     """
     ohne_cap = await create_trip_simulation(
@@ -732,7 +732,7 @@ async def test_create_trip_simulation_max_lade_soc_pct_begrenzt_ladeziele(
         min_charging_time_s=0,
     )
     assert any(stop.target_soc_pct > 60.0 for stop in ohne_cap.charging_stops), (
-        "Testpraemisse nicht erfuellt: ohne Cap muss mindestens ein "
+        "Testpraemisse nicht erfuellt: ohne Cap muss minimum ein "
         "Ladehalt ueber 60% aufladen, sonst testet dieser Test nichts."
     )
 
@@ -782,8 +782,8 @@ async def test_create_trip_simulation_kurze_reise(
         destination_soc_pct=20.0,
     )
 
-    assert result.gesamt_distanz_km > 0  # Kurze Strecke
-    assert result.gesamt_fahrzeit_min < 30  # Kurze Fahrzeit
+    assert result.gesamt_distanz_km > 0  # Kurze segment
+    assert result.gesamt_fahrzeit_min < 30  # Kurze drive_time_s
 
 
 async def test_create_trip_simulation_calls_route_observer_with_computed_route(
@@ -829,7 +829,8 @@ async def test_step_1_route_calculation_uses_calculate_route(
     valid_trip_request: dict,
 ) -> None:
     """_step_1_route_calculate() ruft berechne_route() auf (nicht berechne_route_mit_waypoints()),
-    damit TripRequest-Präferenzen (z. B. Fährvermeidung) den Provider erreichen."""
+    damit TripRequest-Präferenzen (z. B. Fährvermeidung) den Provider erreichen.
+    """
 
     class _RecordingProvider(FakeRoutingProvider):
         def __init__(self) -> None:
@@ -876,14 +877,15 @@ class _CoordinateElevationDataSource:
 class TestElevationGradientAffectsEnergy:
     """Regressionstests für Plan 10 Phase C: `_step_7_calculate_segment_energy`
     nutzt das reale Höhenprofil statt eines hartkodierten flachen Gradienten
-    (`steigung_prozent=0.0`)."""
+    (`steigung_prozent=0.0`).
+    """
 
     def _make_segment(self) -> RouteSegment:
         """5km-Segment (Nord-Süd, konstante Länge), Höhe wird pro Test variiert."""
         return RouteSegment(
             segment_index=0,
             geometrie=[(48.0, 11.0), (48.0449, 11.0)],
-            laenge_m=5000.0,
+            length_m=5000.0,
             strassenklasse="MOTORWAY",
             bearing_deg=0.0,
         )
@@ -906,22 +908,22 @@ class TestElevationGradientAffectsEnergy:
         source = _CoordinateElevationDataSource(elevations)
         elevation_provider = ElevationProvider(data_source=source)
         route = Route(
-            segments=[segment], gesamtlaenge_m=segment.laenge_m, geometrie=segment.geometrie
+            segments=[segment], gesamtlaenge_m=segment.length_m, geometrie=segment.geometrie
         )
         elevation_points = await elevation_provider.get_elevation_profile(route)
         departure_time = datetime(2026, 8, 15, 8, 0, 0)
         weather = WeatherSample(
             coordinate=segment.geometrie[0],
-            zeitpunkt=departure_time,
-            temperatur_c=20.0,
-            windgeschwindigkeit_ms=0.0,
-            windrichtung_deg=0.0,
-            niederschlag_mm=0.0,
-            schneefall_cm=0.0,
-            luftdruck_hpa=1013.25,
-            luftfeuchtigkeit_pct=60.0,
-            globalstrahlung_wm2=400.0,
-            bewoelkung_pct=20.0,
+            timestamp=departure_time,
+            temperature_c=20.0,
+            wind_speed_ms=0.0,
+            wind_direction_deg=0.0,
+            precipitation_mm=0.0,
+            snowfall_cm=0.0,
+            pressure_hpa=1013.25,
+            humidity_pct=60.0,
+            solar_radiation_wm2=400.0,
+            cloudiness_pct=20.0,
         )
         results = await trip_pipeline._step_7_calculate_segment_energy(
             route,
@@ -938,9 +940,10 @@ class TestElevationGradientAffectsEnergy:
         return results[0]
 
     async def test_uphill_segment_consumes_more_energy_than_flat(self) -> None:
-        """Ein Segment mit +500m Höhendifferenz verbraucht strikt mehr Energie
+        """Ein Segment mit +500m Höhendifferenz verbraucht strikt more energy
         als dasselbe (aber flache) Segment - deckt den vormals hartkodierten
-        `steigung_prozent=0.0` ab."""
+        `steigung_prozent=0.0` ab.
+        """
         segment = self._make_segment()
         start, end = segment.geometrie[0], segment.geometrie[-1]
 
@@ -950,8 +953,9 @@ class TestElevationGradientAffectsEnergy:
         assert uphill.energiebedarf_kwh > flat.energiebedarf_kwh
 
     async def test_downhill_segment_consumes_less_energy_than_flat(self) -> None:
-        """Ein Segment mit -500m Höhendifferenz verbraucht (durch Rekuperation)
-        strikt weniger Energie als dasselbe flache Segment."""
+        """Ein Segment mit -500m Höhendifferenz verbraucht (durch recuperation)
+        strikt less energy als dasselbe flache Segment.
+        """
         segment = self._make_segment()
         start, end = segment.geometrie[0], segment.geometrie[-1]
 
@@ -990,10 +994,11 @@ def _make_vehicle_profile_dict() -> dict:
 
 def test_match_ferry_time_window_expanded_when_same_name() -> None:
     """Ein Zeitfenster mit passendem Namen reichert die erkannte Fähre um
-    departure/arrival an."""
+    departure/arrival an.
+    """
     ferry = FerrySegment(
         name="Rødby (DK) - Puttgarden (D)",
-        laenge_m=22000.0,
+        length_m=22000.0,
         bbox_sw=(54.50, 11.22),
         bbox_ne=(54.66, 11.36),
         segment_index_start=3,
@@ -1020,11 +1025,12 @@ def test_match_ferry_time_window_expanded_when_same_name() -> None:
 
 
 def test_match_ferry_time_window_ignore_not_matching_names() -> None:
-    """Ein Zeitfenster fuer eine nicht (mehr) vorhandene Fähre wird stillschweigend
-    ignoriert - die erkannte Fähre bleibt ohne departure/arrival."""
+    """Ein Zeitfenster fuer eine nicht (more) vorhandene Fähre wird stillschweigend
+    ignoriert - die erkannte Fähre bleibt ohne departure/arrival.
+    """
     ferry = FerrySegment(
         name="Andere Fähre",
-        laenge_m=5000.0,
+        length_m=5000.0,
         bbox_sw=(1.0, 1.0),
         bbox_ne=(2.0, 2.0),
         segment_index_start=0,
@@ -1049,7 +1055,7 @@ def test_match_ferry_time_window_select_next_bbox_for_multiple_matching_names() 
     """Bei mehreren gleichnamigen Zeitfenstern gewinnt die naehere Bounding-Box-Mitte."""
     ferry = FerrySegment(
         name="Fähre X",
-        laenge_m=1000.0,
+        length_m=1000.0,
         bbox_sw=(10.0, 10.0),
         bbox_ne=(10.1, 10.1),
         segment_index_start=0,
@@ -1078,38 +1084,39 @@ def test_match_ferry_time_window_select_next_bbox_for_multiple_matching_names() 
 class _FerryRoutingProvider(FakeRoutingProvider):
     """Test-Provider, der eine Route mit genau einer Fähre (Segment 1) liefert -
     Segment 1 traegt absichtlich einen unfahrbar hohen Energiebedarf-Ersatzwert
-    ueber `strassenklasse`/Laenge, damit ein erfolgreicher Ladeplan beweist, dass
-    die Fähre uebersprungen (nicht durchfahren) wurde."""
+    ueber `strassenklasse`/length_m, damit ein erfolgreicher Ladeplan beweist, dass
+    die Fähre uebersprungen (nicht durchfahren) wurde.
+    """
 
     async def berechne_route(self, anfrage: TripRequest) -> Route:
         segments = [
             RouteSegment(
                 segment_index=0,
                 geometrie=[anfrage.start, (54.50, 11.22)],
-                laenge_m=50_000.0,
+                length_m=50_000.0,
                 strassenklasse="MOTORWAY",
                 bearing_deg=0.0,
             ),
             RouteSegment(
                 segment_index=1,
                 geometrie=[(54.50, 11.22), (54.66, 11.36)],
-                laenge_m=22_000.0,
+                length_m=22_000.0,
                 strassenklasse="FERRY",
                 road_environment="FERRY",
-                strassenname="Rødby (DK) - Puttgarden (D)",
+                street_name="Rødby (DK) - Puttgarden (D)",
                 bearing_deg=0.0,
             ),
             RouteSegment(
                 segment_index=2,
                 geometrie=[(54.66, 11.36), anfrage.destination],
-                laenge_m=30_000.0,
+                length_m=30_000.0,
                 strassenklasse="MOTORWAY",
                 bearing_deg=0.0,
             ),
         ]
         return Route(
             segments=segments,
-            gesamtlaenge_m=sum(s.laenge_m for s in segments),
+            gesamtlaenge_m=sum(s.length_m for s in segments),
             geometrie=[s.geometrie[0] for s in segments] + [segments[-1].geometrie[-1]],
         )
 
@@ -1122,7 +1129,8 @@ async def test_create_trip_simulation_ferry_observer_receives_pinned_times(
     """Ein zur erkannten Fähre passendes `ferry_time_windows` wird über
     `ferries_observer` mit departure/arrival angereichert zurückgegeben und fließt
     in die Gesamtreisezeit ein (statt physikalisch unfahrbar durch die Fähre
-    zu 'fahren')."""
+    zu 'fahren').
+    """
     departure = datetime(2026, 8, 15, 9, 0, 0)
     arrival = datetime(2026, 8, 15, 9, 45, 0)
     request = dict(valid_trip_request)
@@ -1161,13 +1169,13 @@ async def test_create_trip_simulation_charge_duration_specification_applies_to_c
     fake_routing_provider: FakeRoutingProvider,
     fake_weather_provider: FakeWeatherProvider,
 ) -> None:
-    """Eine vorgegebene Ladedauer fuer eine tatsaechlich genutzte Station
-    ueberschreibt die automatisch berechnete Dauer im Endergebnis.
+    """Eine vorgegebene charge_duration fuer eine tatsaechlich genutzte Station
+    ueberschreibt die automatisch berechnete duration im Endergebnis.
 
     Nutzt bewusst einen Charging-Provider mit GENAU EINER Station (statt der
     Mehrzweck-Fixture `fake_charging_provider_berlin_munich`), damit der
     Optimierer keine alternative Station ausweichen kann, sobald die
-    vorgegebene Ladedauer die Kosten dieser Station erhoeht - andernfalls
+    vorgegebene charge_duration die Kosten dieser Station erhoeht - andernfalls
     waere ein Stationswechsel (guenstigerer Pfad) ein gueltiges, aber fuer
     diesen Test nicht aussagekraeftiges Optimierer-Ergebnis.
     """
@@ -1222,9 +1230,10 @@ async def test_create_trip_simulation_populates_charging_stop_distanz_m_and_deto
     fake_routing_provider: FakeRoutingProvider,
     fake_weather_provider: FakeWeatherProvider,
 ) -> None:
-    """`ChargingStopSummary.distanz_m`/`detour_geometrie` werden befuellt - deckt
+    """`ChargingStopSummary.distance_m`/`detour_geometrie` werden befuellt - deckt
     den Bug ab, bei dem die Karte den Ladehalt nie zeigte, weil die Routenlinie
-    die Autobahn nie verliess (siehe `_step_route_charging_detours`)."""
+    die Autobahn nie verliess (siehe `_step_route_charging_detours`).
+    """
     single_station_provider = FakeChargingStationProvider(
         test_stations=[
             ChargingStation(
@@ -1251,8 +1260,8 @@ async def test_create_trip_simulation_populates_charging_stop_distanz_m_and_deto
 
     assert len(result.charging_stops) == 1
     stop = result.charging_stops[0]
-    assert stop.distanz_m > 0
-    assert stop.distanz_m < result.gesamt_distanz_km * 1000
+    assert stop.distance_m > 0
+    assert stop.distance_m < result.gesamt_distanz_km * 1000
     # Echte, ueber `FakeRoutingProvider` geroutete Geometrie von einem
     # Klammerpunkt VOR bis einem Klammerpunkt NACH dem Abzweigpunkt (siehe
     # `find_bracket_points`) statt einer leeren Liste.
@@ -1262,7 +1271,7 @@ async def test_create_trip_simulation_populates_charging_stop_distanz_m_and_deto
     assert stop.route_index_vor < stop.route_index_nach
     # Exakter Split-Index (Hinweg->Station, siehe `_step_route_charging_detours`),
     # nicht per Naechster-Punkt-Heuristik geschaetzt - muss innerhalb der
-    # Geometrie liegen, mit mindestens einem Punkt auf jeder Seite.
+    # Geometrie liegen, mit minimum einem Punkt auf jeder Seite.
     assert stop.detour_station_index is not None
     assert 0 < stop.detour_station_index < len(stop.detour_geometrie) - 1
 
@@ -1282,13 +1291,14 @@ async def test_create_trip_simulation_handles_unreachable_charging_detour_gracef
         """Routet die Hauptstrecke normal, verweigert aber jede Detour-Anfrage
         (identifiziert daran, dass Start- oder Zielkoordinate exakt die
         Ladestation ist - nur `_step_route_charging_detours` routet Hin-/Rueckweg-
-        Beine mit der Stationskoordinate als Start bzw. Ziel)."""
+        Beine mit der Stationskoordinate als Start bzw. Ziel).
+        """
 
         _STATION_KOORDINATE = (50.3275, 12.4935)
 
         async def berechne_route(self, anfrage: TripRequest) -> Route:
             if self._STATION_KOORDINATE in (anfrage.start, anfrage.destination):
-                raise httpx.HTTPError("Ladestation nicht erreichbar")
+                raise httpx.HTTPError("Ladestation nicht reachable")
             return await fake_routing_provider.berechne_route(anfrage)
 
     single_station_provider = FakeChargingStationProvider(
@@ -1317,7 +1327,7 @@ async def test_create_trip_simulation_handles_unreachable_charging_detour_gracef
 
     assert len(result.charging_stops) == 1
     stop = result.charging_stops[0]
-    assert stop.distanz_m > 0
+    assert stop.distance_m > 0
     assert stop.detour_geometrie == []
     assert stop.route_index_vor is None
     assert stop.route_index_nach is None
@@ -1347,7 +1357,7 @@ async def test_create_trip_simulation_findet_station_ausserhalb_des_alten_2km_ra
     (statt `FakeChargingStationProvider`, die `search_radius_km` ignoriert)
     wird die tatsaechliche, produktiv genutzte Radius-Filterung geprueft.
     """
-    # 20 km oestlich (senkrecht zur Fahrtrichtung) des geometrischen
+    # 20 km oestlich (senkrecht zur heading) des geometrischen
     # Mittelpunkts von Berlin/Muenchen - siehe Docstring fuer die Herleitung
     # (Grosskreis-Zielpunkt-Formel, verifiziert per `haversine_distance_m`).
     station_coord = (50.3754642065061, 12.221822056150774)
@@ -1375,7 +1385,7 @@ async def test_create_trip_simulation_findet_station_ausserhalb_des_alten_2km_ra
     route = await fake_routing_provider.berechne_route(TripRequest(**{**valid_trip_request}))
 
     # Sanity check: der alte 2-km-Radius findet die Station fuer KEIN
-    # Segment, der neue 25-km-Radius fuer mindestens eines.
+    # Segment, der neue 25-km-Radius fuer minimum eines.
     old_radius_result = await provider.get_stations_along_route(route, search_radius_km=2.0)
     new_radius_result = await provider.get_stations_along_route(route, search_radius_km=25.0)
     assert old_radius_result == {}
@@ -1403,7 +1413,8 @@ def test_fastapi_endpoint_akzeptiert_faehr_zeitfenster_und_ladedauer_vorgaben(
 ) -> None:
     """Der `/trips`-Endpunkt akzeptiert `ferry_time_windows`/`charging_duration_specifications` im
     Request und liefert die neuen Antwortfelder (`ChargingStopAPI.station_id` /
-    `.ankunftszeit`/`.departure_time`, `FerrySegmentAPI.departure`/`.arrival`)."""
+    `.arrival_time`/`.departure_time`, `FerrySegmentAPI.departure`/`.arrival`).
+    """
     api_request = {
         "start": (52.52, 13.405),
         "destination": (48.135, 11.582),
@@ -1440,8 +1451,8 @@ def test_fastapi_endpoint_akzeptiert_faehr_zeitfenster_und_ladedauer_vorgaben(
 def test_fastapi_endpoint_mit_geplanter_abfahrt_verzoegert_ankunft(client: TestClient) -> None:
     """Regressionstest: `planned_departure` an einem Zwischenstopp MUSS die
     Reise tatsaechlich bis dahin verzoegern - nicht nur fehlerfrei akzeptiert,
-    aber im A*-Suchpfad umgangen werden (Bug: eine gesetzte Abfahrtszeit an
-    einem Zwischenstopp wurde bei der Ankunftszeit am Ziel ignoriert, siehe
+    aber im A*-Suchpfad umgangen werden (Bug: eine gesetzte departure_time an
+    einem Zwischenstopp wurde bei der arrival_time am Ziel ignoriert, siehe
     `tripplanner.optimization.optimizer._required_departure`).
     """
     planned_departure = "2026-08-15T09:00:00"
@@ -1467,7 +1478,7 @@ def test_fastapi_endpoint_mit_geplanter_abfahrt_verzoegert_ankunft(client: TestC
     assert len(data["frames"]) > 0
     # Letzter Frame (Ankunft am Ziel) MUSS nach der geplanten Abfahrt am
     # Zwischenstopp liegen - eine umgangene Wartezeit wuerde stattdessen weit
-    # davor ankommen (reine Fahrzeit ohne Wartezeit).
+    # davor ankommen (reine drive_time_s ohne Wartezeit).
     letzter_zeitpunkt = data["frames"][-1]["timestamp"]
     assert letzter_zeitpunkt > planned_departure
     assert len(data["waypointStops"]) == 1
@@ -1503,7 +1514,8 @@ def test_fastapi_endpoint_response_includes_erkannte_faehren_key(
     client: TestClient, valid_trip_request: dict
 ) -> None:
     """Response enthält den Schlüssel detected_ferries (leer, da FakeRoutingProvider
-    keine road_environment-Daten liefert)."""
+    keine road_environment-Daten liefert).
+    """
     api_request = {
         "start": valid_trip_request["start"],
         "destination": valid_trip_request["destination"],
@@ -1566,7 +1578,8 @@ def test_fastapi_endpoint_wetter_detailgrad_off_skips_weather_provider(
     the weather fields null in the HTTP response (regression: `FrameAPI` used
     to omit them entirely, silently dropping them from the JSON payload even
     though the internal `SimulationFrame` carried them - see
-    `buildRouteHoverText` in the frontend, which relies on their presence)."""
+    `buildRouteHoverText` in the frontend, which relies on their presence).
+    """
     spy = FakeWeatherProvider()
     app.dependency_overrides[get_weather_provider] = lambda: spy
     try:
@@ -1671,7 +1684,8 @@ def test_fastapi_endpoint_baustellen_beruecksichtigen_false_skips_construction_p
     client: TestClient, valid_trip_request: dict
 ) -> None:
     """baustellen_beruecksichtigen=False überspringt den injizierten
-    Baustellen-Provider vollständig (kein Aufruf von fetch_construction_zones)."""
+    construction_zones-Provider vollständig (kein Aufruf von fetch_construction_zones).
+    """
     spy_construction_provider = FakeConstructionProvider()
     app.dependency_overrides[get_construction_provider] = lambda: spy_construction_provider
     try:
@@ -1699,7 +1713,8 @@ def test_fastapi_endpoint_baustellen_beruecksichtigen_default_true_calls_constru
     client: TestClient, valid_trip_request: dict
 ) -> None:
     """Ohne explizites baustellen_beruecksichtigen (Default True) wird der
-    injizierte Baustellen-Provider weiterhin aufgerufen (Rückwärtskompatibilität)."""
+    injizierte construction_zones-Provider weiterhin aufgerufen (Rückwärtskompatibilität).
+    """
     spy_construction_provider = FakeConstructionProvider()
     app.dependency_overrides[get_construction_provider] = lambda: spy_construction_provider
     try:
@@ -1727,11 +1742,12 @@ def test_fastapi_endpoint_construction_zone_with_segments_has_position(
 ) -> None:
     """Eine Baustellenzone mit gültigen `betroffene_segmente` erscheint im
     `/trips`-Response mit korrekt aufgelöster `position` (aus dem ersten
-    betroffenen Route-Segment)."""
+    betroffenen Route-Segment).
+    """
     zone = ConstructionZone(
         betroffene_segmente=[0],
-        tempolimit_kmh=60,
-        sperrungstyp=Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+        speed_limit_kmh=60,
+        closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
         umleitungshinweis="Umleitung über B96",
         land=Land.DE,
         gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
@@ -1773,11 +1789,12 @@ def test_fastapi_endpoint_construction_zone_without_segments_is_skipped(
 ) -> None:
     """Eine Baustellenzone mit leerer `betroffene_segmente`-Liste (keine
     Positionsauflösung möglich) wird nicht in den Response übernommen, statt
-    mit einer unsinnigen/leeren `position` aufzutauchen."""
+    mit einer unsinnigen/leeren `position` aufzutauchen.
+    """
     zone = ConstructionZone(
         betroffene_segmente=[],
-        tempolimit_kmh=None,
-        sperrungstyp=Sperrungstyp.FULLY_CLOSED,
+        speed_limit_kmh=None,
+        closure_type=ClosureType.FULLY_CLOSED,
         umleitungshinweis=None,
         land=Land.DE,
         gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
@@ -1810,7 +1827,8 @@ def test_fastapi_endpoint_no_construction_zones_defaults_to_empty_list(
     client: TestClient, valid_trip_request: dict
 ) -> None:
     """Ohne konfigurierte Baustellenzonen ist `construction_zones` im Response
-    eine leere Liste (bestehendes Verhalten bleibt unverändert)."""
+    eine leere Liste (bestehendes Verhalten bleibt unverändert).
+    """
     api_request = {
         "start": valid_trip_request["start"],
         "destination": valid_trip_request["destination"],
@@ -1854,7 +1872,8 @@ def test_fastapi_endpoint_custom_mindest_ankunfts_soc_pct(
 ) -> None:
     """Test: FastAPI-Endpunkt akzeptiert `min_arrival_soc_pct` und
     reicht ihn bis zur Optimierung durch (siehe `TripRequestAPI.
-    min_arrival_soc_pct`, Default 5.0)."""
+    min_arrival_soc_pct`, Default 5.0).
+    """
     api_request = {
         "start": valid_trip_request["start"],
         "destination": valid_trip_request["destination"],
@@ -1896,7 +1915,8 @@ def test_fastapi_endpoint_custom_mindest_ladezeit_s(
 ) -> None:
     """Test: FastAPI-Endpunkt akzeptiert `min_charging_time_s` und reicht ihn
     bis zur Optimierung durch (siehe `TripRequestAPI.min_charging_time_s`,
-    Default 600)."""
+    Default 600).
+    """
     api_request = {
         "start": valid_trip_request["start"],
         "destination": valid_trip_request["destination"],
@@ -1938,7 +1958,8 @@ def test_fastapi_endpoint_custom_max_lade_soc_pct(
 ) -> None:
     """Test: FastAPI-Endpunkt akzeptiert `max_charge_soc_pct` und deckelt damit
     das Ziel-SoC aller regelhaften Ladehalte (siehe
-    `TripRequestAPI.max_charge_soc_pct`, Default 100.0)."""
+    `TripRequestAPI.max_charge_soc_pct`, Default 100.0).
+    """
     api_request = {
         "start": valid_trip_request["start"],
         "destination": valid_trip_request["destination"],
@@ -2146,7 +2167,7 @@ def _cross_track_distance_km(
     """Senkrechter Abstand von `point` zur Geraden `line_start`-`line_end` in km.
 
     Nutzt eine equirektangulare Näherung (Längengrad skaliert mit cos(mittlerer
-    Breite)) - ausreichend, um eine gekrümmte Route eindeutig von einer Luftlinie
+    latitude)) - ausreichend, um eine gekrümmte Route eindeutig von einer Luftlinie
     zu unterscheiden, keine geodätische Präzision nötig.
     """
     lat0 = (line_start[0] + line_end[0]) / 2.0
@@ -2172,7 +2193,7 @@ def test_fastapi_endpoint_preserves_curved_graphhopper_geometry() -> None:
     Luftlinie zwischen Start und Ziel) - deckt den Bug ab, bei dem die Karte
     unabhängig vom tatsächlichen Straßenverlauf nur eine gerade Linie zeigte.
     """
-    # Kurze Strecke (~9 km) mit deutlichem seitlichem Schlenker, damit keine
+    # Kurze segment (~9 km) mit deutlichem seitlichem Schlenker, damit keine
     # Ladehalte benötigt werden (isoliert diesen Test von der Ladeplan-
     # Optimierung/Ladeinfrastruktur - reine Geometrie-Regression).
     detour_points: list[tuple[float, float]] = [
@@ -2254,8 +2275,8 @@ def test_fastapi_endpoint_exposes_full_resolution_route_geometrie() -> None:
     60s-Aufloesung auf Autobahntempo mehrere hundert Meter auseinander,
     die GraphHopper-Polyline aber typischerweise alle ~20-50m einen Punkt).
     """
-    # Dichte, sinusfoermig geschwungene Polyline mit deutlich mehr Punkten
-    # als die kurze (~9 km / ~15 min) Strecke an 60s-Simulationsframes
+    # Dichte, sinusfoermig geschwungene Polyline mit deutlich more Punkten
+    # als die kurze (~9 km / ~15 min) segment an 60s-Simulationsframes
     # erzeugen kann.
     detour_points: list[tuple[float, float]] = [
         (52.5200 + 0.001 * math.sin(i / 3.0), 13.4050 + i * 0.0015) for i in range(60)
@@ -2324,11 +2345,11 @@ def test_fastapi_endpoint_exposes_full_resolution_route_geometrie() -> None:
 def test_fastapi_endpoint_frame_distanz_m_ist_monoton_und_erreicht_gesamtstrecke(
     client: TestClient, valid_trip_request: dict
 ) -> None:
-    """`FrameAPI.distanz_m` waechst monoton mit der zurueckgelegten Strecke und
-    erreicht am letzten Frame die Gesamtdistanz - Grundlage dafuer, dass das
+    """`FrameAPI.distance_m` waechst monoton mit der zurueckgelegten segment und
+    erreicht am letzten Frame die total_distance - Grundlage dafuer, dass das
     Frontend den SoC-Gradienten korrekt entlang der (von `frames` entkoppelten)
-    `route_geometrie` positionieren kann (`line-progress` = `distanz_m /
-    gesamtdistanz`).
+    `route_geometrie` positionieren kann (`line-progress` = `distance_m /
+    total_distance`).
     """
     api_request = {
         "start": valid_trip_request["start"],
@@ -2347,7 +2368,7 @@ def test_fastapi_endpoint_frame_distanz_m_ist_monoton_und_erreicht_gesamtstrecke
 
     assert distanzen[0] == pytest.approx(0.0, abs=1.0)
     for a, b in pairwise(distanzen):
-        assert b >= a - 1e-6, "distanz_m muss monoton nicht-fallend sein"
+        assert b >= a - 1e-6, "distance_m muss monoton nicht-fallend sein"
     assert distanzen[-1] == pytest.approx(data["totalDistanceKm"] * 1000.0, rel=0.01)
 
 
@@ -2384,7 +2405,8 @@ def test_create_trip_endpoint_wires_weather_provider_dependency() -> None:
     """`create_trip_endpoint`'s Depends list resolves `weather_provider` via
     `get_weather_provider` - without this wiring `/trips` would silently keep
     using `FakeWeatherProvider` for every production request regardless of the
-    configured `OpenMeteoProvider` (Plan 10 Section 6)."""
+    configured `OpenMeteoProvider` (Plan 10 Section 6).
+    """
     sig = inspect.signature(create_trip_endpoint)
     weather_param = sig.parameters["weather_provider"]
     assert isinstance(weather_param.default, fastapi_params.Depends)
@@ -2396,7 +2418,7 @@ def _open_meteo_mock_get(
 ) -> httpx.Response:
     """Simuliert die Open-Meteo Forecast API auf `httpx.AsyncClient.get`-Ebene
     (kein Live-Call, siehe AGENTS.md) und liefert pro Koordinate/Minute
-    unterschiedliche Temperatur-/Windwerte, damit Tests eine echte
+    unterschiedliche temperature-/Windwerte, damit Tests eine echte
     `OpenMeteoProvider`-Antwort von `FakeWeatherProvider`s Konstanten
     (20.0°C/5.0 m/s) unterscheiden koennen.
     """
@@ -2459,7 +2481,8 @@ def test_create_trip_endpoint_uses_open_meteo_provider_for_real_weather(
     `httpx.AsyncClient.get` level per AGENTS.md, no live calls) produces
     per-segment weather derived from the mocked Open-Meteo response instead of
     `FakeWeatherProvider`'s constant 20.0°C/5.0 m/s - regression test for Plan
-    10 Phase B (weather wiring)."""
+    10 Phase B (weather wiring).
+    """
     captured_weather_samples: list[list[WeatherSample]] = []
     original_step_7 = trip_pipeline._step_7_calculate_segment_energy
 
@@ -2506,11 +2529,11 @@ def test_create_trip_endpoint_uses_open_meteo_provider_for_real_weather(
         app.dependency_overrides.pop(get_construction_provider, None)
 
     assert response.status_code == 201
-    assert captured_weather_samples, "erwartete mindestens einen _step_7-Aufruf"
+    assert captured_weather_samples, "erwartete minimum einen _step_7-Aufruf"
     samples = captured_weather_samples[0]
-    assert samples, "erwartete mindestens ein WeatherSample aus OpenMeteoProvider"
-    temperatures = {s.temperatur_c for s in samples}
-    wind_speeds = {s.windgeschwindigkeit_ms for s in samples}
+    assert samples, "erwartete minimum ein WeatherSample aus OpenMeteoProvider"
+    temperatures = {s.temperature_c for s in samples}
+    wind_speeds = {s.wind_speed_ms for s in samples}
     assert len(temperatures) > 1, "Temperaturen muessen je Segment variieren (echte API-Daten)"
     assert all(t != 20.0 for t in temperatures), "duerfen nicht Fake-Konstante 20.0 sein"
     assert all(w != 5.0 for w in wind_speeds), "duerfen nicht Fake-Konstante 5.0 sein"
@@ -2524,7 +2547,8 @@ def test_fastapi_endpoint_weather_provider_failure_degrades_gracefully(
     must never break trip calculation: `/trips` still returns 201, falling
     back to a neutral placeholder `WeatherSample` for every point instead of
     propagating the `httpx.HTTPStatusError` as a 502. Regression test for the
-    incident where an Open-Meteo 429 made `/trips` fail outright."""
+    incident where an Open-Meteo 429 made `/trips` fail outright.
+    """
 
     async def rate_limited_get(
         self: httpx.AsyncClient, url: str, *args: object, **kwargs: object
@@ -2584,10 +2608,10 @@ def test_fastapi_endpoint_weather_provider_failure_degrades_gracefully(
         app.dependency_overrides.pop(get_construction_provider, None)
 
     assert response.status_code == 201
-    assert captured_weather_samples, "erwartete mindestens einen _step_7-Aufruf"
+    assert captured_weather_samples, "erwartete minimum einen _step_7-Aufruf"
     samples = captured_weather_samples[0]
     assert samples, "erwartete Fallback-WeatherSamples trotz durchgehend 429"
-    assert all(s.temperatur_c == 15.0 for s in samples), (
+    assert all(s.temperature_c == 15.0 for s in samples), (
         "erwartete neutrale Platzhalterwerte (siehe _neutral_weather_sample)"
     )
 
@@ -2691,7 +2715,8 @@ def test_refresh_supercharger_endpoint_unmappable_response(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Tesla-Antwort ausserhalb des unterstuetzten Laenderraums (DE/DK/SE)
-    wird als 502 statt als unbehandelter 500 durchgereicht."""
+    wird als 502 statt als unbehandelter 500 durchgereicht.
+    """
 
     async def fake_refresh_single_station(
         self: TeslaChargingStationProvider,
@@ -2920,7 +2945,7 @@ def test_cli_parse_waypoint_valid() -> None:
 
 
 def test_cli_parse_waypoint_without_duration() -> None:
-    """Test: CLI parst Waypoint ohne Dauer korrekt."""
+    """Test: CLI parst Waypoint ohne duration korrekt."""
     result = parse_waypoint("52.52,13.405")
     assert result[0] == (52.52, 13.405)
     assert result[1] is None
@@ -2955,7 +2980,7 @@ async def test_create_trip_simulation_selbe_start_ziel_position(
         "preferences": {},
     }
 
-    # Erwartet: Minimale Route oder Fehler je nach FakeRoutingProvider
+    # Erwartet: minimum Route oder Fehler je nach FakeRoutingProvider
     result = await create_trip_simulation(
         request,
         routing_provider=fake_routing_provider,
@@ -2964,7 +2989,7 @@ async def test_create_trip_simulation_selbe_start_ziel_position(
         destination_soc_pct=20.0,
     )
 
-    # FakeRoutingProvider sollte hier eine minimale Route zurückgeben
+    # FakeRoutingProvider sollte hier eine minimum Route zurückgeben
     assert result.gesamt_distanz_km >= 0
 
 
@@ -3144,20 +3169,20 @@ def _station_record(
 
 def _make_charging_stop_summary(
     station_id: str = "rhudensupercharger",
-    ankunftszeit: datetime = datetime(2026, 1, 1, 18, 0, tzinfo=UTC),
+    arrival_time: datetime = datetime(2026, 1, 1, 18, 0, tzinfo=UTC),
     energie_geladen_kwh: float = 25.0,
 ) -> ChargingStopSummary:
     return ChargingStopSummary(
         name="Tesla Supercharger - Rhueden",
         station_id=station_id,
         position=(51.947, 10.140),
-        distanz_m=12000.0,
+        distance_m=12000.0,
         arrival_soc_pct=30.0,
         target_soc_pct=80.0,
         charging_duration_s=1500,
         energie_geladen_kwh=energie_geladen_kwh,
-        ankunftszeit=ankunftszeit,
-        departure_time=ankunftszeit + timedelta(minutes=25),
+        arrival_time=arrival_time,
+        departure_time=arrival_time + timedelta(minutes=25),
     )
 
 
@@ -3195,7 +3220,8 @@ class TestAttachChargingPricing:
 
     def test_attaches_cached_pricing_and_computes_cost(self, tmp_path: Path) -> None:
         """Mit gecachten Preisdaten werden price_per_kwh/currency/estimated_cost
-        gesetzt und die Warteschlange bleibt leer (Station ist frisch)."""
+        gesetzt und die Warteschlange bleibt leer (Station ist frisch).
+        """
         provider = TeslaChargingStationProvider(db_path=tmp_path / "t.db")
         provider._db.replace_all_stations([_station_record(3506, "rhudensupercharger", "DE")])
         provider._db.upsert_pricing(
@@ -3226,7 +3252,8 @@ class TestAttachChargingPricing:
 
     def test_queues_station_without_pricing_and_leaves_stop_unpriced(self, tmp_path: Path) -> None:
         """Ohne gecachte Preisdaten bleibt der Stopp unpreist, die Station
-        wird aber (an erster Stelle) fuer den Scrape eingereiht."""
+        wird aber (an erster Stelle) fuer den Scrape eingereiht.
+        """
         provider = TeslaChargingStationProvider(db_path=tmp_path / "t.db")
         provider._db.replace_all_stations([_station_record(3506, "rhudensupercharger", "DE")])
         result = _make_simulation_result([_make_charging_stop_summary()])
@@ -3244,7 +3271,8 @@ class TestAttachChargingPricing:
 
     def test_groups_total_cost_by_currency_across_countries(self, tmp_path: Path) -> None:
         """Ladehalte in unterschiedlichen Waehrungen (DE/DK-Trip) werden NICHT
-        addiert, sondern getrennt nach Waehrung ausgewiesen."""
+        addiert, sondern getrennt nach Waehrung ausgewiesen.
+        """
         provider = TeslaChargingStationProvider(db_path=tmp_path / "t.db")
         provider._db.replace_all_stations(
             [
@@ -3318,7 +3346,8 @@ class TestAttachChargingPricing:
 
     def test_requeues_stale_pricing(self, tmp_path: Path) -> None:
         """Veraltete Preisdaten fuehren zur erneuten Einreihung, der Stopp
-        wird aber weiterhin mit den (veralteten) gecachten Daten bepreist."""
+        wird aber weiterhin mit den (veralteten) gecachten Daten bepreist.
+        """
         provider = TeslaChargingStationProvider(db_path=tmp_path / "t.db")
         provider._db.replace_all_stations([_station_record(3506, "rhudensupercharger", "DE")])
         provider._db.upsert_pricing(
@@ -3610,7 +3639,8 @@ async def test_create_trip_simulation_fetches_charging_stations_once_not_per_ite
     `create_trip_simulation()` call, regardless of `max_iterations` - the
     route (and therefore the station list) never changes between
     convergence iterations, and re-fetching would also redo the expensive
-    detour-cost precomputation for nothing."""
+    detour-cost precomputation for nothing.
+    """
     call_count = 0
     original = fake_charging_provider_berlin_munich.get_stations_along_route
 
@@ -3642,8 +3672,9 @@ async def test_create_trip_simulation_fetches_charging_stations_once_not_per_ite
 
 
 def test_build_construction_zones_api_groups_nearby_zones() -> None:
-    """Zwei Baustellen innerhalb von 2 km werden gemerged; eine entfernte
-    Baustelle bleibt separat."""
+    """Zwei construction_zones innerhalb von 2 km werden gemerged; eine entfernte
+    construction_zone bleibt separat.
+    """
     seg1_start = (52.5200, 13.4050)
     seg1_end = (52.5230, 13.4090)  # ~400 m von seg1_start
     seg2_start = (52.5260, 13.4130)  # ~400 m von seg1_end (still within 500 m of seg1_start)
@@ -3653,30 +3684,30 @@ def test_build_construction_zones_api_groups_nearby_zones() -> None:
         RouteSegment(
             segment_index=0,
             geometrie=[seg1_start, seg1_end],
-            laenge_m=haversine_distance_m(seg1_start, seg1_end),
+            length_m=haversine_distance_m(seg1_start, seg1_end),
             strassenklasse="PRIMARY",
-            oberflaeche="asphalt",
-            tempolimit_kmh=60,
+            surface="asphalt",
+            speed_limit_kmh=60,
             steigung_rohdaten=0.0,
             bearing_deg=0.0,
         ),
         RouteSegment(
             segment_index=1,
             geometrie=[seg1_end, seg2_start],
-            laenge_m=haversine_distance_m(seg1_end, seg2_start),
+            length_m=haversine_distance_m(seg1_end, seg2_start),
             strassenklasse="PRIMARY",
-            oberflaeche="asphalt",
-            tempolimit_kmh=60,
+            surface="asphalt",
+            speed_limit_kmh=60,
             steigung_rohdaten=0.0,
             bearing_deg=0.0,
         ),
         RouteSegment(
             segment_index=2,
             geometrie=[far_start, (52.6010, 13.5020)],
-            laenge_m=200.0,
+            length_m=200.0,
             strassenklasse="PRIMARY",
-            oberflaeche="asphalt",
-            tempolimit_kmh=80,
+            surface="asphalt",
+            speed_limit_kmh=80,
             steigung_rohdaten=0.0,
             bearing_deg=0.0,
         ),
@@ -3684,8 +3715,8 @@ def test_build_construction_zones_api_groups_nearby_zones() -> None:
 
     zone_near_1 = ConstructionZone(
         betroffene_segmente=[0],
-        tempolimit_kmh=60,
-        sperrungstyp=Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+        speed_limit_kmh=60,
+        closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
         umleitungshinweis="Spur 1 gesperrt",
         land=Land.DE,
         gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
@@ -3693,8 +3724,8 @@ def test_build_construction_zones_api_groups_nearby_zones() -> None:
     )
     zone_near_2 = ConstructionZone(
         betroffene_segmente=[1],
-        tempolimit_kmh=80,
-        sperrungstyp=Sperrungstyp.LANE_CLOSED,
+        speed_limit_kmh=80,
+        closure_type=ClosureType.LANE_CLOSED,
         umleitungshinweis="Spur 2 gesperrt",
         land=Land.DE,
         gueltig_von=datetime(2026, 2, 1, tzinfo=UTC),
@@ -3702,8 +3733,8 @@ def test_build_construction_zones_api_groups_nearby_zones() -> None:
     )
     zone_far = ConstructionZone(
         betroffene_segmente=[2],
-        tempolimit_kmh=100,
-        sperrungstyp=Sperrungstyp.FULLY_CLOSED,
+        speed_limit_kmh=100,
+        closure_type=ClosureType.FULLY_CLOSED,
         umleitungshinweis="Vollsperrung",
         land=Land.DE,
         gueltig_von=datetime(2026, 4, 1, tzinfo=UTC),
@@ -3734,30 +3765,30 @@ def test_build_construction_zones_api_all_separate_when_far_apart() -> None:
         RouteSegment(
             segment_index=0,
             geometrie=[(52.5200, 13.4050), (52.5230, 13.4090)],
-            laenge_m=400.0,
+            length_m=400.0,
             strassenklasse="PRIMARY",
-            oberflaeche="asphalt",
-            tempolimit_kmh=60,
+            surface="asphalt",
+            speed_limit_kmh=60,
             steigung_rohdaten=0.0,
             bearing_deg=0.0,
         ),
         RouteSegment(
             segment_index=1,
             geometrie=[(52.6000, 13.5000), (52.6010, 13.5020)],
-            laenge_m=200.0,
+            length_m=200.0,
             strassenklasse="PRIMARY",
-            oberflaeche="asphalt",
-            tempolimit_kmh=80,
+            surface="asphalt",
+            speed_limit_kmh=80,
             steigung_rohdaten=0.0,
             bearing_deg=0.0,
         ),
         RouteSegment(
             segment_index=2,
             geometrie=[(53.0000, 13.5000), (53.0010, 13.5020)],
-            laenge_m=200.0,
+            length_m=200.0,
             strassenklasse="PRIMARY",
-            oberflaeche="asphalt",
-            tempolimit_kmh=100,
+            surface="asphalt",
+            speed_limit_kmh=100,
             steigung_rohdaten=0.0,
             bearing_deg=0.0,
         ),
@@ -3766,8 +3797,8 @@ def test_build_construction_zones_api_all_separate_when_far_apart() -> None:
     zones = [
         ConstructionZone(
             betroffene_segmente=[0],
-            tempolimit_kmh=60,
-            sperrungstyp=Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+            speed_limit_kmh=60,
+            closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
             umleitungshinweis="A",
             land=Land.DE,
             gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
@@ -3775,8 +3806,8 @@ def test_build_construction_zones_api_all_separate_when_far_apart() -> None:
         ),
         ConstructionZone(
             betroffene_segmente=[1],
-            tempolimit_kmh=80,
-            sperrungstyp=Sperrungstyp.LANE_CLOSED,
+            speed_limit_kmh=80,
+            closure_type=ClosureType.LANE_CLOSED,
             umleitungshinweis="B",
             land=Land.DE,
             gueltig_von=datetime(2026, 2, 1, tzinfo=UTC),
@@ -3784,8 +3815,8 @@ def test_build_construction_zones_api_all_separate_when_far_apart() -> None:
         ),
         ConstructionZone(
             betroffene_segmente=[2],
-            tempolimit_kmh=100,
-            sperrungstyp=Sperrungstyp.FULLY_CLOSED,
+            speed_limit_kmh=100,
+            closure_type=ClosureType.FULLY_CLOSED,
             umleitungshinweis="C",
             land=Land.DE,
             gueltig_von=datetime(2026, 3, 1, tzinfo=UTC),
@@ -3799,9 +3830,9 @@ def test_build_construction_zones_api_all_separate_when_far_apart() -> None:
     for i, marker in enumerate(result):
         assert len(marker.events) == 1
         expected = [
-            Sperrungstyp.TEMPORARY_SPEED_LIMIT,
-            Sperrungstyp.LANE_CLOSED,
-            Sperrungstyp.FULLY_CLOSED,
+            ClosureType.TEMPORARY_SPEED_LIMIT,
+            ClosureType.LANE_CLOSED,
+            ClosureType.FULLY_CLOSED,
         ][i]
         assert marker.events[0].closure_type == expected.value
 
@@ -3812,10 +3843,10 @@ def test_build_construction_zones_api_skips_empty_segmentes() -> None:
         RouteSegment(
             segment_index=0,
             geometrie=[(52.5200, 13.4050), (52.5230, 13.4090)],
-            laenge_m=400.0,
+            length_m=400.0,
             strassenklasse="PRIMARY",
-            oberflaeche="asphalt",
-            tempolimit_kmh=60,
+            surface="asphalt",
+            speed_limit_kmh=60,
             steigung_rohdaten=0.0,
             bearing_deg=0.0,
         ),
@@ -3824,8 +3855,8 @@ def test_build_construction_zones_api_skips_empty_segmentes() -> None:
     zones = [
         ConstructionZone(
             betroffene_segmente=[],
-            tempolimit_kmh=60,
-            sperrungstyp=Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+            speed_limit_kmh=60,
+            closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
             umleitungshinweis="X",
             land=Land.DE,
             gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
@@ -3833,8 +3864,8 @@ def test_build_construction_zones_api_skips_empty_segmentes() -> None:
         ),
         ConstructionZone(
             betroffene_segmente=[0],
-            tempolimit_kmh=60,
-            sperrungstyp=Sperrungstyp.LANE_CLOSED,
+            speed_limit_kmh=60,
+            closure_type=ClosureType.LANE_CLOSED,
             umleitungshinweis="Y",
             land=Land.DE,
             gueltig_von=datetime(2026, 2, 1, tzinfo=UTC),
@@ -3864,30 +3895,30 @@ def test_build_construction_zones_api_three_consecutive_merge() -> None:
         RouteSegment(
             segment_index=0,
             geometrie=[seg1_start, seg2_start],
-            laenge_m=haversine_distance_m(seg1_start, seg2_start),
+            length_m=haversine_distance_m(seg1_start, seg2_start),
             strassenklasse="PRIMARY",
-            oberflaeche="asphalt",
-            tempolimit_kmh=60,
+            surface="asphalt",
+            speed_limit_kmh=60,
             steigung_rohdaten=0.0,
             bearing_deg=0.0,
         ),
         RouteSegment(
             segment_index=1,
             geometrie=[seg2_start, seg3_start],
-            laenge_m=haversine_distance_m(seg2_start, seg3_start),
+            length_m=haversine_distance_m(seg2_start, seg3_start),
             strassenklasse="PRIMARY",
-            oberflaeche="asphalt",
-            tempolimit_kmh=80,
+            surface="asphalt",
+            speed_limit_kmh=80,
             steigung_rohdaten=0.0,
             bearing_deg=0.0,
         ),
         RouteSegment(
             segment_index=2,
             geometrie=[seg3_start, (52.5290, 13.4170)],
-            laenge_m=400.0,
+            length_m=400.0,
             strassenklasse="PRIMARY",
-            oberflaeche="asphalt",
-            tempolimit_kmh=100,
+            surface="asphalt",
+            speed_limit_kmh=100,
             steigung_rohdaten=0.0,
             bearing_deg=0.0,
         ),
@@ -3896,8 +3927,8 @@ def test_build_construction_zones_api_three_consecutive_merge() -> None:
     zones = [
         ConstructionZone(
             betroffene_segmente=[0],
-            tempolimit_kmh=60,
-            sperrungstyp=Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+            speed_limit_kmh=60,
+            closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
             umleitungshinweis="A",
             land=Land.DE,
             gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
@@ -3905,8 +3936,8 @@ def test_build_construction_zones_api_three_consecutive_merge() -> None:
         ),
         ConstructionZone(
             betroffene_segmente=[1],
-            tempolimit_kmh=80,
-            sperrungstyp=Sperrungstyp.LANE_CLOSED,
+            speed_limit_kmh=80,
+            closure_type=ClosureType.LANE_CLOSED,
             umleitungshinweis="B",
             land=Land.DE,
             gueltig_von=datetime(2026, 2, 1, tzinfo=UTC),
@@ -3914,8 +3945,8 @@ def test_build_construction_zones_api_three_consecutive_merge() -> None:
         ),
         ConstructionZone(
             betroffene_segmente=[2],
-            tempolimit_kmh=100,
-            sperrungstyp=Sperrungstyp.FULLY_CLOSED,
+            speed_limit_kmh=100,
+            closure_type=ClosureType.FULLY_CLOSED,
             umleitungshinweis="C",
             land=Land.DE,
             gueltig_von=datetime(2026, 3, 1, tzinfo=UTC),

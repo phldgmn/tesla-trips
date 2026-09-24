@@ -70,12 +70,12 @@ def _parse_trafikverket_situations(
 
                 zones.append(
                     DATEXIIConstructionZoneInternal(
-                        sperrungstyp=msg_type_value,
+                        closure_type=msg_type_value,
                         gueltig_von=gueltig_von,
                         gueltig_bis=gueltig_bis,
                         koordinaten=koordinaten,
                         umleitungshinweis=message or None,
-                        tempolimit_kmh=None,
+                        speed_limit_kmh=None,
                         affected_direction_value=deviation.get("AffectedDirectionValue"),
                     )
                 )

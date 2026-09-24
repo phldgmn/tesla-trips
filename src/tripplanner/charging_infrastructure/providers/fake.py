@@ -87,7 +87,7 @@ class FakeChargingStationProvider(ChargingStationProvider):
         """Liefert Fake-Testdaten.
 
         Filtert die eingebenen Test-Stationen nach Radius und Länderfilter.
-        Sortiert nach Distanz (aufsteigend).
+        Sortiert nach distance (aufsteigend).
         """
         # Länderfilter anwenden
         stations = self._stations
@@ -104,7 +104,7 @@ class FakeChargingStationProvider(ChargingStationProvider):
                 result.append(station)
                 distances.append(distance_km)
 
-        # Sortieren nach Distanz (aufsteigend)
+        # Sortieren nach distance (aufsteigend)
         paired = list(zip(distances, result, strict=True))
         paired.sort(key=lambda x: x[0])
         result = [station for _, station in paired]
@@ -119,14 +119,14 @@ class FakeChargingStationProvider(ChargingStationProvider):
         """Liefert Fake-Testdaten entlang der Route.
 
         Verteilt alle konfigurierten Stationen entlang der Route basierend auf
-        der Entfernung zum Segment-Mittelpunkt.
+        der distance zum Segment-Mittelpunkt.
         """
         result: dict[int, list[ChargingStation]] = {}
         stations = self._stations
         if not stations or not route.segments:
             return result
 
-        # Für jede Station das nächste Segment anhand der Midpoint-Distanz finden
+        # Für jede Station das nächste Segment anhand der Midpoint-distance finden
         for station in stations:
             best_seg_idx = 0
             best_dist = float("inf")
@@ -137,7 +137,7 @@ class FakeChargingStationProvider(ChargingStationProvider):
                     continue
                 mid_idx = len(seg.geometrie) // 2
                 midpoint = seg.geometrie[mid_idx]
-                # Haversine-Näherung: Distanz in Metern
+                # Haversine-Näherung: distance in Metern
                 dlat = (station.coordinate[0] - midpoint[0]) * 111.32 * 1000
                 dlon = (
                     (station.coordinate[1] - midpoint[1])

@@ -32,14 +32,14 @@ def _group_queries_by_coordinate(
     return groups
 
 
-def _snap_to_hour_z(zeitpunkt: datetime) -> str:
-    """Formats `zeitpunkt` snapped to the hour as `YYYY-MM-DDTHH:MM:SSZ`.
+def _snap_to_hour_z(timestamp: datetime) -> str:
+    """Formats `timestamp` snapped to the hour as `YYYY-MM-DDTHH:MM:SSZ`.
 
     Matches the on-the-hour, UTC, `Z`-suffixed timestamp format used by MET
-    Norway, SMHI, and DMI. `zeitpunkt` is treated as naive-UTC, the same
+    Norway, SMHI, and DMI. `timestamp` is treated as naive-UTC, the same
     project-wide convention `_extract_sample_from_response` above relies on.
     """
-    return zeitpunkt.replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return timestamp.replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _clamp(value: float, lo: float, hi: float) -> float:

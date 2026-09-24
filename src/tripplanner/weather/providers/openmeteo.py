@@ -52,7 +52,7 @@ class OpenMeteoClient:
         """Abruf von Wetterdaten für mehrere Standorte + Zeitpunkte.
 
         Args:
-            queries: Liste von Wetterabfragen (Koordinate + Zeitpunkt).
+            queries: Liste von Wetterabfragen (Koordinate + timestamp).
 
         Returns:
             Liste von OpenMeteoResponse, in gleicher Reihenfolge wie queries.
@@ -70,8 +70,8 @@ class OpenMeteoClient:
         results: list[OpenMeteoResponse | None] = [None] * len(queries)
 
         for (lat, lon), entries in coords.items():
-            # Zeitbereich: earliest bis latest Zeitpunkt für diesen Standort
-            times = [q.zeitpunkt.isoformat() for _, q in entries]
+            # Zeitbereich: earliest bis latest timestamp für diesen Standort
+            times = [q.timestamp.isoformat() for _, q in entries]
             time_min = min(times)
             time_max = max(times)
 
@@ -92,7 +92,7 @@ class OpenMeteoClient:
             for idx, q in entries:
                 # Snap to the hour — Open-Meteo returns hourly data (:00 only)
                 # Strip timezone suffix to match Open-Meteo's "YYYY-MM-DDTHH:MM" format
-                snapped = q.zeitpunkt.replace(minute=0, second=0, microsecond=0)
+                snapped = q.timestamp.replace(minute=0, second=0, microsecond=0)
                 time_idx = time_to_idx.get(snapped.isoformat(timespec="minutes").split("+")[0])
                 if time_idx is not None:
                     results[idx] = data
@@ -164,11 +164,11 @@ class OpenMeteoProvider:
         results: list[WeatherSample | None] = [None] * len(queries)
 
         for idx, query in enumerate(queries):
-            ck = _cache_key(query.coordinate, query.zeitpunkt)
+            ck = _cache_key(query.coordinate, query.timestamp)
             raw = self._cache.get(ck)
             if raw is None and self._persistent_cache is not None:
                 # Persistent cache fallback
-                str_key = _cache_str_key(query.coordinate, query.zeitpunkt)
+                str_key = _cache_str_key(query.coordinate, query.timestamp)
                 json_str = self._persistent_cache.get(str_key)
                 if json_str is not None:
                     raw = _cache_deserialize(json_str)
@@ -176,7 +176,7 @@ class OpenMeteoProvider:
 
             if raw is not None:
                 results[idx] = raw.model_copy(
-                    update={"coordinate": query.coordinate, "zeitpunkt": query.zeitpunkt}
+                    update={"coordinate": query.coordinate, "timestamp": query.timestamp}
                 )
             else:
                 uncached_queries.append((idx, query))
@@ -194,18 +194,18 @@ class OpenMeteoProvider:
 
             for orig_idx, query in uncached_queries:
                 # Find matching response via rounded coord
-                rc = _cache_key(query.coordinate, query.zeitpunkt)[0]
+                rc = _cache_key(query.coordinate, query.timestamp)[0]
                 resp_match = resp_by_coord.get(rc)
                 if resp_match is None:
                     continue
                 sample = _extract_sample_from_response(
-                    resp_match, query.zeitpunkt, query.coordinate
+                    resp_match, query.timestamp, query.coordinate
                 )
                 if sample is not None:
-                    ck = _cache_key(query.coordinate, query.zeitpunkt)
+                    ck = _cache_key(query.coordinate, query.timestamp)
                     self._cache[ck] = sample
                     if self._persistent_cache is not None:
-                        str_key = _cache_str_key(query.coordinate, query.zeitpunkt)
+                        str_key = _cache_str_key(query.coordinate, query.timestamp)
                         self._persistent_cache.set(str_key, sample.model_dump(mode="json"))
                     results[orig_idx] = sample
 
@@ -216,7 +216,7 @@ class OpenMeteoProvider:
         original_queries: Sequence[WeatherQuery],
         updated_queries: Sequence[WeatherQuery],
     ) -> list[WeatherSample]:
-        """Neuabfrage bereits abgefragter Punkte mit aktualisiertem Zeitpunkt.
+        """Neuabfrage bereits abgefragter Punkte mit aktualisiertem timestamp.
 
         Uses grid-rounded + hour-snapped cache keys so that the convergence
         loop's re-runs hit cache for queries at the same rounded coordinate
@@ -226,32 +226,32 @@ class OpenMeteoProvider:
         results: list[WeatherSample | None] = [None] * len(updated_queries)
 
         for idx, query in enumerate(updated_queries):
-            ck = _cache_key(query.coordinate, query.zeitpunkt)
+            ck = _cache_key(query.coordinate, query.timestamp)
             raw = self._cache.get(ck)
             if raw is None and self._persistent_cache is not None:
                 # Persistent cache fallback
-                str_key = _cache_str_key(query.coordinate, query.zeitpunkt)
+                str_key = _cache_str_key(query.coordinate, query.timestamp)
                 json_str = self._persistent_cache.get(str_key)
                 if json_str is not None:
                     raw = _cache_deserialize(json_str)
                     self._cache[ck] = raw
             if raw is not None:
                 results[idx] = raw.model_copy(
-                    update={"coordinate": query.coordinate, "zeitpunkt": query.zeitpunkt}
+                    update={"coordinate": query.coordinate, "timestamp": query.timestamp}
                 )
 
-        # Für nicht-gecachte Queries neu abfragen
+        # Für nicht-gecachte Queries new abfragen
         uncached = [q for q in updated_queries if results[updated_queries.index(q)] is None]
 
         if uncached:
             samples = await self.fetch_weather(uncached)
             for sample in samples:
-                ck = _cache_key(sample.coordinate, sample.zeitpunkt)
+                ck = _cache_key(sample.coordinate, sample.timestamp)
                 self._cache[ck] = sample
                 for idx, query in enumerate(updated_queries):
                     if (
                         query.coordinate == sample.coordinate
-                        and query.zeitpunkt == sample.zeitpunkt
+                        and query.timestamp == sample.timestamp
                     ):
                         results[idx] = sample
                         break
@@ -265,23 +265,23 @@ class OpenMeteoProvider:
 
 def _extract_sample_from_response(
     response: OpenMeteoResponse,
-    zeitpunkt: datetime,
+    timestamp: datetime,
     query_koordinate: tuple[float, float] | None = None,
 ) -> WeatherSample | None:
     """Extrahiert ein WeatherSample aus einer OpenMeteoResponse.
 
     Args:
         response: OpenMeteoResponse mit hourly-Daten.
-        zeitpunkt: Gewünschter Zeitpunkt.
+        timestamp: Gewünschter timestamp.
         query_koordinate: Original-Koordinatenpunkt der Abfrage.
 
     Returns:
-        WeatherSample oder None, wenn der Zeitpunkt nicht gefunden wird.
+        WeatherSample oder None, wenn der timestamp nicht gefunden wird.
     """
     time_to_idx = {t: i for i, t in enumerate(response.hourly["time"])}
     # Open-Meteo returns hourly data on the hour (:00). Snap query time to
     # the nearest hour and strip timezone suffix to match Open-Meteo format.
-    snapped = zeitpunkt.replace(minute=0, second=0, microsecond=0)
+    snapped = timestamp.replace(minute=0, second=0, microsecond=0)
     iso_hour = snapped.isoformat(timespec="minutes").split("+")[0]
     time_idx = None
     if iso_hour in time_to_idx:
@@ -299,20 +299,20 @@ def _extract_sample_from_response(
             return default
         return float(value)
 
-    # Windgeschwindigkeit von km/h in m/s umrechnen
+    # wind_speed_ms von km/h in m/s umrechnen
     wind_speed_kmh = get_value("wind_speed_10m", 0.0)
     wind_speed_ms = wind_speed_kmh * _KMH_TO_MPS
 
     return WeatherSample(
         coordinate=query_koordinate or (response.latitude, response.longitude),
-        zeitpunkt=zeitpunkt,
-        temperatur_c=get_value("temperature_2m", 0.0),
-        windgeschwindigkeit_ms=wind_speed_ms,
-        windrichtung_deg=get_value("wind_direction_10m", 0.0),
-        niederschlag_mm=get_value("precipitation", 0.0),
-        schneefall_cm=get_value("snowfall", 0.0),
-        luftdruck_hpa=get_value("surface_pressure", 1013.25),
-        luftfeuchtigkeit_pct=get_value("relative_humidity_2m", 0.0),
-        globalstrahlung_wm2=get_value("shortwave_radiation", 0.0),
-        bewoelkung_pct=get_value("cloud_cover", 0.0),
+        timestamp=timestamp,
+        temperature_c=get_value("temperature_2m", 0.0),
+        wind_speed_ms=wind_speed_ms,
+        wind_direction_deg=get_value("wind_direction_10m", 0.0),
+        precipitation_mm=get_value("precipitation", 0.0),
+        snowfall_cm=get_value("snowfall", 0.0),
+        pressure_hpa=get_value("surface_pressure", 1013.25),
+        humidity_pct=get_value("relative_humidity_2m", 0.0),
+        solar_radiation_wm2=get_value("shortwave_radiation", 0.0),
+        cloudiness_pct=get_value("cloud_cover", 0.0),
     )

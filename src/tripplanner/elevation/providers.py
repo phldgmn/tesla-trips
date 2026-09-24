@@ -34,7 +34,7 @@ class DEMDataSourceProtocol(Protocol):
         """Höhenwert an einer Koordinate abfragen.
 
         Args:
-            lat: Breitengrad (WGS84)
+            lat: latitude (WGS84)
             lon: Längengrad (WGS84)
 
         Returns:
@@ -46,7 +46,7 @@ class DEMDataSourceProtocol(Protocol):
         """Höhenwerte für mehrere Koordinaten (optimiert für Batch-Lookup).
 
         Args:
-            coordinates: Liste von (breitengrad, laengengrad) Tupeln
+            coordinates: Liste von (latitude, longitude) Tupeln
 
         Returns:
             Liste von Höhenwerten in Metern
@@ -57,7 +57,7 @@ class DEMDataSourceProtocol(Protocol):
         """Ermittle die DEM-Kachel für eine Koordinate.
 
         Args:
-            lat: Breitengrad
+            lat: latitude
             lon: Längengrad
 
         Returns:
@@ -71,8 +71,8 @@ class DEMDataSourceProtocol(Protocol):
         """Ermittle alle DEM-Kacheln die eine BBox schneiden.
 
         Args:
-            min_lat: Minimale Breite
-            max_lat: Maximale Breite
+            min_lat: Minimale latitude
+            max_lat: Maximale latitude
             min_lon: Minimale Länge
             max_lon: Maximale Länge
 
@@ -106,7 +106,7 @@ class FakeDataSource:
         Deterministisch basierend auf Koordinaten (nicht zufällig!).
 
         Args:
-            lat: Breitengrad (WGS84)
+            lat: latitude (WGS84)
             lon: Längengrad (WGS84)
 
         Returns:
@@ -120,7 +120,7 @@ class FakeDataSource:
         """Höhenwerte für mehrere Koordinaten (optimiert für Batch-Lookup).
 
         Args:
-            coordinates: Liste von (breitengrad, laengengrad) Tupeln
+            coordinates: Liste von (latitude, longitude) Tupeln
 
         Returns:
             Liste von Höhenwerten in Metern
@@ -133,7 +133,7 @@ class FakeDataSource:
         FakeDataSource gibt eine synthetische Kachel zurück.
 
         Args:
-            lat: Breitengrad
+            lat: latitude
             lon: Längengrad
 
         Returns:
@@ -181,8 +181,8 @@ class FakeDataSource:
         FakeDataSource gibt eine synthetische Kachel zurück.
 
         Args:
-            min_lat: Minimale Breite
-            max_lat: Maximale Breite
+            min_lat: Minimale latitude
+            max_lat: Maximale latitude
             min_lon: Minimale Länge
             max_lon: Maximale Länge
 
@@ -254,7 +254,7 @@ class CopernicusDEMDataSource:
                 behandelt (für Tests gegen eine lokale Test-Kachel). Default:
                 der öffentliche ``copernicus-dem-30m``-Bucket.
             max_open_tiles: Maximale Anzahl offener rasterio-Datasets im
-                LRU-Cache (begrenzt Speicher-/Dateihandle-Verbrauch bei
+                LRU-Cache (begrenzt Speicher-/Dateihandle-consumption bei
                 langlaufenden Prozessen, die viele Routen bedienen).
             cache_dir: Optional path to a local disk cache directory for
                 downloaded DEM tiles.  When set and a tile exists locally,
@@ -538,8 +538,8 @@ class CopernicusDEMDataSource:
         """Ermittle alle DEM-Kacheln die eine BBox schneiden.
 
         Args:
-            min_lat: Minimale Breite
-            max_lat: Maximale Breite
+            min_lat: Minimale latitude
+            max_lat: Maximale latitude
             min_lon: Minimale Länge
             max_lon: Maximale Länge
 

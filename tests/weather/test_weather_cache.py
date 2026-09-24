@@ -17,7 +17,6 @@ from pathlib import Path
 
 import httpx
 import pytest
-
 from tripplanner.geo import Coordinate
 from tripplanner.weather.models import WeatherQuery, WeatherSample
 from tripplanner.weather.providers import (
@@ -104,25 +103,25 @@ def test_cache_deserialize_roundtrip() -> None:
     """WeatherSample -> model_dump -> model_validate recovers the same data."""
     sample = WeatherSample(
         coordinate=(52.52, 13.41),
-        zeitpunkt=datetime(2026, 8, 15, 10, 0, 0),
-        temperatur_c=25.0,
-        windgeschwindigkeit_ms=5.5,
-        windrichtung_deg=185.0,
-        niederschlag_mm=0.0,
-        schneefall_cm=0.0,
-        luftdruck_hpa=1013.25,
-        luftfeuchtigkeit_pct=60.0,
-        globalstrahlung_wm2=400.0,
-        bewoelkung_pct=25,
+        timestamp=datetime(2026, 8, 15, 10, 0, 0),
+        temperature_c=25.0,
+        wind_speed_ms=5.5,
+        wind_direction_deg=185.0,
+        precipitation_mm=0.0,
+        snowfall_cm=0.0,
+        pressure_hpa=1013.25,
+        humidity_pct=60.0,
+        solar_radiation_wm2=400.0,
+        cloudiness_pct=25,
     )
     dumped = sample.model_dump(mode="json")
     recovered = _cache_deserialize(dumped)
 
-    assert recovered.temperatur_c == sample.temperatur_c
-    assert recovered.windgeschwindigkeit_ms == sample.windgeschwindigkeit_ms
-    assert recovered.bewoelkung_pct == sample.bewoelkung_pct
+    assert recovered.temperature_c == sample.temperature_c
+    assert recovered.wind_speed_ms == sample.wind_speed_ms
+    assert recovered.cloudiness_pct == sample.cloudiness_pct
     assert recovered.coordinate == sample.coordinate
-    assert recovered.zeitpunkt == sample.zeitpunkt
+    assert recovered.timestamp == sample.timestamp
 
 
 # ── OpenMeteoProvider persistent cache ───────────────────────────────────────
@@ -146,7 +145,8 @@ def _make_provider_with_transport(
 @pytest.mark.asyncio
 async def test_openmeteo_persistent_cache_cross_instance(tmp_path: Path) -> None:
     """Two fresh OpenMeteoProvider instances sharing the same db_path
-    must share cached results — the second instance should not call fetch_weather."""
+    must share cached results — the second instance should not call fetch_weather.
+    """
     db_path = str(tmp_path / "weather_cache.sqlite")
     call_count = 0
 
@@ -160,7 +160,7 @@ async def test_openmeteo_persistent_cache_cross_instance(tmp_path: Path) -> None
     # Instance 1: first fetch populates both caches
     p1 = _make_provider_with_transport(transport, 3600.0, db_path)
 
-    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    query = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 2, 1, 0))
     results = await p1.fetch_weather([query])
     assert len(results) == 1
     assert call_count == 1
@@ -194,8 +194,8 @@ async def test_openmeteo_different_coords_trigger_new_call(tmp_path: Path) -> No
     provider = _make_provider_with_transport(transport, 3600.0, db_path)
 
     # Two different coords — should each trigger an API call
-    q1 = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
-    q2 = WeatherQuery(coordinate=(53.55, 9.99), zeitpunkt=datetime(2026, 8, 2, 12, 0))
+    q1 = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 2, 1, 0))
+    q2 = WeatherQuery(coordinate=(53.55, 9.99), timestamp=datetime(2026, 8, 2, 12, 0))
 
     results = await provider.fetch_weather([q1, q2])
     assert len(results) == 2
@@ -222,7 +222,7 @@ async def test_openmeteo_ttl_expiry_causes_refetch(tmp_path: Path) -> None:
     transport = httpx.MockTransport(handler)
     provider = _make_provider_with_transport(transport, 1.0, db_path)
 
-    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    query = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 2, 1, 0))
     results = await provider.fetch_weather([query])
     assert len(results) == 1
     assert call_count == 1
@@ -249,7 +249,8 @@ def _make_lb_provider_with_entry(
     cache_dir: str | None,
 ) -> tuple[LoadBalancedWeatherProvider, list[int]]:
     """Build a LoadBalancedWeatherProvider whose single inner provider
-    returns *sample* for every query.  Returns (provider, call_counter)."""
+    returns *sample* for every query.  Returns (provider, call_counter).
+    """
     call_count: list[int] = [0]
 
     class _StubProvider:
@@ -280,18 +281,18 @@ async def test_lb_persistent_cache_cross_instance(tmp_path: Path) -> None:
     db_path = str(tmp_path / "lb_cache.sqlite")
     sample = WeatherSample(
         coordinate=(52.52, 13.41),
-        zeitpunkt=datetime(2026, 8, 15, 10, 0),
-        temperatur_c=25.0,
-        windgeschwindigkeit_ms=5.0,
-        windrichtung_deg=180.0,
-        niederschlag_mm=0.0,
-        schneefall_cm=0.0,
-        luftdruck_hpa=1013.25,
-        luftfeuchtigkeit_pct=60.0,
-        globalstrahlung_wm2=400.0,
-        bewoelkung_pct=20,
+        timestamp=datetime(2026, 8, 15, 10, 0),
+        temperature_c=25.0,
+        wind_speed_ms=5.0,
+        wind_direction_deg=180.0,
+        precipitation_mm=0.0,
+        snowfall_cm=0.0,
+        pressure_hpa=1013.25,
+        humidity_pct=60.0,
+        solar_radiation_wm2=400.0,
+        cloudiness_pct=20,
     )
-    query = WeatherQuery(coordinate=(52.52, 13.41), zeitpunkt=datetime(2026, 8, 15, 10, 0))
+    query = WeatherQuery(coordinate=(52.52, 13.41), timestamp=datetime(2026, 8, 15, 10, 0))
 
     # Instance 1: first fetch
     p1, counter1 = _make_lb_provider_with_entry(sample, 3600.0, db_path)
@@ -317,18 +318,18 @@ async def test_lb_in_memory_first_level(tmp_path: Path) -> None:
     db_path = str(tmp_path / "lb_inmem.sqlite")
     sample = WeatherSample(
         coordinate=(52.52, 13.41),
-        zeitpunkt=datetime(2026, 8, 15, 10, 0),
-        temperatur_c=25.0,
-        windgeschwindigkeit_ms=5.0,
-        windrichtung_deg=180.0,
-        niederschlag_mm=0.0,
-        schneefall_cm=0.0,
-        luftdruck_hpa=1013.25,
-        luftfeuchtigkeit_pct=60.0,
-        globalstrahlung_wm2=400.0,
-        bewoelkung_pct=20,
+        timestamp=datetime(2026, 8, 15, 10, 0),
+        temperature_c=25.0,
+        wind_speed_ms=5.0,
+        wind_direction_deg=180.0,
+        precipitation_mm=0.0,
+        snowfall_cm=0.0,
+        pressure_hpa=1013.25,
+        humidity_pct=60.0,
+        solar_radiation_wm2=400.0,
+        cloudiness_pct=20,
     )
-    query = WeatherQuery(coordinate=(52.52, 13.41), zeitpunkt=datetime(2026, 8, 15, 10, 0))
+    query = WeatherQuery(coordinate=(52.52, 13.41), timestamp=datetime(2026, 8, 15, 10, 0))
 
     stub, counter = _make_lb_provider_with_entry(sample, 3600.0, db_path)
 
@@ -347,22 +348,22 @@ async def test_lb_different_coords_trigger_new_call(tmp_path: Path) -> None:
     db_path = str(tmp_path / "lb_diff.sqlite")
     sample = WeatherSample(
         coordinate=(52.52, 13.41),
-        zeitpunkt=datetime(2026, 8, 15, 10, 0),
-        temperatur_c=25.0,
-        windgeschwindigkeit_ms=5.0,
-        windrichtung_deg=180.0,
-        niederschlag_mm=0.0,
-        schneefall_cm=0.0,
-        luftdruck_hpa=1013.25,
-        luftfeuchtigkeit_pct=60.0,
-        globalstrahlung_wm2=400.0,
-        bewoelkung_pct=20,
+        timestamp=datetime(2026, 8, 15, 10, 0),
+        temperature_c=25.0,
+        wind_speed_ms=5.0,
+        wind_direction_deg=180.0,
+        precipitation_mm=0.0,
+        snowfall_cm=0.0,
+        pressure_hpa=1013.25,
+        humidity_pct=60.0,
+        solar_radiation_wm2=400.0,
+        cloudiness_pct=20,
     )
     stub, counter = _make_lb_provider_with_entry(sample, 3600.0, db_path)
 
-    q1 = WeatherQuery(coordinate=(52.52, 13.41), zeitpunkt=datetime(2026, 8, 15, 10, 0))
-    q2 = WeatherQuery(coordinate=(52.52, 13.42), zeitpunkt=datetime(2026, 8, 15, 10, 0))
-    q3 = WeatherQuery(coordinate=(51.0, 9.0), zeitpunkt=datetime(2026, 8, 15, 10, 0))
+    q1 = WeatherQuery(coordinate=(52.52, 13.41), timestamp=datetime(2026, 8, 15, 10, 0))
+    q2 = WeatherQuery(coordinate=(52.52, 13.42), timestamp=datetime(2026, 8, 15, 10, 0))
+    q3 = WeatherQuery(coordinate=(51.0, 9.0), timestamp=datetime(2026, 8, 15, 10, 0))
 
     # First call — stub hit once, caches rounded coord (52.5, 13.4)
     await stub.fetch_weather([q1])
@@ -383,18 +384,18 @@ async def test_lb_ttl_expiry_causes_refetch(tmp_path: Path) -> None:
     db_path = str(tmp_path / "lb_ttl.sqlite")
     sample = WeatherSample(
         coordinate=(52.52, 13.41),
-        zeitpunkt=datetime(2026, 8, 15, 10, 0),
-        temperatur_c=25.0,
-        windgeschwindigkeit_ms=5.0,
-        windrichtung_deg=180.0,
-        niederschlag_mm=0.0,
-        schneefall_cm=0.0,
-        luftdruck_hpa=1013.25,
-        luftfeuchtigkeit_pct=60.0,
-        globalstrahlung_wm2=400.0,
-        bewoelkung_pct=20,
+        timestamp=datetime(2026, 8, 15, 10, 0),
+        temperature_c=25.0,
+        wind_speed_ms=5.0,
+        wind_direction_deg=180.0,
+        precipitation_mm=0.0,
+        snowfall_cm=0.0,
+        pressure_hpa=1013.25,
+        humidity_pct=60.0,
+        solar_radiation_wm2=400.0,
+        cloudiness_pct=20,
     )
-    query = WeatherQuery(coordinate=(52.52, 13.41), zeitpunkt=datetime(2026, 8, 15, 10, 0))
+    query = WeatherQuery(coordinate=(52.52, 13.41), timestamp=datetime(2026, 8, 15, 10, 0))
 
     stub1, counter1 = _make_lb_provider_with_entry(sample, 1.0, db_path)
 
@@ -430,7 +431,7 @@ async def test_openmeteo_refetch_uses_persistent_cache(tmp_path: Path) -> None:
     transport = httpx.MockTransport(handler)
     provider = _make_provider_with_transport(transport, 3600.0, db_path)
 
-    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    query = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 2, 1, 0))
 
     # Initial fetch — stub called once, cached
     await provider.fetch_weather([query])
@@ -453,18 +454,18 @@ async def test_lb_refetch_uses_persistent_cache(tmp_path: Path) -> None:
     db_path = str(tmp_path / "lb_refetch.sqlite")
     sample = WeatherSample(
         coordinate=(52.52, 13.41),
-        zeitpunkt=datetime(2026, 8, 15, 10, 0),
-        temperatur_c=25.0,
-        windgeschwindigkeit_ms=5.0,
-        windrichtung_deg=180.0,
-        niederschlag_mm=0.0,
-        schneefall_cm=0.0,
-        luftdruck_hpa=1013.25,
-        luftfeuchtigkeit_pct=60.0,
-        globalstrahlung_wm2=400.0,
-        bewoelkung_pct=20,
+        timestamp=datetime(2026, 8, 15, 10, 0),
+        temperature_c=25.0,
+        wind_speed_ms=5.0,
+        wind_direction_deg=180.0,
+        precipitation_mm=0.0,
+        snowfall_cm=0.0,
+        pressure_hpa=1013.25,
+        humidity_pct=60.0,
+        solar_radiation_wm2=400.0,
+        cloudiness_pct=20,
     )
-    query = WeatherQuery(coordinate=(52.52, 13.41), zeitpunkt=datetime(2026, 8, 15, 10, 0))
+    query = WeatherQuery(coordinate=(52.52, 13.41), timestamp=datetime(2026, 8, 15, 10, 0))
 
     stub, counter = _make_lb_provider_with_entry(sample, 3600.0, db_path)
 

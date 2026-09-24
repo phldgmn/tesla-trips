@@ -8,7 +8,6 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from tripplanner.charging_infrastructure.client import CurlError, SafariTeslaClient
 from tripplanner.charging_infrastructure.clients.safari import (
     _build_fetch_script,
@@ -128,12 +127,12 @@ class TestSafariTeslaClientFetch:
 
     @pytest.mark.asyncio
     async def test_nonzero_exit_raises_curl_error_with_stderr(self) -> None:
-        process = _FakeProcess(stdout=b"", stderr=b"Safari nicht erreichbar", returncode=1)
+        process = _FakeProcess(stdout=b"", stderr=b"Safari nicht reachable", returncode=1)
         client = SafariTeslaClient()
         with (
             patch("asyncio.create_subprocess_exec", _patch_subprocess(process)),
             patch("asyncio.sleep", AsyncMock()),
-            pytest.raises(CurlError, match="Safari nicht erreichbar"),
+            pytest.raises(CurlError, match="Safari nicht reachable"),
         ):
             await client._fetch("https://www.tesla.com/api/findus/get-locations")
 

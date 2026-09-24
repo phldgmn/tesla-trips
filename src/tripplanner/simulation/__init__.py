@@ -2,7 +2,7 @@
 
 Das Modul erzeugt aus Route, ChargingPlan, SegmentEnergyResult und WeatherSample
 eine diskrete Zeitreihe (TripSimulationResult) mit Zuständen (FAHREN/LADEN/PAUSE),
-Positionen, SoC und Geschwindigkeit.
+Positionen, SoC und speed.
 """
 
 from __future__ import annotations

@@ -7,7 +7,6 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-
 from tripplanner.routing.models import GraphHopperResponse
 from tripplanner.trip_input.models import TripRequest, VehicleProfile, Waypoint
 
@@ -16,7 +15,7 @@ FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "routing"
 
 @pytest.fixture
 def graphhopper_response_basic() -> GraphHopperResponse:
-    """Minimale GraphHopper-Antwort ohne Path-Details."""
+    """minimum GraphHopper-Antwort ohne Path-Details."""
     data = json.loads((FIXTURES_DIR / "graphhopper_response_basic.json").read_text())
     return GraphHopperResponse.model_validate(data)
 
@@ -37,7 +36,7 @@ def graphhopper_response_with_ferry() -> GraphHopperResponse:
 
 @pytest.fixture
 def vehicle_profile() -> VehicleProfile:
-    """Beispiel-Fahrzeugprofil für TripRequests."""
+    """Beispiel-vehicle_profile für TripRequests."""
     return VehicleProfile(
         mass_kg=1706.0,
         drag_coefficient=0.23,

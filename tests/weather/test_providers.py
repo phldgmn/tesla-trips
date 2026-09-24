@@ -10,7 +10,6 @@ from typing import Any
 
 import httpx
 import pytest
-
 from tripplanner.geo import Coordinate
 from tripplanner.weather.models import OpenMeteoResponse, WeatherQuery, WeatherSample
 from tripplanner.weather.providers import (
@@ -35,7 +34,7 @@ def _open_meteo_json(
     """Erzeugt eine gültige Open-Meteo-JSON-Antwort für Tests.
 
     Args:
-        lat: Breitengrad in der Antwort.
+        lat: latitude in der Antwort.
         lon: Längengrad in der Antwort.
         times: Zeitstempel-Liste; Default 3 Stunden ab 2026-08-02T00:00.
 
@@ -87,7 +86,7 @@ def _make_response(
     """Erzeugt eine `OpenMeteoResponse` direkt (ohne HTTP).
 
     Args:
-        lat: Breitengrad.
+        lat: latitude.
         lon: Längengrad.
         times: Zeitstempel-Liste.
 
@@ -129,7 +128,7 @@ async def test_open_meteo_client_fetch_forecast_success() -> None:
     transport = httpx.MockTransport(handler)
     client = OpenMeteoClient(client=httpx.AsyncClient(transport=transport))
 
-    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    query = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 2, 1, 0))
     results = await client.fetch_forecast([query])
     assert len(results) == 1
     assert isinstance(results[0], OpenMeteoResponse)
@@ -156,8 +155,8 @@ async def _test_client_grouping_helper() -> None:
 
     now = datetime(2026, 8, 2, 10, 0)
     queries = [
-        WeatherQuery(coordinate=BERLIN, zeitpunkt=now),
-        WeatherQuery(coordinate=BERLIN, zeitpunkt=now.replace(hour=11)),
+        WeatherQuery(coordinate=BERLIN, timestamp=now),
+        WeatherQuery(coordinate=BERLIN, timestamp=now.replace(hour=11)),
     ]
     results = await client.fetch_forecast(queries)
     assert call_count == 1
@@ -175,7 +174,7 @@ async def test_open_meteo_client_fetch_forecast_http_error() -> None:
     transport = httpx.MockTransport(handler)
     client = OpenMeteoClient(client=httpx.AsyncClient(transport=transport))
 
-    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    query = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 2, 1, 0))
     with pytest.raises(httpx.HTTPStatusError):
         await client.fetch_forecast([query])
     await client.close()
@@ -216,14 +215,14 @@ async def test_open_meteo_provider_fetch_weather_caches_results() -> None:
     meteo_client = OpenMeteoClient(client=http_client)
     provider = OpenMeteoProvider(client=meteo_client)
 
-    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    query = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 2, 1, 0))
     results = await provider.fetch_weather([query])
 
     assert len(results) == 1
-    assert results[0].temperatur_c == pytest.approx(21.0)
-    assert results[0].luftfeuchtigkeit_pct == pytest.approx(61.0)
+    assert results[0].temperature_c == pytest.approx(21.0)
+    assert results[0].humidity_pct == pytest.approx(61.0)
     # Cache-Eintrag gesetzt — keys use grid-rounded + hour-snapped _cache_key
-    assert _cache_key(BERLIN, query.zeitpunkt) in provider._cache
+    assert _cache_key(BERLIN, query.timestamp) in provider._cache
     await provider.close()
 
 
@@ -242,7 +241,7 @@ async def test_open_meteo_provider_fetch_weather_uses_cache_on_second_call() -> 
     meteo_client = OpenMeteoClient(client=http_client)
     provider = OpenMeteoProvider(client=meteo_client)
 
-    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    query = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 2, 1, 0))
     await provider.fetch_weather([query])
     assert call_count == 1
 
@@ -268,12 +267,12 @@ async def test_open_meteo_provider_fetch_weather_partial_cache() -> None:
     provider = OpenMeteoProvider(client=meteo_client)
 
     # Erste Query cachen
-    cached_query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 0, 0))
+    cached_query = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 2, 0, 0))
     await provider.fetch_weather([cached_query])
     assert call_count == 1
 
-    # Zweite Query für andere Zeit → nur uncached wird abgefragt
-    new_query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    # Zweite Query für andere time → nur uncached wird abgefragt
+    new_query = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 2, 1, 0))
     results = await provider.fetch_weather([cached_query, new_query])
     assert len(results) == 2
     # Ein weiterer API-Call für new_query
@@ -306,11 +305,11 @@ async def test_open_meteo_provider_refetch_weather_from_cache() -> None:
     provider = OpenMeteoProvider(client=meteo_client)
 
     # Erstabfrage
-    original = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    original = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 2, 1, 0))
     await provider.fetch_weather([original])
 
-    # Refetch mit gleicher Koordinate + Zeit → aus Cache
-    updated = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    # Refetch mit gleicher Koordinate + time → aus Cache
+    updated = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 2, 1, 0))
     results = await provider.refetch_weather([original], [updated])
     assert len(results) == 1
     assert results[0].coordinate == BERLIN
@@ -319,7 +318,7 @@ async def test_open_meteo_provider_refetch_weather_from_cache() -> None:
 
 @pytest.mark.asyncio
 async def test_open_meteo_provider_refetch_weather_new_time_fetches() -> None:
-    """Test OpenMeteoProvider.refetch_weather fragt bei neuem Zeitpunkt neu ab."""
+    """Test OpenMeteoProvider.refetch_weather fragt bei neuem timestamp new ab."""
     call_count = 0
 
     def handler(_request: httpx.Request) -> httpx.Response:
@@ -333,14 +332,14 @@ async def test_open_meteo_provider_refetch_weather_new_time_fetches() -> None:
     provider = OpenMeteoProvider(client=meteo_client)
 
     # Erstabfrage bei 01:00
-    original = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    original = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 2, 1, 0))
     await provider.fetch_weather([original])
 
-    # Refetch mit neuer Zeit 02:00 → API-Call
-    updated = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 2, 0))
+    # Refetch mit neuer time 02:00 → API-Call
+    updated = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 2, 2, 0))
     results = await provider.refetch_weather([original], [updated])
     assert len(results) == 1
-    assert results[0].zeitpunkt == datetime(2026, 8, 2, 2, 0)
+    assert results[0].timestamp == datetime(2026, 8, 2, 2, 0)
     assert call_count >= 1
     await provider.close()
 
@@ -366,13 +365,13 @@ def test_extract_sample_none_value_uses_default() -> None:
     json_data["hourly"]["temperature_2m"][0] = None
     json_data["hourly"]["wind_speed_10m"][0] = None
     response = OpenMeteoResponse(**json_data)
-    zeitpunkt = datetime(2026, 8, 2, 0, 0)
+    timestamp = datetime(2026, 8, 2, 0, 0)
 
-    sample = _extract_sample_from_response(response, zeitpunkt)
+    sample = _extract_sample_from_response(response, timestamp)
 
     assert sample is not None
-    assert sample.temperatur_c == 0.0
-    assert sample.windgeschwindigkeit_ms == 0.0
+    assert sample.temperature_c == 0.0
+    assert sample.wind_speed_ms == 0.0
 
 
 def test_extract_sample_missing_key_uses_default() -> None:
@@ -380,12 +379,12 @@ def test_extract_sample_missing_key_uses_default() -> None:
     json_data = _open_meteo_json()
     del json_data["hourly"]["cloud_cover"]
     response = OpenMeteoResponse(**json_data)
-    zeitpunkt = datetime(2026, 8, 2, 1, 0)
+    timestamp = datetime(2026, 8, 2, 1, 0)
 
-    sample = _extract_sample_from_response(response, zeitpunkt)
+    sample = _extract_sample_from_response(response, timestamp)
 
     assert sample is not None
-    assert sample.bewoelkung_pct == 0.0
+    assert sample.cloudiness_pct == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -400,15 +399,15 @@ async def test_open_meteo_provider_caching() -> None:
     now = datetime(2026, 8, 2, 10, 0)
 
     original_queries = [
-        WeatherQuery(coordinate=BERLIN, zeitpunkt=now),
-        WeatherQuery(coordinate=BERLIN, zeitpunkt=now + timedelta(hours=1)),
-        WeatherQuery(coordinate=BERLIN, zeitpunkt=now + timedelta(hours=2)),
+        WeatherQuery(coordinate=BERLIN, timestamp=now),
+        WeatherQuery(coordinate=BERLIN, timestamp=now + timedelta(hours=1)),
+        WeatherQuery(coordinate=BERLIN, timestamp=now + timedelta(hours=2)),
     ]
 
     updated_queries = [
-        WeatherQuery(coordinate=BERLIN, zeitpunkt=now + timedelta(minutes=30)),
-        WeatherQuery(coordinate=BERLIN, zeitpunkt=now + timedelta(hours=1, minutes=30)),
-        WeatherQuery(coordinate=BERLIN, zeitpunkt=now + timedelta(hours=2, minutes=30)),
+        WeatherQuery(coordinate=BERLIN, timestamp=now + timedelta(minutes=30)),
+        WeatherQuery(coordinate=BERLIN, timestamp=now + timedelta(hours=1, minutes=30)),
+        WeatherQuery(coordinate=BERLIN, timestamp=now + timedelta(hours=2, minutes=30)),
     ]
 
     provider = FakeWeatherProvider()
@@ -418,11 +417,11 @@ async def test_open_meteo_provider_caching() -> None:
     # Then: Wetterdaten für updated_queries zurückgeben
     assert len(samples) == 3
     assert samples[0].coordinate == BERLIN
-    assert samples[0].zeitpunkt == now + timedelta(minutes=30)
+    assert samples[0].timestamp == now + timedelta(minutes=30)
     assert samples[1].coordinate == BERLIN
-    assert samples[1].zeitpunkt == now + timedelta(hours=1, minutes=30)
+    assert samples[1].timestamp == now + timedelta(hours=1, minutes=30)
     assert samples[2].coordinate == BERLIN
-    assert samples[2].zeitpunkt == now + timedelta(hours=2, minutes=30)
+    assert samples[2].timestamp == now + timedelta(hours=2, minutes=30)
 
 
 @pytest.mark.asyncio
@@ -435,28 +434,28 @@ async def test_fake_weather_provider_set_samples() -> None:
     custom_samples = [
         WeatherSample(
             coordinate=BERLIN,
-            zeitpunkt=now,
-            temperatur_c=25.0,  # Custom value
-            windgeschwindigkeit_ms=10.0,
-            windrichtung_deg=90.0,
-            niederschlag_mm=0.0,
-            schneefall_cm=0.0,
-            luftdruck_hpa=1015.0,
-            luftfeuchtigkeit_pct=50.0,
-            globalstrahlung_wm2=500.0,
-            bewoelkung_pct=10.0,
+            timestamp=now,
+            temperature_c=25.0,  # Custom value
+            wind_speed_ms=10.0,
+            wind_direction_deg=90.0,
+            precipitation_mm=0.0,
+            snowfall_cm=0.0,
+            pressure_hpa=1015.0,
+            humidity_pct=50.0,
+            solar_radiation_wm2=500.0,
+            cloudiness_pct=10.0,
         ),
     ]
 
     # When: set_samples aufrufen
     provider.set_samples(custom_samples)
-    queries = [WeatherQuery(coordinate=BERLIN, zeitpunkt=now)]
+    queries = [WeatherQuery(coordinate=BERLIN, timestamp=now)]
     results = await provider.fetch_weather(queries)
 
     # Then: Custom samples zurückgeben
     assert len(results) == 1
-    assert results[0].temperatur_c == 25.0
-    assert results[0].windgeschwindigkeit_ms == 10.0
+    assert results[0].temperature_c == 25.0
+    assert results[0].wind_speed_ms == 10.0
 
 
 # ---------------------------------------------------------------------------
@@ -467,7 +466,6 @@ async def test_fake_weather_provider_set_samples() -> None:
 @pytest.mark.asyncio
 async def test_grid_rounding_collapses_near_duplicate_coords_to_single_api_call() -> None:
     """Two query coordinates within 0.1° but not identical collapse to one upstream HTTP call."""
-
     call_count = 0
 
     def handler(_request: httpx.Request) -> httpx.Response:
@@ -484,8 +482,8 @@ async def test_grid_rounding_collapses_near_duplicate_coords_to_single_api_call(
     # (52.52, 13.405) rounds to (52.5, 13.4)
     # (52.56, 13.38) rounds to (52.6, 13.4) - different group!
     # Let's use two coords that round to THE SAME grid point
-    q1 = WeatherQuery(coordinate=(52.51, 13.41), zeitpunkt=datetime(2026, 8, 2, 1, 0))
-    q2 = WeatherQuery(coordinate=(52.54, 13.38), zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    q1 = WeatherQuery(coordinate=(52.51, 13.41), timestamp=datetime(2026, 8, 2, 1, 0))
+    q2 = WeatherQuery(coordinate=(52.54, 13.38), timestamp=datetime(2026, 8, 2, 1, 0))
     # Both round to (52.5, 13.4)
 
     results = await provider.fetch_weather([q1, q2])
@@ -499,7 +497,6 @@ async def test_grid_rounding_collapses_near_duplicate_coords_to_single_api_call(
 @pytest.mark.asyncio
 async def test_hour_snapped_cache_serves_convergence_loop_refetch() -> None:
     """Two queries at same rounded coord but timestamps in same clock hour hit cache on 2nd call."""
-
     call_count = 0
 
     def handler(_request: httpx.Request) -> httpx.Response:
@@ -512,8 +509,8 @@ async def test_hour_snapped_cache_serves_convergence_loop_refetch() -> None:
     meteo_client = OpenMeteoClient(client=http_client)
     provider = OpenMeteoProvider(client=meteo_client)
 
-    q1 = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 15))
-    q2 = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 45))
+    q1 = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 2, 1, 15))
+    q2 = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 2, 1, 45))
     # Both snap to hour 1:00 → same cache key → 2nd call is a cache hit
 
     results1 = await provider.fetch_weather([q1])
@@ -536,7 +533,6 @@ async def test_openweather_rate_limit_still_passes_unmodified() -> None:
     grid-rounding path — a query within the tolerance window is still matched
     to the nearest 3-hour slot.
     """
-
     call_count = 0
 
     def handler(_request: httpx.Request) -> httpx.Response:
@@ -564,12 +560,12 @@ async def test_openweather_rate_limit_still_passes_unmodified() -> None:
     http_client = httpx.AsyncClient(transport=transport)
     provider = OpenWeatherProvider(api_key="test", client=http_client)
 
-    queries = [WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 2, 1, 30))]
+    queries = [WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 2, 1, 30))]
     results = await provider.fetch_weather(queries)
 
     # Provider returns a sample (matched via tolerance to nearest slot)
     assert len(results) == 1
-    assert results[0].temperatur_c == 21.0
+    assert results[0].temperature_c == 21.0
     # Exactly one HTTP call
     assert call_count == 1
     await provider.close()
@@ -596,8 +592,8 @@ async def test_open_meteo_provider_cache_hit_returns_each_query_own_koordinate()
     provider = OpenMeteoProvider(client=meteo_client)
 
     # Both coords round to (52.5, 13.4); same hour → same cache key
-    q1 = WeatherQuery(coordinate=(52.51, 13.41), zeitpunkt=datetime(2026, 8, 2, 1, 0))
-    q2 = WeatherQuery(coordinate=(52.54, 13.38), zeitpunkt=datetime(2026, 8, 2, 1, 0))
+    q1 = WeatherQuery(coordinate=(52.51, 13.41), timestamp=datetime(2026, 8, 2, 1, 0))
+    q2 = WeatherQuery(coordinate=(52.54, 13.38), timestamp=datetime(2026, 8, 2, 1, 0))
 
     results = await provider.fetch_weather([q1, q2])
 
@@ -636,20 +632,20 @@ async def test_open_meteo_provider_refetch_cache_hit_returns_each_query_own_koor
     provider = OpenMeteoProvider()
 
     # Populate the cache first
-    q1 = WeatherQuery(coordinate=(52.51, 13.41), zeitpunkt=datetime(2026, 8, 2, 1, 0))
-    q2 = WeatherQuery(coordinate=(52.54, 13.38), zeitpunkt=datetime(2026, 8, 2, 1, 0))
-    provider._cache[_cache_key(q1.coordinate, q1.zeitpunkt)] = WeatherSample(
+    q1 = WeatherQuery(coordinate=(52.51, 13.41), timestamp=datetime(2026, 8, 2, 1, 0))
+    q2 = WeatherQuery(coordinate=(52.54, 13.38), timestamp=datetime(2026, 8, 2, 1, 0))
+    provider._cache[_cache_key(q1.coordinate, q1.timestamp)] = WeatherSample(
         coordinate=(52.5, 13.4),  # grid-rounded
-        zeitpunkt=datetime(2026, 8, 2, 1, 0),
-        temperatur_c=20.0,
-        windgeschwindigkeit_ms=5.0,
-        windrichtung_deg=180.0,
-        niederschlag_mm=0.0,
-        schneefall_cm=0.0,
-        luftdruck_hpa=1013.25,
-        luftfeuchtigkeit_pct=60.0,
-        globalstrahlung_wm2=400.0,
-        bewoelkung_pct=20.0,
+        timestamp=datetime(2026, 8, 2, 1, 0),
+        temperature_c=20.0,
+        wind_speed_ms=5.0,
+        wind_direction_deg=180.0,
+        precipitation_mm=0.0,
+        snowfall_cm=0.0,
+        pressure_hpa=1013.25,
+        humidity_pct=60.0,
+        solar_radiation_wm2=400.0,
+        cloudiness_pct=20.0,
     )
 
     # refetch both — both hit cache

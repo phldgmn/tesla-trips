@@ -56,7 +56,7 @@ class GraphHopperRoutingProvider:
 
         Args:
             client: GraphHopperClient für HTTP Kommunikation
-            use_custom_model: Falls True, benutzerdefiniertes Fahrzeugprofil verwenden
+            use_custom_model: Falls True, benutzerdefiniertes vehicle_profile verwenden
         """
         self.client = client
         self.use_custom_model = use_custom_model
@@ -115,7 +115,7 @@ class GraphHopperRoutingProvider:
             # elevation=False: der `polyline`-Decoder unterstützt nur 2D
             # (lat, lon) - eine 3D-kodierte Polyline (mit Elevation) würde
             # `polyline.decode()` falsch ausrichten und zum Absturz bringen.
-            # `RouteSegment.geometrie` ist ohnehin nur (lat, lon); Steigung
+            # `RouteSegment.geometrie` ist ohnehin nur (lat, lon); gradient
             # wird separat vom `elevation`-Modul aus DEM-Kacheln berechnet.
             elevation=False,
             details=details_list,
@@ -126,7 +126,7 @@ class GraphHopperRoutingProvider:
         return self._map_path_to_route(response.paths[0])
 
     def _build_custom_model(self, anfrage: TripRequest) -> dict[str, object] | None:
-        """Baut das optionale GraphHopper `custom_model` aus Tempolimit- und Fähr-Präferenzen."""
+        """Build optional GraphHopper `custom_model` from speed_limit_kmh and ferry preferences."""
         return build_custom_model(self.use_custom_model, anfrage)
 
     def _map_path_to_route(self, path: GraphHopperPath) -> Route:
@@ -155,11 +155,11 @@ class GraphHopperRoutingProvider:
             start_coord = coordinates[i]
             end_coord = coordinates[i + 1]
 
-            # Berechne Länge des Segments (Haversine Distanz)
-            laenge_m = haversine_distance_m(start_coord, end_coord)
-            total_distance += laenge_m
+            # Berechne Länge des Segments (Haversine distance)
+            length_m = haversine_distance_m(start_coord, end_coord)
+            total_distance += length_m
 
-            # Extrahiere Segment-Attribute aus den Intervall-Details
+            # Extrahiere Segment-Attribute aus den interval-Details
             strassenklasse_raw = self._wert_fuer_edge(road_classes, i)
             # GraphHopper's `road_class` detail returns lowercase OSM values
             # (e.g. "motorway"), but this codebase's convention (see
@@ -170,17 +170,17 @@ class GraphHopperRoutingProvider:
             strassenklasse = (
                 str(strassenklasse_raw).upper() if strassenklasse_raw is not None else "OTHER"
             )
-            tempolimit_kmh = self._normalize_max_speed(self._wert_fuer_edge(max_speeds, i))
+            speed_limit_kmh = self._normalize_max_speed(self._wert_fuer_edge(max_speeds, i))
             steigung_raw = self._wert_fuer_edge(average_slopes, i)
             steigung_rohdaten = float(steigung_raw) if steigung_raw is not None else None
             road_environment_raw = self._wert_fuer_edge(road_environments, i)
             road_environment = str(road_environment_raw).upper() if road_environment_raw else None
             strassenname_raw = self._wert_fuer_edge(street_names, i)
-            strassenname = str(strassenname_raw) if strassenname_raw else None
+            street_name = str(strassenname_raw) if strassenname_raw else None
             strassenref_raw = self._wert_fuer_edge(street_refs, i)
-            strassenref = str(strassenref_raw) if strassenref_raw else None
+            street_ref = str(strassenref_raw) if strassenref_raw else None
             oberflaeche_raw = self._wert_fuer_edge(surfaces, i)
-            oberflaeche = str(oberflaeche_raw) if oberflaeche_raw is not None else None
+            surface = str(oberflaeche_raw) if oberflaeche_raw is not None else None
 
             # Berechne Bearing für das Segment
             bearing = bearing_deg(start_coord, end_coord)
@@ -188,14 +188,14 @@ class GraphHopperRoutingProvider:
             segment = RouteSegment(
                 segment_index=i,
                 geometrie=[start_coord, end_coord],
-                laenge_m=laenge_m,
+                length_m=length_m,
                 strassenklasse=strassenklasse,
-                oberflaeche=oberflaeche,
-                tempolimit_kmh=tempolimit_kmh,
+                surface=surface,
+                speed_limit_kmh=speed_limit_kmh,
                 steigung_rohdaten=steigung_rohdaten,
                 road_environment=road_environment,
-                strassenname=strassenname,
-                strassenref=strassenref,
+                street_name=street_name,
+                street_ref=street_ref,
                 bearing_deg=bearing,
             )
             segments.append(segment)
@@ -253,7 +253,7 @@ class GraphHopperRoutingProvider:
         GraphHopper liefert Path-Details als sortierte, lückenlose Liste von
         `(start_punkt_idx, end_punkt_idx, wert)`-Intervallen statt eines
         flachen Werts pro Kante - mehrere aufeinanderfolgende Kanten mit
-        gleichem Wert werden zu einem Intervall zusammengefasst.
+        gleichem Wert werden zu einem interval zusammengefasst.
 
         Args:
             intervalle: Liste von (start, end, wert)-Tripeln für ein Detail.
@@ -262,7 +262,7 @@ class GraphHopperRoutingProvider:
 
         Returns:
             Der Wert des Intervalls, das `edge_index` enthält, oder `None`
-            wenn kein passendes Intervall existiert.
+            wenn kein passendes interval existiert.
         """
         for start, end, wert in intervalle:
             if start <= edge_index < end:

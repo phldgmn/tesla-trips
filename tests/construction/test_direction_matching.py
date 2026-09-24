@@ -1,4 +1,4 @@
-"""Tests for direction-aware construction-zone matching and laenge_m derivation.
+"""Tests for direction-aware construction-zone matching and length_m derivation.
 
 A construction zone/roadwork event must only be applied to a route segment if
 it is actually applicable in the route's direction of travel - not merely on
@@ -9,10 +9,10 @@ the same road. These tests verify:
    (bearing ~180 deg apart) are excluded.
 2. SE zones with an explicit `AffectedDirectionValue` (not "both directions")
    trust the source over the geometry-bearing heuristic.
-3. `laenge_m` is derived from the zone's own LineString geometry (DK/SE) or,
+3. `length_m` is derived from the zone's own LineString geometry (DK/SE) or,
    absent that, from the span of matched route segments.
 
-DE roadwork direction-limitation and laenge_m tests (point-only Autobahn GmbH
+DE roadwork direction-limitation and length_m tests (point-only Autobahn GmbH
 data, no direction data in source) live in `test_providers_de_autobahn.py`.
 """
 
@@ -21,7 +21,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import httpx
-
 from tripplanner.construction import matching
 from tripplanner.construction.parser import DATEXIIConstructionZoneInternal
 from tripplanner.construction.providers import (
@@ -54,11 +53,11 @@ def _make_route_segment(bearing: float) -> RouteSegment:
     return RouteSegment(
         segment_index=0,
         geometrie=[(50.0, 9.0), (50.001, 9.001)],
-        laenge_m=150.0,
+        length_m=150.0,
         strassenklasse="MOTORWAY",
-        tempolimit_kmh=100,
+        speed_limit_kmh=100,
         bearing_deg=bearing,
-        strassenname="A9",
+        street_name="A9",
     )
 
 
@@ -72,12 +71,12 @@ def _make_zone(
     affected_direction_value: str | None = None,
 ) -> DATEXIIConstructionZoneInternal:
     return DATEXIIConstructionZoneInternal(
-        sperrungstyp="partiallyClosed",
+        closure_type="partiallyClosed",
         gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
         gueltig_bis=None,
         koordinaten=koordinaten,
         umleitungshinweis=None,
-        tempolimit_kmh=80,
+        speed_limit_kmh=80,
         affected_direction_value=affected_direction_value,
     )
 
@@ -193,7 +192,7 @@ class TestSeAffectedDirectionValue:
 
 
 class TestLaengeM:
-    """`laenge_m` derivation: LineString geometry directly, else matched-segment span."""
+    """`length_m` derivation: LineString geometry directly, else matched-segment span."""
 
     def test_geodesic_length_m_used_directly_for_linestring_zones(self) -> None:
         """Sanity check: the helper used for DK/SE zones matches its own contract."""

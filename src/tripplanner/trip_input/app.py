@@ -84,7 +84,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     Der GraphHopper-HTTP-Client und der Tesla-Supercharger-DB-Zugriff werden
     einmalig beim Start erzeugt (Connection-/Verbindungs-Pooling über alle
-    Requests hinweg) statt pro Request neu aufgebaut zu werden. Die
+    Requests hinweg) statt pro Request new aufgebaut zu werden. Die
     GraphHopper-Basis-URL ist über die Umgebungsvariable `GRAPHHOPPER_URL`
     konfigurierbar (Default: `http://localhost:8989`, siehe README.md).
     """

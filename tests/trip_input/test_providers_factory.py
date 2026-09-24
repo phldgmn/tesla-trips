@@ -13,7 +13,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from tripplanner.trip_input import providers_factory as providers_factory_module
 from tripplanner.trip_input.providers_factory import (
     ProductionProviders,
@@ -135,7 +134,8 @@ class TestBuildWeatherProvider:
     async def test_weather_is_load_balanced_provider(self) -> None:
         """The production `weather` provider is always a `LoadBalancedWeatherProvider`,
         even with zero optional API keys configured - the resilience guarantee (see
-        `LoadBalancedWeatherProvider`) applies unconditionally."""
+        `LoadBalancedWeatherProvider`) applies unconditionally.
+        """
         providers = await build_production_providers()
         assert isinstance(providers.weather, LoadBalancedWeatherProvider)
         await close_production_providers(providers)
@@ -230,7 +230,8 @@ class TestLoadLocalCredentials:
     def test_dk_block_missing_tenant_id_does_not_crash(self, tmp_path: Path) -> None:
         """A DK block with clientid+secret but no tenant_id returns None for dk_tenant_id
         instead of raising KeyError — matching the graceful-degradation pattern for
-        optional credential keys."""
+        optional credential keys.
+        """
         credentials_file = tmp_path / "credentials.local.yaml"
         credentials_file.write_text("DK:\n  client_id: my-client-id\n  secret: my-secret\n")
         with patch.object(

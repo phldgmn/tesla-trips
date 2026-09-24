@@ -21,7 +21,7 @@ class VehicleEnergyParameters(BaseModel):
         ge=0.0,
         description="Drag coefficient (cW) für Tesla Model 3 (Standardfassung). "
         "Neuere Generation (Highland facelift) erreicht 0.219, "
-        "aber 0.23 bleibt als Standard für breite Kompatibilität.",
+        "aber 0.23 bleibt als Standard für latitude Kompatibilität.",
     )
     frontal_area_m2: float = Field(
         default=2.22,
@@ -29,7 +29,7 @@ class VehicleEnergyParameters(BaseModel):
         description="Frontalfläche in m² (Tesla Model 3).",
     )
 
-    # Rollwiderstand
+    # rolling_resistance
     rolling_resistance_coefficient: float = Field(
         default=0.011,
         ge=0.0,
@@ -43,7 +43,7 @@ class VehicleEnergyParameters(BaseModel):
         default=1706.0,
         ge=1500.0,
         le=2200.0,
-        description="Fahrzeuggewicht in kg. Basis: "
+        description="vehicle_weight in kg. Basis: "
         "Rear-Wheel Drive 3,759 lbs ≈ 1,706 kg. "
         "Long Range AWD ≈ 1,828 kg, Performance ≈ 1,845 kg. "
         "Obere Grenze 2200 kg für alle Frontend-Presets.",
@@ -78,7 +78,7 @@ class VehicleEnergyParameters(BaseModel):
         default=0.34,
         ge=0.0,
         le=1.0,
-        description="Baseline-Verbrauch in kW bei Parke- und Standby-Bedingungen "
+        description="Baseline-consumption in kW bei Parke- und Standby-Bedingungen "
         "(ohne Klimaanlage/Heizung).",
     )
     klimaanlage_max_kw: float = Field(
@@ -114,7 +114,7 @@ class VehicleEnergyParameters(BaseModel):
     # Reifentyp & Dachbox
     tire_type: str = Field(
         default="standard",
-        description="Reifentyp, der den Rollwiderstand moduliert.",
+        description="Reifentyp, der den rolling_resistance moduliert.",
     )
     roof_box: bool = Field(
         default=False,
@@ -145,9 +145,9 @@ class SegmentEnergyResult(BaseModel):
     """Ergebnis der Energieberechnung für ein Route-Segment."""
 
     segment_index: int
-    energiebedarf_kwh: float  # Positiv: Verbrauch, Negativ: Rekuperation (überschüssige Energie)
-    rekuperation_kwh: float  # Betrag der regenerativ gewonnenen Energie (immer ≥ 0)
-    energiebedarf_brutto_kwh: float  # Summe aller Verbraucher (ohne Rekuperation)
-    geschwindigkeit_m_s: float  # Mittlere Geschwindigkeit im Segment (m/s)
-    fahrzeit_s: float  # Fahrzeit des Segments (s)
-    streckenlaenge_m: float  # Länge des Segments (m)
+    energiebedarf_kwh: float  # Positiv: consumption, Negativ: recuperation (überschüssige energy)
+    rekuperation_kwh: float  # Betrag der regenerativ gewonnenen energy (immer ≥ 0)
+    energiebedarf_brutto_kwh: float  # Summe aller Verbraucher (ohne recuperation)
+    speed_ms: float  # Mittlere speed im Segment (m/s)
+    drive_time_s: float  # drive_time_s des Segments (s)
+    segment_length_m: float  # Länge des Segments (m)

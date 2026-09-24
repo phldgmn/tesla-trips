@@ -5,7 +5,6 @@ from datetime import datetime
 
 import httpx
 import pytest
-
 from tripplanner.charging_infrastructure.models import (
     ChargingStation,
     ConnectorType,
@@ -47,7 +46,7 @@ def _make_route(
             RouteSegment(
                 segment_index=i,
                 geometrie=[c1, c2],
-                laenge_m=50000.0,
+                length_m=50000.0,
                 strassenklasse="MOTORWAY",
                 bearing_deg=0.0,
             )
@@ -88,7 +87,7 @@ class TestChargingDetourConcurrency:
                 arrival_soc_pct=20.0,
                 target_soc_pct=80.0,
                 geschaetzte_ladedauer_s=1800,
-                ankunftszeit=datetime(2025, 6, 15, 10, 0, 0),
+                arrival_time=datetime(2025, 6, 15, 10, 0, 0),
                 departure_time=datetime(2025, 6, 15, 10, 30, 0),
             )
             for s in stations
@@ -128,7 +127,7 @@ class TestChargingDetourConcurrency:
                 arrival_soc_pct=20.0,
                 target_soc_pct=80.0,
                 geschaetzte_ladedauer_s=1800,
-                ankunftszeit=datetime(2025, 6, 15, 10, 0, 0),
+                arrival_time=datetime(2025, 6, 15, 10, 0, 0),
                 departure_time=datetime(2025, 6, 15, 10, 30, 0),
             )
         ]
@@ -175,7 +174,7 @@ class TestChargingDetourErrorHandling:
                 arrival_soc_pct=20.0,
                 target_soc_pct=80.0,
                 geschaetzte_ladedauer_s=1800,
-                ankunftszeit=datetime(2025, 6, 15, 10, 0, 0),
+                arrival_time=datetime(2025, 6, 15, 10, 0, 0),
                 departure_time=datetime(2025, 6, 15, 10, 30, 0),
             )
         ]
@@ -215,7 +214,7 @@ class TestChargingDetourErrorHandling:
                 arrival_soc_pct=20.0,
                 target_soc_pct=80.0,
                 geschaetzte_ladedauer_s=1800,
-                ankunftszeit=datetime(2025, 6, 15, 10, 0, 0),
+                arrival_time=datetime(2025, 6, 15, 10, 0, 0),
                 departure_time=datetime(2025, 6, 15, 10, 30, 0),
             )
             for s in stations
@@ -250,7 +249,8 @@ class TestChargingDetourErrorHandling:
     def test_non_http_exception_propagates(self) -> None:
         """A non-httpx exception (e.g. ValueError from response-parsing bug)
         propagates out of _step_route_charging_detours instead of being
-        silently dropped — restoring the pre-f8e76fc behavior."""
+        silently dropped — restoring the pre-f8e76fc behavior.
+        """
         stations = [
             _make_charging_station(lat=48.2, lon=10.5),
             _make_charging_station(lat=48.5, lon=10.0),
@@ -262,7 +262,7 @@ class TestChargingDetourErrorHandling:
                 arrival_soc_pct=20.0,
                 target_soc_pct=80.0,
                 geschaetzte_ladedauer_s=1800,
-                ankunftszeit=datetime(2025, 6, 15, 10, 0, 0),
+                arrival_time=datetime(2025, 6, 15, 10, 0, 0),
                 departure_time=datetime(2025, 6, 15, 10, 30, 0),
             )
             for s in stations
@@ -296,7 +296,8 @@ class TestChargingDetourErrorHandling:
     def test_httpx_on_one_stop_allows_others(self) -> None:
         """httpx.HTTPError on one stop's leg allows other stops to succeed
         — existing behavior preserved. With 2 stops and error on call 3
-        (rueckweg for stop 1), stop 0's detour is returned."""
+        (rueckweg for stop 1), stop 0's detour is returned.
+        """
         stations = [
             _make_charging_station(lat=48.2, lon=10.5),
             _make_charging_station(lat=48.5, lon=10.0),
@@ -308,7 +309,7 @@ class TestChargingDetourErrorHandling:
                 arrival_soc_pct=20.0,
                 target_soc_pct=80.0,
                 geschaetzte_ladedauer_s=1800,
-                ankunftszeit=datetime(2025, 6, 15, 10, 0, 0),
+                arrival_time=datetime(2025, 6, 15, 10, 0, 0),
                 departure_time=datetime(2025, 6, 15, 10, 30, 0),
             )
             for s in stations

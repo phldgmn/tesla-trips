@@ -157,7 +157,6 @@ def test_clear_expired_only_purges_own_namespace(tmp_path: Path) -> None:
 
 def test_fresh_instance_sees_previous_data(tmp_path: Path) -> None:
     """A new TTLCache pointed at the same db_path reads data from an old one."""
-
     db = tmp_path / "shared.sqlite"
     first = TTLCache(namespace="persist", ttl_seconds=60, db_path=db)
     first.set("persistent", "survives-restart")
@@ -170,7 +169,6 @@ def test_fresh_instance_sees_previous_data(tmp_path: Path) -> None:
 
 def test_cross_instance_clear_expired_sees_all(tmp_path: Path) -> None:
     """A fresh instance can purge entries written by a previous instance."""
-
     db = tmp_path / "shared_expire.sqlite"
     old_cache = TTLCache(namespace="x", ttl_seconds=0.1, db_path=db)
     old_cache.set("old", "bad")

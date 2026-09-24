@@ -10,7 +10,7 @@ from tripplanner.geo import Coordinate, haversine_distance_m
 
 
 def calculate_horizontal_distance(coord1: Coordinate, coord2: Coordinate) -> float:
-    """Berechnet horizontale Distanz zwischen zwei Koordinaten (WGS84).
+    """Berechnet horizontale distance zwischen zwei Koordinaten (WGS84).
 
     Nutzt die haversine_distance_m aus tripplanner.geo für die
     Großkreisdistanz. Für die meisten Anwendungsfälle (Routen mit
@@ -19,11 +19,11 @@ def calculate_horizontal_distance(coord1: Coordinate, coord2: Coordinate) -> flo
     das wäre Overkill für diese Anwendung.
 
     Args:
-        coord1: (breitengrad, laengengrad) Punkt 1
-        coord2: (breitengrad, laengengrad) Punkt 2
+        coord1: (latitude, longitude) Punkt 1
+        coord2: (latitude, longitude) Punkt 2
 
     Returns:
-        Horizontale Distanz in Metern (nicht entlang der Route!)
+        Horizontale distance in Metern (nicht entlang der Route!)
     """
     return haversine_distance_m(coord1, coord2)
 
@@ -50,7 +50,7 @@ class ElevationProvider:
 
         Args:
             route: Die Route mit segments (aus routing.models)
-            sampling_distance_m: Sampling-Distanz in Metern (Standard: 100 m)
+            sampling_distance_m: Sampling-distance in Metern (Standard: 100 m)
 
         Returns:
             Liste von ElevationPoint für jeden Sample-Punkt (inkl. Start/Ende jedes Segments)
@@ -92,7 +92,7 @@ class ElevationProvider:
     def calculate_segment_gradients(
         self, elevation_points: list[ElevationPoint], route: object
     ) -> list[SegmentGradient]:
-        """Berechnet Steigung/Gefälle je Segment aus Höhendifferenz und horizontaler Distanz.
+        """Berechnet gradient/Gefälle je Segment aus Höhendifferenz und horizontaler distance.
 
         Args:
             elevation_points: ElevationPoints in Reihenfolge der Route (Start->Ziel)
@@ -121,10 +121,10 @@ class ElevationProvider:
 
             end_point = elevation_points[seg_idx + 1]
 
-            # Höhendifferenz (Ende - Start; positiv = Steigung, negativ = Gefälle)
+            # Höhendifferenz (Ende - Start; positiv = gradient, negativ = Gefälle)
             dh = end_point.hoehe_m - start_point.hoehe_m
 
-            # Horizontale Distanz berechnen (nicht Route-Länge!)
+            # Horizontale distance berechnen (nicht Route-Länge!)
             horizontal_dist = calculate_horizontal_distance(
                 start_point.coordinate, end_point.coordinate
             )

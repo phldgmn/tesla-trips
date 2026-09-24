@@ -80,7 +80,7 @@ class SmhiProvider:
 
 def _extract_smhi_sample(by_time: dict[Any, Any], query: WeatherQuery) -> WeatherSample | None:
     """Extracts a `WeatherSample` from an SMHI `snow1g` `timeSeries` lookup."""
-    entry = by_time.get(_snap_to_hour_z(query.zeitpunkt))
+    entry = by_time.get(_snap_to_hour_z(query.timestamp))
     if entry is None:
         return None
 
@@ -94,16 +94,16 @@ def _extract_smhi_sample(by_time: dict[Any, Any], query: WeatherQuery) -> Weathe
 
     return WeatherSample(
         coordinate=query.coordinate,
-        zeitpunkt=query.zeitpunkt,
-        temperatur_c=float(data.get("air_temperature", 0.0)),
-        windgeschwindigkeit_ms=float(data.get("wind_speed", 0.0)),
-        windrichtung_deg=_clamp(float(data.get("wind_from_direction", 0.0)), 0.0, 360.0),
-        niederschlag_mm=precipitation_mm * (1.0 - frozen_fraction),
-        schneefall_cm=(precipitation_mm * frozen_fraction) / 10.0,
-        luftdruck_hpa=_clamp(
+        timestamp=query.timestamp,
+        temperature_c=float(data.get("air_temperature", 0.0)),
+        wind_speed_ms=float(data.get("wind_speed", 0.0)),
+        wind_direction_deg=_clamp(float(data.get("wind_from_direction", 0.0)), 0.0, 360.0),
+        precipitation_mm=precipitation_mm * (1.0 - frozen_fraction),
+        snowfall_cm=(precipitation_mm * frozen_fraction) / 10.0,
+        pressure_hpa=_clamp(
             float(data.get("air_pressure_at_mean_sea_level", 1013.25)), 870.0, 1084.0
         ),
-        luftfeuchtigkeit_pct=_clamp(float(data.get("relative_humidity", 0.0)), 0.0, 100.0),
-        globalstrahlung_wm2=0.0,  # not exposed by the snow1g point forecast
-        bewoelkung_pct=_clamp(float(data.get("cloud_area_fraction", 0.0)) * 12.5, 0.0, 100.0),
+        humidity_pct=_clamp(float(data.get("relative_humidity", 0.0)), 0.0, 100.0),
+        solar_radiation_wm2=0.0,  # not exposed by the snow1g point forecast
+        cloudiness_pct=_clamp(float(data.get("cloud_area_fraction", 0.0)) * 12.5, 0.0, 100.0),
     )

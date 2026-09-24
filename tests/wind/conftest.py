@@ -22,23 +22,23 @@ HAMBURG: Coordinate = (53.5511, 9.9937)
 
 
 def make_weather_sample(
-    windgeschwindigkeit_ms: float,
-    windrichtung_deg: float,
+    wind_speed_ms: float,
+    wind_direction_deg: float,
     zeitpunkt_str: str = "2026-08-02T12:00:00",
 ) -> WeatherSample:
     """Hilfsfunktion zur Erstellung von WeatherSample-Instanzen."""
     return WeatherSample(
         coordinate=BERLIN,
-        zeitpunkt=datetime.fromisoformat(zeitpunkt_str),
-        temperatur_c=20.0,
-        windgeschwindigkeit_ms=windgeschwindigkeit_ms,
-        windrichtung_deg=windrichtung_deg,
-        niederschlag_mm=0.0,
-        schneefall_cm=0.0,
-        luftdruck_hpa=1013.25,
-        luftfeuchtigkeit_pct=60.0,
-        globalstrahlung_wm2=400.0,
-        bewoelkung_pct=20.0,
+        timestamp=datetime.fromisoformat(zeitpunkt_str),
+        temperature_c=20.0,
+        wind_speed_ms=wind_speed_ms,
+        wind_direction_deg=wind_direction_deg,
+        precipitation_mm=0.0,
+        snowfall_cm=0.0,
+        pressure_hpa=1013.25,
+        humidity_pct=60.0,
+        solar_radiation_wm2=400.0,
+        cloudiness_pct=20.0,
     )
 
 
@@ -47,7 +47,7 @@ def make_route_segment(segment_index: int, bearing_deg: float) -> RouteSegment:
     return RouteSegment(
         segment_index=segment_index,
         geometrie=[BERLIN, HAMBURG],
-        laenge_m=250_000.0,
+        length_m=250_000.0,
         strassenklasse="PRIMARY",
         bearing_deg=bearing_deg,
     )
@@ -69,32 +69,32 @@ def make_wind_components(
 # Fixtures fuer Windtests
 def weather_sample_nordwind() -> WeatherSample:
     """Wetterdaten mit Nordwind (0°)."""
-    return make_weather_sample(windgeschwindigkeit_ms=10.0, windrichtung_deg=0.0)
+    return make_weather_sample(wind_speed_ms=10.0, wind_direction_deg=0.0)
 
 
 def weather_sample_ostwind() -> WeatherSample:
     """Wetterdaten mit Ostwind (90°)."""
-    return make_weather_sample(windgeschwindigkeit_ms=10.0, windrichtung_deg=90.0)
+    return make_weather_sample(wind_speed_ms=10.0, wind_direction_deg=90.0)
 
 
 def weather_sample_suedwind() -> WeatherSample:
     """Wetterdaten mit Südwind (180°)."""
-    return make_weather_sample(windgeschwindigkeit_ms=10.0, windrichtung_deg=180.0)
+    return make_weather_sample(wind_speed_ms=10.0, wind_direction_deg=180.0)
 
 
 def weather_sample_westwind() -> WeatherSample:
     """Wetterdaten mit Westwind (270°)."""
-    return make_weather_sample(windgeschwindigkeit_ms=10.0, windrichtung_deg=270.0)
+    return make_weather_sample(wind_speed_ms=10.0, wind_direction_deg=270.0)
 
 
 def weather_sample_45_grad_wind() -> WeatherSample:
     """Wetterdaten mit Wind aus 45° (Nord-Ost)."""
-    return make_weather_sample(windgeschwindigkeit_ms=10.0, windrichtung_deg=45.0)
+    return make_weather_sample(wind_speed_ms=10.0, wind_direction_deg=45.0)
 
 
 def weather_sample_315_grad_wind() -> WeatherSample:
     """Wetterdaten mit Wind aus 315° (Nord-West)."""
-    return make_weather_sample(windgeschwindigkeit_ms=10.0, windrichtung_deg=315.0)
+    return make_weather_sample(wind_speed_ms=10.0, wind_direction_deg=315.0)
 
 
 # Fixtures fuer RouteSegment

@@ -8,7 +8,6 @@ from datetime import datetime
 
 import httpx
 import pytest
-
 from tripplanner.geo import Coordinate
 from tripplanner.weather.models import WeatherQuery
 from tripplanner.weather.providers import MetNorwayProvider
@@ -55,38 +54,38 @@ async def test_metno_provider_fetch_weather_maps_fields() -> None:
         return httpx.Response(200, json=_metno_json())
 
     provider = MetNorwayProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+    query = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 17, 14, 0))
 
     results = await provider.fetch_weather([query])
 
     assert len(results) == 1
     sample = results[0]
-    assert sample.temperatur_c == 12.3
-    assert sample.windgeschwindigkeit_ms == 4.5
-    assert sample.windrichtung_deg == 270.0
-    assert sample.luftfeuchtigkeit_pct == 65.0
-    assert sample.luftdruck_hpa == 1008.0
-    assert sample.bewoelkung_pct == 40.0
-    assert sample.niederschlag_mm == 2.0
-    assert sample.schneefall_cm == 0.0
-    assert sample.globalstrahlung_wm2 == 0.0
+    assert sample.temperature_c == 12.3
+    assert sample.wind_speed_ms == 4.5
+    assert sample.wind_direction_deg == 270.0
+    assert sample.humidity_pct == 65.0
+    assert sample.pressure_hpa == 1008.0
+    assert sample.cloudiness_pct == 40.0
+    assert sample.precipitation_mm == 2.0
+    assert sample.snowfall_cm == 0.0
+    assert sample.solar_radiation_wm2 == 0.0
     await provider.close()
 
 
 @pytest.mark.asyncio
 async def test_metno_provider_snow_symbol_routes_to_schneefall() -> None:
-    """A `next_1_hours` snow symbol routes precipitation into `schneefall_cm`."""
+    """A `next_1_hours` snow symbol routes precipitation into `snowfall_cm`."""
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=_metno_json(snow_symbol=True))
 
     provider = MetNorwayProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+    query = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 17, 14, 0))
 
     results = await provider.fetch_weather([query])
 
-    assert results[0].niederschlag_mm == 0.0
-    assert results[0].schneefall_cm == 0.2
+    assert results[0].precipitation_mm == 0.0
+    assert results[0].snowfall_cm == 0.2
     await provider.close()
 
 
@@ -98,7 +97,7 @@ async def test_metno_provider_missing_hour_returns_no_sample() -> None:
         return httpx.Response(200, json=_metno_json())
 
     provider = MetNorwayProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 20, 9, 0))
+    query = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 20, 9, 0))
 
     results = await provider.fetch_weather([query])
 
@@ -130,7 +129,7 @@ async def test_metno_provider_http_error_propagates() -> None:
         return httpx.Response(429, json={"error": "rate limited"})
 
     provider = MetNorwayProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+    query = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 17, 14, 0))
 
     with pytest.raises(httpx.HTTPStatusError):
         await provider.fetch_weather([query])
@@ -145,13 +144,13 @@ async def test_metno_provider_refetch_weather_delegates_to_fetch() -> None:
         return httpx.Response(200, json=_metno_json())
 
     provider = MetNorwayProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    original = [WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 12, 0))]
-    updated = [WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 14, 0))]
+    original = [WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 17, 12, 0))]
+    updated = [WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 17, 14, 0))]
 
     results = await provider.refetch_weather(original, updated)
 
     assert len(results) == 1
-    assert results[0].zeitpunkt == datetime(2026, 8, 17, 14, 0)
+    assert results[0].timestamp == datetime(2026, 8, 17, 14, 0)
     await provider.close()
 
 

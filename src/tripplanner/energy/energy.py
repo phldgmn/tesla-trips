@@ -1,8 +1,8 @@
 """Energieverbrauchs-Modul (Phase 3).
 
 Physikalisch fundierte Berechnung des Energieverbrauchs für Elektrofahrzeuge
-unter Berücksichtigung von Rollwiderstand, Luftwiderstand, Steigung, Rekuperation
-und HVAC-Verbrauch.
+unter Berücksichtigung von rolling_resistance, air_drag, gradient, recuperation
+und HVAC-consumption.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ ERDBESCHLEUNIGUNG_MS2: float = 9.81
 # Maximaler Rekuperationswert
 REKUPERATION_MAX_POWER_W: float = 80_000  # 80 kW
 
-# Straßenbelag-Faktoren für Rollwiderstand
+# Straßenbelag-Faktoren für rolling_resistance
 OBERFLAECHEN_ROLLWIDERSTAND_FAKTOR: dict[str, float] = {
     "asphalt": 1.0,
     "paved": 1.0,
@@ -51,48 +51,48 @@ SCHNEEFALL_SCHWELLE_CM: float = 0.5
 NIEDERSCHLAG_SCHWELLE_MM: float = 0.5
 
 
-def f_oberflaeche(oberflaeche: str | None) -> float:
+def f_oberflaeche(surface: str | None) -> float:
     """Rollwiderstands-Multiplikator für den gegebenen Straßenbelag.
 
     Args:
-        oberflaeche: Straßenbelag (z. B. "asphalt", "gravel", None).
+        surface: Straßenbelag (z. B. "asphalt", "gravel", None).
 
     Returns:
         Multiplikator für den Rollwiderstandsbeiwert. Bei None oder unbekanntem
         Belag wird der Default-Faktor 1.0 zurückgegeben.
     """
-    if oberflaeche is None:
+    if surface is None:
         return DEFAULT_OBERFLAECHEN_FAKTOR
-    return OBERFLAECHEN_ROLLWIDERSTAND_FAKTOR.get(oberflaeche.lower(), DEFAULT_OBERFLAECHEN_FAKTOR)
+    return OBERFLAECHEN_ROLLWIDERSTAND_FAKTOR.get(surface.lower(), DEFAULT_OBERFLAECHEN_FAKTOR)
 
 
-def berechne_luftdichte(temperatur_c: float, luftdruck_hpa: float) -> float:
-    """Berechnet die Luftdichte basierend auf Temperatur und Luftdruck.
+def berechne_luftdichte(temperature_c: float, pressure_hpa: float) -> float:
+    """Berechnet die Luftdichte basierend auf temperature und Luftdruck.
 
     Verwendet die ideale Gasgleichung: rho = p / (R_spez * T)
     R_spez für trockene Luft ≈ 287.058 J/(kg·K)
 
     Args:
-        temperatur_c: Temperatur in °C
-        luftdruck_hpa: Luftdruck in hPa
+        temperature_c: temperature in °C
+        pressure_hpa: Luftdruck in hPa
 
     Returns:
         Luftdichte in kg/m³
     """
-    # Temperatur in Kelvin
-    t_kelvin = temperatur_c + 273.15
+    # temperature in Kelvin
+    t_kelvin = temperature_c + 273.15
     # Luftdruck in Pa
-    p_pa = luftdruck_hpa * 100.0
+    p_pa = pressure_hpa * 100.0
     # Spezifische Gaskonstante für trockene Luft
     r_spez = 287.058
     return p_pa / (r_spez * t_kelvin)
 
 
 def f_strassenzustand(
-    oberflaeche: str | None,
-    niederschlag_mm: float,
-    schneefall_cm: float,
-    temperatur_c: float,
+    surface: str | None,
+    precipitation_mm: float,
+    snowfall_cm: float,
+    temperature_c: float,
 ) -> float:
     """Rollwiderstands-Multiplikator für Straßenbelag UND Witterung.
 
@@ -100,26 +100,26 @@ def f_strassenzustand(
     Witterungs-Faktor (trocken, nass, Schnee, Eis).
 
     Args:
-        oberflaeche: Straßenbelag (z. B. "asphalt", "gravel", None).
-        niederschlag_mm: Niederschlag in mm (Stundensumme).
-        schneefall_cm: Schneefall in cm (Wasserequivalent).
-        temperatur_c: Temperatur in °C (für Eis-Erkennung).
+        surface: Straßenbelag (z. B. "asphalt", "gravel", None).
+        precipitation_mm: precipitation in mm (Stundensumme).
+        snowfall_cm: snowfall in cm (Wasserequivalent).
+        temperature_c: temperature in °C (für Eis-Erkennung).
 
     Returns:
         Kombinierter Multiplikator für den Rollwiderstandsbeiwert.
     """
     # Basis-Faktor für Belag
-    f_belag = f_oberflaeche(oberflaeche)
+    f_belag = f_oberflaeche(surface)
 
     # Witterungs-Faktor
-    if schneefall_cm > SCHNEEFALL_SCHWELLE_CM:
+    if snowfall_cm > SCHNEEFALL_SCHWELLE_CM:
         # Schnee auf der Fahrbahn
         f_wetter = 1.8
-    elif niederschlag_mm > NIEDERSCHLAG_SCHWELLE_MM:
+    elif precipitation_mm > NIEDERSCHLAG_SCHWELLE_MM:
         # Nasse Fahrbahn
         f_wetter = 1.2
-    elif temperatur_c < 0.0 and niederschlag_mm > 0.0:
-        # Eisglätte (gefrierender Regen bei < 0°C)
+    elif temperature_c < 0.0 and precipitation_mm > 0.0:
+        # Eisglätte (gefrierender rain bei < 0°C)
         f_wetter = 2.5
     else:
         # Trocken
@@ -134,92 +134,92 @@ def calculate_segment_consumption(
     wetter: WeatherSample,
     wind: WindComponents,
     fahrzeug_params: VehicleEnergyParameters,
-    baustellen: Sequence[ConstructionZone] | None = None,
+    construction_zones: Sequence[ConstructionZone] | None = None,
     tempolimit_override_kmh: float | None = None,
 ) -> SegmentEnergyResult:
-    """Berechnet den Energieverbrauch für ein einzelnes Segment.
+    """Berechnet den energy_consumption für ein einzelnes Segment.
 
     Args:
-        segment: Routing-Segment (Geometrie, Länge, Tempolimit, Straßenbelag).
+        segment: Routing-Segment (Geometrie, Länge, speed_limit_kmh, Straßenbelag).
         gradient: Höhenprofil-Gradient für dieses Segment.
-        wetter: Wetterdaten (Temperatur, Wind) zum erwarteten Durchfahrtszeitpunkt.
-        wind: Projektion des Windes auf die Fahrtrichtung (Gegen-/Seitenwind).
-        fahrzeug_params: Fahrzeugparameter (Masse, cW, Rollwiderstand, etc.).
-        baustellen: optionale Liste von Baustellen (überschreibt Tempolimit).
-        tempolimit_override_kmh: optionales Tempolimit-Override (für Baustellen-Logik).
+        wetter: Wetterdaten (temperature, Wind) zum erwarteten Durchfahrtszeitpunkt.
+        wind: Projektion des Windes auf die heading (Gegen-/crosswind).
+        fahrzeug_params: Fahrzeugparameter (Masse, cW, rolling_resistance, etc.).
+        construction_zones: optionale Liste von construction_zones (überschreibt speed_limit_kmh).
+        tempolimit_override_kmh: optionales speed_limit_kmh-Override (für construction_zones-Logik).
 
     Returns:
-        SegmentEnergyResult mit Energiebedarf, Rekuperation, Fahrzeit und Geschwindigkeit.
+        SegmentEnergyResult mit Energiebedarf, recuperation, drive_time_s und speed.
 
     Algorithmus:
-        1. Bestimme Effective Speed (Tempolimit oder Überschreitung, max. 150 km/h).
-        2. Berechne Kräfte (Rollwiderstand inkl. Straßenbelag-Faktor, Luftwiderstand,
-           Steigung, Rekuperation).
-        3. Konvertiere Kräfte → Leistung → Energie über Fahrzeit.
+        1. Bestimme Effective Speed (speed_limit_kmh oder Überschreitung, max. 150 km/h).
+        2. Berechne Kräfte (rolling_resistance inkl. Straßenbelag-Faktor, air_drag,
+           gradient, recuperation).
+        3. Konvertiere Kräfte → Leistung → energy über drive_time_s.
         4. Addiere Nebenverbraucher (temperaturabhängig).
-        5. Subtrahiere Rekuperation (physikalisch begrenzt).
+        5. Subtrahiere recuperation (physikalisch begrenzt).
     """
-    # 1. Geschwindigkeit und Fahrzeit bestimmen
-    tempolimit_kmh: float = float(segment.tempolimit_kmh) if segment.tempolimit_kmh else 120.0
+    # 1. speed und drive_time_s bestimmen
+    speed_limit_kmh: float = float(segment.speed_limit_kmh) if segment.speed_limit_kmh else 120.0
     if tempolimit_override_kmh is not None:
-        tempolimit_kmh = min(tempolimit_kmh, tempolimit_override_kmh)
+        speed_limit_kmh = min(speed_limit_kmh, tempolimit_override_kmh)
 
-    if baustellen:
-        for bz in baustellen:
-            if bz.tempolimit_kmh is not None:
-                tempolimit_kmh = min(tempolimit_kmh, float(bz.tempolimit_kmh))
+    if construction_zones:
+        for bz in construction_zones:
+            if bz.speed_limit_kmh is not None:
+                speed_limit_kmh = min(speed_limit_kmh, float(bz.speed_limit_kmh))
 
     # Maximalgeschwindigkeit physikalisch sinnvoll begrenzen
-    v_mittel_kmh = min(tempolimit_kmh, 150.0)
+    v_mittel_kmh = min(speed_limit_kmh, 150.0)
     v_mittel_ms = v_mittel_kmh / 3.6
 
-    # Fahrzeit berechnen
-    s_m = segment.laenge_m
+    # drive_time_s berechnen
+    s_m = segment.length_m
     t_s = s_m / v_mittel_ms
 
     # 2. Winkel berechnen
     alpha_rad = math.atan(gradient.steigung_prozent / 100.0)
 
     # 3. Kräfte berechnen
-    # 3.1 Rollwiderstand (inkl. Straßenbelag-Faktor UND Witterung)
+    # 3.1 rolling_resistance (inkl. Straßenbelag-Faktor UND Witterung)
     f_ober = f_strassenzustand(
-        segment.oberflaeche,
-        wetter.niederschlag_mm,
-        wetter.schneefall_cm,
-        wetter.temperatur_c,
+        segment.surface,
+        wetter.precipitation_mm,
+        wetter.snowfall_cm,
+        wetter.temperature_c,
     )
     cr_eff = fahrzeug_params.rolling_resistance_coefficient * f_ober
     F_roll = cr_eff * fahrzeug_params.mass_kg * ERDBESCHLEUNIGUNG_MS2 * math.cos(alpha_rad)
 
-    # 3.2 Luftwiderstand (inkl. Dachbox-Korrektur)
+    # 3.2 air_drag (inkl. Dachbox-Korrektur)
     cw_eff = fahrzeug_params.drag_coefficient
     if fahrzeug_params.roof_box:
         cw_eff += 0.04  # Konservative Schätzung für Dachbox
 
-    # relative Geschwindigkeit zum Luftmassenstrom
-    # Gegenwind erhöht den Widerstand (addieren), Rückenwind verringert ihn (subtrahieren)
+    # relative speed zum Luftmassenstrom
+    # headwind erhöht den Widerstand (addieren), Rückenwind verringert ihn (subtrahieren)
     v_relativ = v_mittel_ms + wind.gegenwind_ms
-    # Bei starkem Rückenwind: Mindestens 50 % der Geschwindigkeit annehmen
+    # Bei starkem Rückenwind: Mindestens 50 % der speed annehmen
     v_relativ = max(v_relativ, 0.5 * v_mittel_ms)
 
     F_luft = (
         0.5
-        * berechne_luftdichte(wetter.temperatur_c, wetter.luftdruck_hpa)
+        * berechne_luftdichte(wetter.temperature_c, wetter.pressure_hpa)
         * cw_eff
         * fahrzeug_params.frontal_area_m2
         * (v_relativ**2)
     )
 
-    # 3.3 Steigung (Höhenenergie)
+    # 3.3 gradient (Höhenenergie)
     F_steigung = fahrzeug_params.mass_kg * ERDBESCHLEUNIGUNG_MS2 * math.sin(alpha_rad)
 
-    # 4. Energie für Bewegung
-    # Nur positive Steigung verbraucht Energie (bei Gefällen gibt der Motor keine Energie auf)
+    # 4. energy für Bewegung
+    # Nur positive gradient verbraucht energy (bei Gefällen gibt der Motor keine energy auf)
     F_bewegung = F_roll + F_luft + max(0.0, F_steigung)
     E_bewegung_j = F_bewegung * s_m
 
-    # 5. HVAC-Verbrauch (temperaturabhängig)
-    T_c = wetter.temperatur_c
+    # 5. HVAC-consumption (temperaturabhängig)
+    T_c = wetter.temperature_c
     P_next_to_kw = fahrzeug_params.auxiliary_baseline_kw
 
     delta_T_min = fahrzeug_params.komforttemperatur_min_c - T_c
@@ -236,16 +236,16 @@ def calculate_segment_consumption(
 
     E_next_to_j = P_next_to_kw * 1000 * t_s  # kW → W, dann * s
 
-    # 6. Rekuperation (nur bei Verzögerung)
-    # Vereinfachung: v_anfang = v_mittel, v_ende reduziert um 10 % der Steigung (in m/s Äquivalent)
+    # 6. recuperation (nur bei Verzögerung)
+    # Vereinfachung: v_anfang = v_mittel, v_ende reduziert um 10 % der gradient (in m/s Äquivalent)
     v_anfang_ms = v_mittel_ms
-    # Verzögerung bei Steigung, Beschleunigung bei Gefälle
+    # Verzögerung bei gradient, Beschleunigung bei Gefälle
     aenderung_ms = 0.1 * abs(gradient.steigung_prozent)
     v_end_ms = max(v_anfang_ms - aenderung_ms, 0) if gradient.steigung_prozent > 0 else v_anfang_ms
 
     E_rekup_j = 0.0
     if v_end_ms < v_anfang_ms:
-        # Rekuperation nur bei Verzögerung
+        # recuperation nur bei Verzögerung
         E_kin_j = 0.5 * fahrzeug_params.mass_kg * (v_anfang_ms**2 - v_end_ms**2)
         E_rekup_j = min(
             E_kin_j * fahrzeug_params.wirkungsgrad_rekuperation,
@@ -255,10 +255,10 @@ def calculate_segment_consumption(
     # 7. Gesamtergebnis
     E_brutto_j = E_bewegung_j + E_next_to_j
 
-    # Rekuperation abziehen
+    # recuperation abziehen
     E_gesamt_j = E_brutto_j - E_rekup_j
 
-    # Energiebedarf darf nicht negativ sein (Energie aus dem Netz ist nicht negativ)
+    # Energiebedarf darf nicht negativ sein (energy aus dem Netz ist nicht negativ)
     energiebedarf_j = max(0.0, E_gesamt_j)
 
     # Umrechnung von J in kWh (1 kWh = 3.6e6 J)
@@ -271,9 +271,9 @@ def calculate_segment_consumption(
         energiebedarf_kwh=energiebedarf_kwh,
         rekuperation_kwh=rekuperation_kwh,
         energiebedarf_brutto_kwh=energiebedarf_brutto_kwh,
-        geschwindigkeit_m_s=v_mittel_ms,
-        fahrzeit_s=t_s,
-        streckenlaenge_m=s_m,
+        speed_ms=v_mittel_ms,
+        drive_time_s=t_s,
+        segment_length_m=s_m,
     )
 
 
@@ -283,20 +283,20 @@ def calculate_total_consumption(
     wetter_samples: Sequence[WeatherSample],
     wind_components: Sequence[WindComponents],
     fahrzeug_params: VehicleEnergyParameters,
-    baustellen: Sequence[ConstructionZone] | None = None,
+    construction_zones: Sequence[ConstructionZone] | None = None,
 ) -> list[SegmentEnergyResult]:
-    """Berechnet den Energieverbrauch für eine gesamte Route (Segment-für-Segment).
+    """Berechnet den energy_consumption für eine gesamte Route (Segment-für-Segment).
 
     Wrapper-Funktion für parallele oder sequenzielle Verarbeitung mehrerer Segmente.
     Wetter- und Winddaten müssen der Reihenfolge der Route Segmente entsprechen.
 
     Args:
-        route_segments: Liste aller Route-Segmente in Fahrtrichtung.
+        route_segments: Liste aller Route-Segmente in heading.
         gradients: Liste der SegmentGradient für jedes Segment (muss gleiche Länge haben).
         wetter_samples: Liste der WeatherSample für jedes Segment (muss gleiche Länge haben).
         wind_components: Liste der WindComponents für jedes Segment (muss gleiche Länge haben).
         fahrzeug_params: Fahrzeugparameter für alle Segmente.
-        baustellen: optionale Liste von Baustellen (überschreibt Tempolimit).
+        construction_zones: optionale Liste von construction_zones (überschreibt speed_limit_kmh).
 
     Returns:
         Liste von SegmentEnergyResult für jedes Segment.
@@ -322,7 +322,7 @@ def calculate_total_consumption(
             wetter=wetter_samples[i],
             wind=wind_components[i],
             fahrzeug_params=fahrzeug_params,
-            baustellen=baustellen,
+            construction_zones=construction_zones,
         )
         ergebnisse.append(ergebnis)
 

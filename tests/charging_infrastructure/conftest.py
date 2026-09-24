@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from tripplanner.charging_infrastructure.database import SQLiteDatabase
 from tripplanner.charging_infrastructure.models import (
     ChargingStation,

@@ -7,7 +7,6 @@ from pathlib import Path
 
 import httpx
 import pytest
-
 from tripplanner.routing.client import GraphHopperClient
 from tripplanner.routing.models import GraphHopperResponse
 

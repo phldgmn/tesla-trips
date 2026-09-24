@@ -29,7 +29,6 @@ import time
 
 import pytest
 from scipy.interpolate import PchipInterpolator
-
 from tripplanner.battery.models import ChargingCurve, InterpolationMethod, LadekurveReferenz
 
 
@@ -81,7 +80,8 @@ class TestLadeleistungHermiteMatchesScipy:
 
     def test_linear_curve_batch_matches_scalar(self) -> None:
         """`ladeleistung_bei_soc_batch` muss auch für LINEAR-Kurven (kein
-        PCHIP-Pfad) mit der Einzelauswertung übereinstimmen."""
+        PCHIP-Pfad) mit der Einzelauswertung übereinstimmen.
+        """
         curve = LadekurveReferenz.model_3_lr_v3()
         assert curve.interpolation is InterpolationMethod.LINEAR
 
@@ -121,8 +121,9 @@ class TestLadeleistungBeiSocPerformance:
         self, hermite_curve: ChargingCurve
     ) -> None:
         """`ladeleistung_bei_soc_batch` amortisiert den `PrivateAttr`-Zugriff
-        ueber alle Punkte - MUSS daher fuer dieselbe Punktzahl mindestens so
-        schnell wie die Summe der Einzelaufrufe sein."""
+        ueber alle Punkte - MUSS daher fuer dieselbe Punktzahl minimum so
+        schnell wie die Summe der Einzelaufrufe sein.
+        """
         soc_values = [(i % 1000) / 10.0 for i in range(50_000)]
 
         start = time.perf_counter()

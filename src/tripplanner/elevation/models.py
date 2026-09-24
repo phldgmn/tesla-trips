@@ -19,11 +19,11 @@ class ElevationPoint(BaseModel):
     """Höhenwert an einer Koordinate.
 
     Args:
-        coordinate: Breitengrad, Längengrad (WGS84, Grad)
+        coordinate: latitude, Längengrad (WGS84, Grad)
         hoehe_m: Höhe über NN in Metern (ungültige Werte: -9999 → nicht belegt)
     """
 
-    coordinate: Coordinate = Field(description="Breitengrad, Längengrad (WGS84, Grad)")
+    coordinate: Coordinate = Field(description="latitude, Längengrad (WGS84, Grad)")
     hoehe_m: float = Field(
         ge=HEIGHT_MIN,
         le=HEIGHT_MAX,
@@ -36,35 +36,35 @@ class ElevationPoint(BaseModel):
         """Validiere Koordinaten-Bereiche."""
         lat, lon = v
         if not (LAT_MIN <= lat <= LAT_MAX):
-            raise ValueError(f"Breitengrad muss zwischen {LAT_MIN} und {LAT_MAX} Grad liegen")
+            raise ValueError(f"latitude muss zwischen {LAT_MIN} und {LAT_MAX} Grad liegen")
         if not (LON_MIN <= lon <= LON_MAX):
             raise ValueError(f"Längengrad muss zwischen {LON_MIN} und {LON_MAX} Grad liegen")
         return v
 
 
 class SegmentGradient(BaseModel):
-    """Steigung/Gefälle je Segment aus Höhendifferenz und horizontaler Distanz.
+    """gradient/Gefälle je Segment aus Höhendifferenz und horizontaler distance.
 
     Args:
         segment_index: Index des RouteSegments (0-basiert)
-        steigung_prozent: Steigung in Prozent (positive = Steigung,
+        steigung_prozent: gradient in Prozent (positive = gradient,
             negativ = Gefälle)
         hoehendifferenz_m: Höhendifferenz zwischen Start- und
             Endpunkt des Segments in Metern
-        horizontale_distanz_m: Horizontale Distanz (nicht entlang der
+        horizontale_distanz_m: Horizontale distance (nicht entlang der
             Route, sondern Luftlinienprojektion) in Metern
     """
 
     segment_index: int = Field(ge=0, description="Index des RouteSegments (0-basiert)")
     steigung_prozent: float = Field(
-        description="Steigung in Prozent (positive = Steigung, negativ = Gefälle)"
+        description="gradient in Prozent (positive = gradient, negativ = Gefälle)"
     )
     hoehendifferenz_m: float = Field(
         description="Höhendifferenz zwischen Start- und Endpunkt des Segments in Metern"
     )
     horizontale_distanz_m: float = Field(
         description=(
-            "Horizontale Distanz (nicht entlang der Route, sondern Luftlinienprojektion) in Metern"
+            "Horizontale distance (nicht entlang der Route, sondern Luftlinienprojektion) in Metern"
         )
     )
 
@@ -73,8 +73,8 @@ class DEMTileKey(BaseModel):
     """Schlüssel für DEM-Kachel (Koordinaten-BBox + CRS-Referenz).
 
     Args:
-        min_lat: Minimale Breite
-        max_lat: Maximale Breite
+        min_lat: Minimale latitude
+        max_lat: Maximale latitude
         min_lon: Minimale Länge
         max_lon: Maximale Länge
         crs_epsg: EPSG-Code des CRS (Standard: 4326 = WGS84)
@@ -94,7 +94,7 @@ class DEMTile(BaseModel):
         key: DEMTileKey mit BBox und CRS
         raster_data: Rohe GeoTIFF-Daten (nur für Caching, nicht exportieren)
         transform: Affine Transform matrix [a, b, c, d, e, f] für pixel->world
-        width: Breite des Rasters in Pixel
+        width: latitude des Rasters in Pixel
         height: Höhe des Rasters in Pixel
         nodata_value: Nodata-Wert (Standard: -9999)
     """

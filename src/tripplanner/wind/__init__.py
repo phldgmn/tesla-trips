@@ -1,9 +1,9 @@
-"""Wind-Modul: Berechnung von Gegenwind- und Seitenwind-Komponenten.
+"""Wind-Modul: Berechnung von headwind- und crosswind-Komponenten.
 
-Dieses Modul berechnet aus den Wetterdaten (Windgeschwindigkeit und -richtung)
-und der Fahrtrichtung (Bearing) eines Route-Segments die effektiven Windkomponenten:
-- Gegenwind-/Rückenwind-Komponente (m/s, positiv = Gegenwind, negativ = Rückenwind)
-- Seitenwind-Komponente (m/s, positiv = von rechts, negativ = von links)
+Dieses Modul berechnet aus den Wetterdaten (wind_speed_ms und -richtung)
+und der heading (Bearing) eines Route-Segments die effektiven Windkomponenten:
+- headwind-/Rückenwind-Komponente (m/s, positiv = headwind, negativ = Rückenwind)
+- crosswind-Komponente (m/s, positiv = von rechts, negativ = von links)
 
 Das Modul ist reine Berechnungslogik ohne externe Datenquellen.
 """

@@ -8,7 +8,6 @@ from datetime import datetime
 
 import httpx
 import pytest
-
 from tripplanner.geo import Coordinate
 from tripplanner.weather.models import WeatherQuery
 from tripplanner.weather.providers import DmiProvider
@@ -73,50 +72,50 @@ async def test_dmi_provider_fetch_weather_maps_fields() -> None:
         return httpx.Response(200, json=_dmi_coveragejson())
 
     provider = DmiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(coordinate=COPENHAGEN, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+    query = WeatherQuery(coordinate=COPENHAGEN, timestamp=datetime(2026, 8, 17, 14, 0))
 
     results = await provider.fetch_weather([query])
 
     assert len(results) == 1
     sample = results[0]
-    assert sample.temperatur_c == pytest.approx(13.5)  # 286.65K - 273.15
-    assert sample.windgeschwindigkeit_ms == 4.5
-    assert sample.windrichtung_deg == 210.0
-    assert sample.luftfeuchtigkeit_pct == 62.0
-    assert sample.luftdruck_hpa == pytest.approx(1010.0)  # 101000 Pa / 100
-    assert sample.bewoelkung_pct == 50.0  # 0.5 fraction * 100
-    assert sample.globalstrahlung_wm2 == 250.0
+    assert sample.temperature_c == pytest.approx(13.5)  # 286.65K - 273.15
+    assert sample.wind_speed_ms == 4.5
+    assert sample.wind_direction_deg == 210.0
+    assert sample.humidity_pct == 62.0
+    assert sample.pressure_hpa == pytest.approx(1010.0)  # 101000 Pa / 100
+    assert sample.cloudiness_pct == 50.0  # 0.5 fraction * 100
+    assert sample.solar_radiation_wm2 == 250.0
     await provider.close()
 
 
 @pytest.mark.asyncio
 async def test_dmi_provider_rain_rate_conversion() -> None:
-    """`rain-precipitation-rate` (kg/m^2/s) converts to hourly `niederschlag_mm`."""
+    """`rain-precipitation-rate` (kg/m^2/s) converts to hourly `precipitation_mm`."""
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=_dmi_coveragejson(rain_rate=0.0005))
 
     provider = DmiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(coordinate=COPENHAGEN, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+    query = WeatherQuery(coordinate=COPENHAGEN, timestamp=datetime(2026, 8, 17, 14, 0))
 
     results = await provider.fetch_weather([query])
 
-    assert results[0].niederschlag_mm == pytest.approx(1.8)  # 0.0005 * 3600
+    assert results[0].precipitation_mm == pytest.approx(1.8)  # 0.0005 * 3600
 
 
 @pytest.mark.asyncio
 async def test_dmi_provider_snow_rate_conversion() -> None:
-    """`total-snowfall-rate-water-equivalent` (kg/m^2/s) converts to hourly `schneefall_cm`."""
+    """`total-snowfall-rate-water-equivalent` (kg/m^2/s) converts to hourly `snowfall_cm`."""
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=_dmi_coveragejson(snow_rate=0.0001))
 
     provider = DmiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(coordinate=COPENHAGEN, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+    query = WeatherQuery(coordinate=COPENHAGEN, timestamp=datetime(2026, 8, 17, 14, 0))
 
     results = await provider.fetch_weather([query])
 
-    assert results[0].schneefall_cm == pytest.approx(0.036)  # (0.0001 * 3600) / 10
+    assert results[0].snowfall_cm == pytest.approx(0.036)  # (0.0001 * 3600) / 10
 
 
 @pytest.mark.asyncio
@@ -127,7 +126,7 @@ async def test_dmi_provider_missing_hour_returns_no_sample() -> None:
         return httpx.Response(200, json=_dmi_coveragejson())
 
     provider = DmiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(coordinate=COPENHAGEN, zeitpunkt=datetime(2026, 8, 20, 9, 0))
+    query = WeatherQuery(coordinate=COPENHAGEN, timestamp=datetime(2026, 8, 20, 9, 0))
 
     results = await provider.fetch_weather([query])
 
@@ -157,7 +156,7 @@ async def test_dmi_provider_http_error_propagates() -> None:
         return httpx.Response(429, json={"status": 429, "error": "Too Many Requests"})
 
     provider = DmiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    query = WeatherQuery(coordinate=COPENHAGEN, zeitpunkt=datetime(2026, 8, 17, 14, 0))
+    query = WeatherQuery(coordinate=COPENHAGEN, timestamp=datetime(2026, 8, 17, 14, 0))
 
     with pytest.raises(httpx.HTTPStatusError):
         await provider.fetch_weather([query])
@@ -171,10 +170,10 @@ async def test_dmi_provider_refetch_weather_delegates_to_fetch() -> None:
         return httpx.Response(200, json=_dmi_coveragejson())
 
     provider = DmiProvider(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    original = [WeatherQuery(coordinate=COPENHAGEN, zeitpunkt=datetime(2026, 8, 17, 12, 0))]
-    updated = [WeatherQuery(coordinate=COPENHAGEN, zeitpunkt=datetime(2026, 8, 17, 14, 0))]
+    original = [WeatherQuery(coordinate=COPENHAGEN, timestamp=datetime(2026, 8, 17, 12, 0))]
+    updated = [WeatherQuery(coordinate=COPENHAGEN, timestamp=datetime(2026, 8, 17, 14, 0))]
 
     results = await provider.refetch_weather(original, updated)
 
     assert len(results) == 1
-    assert results[0].zeitpunkt == datetime(2026, 8, 17, 14, 0)
+    assert results[0].timestamp == datetime(2026, 8, 17, 14, 0)

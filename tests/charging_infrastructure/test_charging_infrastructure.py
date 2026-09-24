@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from tripplanner.charging_infrastructure.charging_infrastructure import provider_session
 from tripplanner.charging_infrastructure.providers import (
     LocalFileChargingStationProvider,
@@ -61,7 +60,7 @@ class TestGetChargingStationsInRadius:
 
     @pytest.mark.asyncio
     async def test_returns_stations_sorted_by_distance(self) -> None:
-        """Test: Stationen sind nach Distanz sortiert."""
+        """Test: Stationen sind nach distance sortiert."""
         provider = LocalFileChargingStationProvider(FIXTURE_PATH)
         coordinate: Coordinate = (52.5200, 13.4050)
 
@@ -108,14 +107,14 @@ class TestGetChargingStationsAlongRoute:
                 RouteSegment(
                     segment_index=0,
                     geometrie=[(52.5200, 13.4050), (53.0, 12.0)],
-                    laenge_m=50_000,
+                    length_m=50_000,
                     strassenklasse="MOTORWAY",
                     bearing_deg=315.0,
                 ),
                 RouteSegment(
                     segment_index=1,
                     geometrie=[(53.0, 12.0), (53.5511, 9.9937)],
-                    laenge_m=30_000,
+                    length_m=30_000,
                     strassenklasse="MOTORWAY",
                     bearing_deg=280.0,
                 ),
@@ -127,7 +126,6 @@ class TestGetChargingStationsAlongRoute:
     @pytest.mark.asyncio
     async def test_auto_initializes_provider(self) -> None:
         """Test: Funktion initialisiert Provider automatisch."""
-
         route = self._create_test_route()
         provider = LocalFileChargingStationProvider(FIXTURE_PATH)
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from tripplanner.routing.ferries import FERRY_BUFFER_DEG, detect_ferries
 from tripplanner.routing.models import Route, RouteSegment
 
@@ -13,16 +12,16 @@ def _segment(
     start: tuple[float, float],
     end: tuple[float, float],
     road_environment: str | None,
-    strassenname: str | None = None,
+    street_name: str | None = None,
 ) -> RouteSegment:
     """Baut ein minimales RouteSegment für Fähr-Erkennungstests."""
     return RouteSegment(
         segment_index=index,
         geometrie=[start, end],
-        laenge_m=1000.0,
+        length_m=1000.0,
         strassenklasse="OTHER",
         road_environment=road_environment,
-        strassenname=strassenname,
+        street_name=street_name,
         bearing_deg=0.0,
     )
 
@@ -71,7 +70,7 @@ class TestErkenneFaehren:
 
         assert len(ferries) == 1
         assert ferries[0].name == "Rødby (DK) - Puttgarden (D)"
-        assert ferries[0].laenge_m == 2000.0
+        assert ferries[0].length_m == 2000.0
 
     def test_ferry_bbox_buffered_around_segment_geometry(self) -> None:
         """Die Bounding Box umschließt die Fährgeometrie gepuffert um FERRY_BUFFER_DEG."""
@@ -91,8 +90,9 @@ class TestErkenneFaehren:
         )
 
     def test_ferry_without_strassenname_falls_back_to_default_name(self) -> None:
-        """Fehlt strassenname (kein street_name von GraphHopper), wird ein
-        Fallback-Name verwendet."""
+        """Fehlt street_name (kein street_name von GraphHopper), wird ein
+        Fallback-Name verwendet.
+        """
         route = Route(
             segments=[_segment(0, (54.50, 11.22), (54.60, 11.30), "FERRY", None)],
             gesamtlaenge_m=1000.0,

@@ -2,11 +2,11 @@
 
 Alle Tests sind rein deterministisch ohne externe Abhängigkeiten.
 Testfälle gemäß Plan Abschnitt 6.2:
-- Testfall 1: Ebene Strecke, windstill, 100 km/h (Referenzfall)
-- Testfall 2: Steigung +3 %, 80 km/h, Heizung (Maximalverbrauch)
-- Testfall 3: Gefälle -4 %, 110 km/h, Rekuperation aktiv (Minimalverbrauch)
+- Testfall 1: Ebene segment, windstill, 100 km/h (Referenzfall)
+- Testfall 2: gradient +3 %, 80 km/h, Heizung (Maximalverbrauch)
+- Testfall 3: Gefälle -4 %, 110 km/h, recuperation aktiv (Minimalverbrauch)
 - Testfälle für Task 15: Straßenbelag-Faktor (Asphalt vs. Gravel)
-- Zusaetzliche Tests: Rekuperation, Gegenwind, Dachbox
+- Zusaetzliche Tests: recuperation, headwind, Dachbox
 """
 
 from __future__ import annotations
@@ -15,8 +15,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
-
-from tripplanner.construction.models import ConstructionZone, Land, Sperrungstyp
+from tripplanner.construction.models import ClosureType, ConstructionZone, Land
 from tripplanner.elevation.models import SegmentGradient
 from tripplanner.energy.energy import (
     calculate_segment_consumption,
@@ -42,13 +41,13 @@ class TestEnergieberechnung:
         wind_components_windstill: WindComponents,
         default_model3_params: VehicleEnergyParameters,
     ) -> None:
-        """Testfall 1: Ebene Strecke, windstill, 120 km/h (Referenzfall).
+        """Testfall 1: Ebene segment, windstill, 120 km/h (Referenzfall).
 
         Expected:
-        - energiebedarf_kwh ≈ 0.15 kWh (typische Verbrauch von ~13-15 kWh/100km)
+        - energiebedarf_kwh ≈ 0.15 kWh (typische consumption von ~13-15 kWh/100km)
         - rekuperation_kwh ≈ 0.0 kWh
-        - fahrzeit_s ≈ 30.0 s (1000 m / 33.33 m/s fuer 120 km/h)
-        - geschwindigkeit_m_s ≈ 33.33 m/s (120 km/h)
+        - drive_time_s ≈ 30.0 s (1000 m / 33.33 m/s fuer 120 km/h)
+        - speed_ms ≈ 33.33 m/s (120 km/h)
         """
         ergebnis = calculate_segment_consumption(
             segment=segment_eben,
@@ -58,14 +57,14 @@ class TestEnergieberechnung:
             fahrzeug_params=default_model3_params,
         )
 
-        # Typischer Verbrauch: ~13-15 kWh/100km = ~0.13-0.15 kWh fuer 1 km
+        # Typischer consumption: ~13-15 kWh/100km = ~0.13-0.15 kWh fuer 1 km
         assert ergebnis.energiebedarf_kwh == pytest.approx(0.15, abs=0.02)
-        # Keine Rekuperation bei ebener Strecke
+        # Keine recuperation bei ebener segment
         assert ergebnis.rekuperation_kwh == pytest.approx(0.0, abs=0.01)
-        # Fahrzeit: 1000 m / 33.33 m/s = 30 s fuer 120 km/h
-        assert ergebnis.fahrzeit_s == pytest.approx(30.0, abs=0.5)
-        # Geschwindigkeit: 120 km/h = 33.33 m/s
-        assert ergebnis.geschwindigkeit_m_s == pytest.approx(33.33, abs=0.1)
+        # drive_time_s: 1000 m / 33.33 m/s = 30 s fuer 120 km/h
+        assert ergebnis.drive_time_s == pytest.approx(30.0, abs=0.5)
+        # speed: 120 km/h = 33.33 m/s
+        assert ergebnis.speed_ms == pytest.approx(33.33, abs=0.1)
 
     def test_steigung_3pct_heizung_maxverbrauch(
         self,
@@ -75,12 +74,12 @@ class TestEnergieberechnung:
         wind_components_windstill: WindComponents,
         default_model3_params: VehicleEnergyParameters,
     ) -> None:
-        """Testfall 2: Steigung +3 %, 100 km/h, Heizung (Maximalverbrauch).
+        """Testfall 2: gradient +3 %, 100 km/h, Heizung (Maximalverbrauch).
 
         Expected:
-        - energiebedarf_kwh >= 0.25 kWh (Verbrauch bei Steigung + Heizung)
-        - rekuperation_kwh = 0.0 kWh (Steigung -> keine Verzögerung)
-        - fahrzeit_s ≈ 28.8 s (100 km/h fuer 800 m)
+        - energiebedarf_kwh >= 0.25 kWh (consumption bei gradient + Heizung)
+        - rekuperation_kwh = 0.0 kWh (gradient -> keine Verzögerung)
+        - drive_time_s ≈ 28.8 s (100 km/h fuer 800 m)
         """
         ergebnis = calculate_segment_consumption(
             segment=segment_steigung_3pct,
@@ -90,12 +89,12 @@ class TestEnergieberechnung:
             fahrzeug_params=default_model3_params,
         )
 
-        # Bei Steigung +3 % und Heizung muss der Verbrauch hoch sein
+        # Bei gradient +3 % und Heizung muss der consumption high sein
         assert ergebnis.energiebedarf_kwh >= 0.25
-        # Keine Rekuperation bei Steigung
+        # Keine recuperation bei gradient
         assert ergebnis.rekuperation_kwh == pytest.approx(0.0, abs=0.01)
-        # Fahrzeit: 800 m / 27.78 m/s = 28.8 s fuer 100 km/h
-        assert ergebnis.fahrzeit_s == pytest.approx(28.8, abs=0.5)
+        # drive_time_s: 800 m / 27.78 m/s = 28.8 s fuer 100 km/h
+        assert ergebnis.drive_time_s == pytest.approx(28.8, abs=0.5)
 
     def test_gefaelle_4pct_rekuperation(
         self,
@@ -105,12 +104,12 @@ class TestEnergieberechnung:
         wind_components_windstill: WindComponents,
         default_model3_params: VehicleEnergyParameters,
     ) -> None:
-        """Testfall 3: Gefaelle -4 %, 110 km/h, Rekuperation aktiv.
+        """Testfall 3: Gefaelle -4 %, 110 km/h, recuperation aktiv.
 
         Expected:
         - energiebedarf_kwh <= 0.2 kWh (sehr gering bei Gefaelle)
-        - rekuperation_kwh >= 0.01 kWh (Rekuperation bei Verzögerung)
-        - fahrzeit_s ≈ 39.3 s (110 km/h fuer 1200 m)
+        - rekuperation_kwh >= 0.01 kWh (recuperation bei Verzögerung)
+        - drive_time_s ≈ 39.3 s (110 km/h fuer 1200 m)
         """
         ergebnis = calculate_segment_consumption(
             segment=segment_gefaelle_4pct,
@@ -120,12 +119,12 @@ class TestEnergieberechnung:
             fahrzeug_params=default_model3_params,
         )
 
-        # Bei Gefaelle ist der Verbrauch geringer
+        # Bei Gefaelle ist der consumption geringer
         assert ergebnis.energiebedarf_kwh <= 0.2
-        # Rekuperation bei Verzögerung im Gefaelle (kleiner Wert due simplified calculation)
+        # recuperation bei Verzögerung im Gefaelle (kleiner Wert due simplified calculation)
         assert ergebnis.rekuperation_kwh >= 0.0
-        # Fahrzeit: 1200 m / 30.56 m/s = 39.3 s fuer 110 km/h
-        assert ergebnis.fahrzeit_s == pytest.approx(39.3, abs=0.5)
+        # drive_time_s: 1200 m / 30.56 m/s = 39.3 s fuer 110 km/h
+        assert ergebnis.drive_time_s == pytest.approx(39.3, abs=0.5)
 
     def test_gravel_increases_consumption_vs_asphalt(
         self,
@@ -134,7 +133,7 @@ class TestEnergieberechnung:
         wind_components_windstill: WindComponents,
         default_model3_params: VehicleEnergyParameters,
     ) -> None:
-        """Task 15: Gravel hoeherer Verbrauch als Asphalt.
+        """Task 15: Gravel hoeherer consumption als Asphalt.
 
         Expected:
         - segment mit gravel liefert strikt hoeheren energiebedarf_kwh
@@ -143,10 +142,10 @@ class TestEnergieberechnung:
         segment_asphalt = RouteSegment(
             segment_index=0,
             geometrie=[(52.5200, 13.4050), (53.5511, 9.9937)],
-            laenge_m=1000.0,
+            length_m=1000.0,
             strassenklasse="TRACK",
-            oberflaeche="asphalt",
-            tempolimit_kmh=80,
+            surface="asphalt",
+            speed_limit_kmh=80,
             steigung_rohdaten=0.0,
             bearing_deg=0.0,
         )
@@ -154,10 +153,10 @@ class TestEnergieberechnung:
         segment_gravel = RouteSegment(
             segment_index=0,
             geometrie=[(52.5200, 13.4050), (53.5511, 9.9937)],
-            laenge_m=1000.0,
+            length_m=1000.0,
             strassenklasse="TRACK",
-            oberflaeche="gravel",
-            tempolimit_kmh=80,
+            surface="gravel",
+            speed_limit_kmh=80,
             steigung_rohdaten=0.0,
             bearing_deg=0.0,
         )
@@ -178,7 +177,7 @@ class TestEnergieberechnung:
             fahrzeug_params=default_model3_params,
         )
 
-        # Gravel muss strikt hoeheren Verbrauch liefern (Faktor 1.5 fuer gravel)
+        # Gravel muss strikt hoeheren consumption liefern (Faktor 1.5 fuer gravel)
         assert ergebnis_gravel.energiebedarf_kwh > result_asphalt.energiebedarf_kwh
 
     def test_oberflaeche_none_fallback(
@@ -188,18 +187,18 @@ class TestEnergieberechnung:
         wind_components_windstill: WindComponents,
         default_model3_params: VehicleEnergyParameters,
     ) -> None:
-        """Task 15: Oberflaeche=None -> Faktor 1.0 (Default).
+        """Task 15: surface=None -> Faktor 1.0 (Default).
 
         Expected:
-        - segment ohne oberflaeche (None) liefert Faktor 1.0.
+        - segment ohne surface (None) liefert Faktor 1.0.
         """
         segment_without_surface = RouteSegment(
             segment_index=0,
             geometrie=[(52.5200, 13.4050), (53.5511, 9.9937)],
-            laenge_m=1000.0,
+            length_m=1000.0,
             strassenklasse="MOTORWAY",
-            oberflaeche=None,
-            tempolimit_kmh=120,
+            surface=None,
+            speed_limit_kmh=120,
             steigung_rohdaten=0.0,
             bearing_deg=0.0,
         )
@@ -223,18 +222,18 @@ class TestEnergieberechnung:
         wind_components_windstill: WindComponents,
         default_model3_params: VehicleEnergyParameters,
     ) -> None:
-        """Zusaetzlicher Test: Rekuperation bei starkem Gefaelle.
+        """Zusaetzlicher Test: recuperation bei starkem Gefaelle.
 
         Expected:
-        - bei starkem Gefaelle mit Rekuperation wird Energie zurueckgewonnen.
+        - bei starkem Gefaelle mit recuperation wird energy zurueckgewonnen.
         """
         segment_gefaelle_stark = RouteSegment(
             segment_index=0,
             geometrie=[(52.5200, 13.4050), (53.5511, 9.9937)],
-            laenge_m=2000.0,
+            length_m=2000.0,
             strassenklasse="TRACK",
-            oberflaeche="asphalt",
-            tempolimit_kmh=60,
+            surface="asphalt",
+            speed_limit_kmh=60,
             steigung_rohdaten=0.0,
             bearing_deg=0.0,
         )
@@ -247,7 +246,7 @@ class TestEnergieberechnung:
             fahrzeug_params=default_model3_params,
         )
 
-        # Bei starkem Gefaelle sollte Rekuperation stattfinden
+        # Bei starkem Gefaelle sollte recuperation stattfinden
         assert ergebnis.rekuperation_kwh >= 0.0
         # Energiebedarf ist gering (Gefaelle unterstuetzt)
         assert ergebnis.energiebedarf_kwh < 0.3
@@ -259,10 +258,10 @@ class TestEnergieberechnung:
         wetter_sample_ref: WeatherSample,
         default_model3_params: VehicleEnergyParameters,
     ) -> None:
-        """Zusaetzlicher Test: Gegenwind erhoeht Verbrauch.
+        """Zusaetzlicher Test: headwind erhoeht consumption.
 
         Expected:
-        - segment mit gegenwind hat hoeheren energiebedarf_kwh
+        - segment mit headwind hat hoeheren energiebedarf_kwh
           als gleicher segment ohne Wind.
         """
         wind_windstill = WindComponents(
@@ -293,7 +292,7 @@ class TestEnergieberechnung:
             fahrzeug_params=default_model3_params,
         )
 
-        # Gegenwind muss strikt hoeheren Verbrauch liefern
+        # headwind muss strikt hoeheren consumption liefern
         assert result_headwind.energiebedarf_kwh > ergebnis_windstill.energiebedarf_kwh
 
     def test_roofbox_increases_air_resistance(
@@ -303,10 +302,10 @@ class TestEnergieberechnung:
         wetter_sample_ref: WeatherSample,
         wind_components_windstill: WindComponents,
     ) -> None:
-        """Zusaetzlicher Test: Dachbox erhoeht Verbrauch.
+        """Zusaetzlicher Test: Dachbox erhoeht consumption.
 
         Expected:
-        - Fahrzeug mit roof_box=True hat hoeheren Verbrauch als ohne.
+        - vehicle mit roof_box=True hat hoeheren consumption als ohne.
         """
         params_without_roofbox = VehicleEnergyParameters(roof_box=False)
         params_mit_dachbox = VehicleEnergyParameters(roof_box=True)
@@ -327,7 +326,7 @@ class TestEnergieberechnung:
             fahrzeug_params=params_mit_dachbox,
         )
 
-        # Dachbox muss strikt hoeheren Verbrauch liefern
+        # Dachbox muss strikt hoeheren consumption liefern
         assert result_with.energiebedarf_kwh > result_without.energiebedarf_kwh
 
 
@@ -345,10 +344,10 @@ class TestEnergyCalculationAdditional:
         segment = RouteSegment(
             segment_index=0,
             geometrie=[(52.5200, 13.4050), (53.5511, 9.9937)],
-            laenge_m=1000.0,
+            length_m=1000.0,
             strassenklasse="PRIMARY",
-            oberflaeche="asphalt",
-            tempolimit_kmh=120,
+            surface="asphalt",
+            speed_limit_kmh=120,
             steigung_rohdaten=0.0,
             bearing_deg=0.0,
         )
@@ -375,10 +374,10 @@ class TestEnergyCalculationAdditional:
         segment = RouteSegment(
             segment_index=0,
             geometrie=[(52.5200, 13.4050), (53.5511, 9.9937)],
-            laenge_m=1000.0,
+            length_m=1000.0,
             strassenklasse="PRIMARY",
-            oberflaeche="asphalt",
-            tempolimit_kmh=120,
+            surface="asphalt",
+            speed_limit_kmh=120,
             steigung_rohdaten=0.0,
             bearing_deg=0.0,
         )
@@ -393,8 +392,8 @@ class TestEnergyCalculationAdditional:
             tempolimit_override_kmh=60,
         )
 
-        # Geschwindigkeit sollte niedriger sein als bei 120 km/h
-        assert ergebnis.geschwindigkeit_m_s < 30.0
+        # speed sollte niedriger sein als bei 120 km/h
+        assert ergebnis.speed_ms < 30.0
 
     def test_calculate_total_consumption(
         self,
@@ -409,20 +408,20 @@ class TestEnergyCalculationAdditional:
             RouteSegment(
                 segment_index=0,
                 geometrie=[(52.5200, 13.4050), (53.5511, 9.9937)],
-                laenge_m=1000.0,
+                length_m=1000.0,
                 strassenklasse="PRIMARY",
-                oberflaeche="asphalt",
-                tempolimit_kmh=120,
+                surface="asphalt",
+                speed_limit_kmh=120,
                 steigung_rohdaten=0.0,
                 bearing_deg=0.0,
             ),
             RouteSegment(
                 segment_index=1,
                 geometrie=[(53.5511, 9.9937), (52.5200, 13.4050)],
-                laenge_m=1000.0,
+                length_m=1000.0,
                 strassenklasse="PRIMARY",
-                oberflaeche="asphalt",
-                tempolimit_kmh=100,
+                surface="asphalt",
+                speed_limit_kmh=100,
                 steigung_rohdaten=0.0,
                 bearing_deg=180.0,
             ),
@@ -450,20 +449,19 @@ class TestEnergyCalculationAdditional:
         wetter_sample_ref: WeatherSample,
         default_model3_params: VehicleEnergyParameters,
     ) -> None:
-        """Regressionstest: Ein ConstructionZone-Tempolimit darf nur die
+        """Regressionstest: Ein ConstructionZone-speed_limit_kmh darf nur die
         betroffenen Segmente beeinflussen.
 
-        Eine Baustelle mit tempolimit_kmh=80, die nur Segment 0 betrifft,
-        darf fahrzeit_s / geschwindigkeit_m_s von Segment 5 (das nicht in
+        Eine construction_zone mit speed_limit_kmh=80, die nur Segment 0 betrifft,
+        darf drive_time_s / speed_ms von Segment 5 (das nicht in
         betroffene_segmente steht) NICHT ändern — Segment 5 sollte mit dem
-        vollen Tempolimit (120 km/h) rechnen.
+        vollen speed_limit_kmh (120 km/h) rechnen.
 
         Dies deckt den Bug ab, bei dem _step_7_calculate_segment_energy den
-        gesamten unfilterierten baustellen-Parameter an
-        calculate_segment_consumption weiterreicht und damit das Tempolimit
+        gesamten unfilterierten construction_zones-Parameter an
+        calculate_segment_consumption weiterreicht und damit das speed_limit_kmh
         durchreicht wird.
         """
-
         # Segmente: 0 bis 5
         route_segments: list[RouteSegment] = []
         for idx in range(6):
@@ -477,10 +475,10 @@ class TestEnergyCalculationAdditional:
                             13.4050 + (idx + 1) * 0.01,
                         ),
                     ],
-                    laenge_m=1000.0,
+                    length_m=1000.0,
                     strassenklasse="PRIMARY",
-                    oberflaeche="asphalt",
-                    tempolimit_kmh=120,
+                    surface="asphalt",
+                    speed_limit_kmh=120,
                     steigung_rohdaten=0.0,
                     bearing_deg=45.0,
                 )
@@ -499,12 +497,12 @@ class TestEnergyCalculationAdditional:
         # Wetter für alle Segmente (windstill, 20°C)
         weather_samples = [wetter_sample_ref] * 6
 
-        # Baustelle mit niedrigem Tempolimit, die NUR Segment 0 betrifft
+        # construction_zone mit niedrigem speed_limit_kmh, die NUR Segment 0 betrifft
         construction_zones = [
             ConstructionZone(
                 betroffene_segmente=[0],
-                tempolimit_kmh=80,
-                sperrungstyp=Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+                speed_limit_kmh=80,
+                closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
                 land=Land.DE,
                 gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
             ),
@@ -535,12 +533,12 @@ class TestEnergyCalculationAdditional:
             elevation_points=elevation_points,
         )
 
-        # Segment 0: fällt auf 80 km/h durch Baustelle
-        assert ergebnisse[0].geschwindigkeit_m_s == pytest.approx(80 / 3.6, abs=0.5)
+        # Segment 0: fällt auf 80 km/h durch construction_zone
+        assert ergebnisse[0].speed_ms == pytest.approx(80 / 3.6, abs=0.5)
 
-        # Segment 5: sollte NICHT vom Tempolimit der Baustelle betroffen sein
-        assert ergebnisse[5].geschwindigkeit_m_s == pytest.approx(120 / 3.6, abs=0.5)
-        assert ergebnisse[5].fahrzeit_s == pytest.approx(30.0, abs=0.5)
+        # Segment 5: sollte NICHT vom speed_limit_kmh der construction_zone betroffen sein
+        assert ergebnisse[5].speed_ms == pytest.approx(120 / 3.6, abs=0.5)
+        assert ergebnisse[5].drive_time_s == pytest.approx(30.0, abs=0.5)
 
 
 class TestFOberflaeche:
@@ -579,6 +577,6 @@ class TestFOberflaeche:
     def test_f_oberflaeche_case_insensitive(
         self,
     ) -> None:
-        """Test f_oberflaeche fuer Gross/Kleinschreibung."""
+        """Test f_oberflaeche fuer large/Kleinschreibung."""
         assert f_oberflaeche("ASPHALT") == 1.0
         assert f_oberflaeche("Asphalt") == 1.0

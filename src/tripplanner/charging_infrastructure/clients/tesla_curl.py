@@ -29,7 +29,7 @@ class TeslaLocationsClient(TeslaJsonEndpointsMixin):
     (Chrome 150), um den Akamai WAF von tesla.com zu umgehen. Der
     ``impersonate``-Preset generiert automatisch die korrekten HTTP/2
     Header-Sequenz und den User-Agent — manuell gesetzte Header (wie die
-    alten ``_CURL_HEADERS``) sind nicht mehr noetig, koennen aber zur
+    alten ``_CURL_HEADERS``) sind nicht more noetig, koennen aber zur
     Ueberschreibung verwendet werden.
 
     Ein ``AsyncSession``-Objekt wird pro Client-Instanz erzeugt und
@@ -166,7 +166,7 @@ class TeslaLocationsClient(TeslaJsonEndpointsMixin):
             elif response.status_code != HTTPStatus.OK:
                 raise self.CurlError(f"Tesla API: HTTP {response.status_code}")
             else:
-                return str(body)
+                return body
 
             if attempt < WAF_RETRY_MAX_ATTEMPTS:
                 await self._rotate_session()

@@ -55,15 +55,15 @@ case, widened slightly because GraphHopper snapping makes an exact 0.0
 distance rare even for stations genuinely at a highway rest stop."""
 
 _NEUTRAL_WEATHER_SAMPLE_KWARGS: dict[str, float] = {
-    "temperatur_c": 20.0,
-    "windgeschwindigkeit_ms": 5.0,
-    "windrichtung_deg": 180.0,
-    "niederschlag_mm": 0.0,
-    "schneefall_cm": 0.0,
-    "luftdruck_hpa": 1013.25,
-    "luftfeuchtigkeit_pct": 60.0,
-    "globalstrahlung_wm2": 400.0,
-    "bewoelkung_pct": 20.0,
+    "temperature_c": 20.0,
+    "wind_speed_ms": 5.0,
+    "wind_direction_deg": 180.0,
+    "precipitation_mm": 0.0,
+    "snowfall_cm": 0.0,
+    "pressure_hpa": 1013.25,
+    "humidity_pct": 60.0,
+    "solar_radiation_wm2": 400.0,
+    "cloudiness_pct": 20.0,
 }
 """Same neutral placeholder values used as the missing-weather fallback in
 `trip_input.api._step_7_calculate_segment_energy` - kept in sync
@@ -96,7 +96,7 @@ async def _route_leg_kosten(
     energy_params: VehicleEnergyParameters,
     departure_time: datetime,
 ) -> tuple[float, float, float]:
-    """Computes (distanz_m, zeit_s, energie_kwh) for one already-routed leg.
+    """Computes (distance_m, time_s, energy_kwh) for one already-routed leg.
 
     Reuses the exact same elevation -> gradient -> energy pipeline used for
     the main route (`_step_2_extract_elevation_profile` /
@@ -109,14 +109,14 @@ async def _route_leg_kosten(
     elevation_points = await elevation_provider.get_elevation_profile(leg_route)
     gradients = elevation_provider.calculate_segment_gradients(elevation_points, leg_route)
 
-    distanz_m = 0.0
-    zeit_s = 0.0
-    energie_kwh = 0.0
+    distance_m = 0.0
+    time_s = 0.0
+    energy_kwh = 0.0
     for idx, segment in enumerate(leg_route.segments):
         gradient = gradients[idx] if idx < len(gradients) else None
         wetter = WeatherSample(
             coordinate=segment.geometrie[0],
-            zeitpunkt=departure_time,
+            timestamp=departure_time,
             **_NEUTRAL_WEATHER_SAMPLE_KWARGS,
         )
         wind = WindComponents(
@@ -128,13 +128,13 @@ async def _route_leg_kosten(
             wetter=wetter,
             wind=wind,
             fahrzeug_params=energy_params,
-            baustellen=None,
+            construction_zones=None,
         )
-        distanz_m += segment.laenge_m
-        zeit_s += ergebnis.fahrzeit_s
-        energie_kwh += ergebnis.energiebedarf_kwh
+        distance_m += segment.length_m
+        time_s += ergebnis.drive_time_s
+        energy_kwh += ergebnis.energiebedarf_kwh
 
-    return distanz_m, zeit_s, energie_kwh
+    return distance_m, time_s, energy_kwh
 
 
 async def precompute_detour_costs(  # noqa: PLR0913, PLR0917

@@ -16,9 +16,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
-
 from tripplanner.construction.matching import build_strtree, nearest_segment_index
-from tripplanner.construction.models import Land, Sperrungstyp
+from tripplanner.construction.models import ClosureType, Land
 from tripplanner.construction.providers_de_autobahn import (
     AutobahnConstructionProvider,
     _extract_autobahn_ids,
@@ -32,9 +31,9 @@ def _make_route() -> Route:
     segment = RouteSegment(
         segment_index=0,
         geometrie=[(52.52, 13.405), (52.522, 13.407)],
-        laenge_m=150.0,
+        length_m=150.0,
         strassenklasse="PRIMARY",
-        tempolimit_kmh=100,
+        speed_limit_kmh=100,
         bearing_deg=35.0,
     )
     return Route(
@@ -44,16 +43,16 @@ def _make_route() -> Route:
     )
 
 
-def _make_motorway_route(strassenref: str | None = "A 5") -> Route:
+def _make_motorway_route(street_ref: str | None = "A 5") -> Route:
     """Create a test route with a single MOTORWAY segment, for DE Autobahn tests."""
     segment = RouteSegment(
         segment_index=0,
         geometrie=[(50.0000, 9.0000), (50.0100, 9.0100)],
-        laenge_m=1500.0,
+        length_m=1500.0,
         strassenklasse="MOTORWAY",
-        tempolimit_kmh=100,
+        speed_limit_kmh=100,
         bearing_deg=45.0,
-        strassenref=strassenref,
+        street_ref=street_ref,
     )
     return Route(
         segments=[segment],
@@ -104,13 +103,13 @@ class TestExtractAutobahnIds:
     """Tests für `_extract_autobahn_ids`."""
 
     def test_extracts_id_from_motorway_segment_with_strassenref(self) -> None:
-        """MOTORWAY-Segment mit strassenref 'A 5' liefert normalisiert 'A5' als ID."""
-        route = _make_motorway_route(strassenref="A 5")
+        """MOTORWAY-Segment mit street_ref 'A 5' liefert normalisiert 'A5' als ID."""
+        route = _make_motorway_route(street_ref="A 5")
         assert _extract_autobahn_ids(route) == {"A5"}
 
     def test_extracts_id_from_strassenref_without_space(self) -> None:
-        """strassenref 'A9' (ohne Leerzeichen) wird korrekt extrahiert."""
-        route = _make_motorway_route(strassenref="A9")
+        """street_ref 'A9' (ohne Leerzeichen) wird korrekt extrahiert."""
+        route = _make_motorway_route(street_ref="A9")
         assert _extract_autobahn_ids(route) == {"A9"}
 
     def test_extracts_id_from_descriptive_ref(self) -> None:
@@ -118,9 +117,9 @@ class TestExtractAutobahnIds:
         seg1 = RouteSegment(
             segment_index=0,
             geometrie=[(50.0, 9.0), (50.01, 9.01)],
-            laenge_m=500.0,
+            length_m=500.0,
             strassenklasse="MOTORWAY",
-            strassenref="Bundesautobahn A 9",
+            street_ref="Bundesautobahn A 9",
             bearing_deg=10.0,
         )
         route = Route(
@@ -135,8 +134,8 @@ class TestExtractAutobahnIds:
         assert _extract_autobahn_ids(_make_route()) == set()
 
     def test_skips_motorway_segment_without_strassenref(self) -> None:
-        """MOTORWAY-Segment ohne strassenref wird übersprungen."""
-        route = _make_motorway_route(strassenref=None)
+        """MOTORWAY-Segment ohne street_ref wird übersprungen."""
+        route = _make_motorway_route(street_ref=None)
         assert _extract_autobahn_ids(route) == set()
 
     def test_deduplicates_multiple_segments_same_autobahn(self) -> None:
@@ -144,17 +143,17 @@ class TestExtractAutobahnIds:
         seg1 = RouteSegment(
             segment_index=0,
             geometrie=[(50.0, 9.0), (50.01, 9.01)],
-            laenge_m=500.0,
+            length_m=500.0,
             strassenklasse="MOTORWAY",
-            strassenref="A 5",
+            street_ref="A 5",
             bearing_deg=10.0,
         )
         seg2 = RouteSegment(
             segment_index=1,
             geometrie=[(50.01, 9.01), (50.02, 9.02)],
-            laenge_m=500.0,
+            length_m=500.0,
             strassenklasse="MOTORWAY",
-            strassenref="A 5",
+            street_ref="A 5",
             bearing_deg=10.0,
         )
         route = Route(
@@ -169,25 +168,25 @@ class TestExtractAutobahnIds:
         seg1 = RouteSegment(
             segment_index=0,
             geometrie=[(50.0, 9.0), (50.01, 9.01)],
-            laenge_m=500.0,
+            length_m=500.0,
             strassenklasse="MOTORWAY",
-            strassenref="A 5",
+            street_ref="A 5",
             bearing_deg=10.0,
         )
         seg2 = RouteSegment(
             segment_index=1,
             geometrie=[(50.01, 9.01), (50.02, 9.02)],
-            laenge_m=500.0,
+            length_m=500.0,
             strassenklasse="MOTORWAY",
-            strassenref="A 9",
+            street_ref="A 9",
             bearing_deg=10.0,
         )
         seg3 = RouteSegment(
             segment_index=2,
             geometrie=[(50.02, 9.02), (50.03, 9.03)],
-            laenge_m=500.0,
+            length_m=500.0,
             strassenklasse="MOTORWAY",
-            strassenref="A 5",
+            street_ref="A 5",
             bearing_deg=10.0,
         )
         route = Route(
@@ -202,9 +201,9 @@ class TestExtractAutobahnIds:
         seg1 = RouteSegment(
             segment_index=0,
             geometrie=[(50.0, 9.0), (50.01, 9.01)],
-            laenge_m=500.0,
+            length_m=500.0,
             strassenklasse="MOTORWAY",
-            strassenref="B 3",
+            street_ref="B 3",
             bearing_deg=10.0,
         )
         route = Route(
@@ -243,8 +242,8 @@ class TestParseAutobahnRoadwork:
         assert zone is not None
         assert zone.land == Land.DE
         assert zone.betroffene_segmente == [0]
-        assert zone.sperrungstyp == Sperrungstyp.TEMPORARY_SPEED_LIMIT
-        assert zone.tempolimit_kmh == 80
+        assert zone.closure_type == ClosureType.TEMPORARY_SPEED_LIMIT
+        assert zone.speed_limit_kmh == 80
         assert zone.gueltig_von == datetime.fromisoformat("2024-06-01T08:00:00+02:00")
         assert zone.gueltig_bis is None
         assert zone.umleitungshinweis is None
@@ -257,11 +256,11 @@ class TestParseAutobahnRoadwork:
         zone = _parse_autobahn_roadwork(entry, route)
 
         assert zone is not None
-        assert zone.sperrungstyp == Sperrungstyp.PARTIALLY_CLOSED
-        assert zone.tempolimit_kmh == 80
+        assert zone.closure_type == ClosureType.PARTIALLY_CLOSED
+        assert zone.speed_limit_kmh == 80
 
     def test_missing_start_timestamp_falls_back_to_now(self) -> None:
-        """Ohne startTimestamp wird die aktuelle Zeit (UTC) als gueltig_von genutzt."""
+        """Ohne startTimestamp wird die aktuelle time (UTC) als gueltig_von genutzt."""
         route = _make_motorway_route()
         entry = _sample_autobahn_entry()
         del entry["startTimestamp"]
@@ -311,9 +310,9 @@ class TestFetchDeRoadworks:
 
     @pytest.mark.asyncio
     async def test_fetches_roadworks_for_extracted_ids_only(self) -> None:
-        """Holt nur Roadworks für die aus strassenref extrahierten IDs — keine Liste."""
+        """Holt nur Roadworks für die aus street_ref extrahierten IDs — keine Liste."""
         provider = _make_provider()
-        route = _make_motorway_route(strassenref="A 5")
+        route = _make_motorway_route(street_ref="A 5")
 
         # Mock roadworks response (no list endpoint call anymore)
         sample_entry = _sample_autobahn_entry()
@@ -340,7 +339,7 @@ class TestFetchDeRoadworks:
 
     @pytest.mark.asyncio
     async def test_requests_url_without_space_for_strassenref_with_space(self) -> None:
-        """strassenref 'A 5' (mit Leerzeichen) darf die API-URL nicht mit Leerzeichen aufrufen.
+        """street_ref 'A 5' (mit Leerzeichen) darf die API-URL nicht mit Leerzeichen aufrufen.
 
         Live-verifiziert: `.../A%205/services/roadworks` (URL-kodiertes
         Leerzeichen) liefert HTTP 200 mit `{"roadworks": []}` statt eines
@@ -348,7 +347,7 @@ class TestFetchDeRoadworks:
         Fehlschlags. Die ID muss daher vor dem Request normalisiert werden.
         """
         provider = _make_provider()
-        route = _make_motorway_route(strassenref="A 5")
+        route = _make_motorway_route(street_ref="A 5")
 
         roadworks_resp = MagicMock(spec=httpx.Response)
         roadworks_resp.raise_for_status = MagicMock()
@@ -378,9 +377,9 @@ class TestFetchDeRoadworks:
 
     @pytest.mark.asyncio
     async def test_no_zones_when_strassenref_is_none(self) -> None:
-        """MOTORWAY ohne strassenref: keine API-Calls."""
+        """MOTORWAY ohne street_ref: keine API-Calls."""
         provider = _make_provider()
-        route = _make_motorway_route(strassenref=None)
+        route = _make_motorway_route(street_ref=None)
 
         strtree, seg_geoms = _build_strtree(route)
 
@@ -399,20 +398,20 @@ class TestFetchDeRoadworks:
                 RouteSegment(
                     segment_index=0,
                     geometrie=[(50.0, 9.0), (50.01, 9.01)],
-                    laenge_m=1500.0,
+                    length_m=1500.0,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=100,
+                    speed_limit_kmh=100,
                     bearing_deg=45.0,
-                    strassenref="A 5",
+                    street_ref="A 5",
                 ),
                 RouteSegment(
                     segment_index=1,
                     geometrie=[(50.01, 9.01), (50.02, 9.02)],
-                    laenge_m=1500.0,
+                    length_m=1500.0,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=100,
+                    speed_limit_kmh=100,
                     bearing_deg=45.0,
-                    strassenref="A 9",
+                    street_ref="A 9",
                 ),
             ],
             gesamtlaenge_m=3000.0,
@@ -465,7 +464,7 @@ class TestFetchConstructionZonesPublicApi:
     async def test_builds_own_strtree_and_returns_de_zones(self) -> None:
         """`fetch_construction_zones([Land.DE])` baut den eigenen STRtree und liefert Zonen."""
         provider = _make_provider()
-        route = _make_motorway_route(strassenref="A 5")
+        route = _make_motorway_route(street_ref="A 5")
 
         roadworks_resp = MagicMock(spec=httpx.Response)
         roadworks_resp.raise_for_status = MagicMock()
@@ -605,23 +604,23 @@ class TestDeDirectionLimitation:
 
 
 class TestDeLaengeM:
-    """`laenge_m` derivation for DE: matched-segment span (no LineString geometry).
+    """`length_m` derivation for DE: matched-segment span (no LineString geometry).
 
     Relocated from `test_direction_matching.py`.
     """
 
     def test_de_roadwork_laenge_m_from_matched_segment_span(self) -> None:
-        """DE (point-only) derives laenge_m from the matched route segment's own length."""
+        """DE (point-only) derives length_m from the matched route segment's own length."""
         route = _make_motorway_route()
         entry = _sample_autobahn_entry(coordinate={"lat": 50.0005, "long": 9.0005})
 
         zone = _parse_autobahn_roadwork(entry, route)
 
         assert zone is not None
-        assert zone.laenge_m == pytest.approx(route.segments[0].laenge_m)
+        assert zone.length_m == pytest.approx(route.segments[0].length_m)
 
     def test_de_roadwork_no_match_has_no_laenge_m(self) -> None:
-        """A DE roadwork beyond the distance threshold yields no zone (and no laenge_m)."""
+        """A DE roadwork beyond the distance threshold yields no zone (and no length_m)."""
         route = _make_motorway_route()
         entry = _sample_autobahn_entry(coordinate={"lat": 52.0, "long": 13.0})
 

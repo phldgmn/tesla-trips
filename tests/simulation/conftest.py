@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-
 from tripplanner.charging_infrastructure.models import (
     ChargingStation,
     ConnectorType,
@@ -24,16 +23,16 @@ LEIPZIG_COORD: Coordinate = (51.3397, 12.3731)
 def make_route_segment(
     segment_index: int,
     geometrie: list[Coordinate],
-    laenge_m: float,
+    length_m: float,
     strassenklasse: str = "MOTORWAY",
 ) -> RouteSegment:
     """Hilfsfunktion zur Erstellung von RouteSegment-Instanzen."""
     return RouteSegment(
         segment_index=segment_index,
         geometrie=geometrie,
-        laenge_m=laenge_m,
+        length_m=length_m,
         strassenklasse=strassenklasse,
-        tempolimit_kmh=120,
+        speed_limit_kmh=120,
         bearing_deg=45.0,
     )
 
@@ -41,9 +40,9 @@ def make_route_segment(
 def make_segment_energy_result(
     segment_index: int,
     energiebedarf_kwh: float,
-    fahrzeit_s: float,
-    geschwindigkeit_m_s: float,
-    streckenlaenge_m: float,
+    drive_time_s: float,
+    speed_ms: float,
+    segment_length_m: float,
 ) -> SegmentEnergyResult:
     """Hilfsfunktion zur Erstellung von SegmentEnergyResult-Instanzen."""
     return SegmentEnergyResult(
@@ -51,9 +50,9 @@ def make_segment_energy_result(
         energiebedarf_kwh=energiebedarf_kwh,
         rekuperation_kwh=0.0,
         energiebedarf_brutto_kwh=energiebedarf_kwh,
-        geschwindigkeit_m_s=geschwindigkeit_m_s,
-        fahrzeit_s=fahrzeit_s,
-        streckenlaenge_m=streckenlaenge_m,
+        speed_ms=speed_ms,
+        drive_time_s=drive_time_s,
+        segment_length_m=segment_length_m,
     )
 
 
@@ -89,7 +88,7 @@ def make_charging_stop(
         arrival_soc_pct=arrival_soc_pct,
         target_soc_pct=target_soc_pct,
         geschaetzte_ladedauer_s=estimated_charge_duration_s,
-        ankunftszeit=arrival_time,
+        arrival_time=arrival_time,
         departure_time=arrival_time + timedelta(seconds=estimated_charge_duration_s),
     )
 
@@ -103,17 +102,17 @@ def route_no_charging() -> Route:
             make_route_segment(
                 segment_index=0,
                 geometrie=[BERLIN_COORD, (51.5, 12.0), LEIPZIG_COORD],
-                laenge_m=50_000,
+                length_m=50_000,
             ),
             make_route_segment(
                 segment_index=1,
                 geometrie=[LEIPZIG_COORD, (51.0, 10.0), (50.5, 9.0)],
-                laenge_m=60_000,
+                length_m=60_000,
             ),
             make_route_segment(
                 segment_index=2,
                 geometrie=[(50.5, 9.0), FRANKFURT_COORD],
-                laenge_m=40_000,
+                length_m=40_000,
             ),
         ],
         gesamtlaenge_m=150_000,
@@ -128,23 +127,23 @@ def energy_results_no_charging() -> list[SegmentEnergyResult]:
         make_segment_energy_result(
             segment_index=0,
             energiebedarf_kwh=8.5,
-            fahrzeit_s=1500,
-            geschwindigkeit_m_s=33.33,
-            streckenlaenge_m=50_000,
+            drive_time_s=1500,
+            speed_ms=33.33,
+            segment_length_m=50_000,
         ),
         make_segment_energy_result(
             segment_index=1,
             energiebedarf_kwh=9.2,
-            fahrzeit_s=1800,
-            geschwindigkeit_m_s=33.33,
-            streckenlaenge_m=60_000,
+            drive_time_s=1800,
+            speed_ms=33.33,
+            segment_length_m=60_000,
         ),
         make_segment_energy_result(
             segment_index=2,
             energiebedarf_kwh=7.8,
-            fahrzeit_s=1200,
-            geschwindigkeit_m_s=33.33,
-            streckenlaenge_m=40_000,
+            drive_time_s=1200,
+            speed_ms=33.33,
+            segment_length_m=40_000,
         ),
     ]
 
@@ -167,17 +166,17 @@ def route_with_charging() -> Route:
             make_route_segment(
                 segment_index=0,
                 geometrie=[BERLIN_COORD, LEIPZIG_COORD],
-                laenge_m=50_000,
+                length_m=50_000,
             ),
             make_route_segment(
                 segment_index=1,
                 geometrie=[LEIPZIG_COORD, (50.5, 9.0)],
-                laenge_m=60_000,
+                length_m=60_000,
             ),
             make_route_segment(
                 segment_index=2,
                 geometrie=[(50.5, 9.0), FRANKFURT_COORD],
-                laenge_m=40_000,
+                length_m=40_000,
             ),
         ],
         gesamtlaenge_m=150_000,
@@ -192,23 +191,23 @@ def energy_results_with_charging() -> list[SegmentEnergyResult]:
         make_segment_energy_result(
             segment_index=0,
             energiebedarf_kwh=8.5,
-            fahrzeit_s=1500,
-            geschwindigkeit_m_s=33.33,
-            streckenlaenge_m=50_000,
+            drive_time_s=1500,
+            speed_ms=33.33,
+            segment_length_m=50_000,
         ),
         make_segment_energy_result(
             segment_index=1,
             energiebedarf_kwh=9.2,
-            fahrzeit_s=1800,
-            geschwindigkeit_m_s=33.33,
-            streckenlaenge_m=60_000,
+            drive_time_s=1800,
+            speed_ms=33.33,
+            segment_length_m=60_000,
         ),
         make_segment_energy_result(
             segment_index=2,
             energiebedarf_kwh=7.8,
-            fahrzeit_s=1200,
-            geschwindigkeit_m_s=33.33,
-            streckenlaenge_m=40_000,
+            drive_time_s=1200,
+            speed_ms=33.33,
+            segment_length_m=40_000,
         ),
     ]
 
@@ -253,12 +252,12 @@ def route_small() -> Route:
             make_route_segment(
                 segment_index=0,
                 geometrie=[BERLIN_COORD, (52.0, 13.0)],
-                laenge_m=5000,
+                length_m=5000,
             ),
             make_route_segment(
                 segment_index=1,
                 geometrie=[(52.0, 13.0), LEIPZIG_COORD],
-                laenge_m=5000,
+                length_m=5000,
             ),
         ],
         gesamtlaenge_m=10_000,
@@ -273,15 +272,15 @@ def energy_results_small() -> list[SegmentEnergyResult]:
         make_segment_energy_result(
             segment_index=0,
             energiebedarf_kwh=1.0,
-            fahrzeit_s=300,
-            geschwindigkeit_m_s=16.67,
-            streckenlaenge_m=5000,
+            drive_time_s=300,
+            speed_ms=16.67,
+            segment_length_m=5000,
         ),
         make_segment_energy_result(
             segment_index=1,
             energiebedarf_kwh=1.2,
-            fahrzeit_s=360,
-            geschwindigkeit_m_s=13.89,
-            streckenlaenge_m=5000,
+            drive_time_s=360,
+            speed_ms=13.89,
+            segment_length_m=5000,
         ),
     ]

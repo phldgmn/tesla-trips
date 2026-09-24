@@ -3,7 +3,6 @@
 import math
 
 import pytest
-
 from tripplanner.geo import Coordinate, bearing_deg, geodesic_length_m, haversine_distance_m
 
 BERLIN: Coordinate = (52.5200, 13.4050)
@@ -57,19 +56,19 @@ def test_haversine_distance_berlin_hamburg_matches_known_value() -> None:
 
 
 def test_haversine_distance_is_symmetric() -> None:
-    """Distanz(a, b) == Distanz(b, a)."""
+    """distance(a, b) == distance(b, a)."""
     assert haversine_distance_m(BERLIN, HAMBURG) == pytest.approx(
         haversine_distance_m(HAMBURG, BERLIN)
     )
 
 
 def test_haversine_distance_zero_for_identical_point() -> None:
-    """Distanz eines Punktes zu sich selbst ist 0."""
+    """distance eines Punktes zu sich selbst ist 0."""
     assert haversine_distance_m(BERLIN, BERLIN) == pytest.approx(0.0, abs=1e-6)
 
 
 def test_haversine_distance_quarter_meridian_matches_earth_radius() -> None:
-    """Distanz vom Äquator zum Nordpol entspricht einem Viertel des Erdumfangs."""
+    """distance vom Äquator zum Nordpol entspricht einem Viertel des Erdumfangs."""
     equator: Coordinate = (0.0, 0.0)
     north_pole: Coordinate = (90.0, 0.0)
     expected = math.pi / 2 * 6_371_000.0
@@ -95,5 +94,5 @@ def test_geodesic_length_m_empty_path_is_zero() -> None:
 
 
 def test_geodesic_length_m_single_point_is_zero() -> None:
-    """Pfad mit nur einem Punkt hat Länge 0 (keine Distanz definiert)."""
+    """Pfad mit nur einem Punkt hat Länge 0 (keine distance definiert)."""
     assert geodesic_length_m([BERLIN]) == 0.0

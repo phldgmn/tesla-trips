@@ -17,13 +17,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-
 from tripplanner.cache.store import TTLCache
 from tripplanner.construction import matching
 from tripplanner.construction.models import (
+    ClosureType,
     ConstructionZone,
     Land,
-    Sperrungstyp,
 )
 from tripplanner.construction.parser import DATEXIIConstructionZoneInternal
 from tripplanner.construction.providers import (
@@ -44,9 +43,9 @@ def _make_route() -> Route:
     segment = RouteSegment(
         segment_index=0,
         geometrie=[(52.52, 13.405), (52.522, 13.407)],
-        laenge_m=150.0,
+        length_m=150.0,
         strassenklasse="PRIMARY",
-        tempolimit_kmh=100,
+        speed_limit_kmh=100,
         bearing_deg=35.0,
     )
     return Route(
@@ -56,16 +55,16 @@ def _make_route() -> Route:
     )
 
 
-def _make_motorway_route(strassenref: str | None = "A 5") -> Route:
+def _make_motorway_route(street_ref: str | None = "A 5") -> Route:
     """Create a test route with a single MOTORWAY segment, for DE Autobahn tests."""
     segment = RouteSegment(
         segment_index=0,
         geometrie=[(50.0000, 9.0000), (50.0100, 9.0100)],
-        laenge_m=1500.0,
+        length_m=1500.0,
         strassenklasse="MOTORWAY",
-        tempolimit_kmh=100,
+        speed_limit_kmh=100,
         bearing_deg=45.0,
-        strassenref=strassenref,
+        street_ref=street_ref,
     )
     return Route(
         segments=[segment],
@@ -202,12 +201,12 @@ class TestZoneToGeometry:
         """Eine Zone mit mehreren Koordinaten wird zu einem LineString konvertiert."""
         _make_provider()
         zone = DATEXIIConstructionZoneInternal(
-            sperrungstyp="partiallyClosed",
+            closure_type="partiallyClosed",
             gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
             gueltig_bis=None,
             koordinaten=[(52.52, 13.405), (52.522, 13.407)],
             umleitungshinweis=None,
-            tempolimit_kmh=80,
+            speed_limit_kmh=80,
         )
 
         geom = matching.zone_to_geometry(zone)
@@ -219,12 +218,12 @@ class TestZoneToGeometry:
         """Eine Zone mit genau einem Punkt wird zu einem Point konvertiert."""
         _make_provider()
         zone = DATEXIIConstructionZoneInternal(
-            sperrungstyp="partiallyClosed",
+            closure_type="partiallyClosed",
             gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
             gueltig_bis=None,
             koordinaten=[(52.52, 13.405)],
             umleitungshinweis=None,
-            tempolimit_kmh=80,
+            speed_limit_kmh=80,
         )
 
         geom = matching.zone_to_geometry(zone)
@@ -235,12 +234,12 @@ class TestZoneToGeometry:
         """Eine Zone ohne Koordinaten wird zu einer leeren LineString konvertiert."""
         _make_provider()
         zone = DATEXIIConstructionZoneInternal(
-            sperrungstyp="partiallyClosed",
+            closure_type="partiallyClosed",
             gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
             gueltig_bis=None,
             koordinaten=[],
             umleitungshinweis=None,
-            tempolimit_kmh=80,
+            speed_limit_kmh=80,
         )
 
         geom = matching.zone_to_geometry(zone)
@@ -259,12 +258,12 @@ class TestMatchZonesToSegmentIds:
         strtree, seg_geoms = _build_strtree(route)
 
         zone = DATEXIIConstructionZoneInternal(
-            sperrungstyp="partiallyClosed",
+            closure_type="partiallyClosed",
             gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
             gueltig_bis=None,
             koordinaten=[(52.52, 13.405), (52.522, 13.407)],
             umleitungshinweis=None,
-            tempolimit_kmh=80,
+            speed_limit_kmh=80,
         )
 
         ids = matching.match_zones_to_segment_ids(zone, strtree, seg_geoms)
@@ -278,12 +277,12 @@ class TestMatchZonesToSegmentIds:
         strtree, seg_geoms = _build_strtree(route)
 
         zone = DATEXIIConstructionZoneInternal(
-            sperrungstyp="partiallyClosed",
+            closure_type="partiallyClosed",
             gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
             gueltig_bis=None,
             koordinaten=[(9.0, 53.0), (9.1, 53.1)],  # Hamburg, nicht Berlin
             umleitungshinweis=None,
-            tempolimit_kmh=80,
+            speed_limit_kmh=80,
         )
 
         ids = matching.match_zones_to_segment_ids(zone, strtree, seg_geoms)
@@ -297,12 +296,12 @@ class TestMatchZonesToSegmentIds:
         strtree, seg_geoms = _build_strtree(route)
 
         zone = DATEXIIConstructionZoneInternal(
-            sperrungstyp="partiallyClosed",
+            closure_type="partiallyClosed",
             gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
             gueltig_bis=None,
             koordinaten=[(52.52, 13.405)],  # on segment endpoint
             umleitungshinweis=None,
-            tempolimit_kmh=80,
+            speed_limit_kmh=80,
         )
 
         ids = matching.match_zones_to_segment_ids(zone, strtree, seg_geoms)
@@ -316,12 +315,12 @@ class TestMatchZonesToSegmentIds:
         strtree, seg_geoms = _build_strtree(route)
 
         zone = DATEXIIConstructionZoneInternal(
-            sperrungstyp="partiallyClosed",
+            closure_type="partiallyClosed",
             gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
             gueltig_bis=None,
             koordinaten=[(9.0, 53.0)],  # Hamburg
             umleitungshinweis=None,
-            tempolimit_kmh=80,
+            speed_limit_kmh=80,
         )
 
         ids = matching.match_zones_to_segment_ids(zone, strtree, seg_geoms)
@@ -334,25 +333,25 @@ class TestMapClosureType:
     def test_maps_common_xsi_types(self) -> None:
         """Häufige DATEX II xsi:type-Werte werden korrekt gemappt."""
         _make_provider()
-        assert matching.map_closure_type("fullyClosed") == Sperrungstyp.FULLY_CLOSED
-        assert matching.map_closure_type("partiallyClosed") == Sperrungstyp.PARTIALLY_CLOSED
-        assert matching.map_closure_type("laneClosed") == Sperrungstyp.LANE_CLOSED
+        assert matching.map_closure_type("fullyClosed") == ClosureType.FULLY_CLOSED
+        assert matching.map_closure_type("partiallyClosed") == ClosureType.PARTIALLY_CLOSED
+        assert matching.map_closure_type("laneClosed") == ClosureType.LANE_CLOSED
         assert (
-            matching.map_closure_type("temporarySpeedLimit") == Sperrungstyp.TEMPORARY_SPEED_LIMIT
+            matching.map_closure_type("temporarySpeedLimit") == ClosureType.TEMPORARY_SPEED_LIMIT
         )
-        assert matching.map_closure_type("detrourRequired") == Sperrungstyp.DETOUR_REQUIRED
+        assert matching.map_closure_type("detrourRequired") == ClosureType.DETOUR_REQUIRED
 
     def test_unknown_xsi_type_defaults_to_partially_closed(self) -> None:
         """Unbekannte xsi:type-Werte fallen auf PARTIALLY_CLOSED zurück."""
         _make_provider()
 
-        assert matching.map_closure_type("unknownType") == Sperrungstyp.PARTIALLY_CLOSED
+        assert matching.map_closure_type("unknownType") == ClosureType.PARTIALLY_CLOSED
 
     def test_roadworks_maps_to_partially_closed(self) -> None:
         """'Roadworks' und 'MaintenanceWorks' werden als PARTIALLY_CLOSED gemappt."""
         _make_provider()
-        assert matching.map_closure_type("Roadworks") == Sperrungstyp.PARTIALLY_CLOSED
-        assert matching.map_closure_type("MaintenanceWorks") == Sperrungstyp.PARTIALLY_CLOSED
+        assert matching.map_closure_type("Roadworks") == ClosureType.PARTIALLY_CLOSED
+        assert matching.map_closure_type("MaintenanceWorks") == ClosureType.PARTIALLY_CLOSED
 
 
 class TestHasCredentials:
@@ -560,7 +559,7 @@ class TestFetchErrorHandling:
         assert zones == []
 
     async def test_unexpected_exception_propagates(self) -> None:
-        """Programmierfehler werden nicht als "keine Baustellen" verschluckt."""
+        """Programmierfehler werden nicht als "keine construction_zones" verschluckt."""
         provider = _make_provider()
         provider._client.post = AsyncMock(return_value=self._make_token_resp())
         provider._client.get = AsyncMock(side_effect=ValueError("unexpected"))
@@ -580,7 +579,8 @@ class TestDkRequestAuth:
         self,
     ) -> None:
         """DK fetches a bearer token via POST to Azure AD, then
-        GETs DateX2 with Authorization: Bearer."""
+        GETs DateX2 with Authorization: Bearer.
+        """
         config = ConstructionProviderConfig(
             dk_client_id="client-1",
             dk_secret="secret-1",
@@ -746,7 +746,6 @@ class TestSeRequestXml:
     @pytest.mark.asyncio
     async def test_se_request_is_post_with_xml_body_and_authenticationkey(self) -> None:
         """SE sends a POST with XML body containing authenticationkey; response is JSON."""
-
         config = ConstructionProviderConfig(tv_api_key="se-secret-key")
         provider = _make_provider(config)
         se_json_fixture = json.loads(
@@ -779,8 +778,8 @@ class TestFetchConstructionZones:
         """Alle drei Länder (DE, DK, SE) werden parallel abgerufen."""
         de_zone = ConstructionZone(
             betroffene_segmente=[0],
-            tempolimit_kmh=80,
-            sperrungstyp=Sperrungstyp.PARTIALLY_CLOSED,
+            speed_limit_kmh=80,
+            closure_type=ClosureType.PARTIALLY_CLOSED,
             umleitungshinweis=None,
             land=Land.DE,
             gueltig_von=datetime.now(UTC),
@@ -876,8 +875,8 @@ class TestFakeConstructionProvider:
         """Ein Fake-Provider mit Test-Zonen liefert diese zurück."""
         zone = ConstructionZone(
             betroffene_segmente=[0],
-            tempolimit_kmh=80,
-            sperrungstyp=Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+            speed_limit_kmh=80,
+            closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
             umleitungshinweis=None,
             land=Land.DE,
             gueltig_von=datetime.now(UTC),
@@ -896,8 +895,8 @@ class TestFakeConstructionProvider:
         """Bei Angabe von Ländern werden nur Zonen dieses Landes zurückgegeben."""
         de_zone = ConstructionZone(
             betroffene_segmente=[0],
-            tempolimit_kmh=80,
-            sperrungstyp=Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+            speed_limit_kmh=80,
+            closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
             umleitungshinweis=None,
             land=Land.DE,
             gueltig_von=datetime.now(UTC),
@@ -905,8 +904,8 @@ class TestFakeConstructionProvider:
         )
         dk_zone = ConstructionZone(
             betroffene_segmente=[1],
-            tempolimit_kmh=80,
-            sperrungstyp=Sperrungstyp.PARTIALLY_CLOSED,
+            speed_limit_kmh=80,
+            closure_type=ClosureType.PARTIALLY_CLOSED,
             umleitungshinweis=None,
             land=Land.DK,
             gueltig_von=datetime.now(UTC),
@@ -938,8 +937,8 @@ class TestFakeConstructionProvider:
         """Die zurückgegebene Liste ist eine Kopie, keine Referenz."""
         zone = ConstructionZone(
             betroffene_segmente=[0],
-            tempolimit_kmh=80,
-            sperrungstyp=Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+            speed_limit_kmh=80,
+            closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
             umleitungshinweis=None,
             land=Land.DE,
             gueltig_von=datetime.now(UTC),
@@ -1075,11 +1074,11 @@ class TestLandscapeZonesCache:
                 RouteSegment(
                     segment_index=0,
                     geometrie=[(50.02, 9.02), (50.03, 9.03)],
-                    laenge_m=1500.0,
+                    length_m=1500.0,
                     strassenklasse="MOTORWAY",
-                    tempolimit_kmh=100,
+                    speed_limit_kmh=100,
                     bearing_deg=45.0,
-                    strassenref="A 5",
+                    street_ref="A 5",
                 ),
             ],
             gesamtlaenge_m=1500.0,
@@ -1131,7 +1130,6 @@ class TestCachePickle:
     @pytest.mark.asyncio
     async def test_construction_zone_round_trip(self, tmp_path: Path) -> None:
         """ConstructionZone serialises and deserialises via TTLCache."""
-
         cache = TTLCache(
             namespace="roundtrip",
             ttl_seconds=300.0,
@@ -1140,8 +1138,8 @@ class TestCachePickle:
 
         zone = ConstructionZone(
             betroffene_segmente=[0, 1],
-            tempolimit_kmh=80,
-            sperrungstyp=Sperrungstyp.TEMPORARY_SPEED_LIMIT,
+            speed_limit_kmh=80,
+            closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
             umleitungshinweis="Test umleitung",
             land=Land.DK,
             gueltig_von=datetime(2024, 6, 1, 8, 0, 0, tzinfo=UTC),
@@ -1154,8 +1152,8 @@ class TestCachePickle:
         assert loaded is not None
         restored = ConstructionZone.model_validate(loaded[0])
         assert restored.betroffene_segmente == [0, 1]
-        assert restored.tempolimit_kmh == 80
-        assert restored.sperrungstyp == Sperrungstyp.TEMPORARY_SPEED_LIMIT
+        assert restored.speed_limit_kmh == 80
+        assert restored.closure_type == ClosureType.TEMPORARY_SPEED_LIMIT
         assert restored.umleitungshinweis == "Test umleitung"
         assert restored.land == Land.DK
         assert restored.gueltig_von == datetime(2024, 6, 1, 8, 0, 0, tzinfo=UTC)
@@ -1164,7 +1162,6 @@ class TestCachePickle:
     @pytest.mark.asyncio
     async def test_construction_zone_empty_result_round_trip(self, tmp_path: Path) -> None:
         """Empty result list round-trips correctly."""
-
         cache = TTLCache(
             namespace="empty",
             ttl_seconds=300.0,

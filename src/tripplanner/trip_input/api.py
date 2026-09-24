@@ -165,7 +165,7 @@ async def refresh_supercharger(
     Browser das Lesen der Antwort unabhaengig vom WAF-Status verweigert.
 
     Nur ein Scrape laeuft gleichzeitig (`scrape_slot`); wurde die Station
-    vor weniger als `REFRESH_COOLDOWN` aktualisiert, wird der gespeicherte
+    vor less als `REFRESH_COOLDOWN` aktualisiert, wird der gespeicherte
     Stand ohne Scrape geliefert (Header `X-Cache: HIT`).
 
     Args:
@@ -217,7 +217,7 @@ async def get_supercharger_pricing(
     slug: SlugPath,
     provider: TeslaChargingStationProvider = Depends(get_supercharger_provider),  # noqa: B008
 ) -> SuperchargerPricingAPI:
-    """Liest zwischengespeicherte Preisdaten einer Station, ohne sie neu abzurufen.
+    """Liest zwischengespeicherte Preisdaten einer Station, ohne sie new abzurufen.
 
     Args:
         slug: tesla_location_id (location_url_slug).
@@ -393,16 +393,16 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
             target_soc_pct=ergebnis.target_soc_pct,
             frames=[
                 FrameAPI(
-                    timestamp=f.zeitpunkt.isoformat(),
+                    timestamp=f.timestamp.isoformat(),
                     position=f.position,
-                    distance_m=f.distanz_m,
+                    distance_m=f.distance_m,
                     soc_pct=f.soc_pct,
                     state=f.zustand.value,
-                    speed_kmh=f.geschwindigkeit_kmh,
-                    temperature_c=f.temperatur_c,
-                    wind_speed_ms=f.windgeschwindigkeit_ms,
-                    wind_direction_deg=f.windrichtung_deg,
-                    precipitation_mm=f.niederschlag_mm,
+                    speed_kmh=f.speed_kmh,
+                    temperature_c=f.temperature_c,
+                    wind_speed_ms=f.wind_speed_ms,
+                    wind_direction_deg=f.wind_direction_deg,
+                    precipitation_mm=f.precipitation_mm,
                 )
                 for f in ergebnis.frames
             ],
@@ -411,7 +411,7 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
                     name=stop.name,
                     station_id=stop.station_id,
                     position=stop.position,
-                    distance_m=stop.distanz_m,
+                    distance_m=stop.distance_m,
                     detour_geometry=stop.detour_geometrie,
                     route_index_before=stop.route_index_vor,
                     route_index_after=stop.route_index_nach,
@@ -420,7 +420,7 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
                     target_soc_pct=stop.target_soc_pct,
                     charging_duration_s=stop.charging_duration_s,
                     energy_charged_kwh=stop.energie_geladen_kwh,
-                    arrival_time=stop.ankunftszeit.isoformat(),
+                    arrival_time=stop.arrival_time.isoformat(),
                     departure_time=stop.departure_time.isoformat(),
                     price_per_kwh=stop.price_per_kwh,
                     currency=stop.currency,
@@ -434,8 +434,8 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
             waypoint_stops=[
                 WaypointStopAPI(
                     position=stop.position,
-                    distance_m=stop.distanz_m,
-                    arrival_time=stop.ankunftszeit.isoformat(),
+                    distance_m=stop.distance_m,
+                    arrival_time=stop.arrival_time.isoformat(),
                     departure_time=stop.departure_time.isoformat(),
                     charging_power_kw=stop.charging_power_kw,
                     arrival_soc_pct=stop.arrival_soc_pct,
@@ -448,7 +448,7 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
             detected_ferries=[
                 FerrySegmentAPI(
                     name=f.name,
-                    length_m=f.laenge_m,
+                    length_m=f.length_m,
                     bbox_sw=f.bbox_sw,
                     bbox_ne=f.bbox_ne,
                     departure=f.departure.isoformat() if f.departure else None,

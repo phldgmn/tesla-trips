@@ -1,18 +1,18 @@
-"""Tests für das wind-Modul: Berechnung von Gegenwind- und Seitenwind-Komponenten.
+"""Tests für das wind-Modul: Berechnung von headwind- und crosswind-Komponenten.
 
 Dieses Modul enthält Unit-Tests für die trigonometrische Projektion von Windvektoren
-auf die Fahrtrichtung (Bearing) von Route-Segments.
+auf die heading (Bearing) von Route-Segments.
 
 Testfälle gemäß Plan 03, Abschnitt 6:
-1. Nordwind (0°) + Bearing Norden (0°) → Rückenwind (-10 m/s), kein Seitenwind
-2. Nordwind (0°) + Bearing Süden (180°) → Gegenwind (+10 m/s), kein Seitenwind
-3. Ostwind (90°) + Bearing Norden (0°) → Kein Gegenwind, Seitenwind von rechts (+10 m/s)
+1. Nordwind (0°) + Bearing Norden (0°) → Rückenwind (-10 m/s), kein crosswind
+2. Nordwind (0°) + Bearing Süden (180°) → headwind (+10 m/s), kein crosswind
+3. Ostwind (90°) + Bearing Norden (0°) → Kein headwind, crosswind von rechts (+10 m/s)
 
 Zusätzliche Testfälle:
 4. 45°-Winkel-Grenzfall (Bearing 45°, Wind aus 225°)
-5. Windrichtung-Normalisierung (360° = 0° für Nordwind)
+5. wind_direction_deg-Normalisierung (360° = 0° für Nordwind)
 6. compute_wind_components_for_route mit mehreren Segmenten
-7. Seitenwind von links (Wind aus 270°, Bearing 0°)
+7. crosswind von links (Wind aus 270°, Bearing 0°)
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from __future__ import annotations
 import math
 
 import pytest
-
 from tripplanner.routing.models import RouteSegment
 from tripplanner.weather.models import WeatherSample
 from tripplanner.wind import compute_wind_components, compute_wind_components_for_route
@@ -50,62 +49,62 @@ def test_compute_wind_components_nordwind_norden() -> None:
     """Test 1: Nordwind (0°) + Bearing Norden (0°) → Rückenwind.
 
     Gegeben: Nordwind (0°), Bearing 0° (Norden)
-    Erwartet: Gegenwind = -10 m/s (Rückenwind), Seitenwind = 0 m/s
+    Erwartet: headwind = -10 m/s (Rückenwind), crosswind = 0 m/s
 
-    Begründung: Wind kommt vom Norden (weht nach Süden), Fahrtrichtung ist Norden.
-    Der Wind wirkt direkt entgegen der Fahrtrichtung (Rückenwind = negativer Gegenwind).
+    Begründung: Wind kommt vom Norden (weht nach Süden), heading ist Norden.
+    Der Wind wirkt direkt entgegen der heading (Rückenwind = negativer headwind).
     """
-    weather = make_weather_sample(windgeschwindigkeit_ms=10.0, windrichtung_deg=0.0)
+    weather = make_weather_sample(wind_speed_ms=10.0, wind_direction_deg=0.0)
     segment = make_route_segment(segment_index=0, bearing_deg=0.0)
 
     result = compute_wind_components(weather, segment)
 
     assert result.segment_index == 0
-    # Windkomponente in Fahrtrichtung: cos(180°) = -1
+    # Windkomponente in heading: cos(180°) = -1
     assert math.isclose(result.gegenwind_ms, -10.0, abs_tol=1e-6)
-    # Kein Seitenwind
+    # Kein crosswind
     assert math.isclose(result.seitenwind_ms, 0.0, abs_tol=1e-6)
 
 
 def test_compute_wind_components_nordwind_sueden() -> None:
-    """Test 2: Nordwind (0°) + Bearing Süden (180°) → Gegenwind.
+    """Test 2: Nordwind (0°) + Bearing Süden (180°) → headwind.
 
     Gegeben: Nordwind (0°), Bearing 180° (Süden)
-    Erwartet: Gegenwind = +10 m/s, Seitenwind = 0 m/s
+    Erwartet: headwind = +10 m/s, crosswind = 0 m/s
 
-    Begründung: Wind kommt vom Norden (weht nach Süden), Fahrtrichtung ist Süden.
-    Der Wind wirkt in Fahrtrichtung (Gegenwind = positiv).
+    Begründung: Wind kommt vom Norden (weht nach Süden), heading ist Süden.
+    Der Wind wirkt in heading (headwind = positiv).
     """
-    weather = make_weather_sample(windgeschwindigkeit_ms=10.0, windrichtung_deg=0.0)
+    weather = make_weather_sample(wind_speed_ms=10.0, wind_direction_deg=0.0)
     segment = make_route_segment(segment_index=1, bearing_deg=180.0)
 
     result = compute_wind_components(weather, segment)
 
     assert result.segment_index == 1
-    # Windkomponente in Fahrtrichtung: cos(0°) = 1
+    # Windkomponente in heading: cos(0°) = 1
     assert math.isclose(result.gegenwind_ms, 10.0, abs_tol=1e-6)
-    # Kein Seitenwind
+    # Kein crosswind
     assert math.isclose(result.seitenwind_ms, 0.0, abs_tol=1e-6)
 
 
 def test_compute_wind_components_ostwind_norden() -> None:
-    """Test 3: Ostwind (90°) + Bearing Norden (0°) → Seitenwind von rechts.
+    """Test 3: Ostwind (90°) + Bearing Norden (0°) → crosswind von rechts.
 
     Gegeben: Ostwind (90°), Bearing 0° (Norden)
-    Erwartet: Gegenwind = 0 m/s, Seitenwind = +10 m/s (von rechts)
+    Erwartet: headwind = 0 m/s, crosswind = +10 m/s (von rechts)
 
-    Begründung: Wind kommt vom Osten (weht nach Westen), Fahrtrichtung ist Norden.
-    Der Wind wirkt senkrecht zur Fahrtrichtung von rechts (positive y-Richtung).
+    Begründung: Wind kommt vom Osten (weht nach Westen), heading ist Norden.
+    Der Wind wirkt senkrecht zur heading von rechts (positive y-Richtung).
     """
-    weather = make_weather_sample(windgeschwindigkeit_ms=10.0, windrichtung_deg=90.0)
+    weather = make_weather_sample(wind_speed_ms=10.0, wind_direction_deg=90.0)
     segment = make_route_segment(segment_index=2, bearing_deg=0.0)
 
     result = compute_wind_components(weather, segment)
 
     assert result.segment_index == 2
-    # Kein Gegenwind (Wind senkrecht zur Fahrtrichtung)
+    # Kein headwind (Wind senkrecht zur heading)
     assert math.isclose(result.gegenwind_ms, 0.0, abs_tol=1e-6)
-    # Seitenwind von rechts: sin(90°) = 1
+    # crosswind von rechts: sin(90°) = 1
     assert math.isclose(result.seitenwind_ms, 10.0, abs_tol=1e-6)
 
 
@@ -119,7 +118,7 @@ def test_compute_wind_components_45_dregree_edge_case() -> None:
     entgegengesetzt zur Bearing-Richtung (45°), also delta_theta = 0°.
     """
     # Wind aus 225° (Süd-West), weht nach 45° (Nord-Ost)
-    weather = make_weather_sample(windgeschwindigkeit_ms=10.0, windrichtung_deg=225.0)
+    weather = make_weather_sample(wind_speed_ms=10.0, wind_direction_deg=225.0)
     segment = make_route_segment(segment_index=3, bearing_deg=45.0)
 
     result = compute_wind_components(weather, segment)
@@ -133,13 +132,13 @@ def test_compute_wind_components_45_dregree_edge_case() -> None:
 
 
 def test_compute_wind_components_windrichtung_normalisierung() -> None:
-    """Test 5: Windrichtung-Normalisierung (360° = 0° für Nordwind).
+    """Test 5: wind_direction_deg-Normalisierung (360° = 0° für Nordwind).
 
-    Gegeben: Windrichtung 360° (identisch mit 0°), Bearing 0° (Norden)
-    Erwartet: Gegenwind = -10 m/s (Rückenwind), wie bei 0°
+    Gegeben: wind_direction_deg 360° (identisch mit 0°), Bearing 0° (Norden)
+    Erwartet: headwind = -10 m/s (Rückenwind), wie bei 0°
     """
-    # Windrichtung 360° sollte identisch mit 0° sein
-    weather = make_weather_sample(windgeschwindigkeit_ms=10.0, windrichtung_deg=360.0)
+    # wind_direction_deg 360° sollte identisch mit 0° sein
+    weather = make_weather_sample(wind_speed_ms=10.0, wind_direction_deg=360.0)
     segment = make_route_segment(segment_index=4, bearing_deg=0.0)
 
     result = compute_wind_components(weather, segment)
@@ -156,9 +155,9 @@ def test_compute_wind_components_for_route_multiple_segments() -> None:
     Erwartet: Liste von 3 WindComponents mit korrekten Werten für jedes Segment
     """
     weather_samples: list[WeatherSample] = [
-        make_weather_sample(windgeschwindigkeit_ms=10.0, windrichtung_deg=0.0),
-        make_weather_sample(windgeschwindigkeit_ms=10.0, windrichtung_deg=90.0),
-        make_weather_sample(windgeschwindigkeit_ms=10.0, windrichtung_deg=180.0),
+        make_weather_sample(wind_speed_ms=10.0, wind_direction_deg=0.0),
+        make_weather_sample(wind_speed_ms=10.0, wind_direction_deg=90.0),
+        make_weather_sample(wind_speed_ms=10.0, wind_direction_deg=180.0),
     ]
     segments: list[RouteSegment] = [
         make_route_segment(segment_index=0, bearing_deg=0.0),  # Norden
@@ -170,39 +169,39 @@ def test_compute_wind_components_for_route_multiple_segments() -> None:
 
     assert len(result) == 3
 
-    # Segment 0: Nordwind (0°), Bearing 0° → Gegenwind = -10 m/s
+    # Segment 0: Nordwind (0°), Bearing 0° → headwind = -10 m/s
     assert result[0].segment_index == 0
     assert math.isclose(result[0].gegenwind_ms, -10.0, abs_tol=1e-6)
     assert math.isclose(result[0].seitenwind_ms, 0.0, abs_tol=1e-6)
 
-    # Segment 1: Ostwind (90°), Bearing 90° → Gegenwind = -10 m/s
+    # Segment 1: Ostwind (90°), Bearing 90° → headwind = -10 m/s
     assert result[1].segment_index == 1
     assert math.isclose(result[1].gegenwind_ms, -10.0, abs_tol=1e-6)
     assert math.isclose(result[1].seitenwind_ms, 0.0, abs_tol=1e-6)
 
-    # Segment 2: Südwind (180°), Bearing 180° → Gegenwind = -10 m/s
+    # Segment 2: Südwind (180°), Bearing 180° → headwind = -10 m/s
     assert result[2].segment_index == 2
     assert math.isclose(result[2].gegenwind_ms, -10.0, abs_tol=1e-6)
     assert math.isclose(result[2].seitenwind_ms, 0.0, abs_tol=1e-6)
 
 
 def test_compute_wind_components_seitenwind_links() -> None:
-    """Test 7: Seitenwind von links (Wind aus 270°, Bearing 0°).
+    """Test 7: crosswind von links (Wind aus 270°, Bearing 0°).
 
     Gegeben: Wind aus 270° (Westen), Bearing 0° (Norden)
-    Erwartet: Gegenwind = 0 m/s, Seitenwind = -10 m/s (von links)
+    Erwartet: headwind = 0 m/s, crosswind = -10 m/s (von links)
 
-    Begründung: Wind kommt vom Westen (weht nach Osten), Fahrtrichtung ist Norden.
-    Der Wind wirkt senkrecht zur Fahrtrichtung von links (negative y-Richtung).
+    Begründung: Wind kommt vom Westen (weht nach Osten), heading ist Norden.
+    Der Wind wirkt senkrecht zur heading von links (negative y-Richtung).
     """
-    weather = make_weather_sample(windgeschwindigkeit_ms=10.0, windrichtung_deg=270.0)
+    weather = make_weather_sample(wind_speed_ms=10.0, wind_direction_deg=270.0)
     segment = make_route_segment(segment_index=5, bearing_deg=0.0)
 
     result = compute_wind_components(weather, segment)
 
-    # Kein Gegenwind (Wind senkrecht zur Fahrtrichtung)
+    # Kein headwind (Wind senkrecht zur heading)
     assert math.isclose(result.gegenwind_ms, 0.0, abs_tol=1e-6)
-    # Seitenwind von links: Windvektor = (270 + 180) % 360 = 90°, Bearing = 0°
+    # crosswind von links: Windvektor = (270 + 180) % 360 = 90°, Bearing = 0°
     # delta_theta = 0 - 90 = -90°, sin(-90°) = -1
     assert math.isclose(result.seitenwind_ms, -10.0, abs_tol=1e-6)
 
@@ -214,8 +213,8 @@ def test_compute_wind_components_for_route_laengenfehler() -> None:
     Erwartet: ValueError mit passender Fehlermeldung
     """
     weather_samples: list[WeatherSample] = [
-        make_weather_sample(windgeschwindigkeit_ms=10.0, windrichtung_deg=0.0),
-        make_weather_sample(windgeschwindigkeit_ms=10.0, windrichtung_deg=90.0),
+        make_weather_sample(wind_speed_ms=10.0, wind_direction_deg=0.0),
+        make_weather_sample(wind_speed_ms=10.0, wind_direction_deg=90.0),
     ]
     segments: list[RouteSegment] = [
         make_route_segment(segment_index=0, bearing_deg=0.0),

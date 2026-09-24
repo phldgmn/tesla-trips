@@ -9,8 +9,8 @@ from tripplanner.geo import Coordinate, haversine_distance_m
 from ..models import ChargingStation
 
 _LAT_BAND_KM = 5.0
-"""Breite der Breitengrad-Bänder für den räumlichen Stations-Index (siehe
-`_build_lat_bands`/`_stations_in_radius`). Klein genug, um bei den in der
+"""latitude der latitude-Bänder für den räumlichen Stations-Index (siehe
+`_build_lat_bands`/`_stations_in_radius`). small genug, um bei den in der
 Praxis verwendeten Suchradien (1-15 km, siehe `get_stations_along_route`)
 die pro Abfrage zu prüfende Kandidatenzahl massiv zu reduzieren - unabhängig
 vom tatsächlichen `radius_km` einer konkreten Abfrage korrekt, da
@@ -18,16 +18,16 @@ vom tatsächlichen `radius_km` einer konkreten Abfrage korrekt, da
 `radius_km` berechnet."""
 
 _KM_PER_LAT_DEG = 111.0
-"""Näherung: 1 Breitengrad ≈ 111 km (global nahezu konstant - anders als 1
+"""Näherung: 1 latitude ≈ 111 km (global nahezu konstant - anders als 1
 Längengrad, der mit `cos(lat)` schrumpft). Deshalb Bucketing NUR nach
-Breitengrad, nicht 2D nach Breiten-/Längengrad - einfach und ohne
+latitude, nicht 2D nach Breiten-/Längengrad - single und ohne
 breitengradabhängiges Verzerrungsrisiko."""
 
 
 def _build_lat_bands(
     stations: list[ChargingStation], band_km: float = _LAT_BAND_KM
 ) -> dict[int, list[ChargingStation]]:
-    """Bucketiert Stationen nach Breitengrad-Band für schnelle Radius-Suchen.
+    """Bucketiert Stationen nach latitude-Band für schnelle Radius-Suchen.
 
     Ersetzt den linearen Voll-Scan über ALLE Stationen in
     `get_stations_in_radius()`: `get_stations_along_route()` ruft diese pro
@@ -53,8 +53,8 @@ def _stations_in_radius(
 
     Exakt äquivalent zu einem Voll-Scan mit `haversine_distance_m` + Filter
     (siehe `_build_lat_bands`), prüft aber nur Stationen aus den
-    Breitengrad-Bändern, die `coordinate` innerhalb `radius_km` überhaupt
-    erreichen können - kein Genauigkeitsverlust, nur weniger Kandidaten.
+    latitude-Bändern, die `coordinate` innerhalb `radius_km` überhaupt
+    erreichen können - kein Genauigkeitsverlust, nur less Kandidaten.
     Ergebnis unsortiert und ohne Länderfilter (Aufrufer wendet beides bei
     Bedarf selbst an, wie beim bisherigen Voll-Scan).
     """

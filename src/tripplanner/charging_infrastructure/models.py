@@ -109,7 +109,7 @@ class ChargingStation(BaseModel):
     )
     letzte_datenAktualisierung: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
-        description="Zeitpunkt der letzten Datenaktualisierung (Snapshot-Datum)",
+        description="timestamp der letzten Datenaktualisierung (Snapshot-Datum)",
     )
 
     @field_validator("coordinate")
@@ -120,7 +120,7 @@ class ChargingStation(BaseModel):
         MIN_LAT, MAX_LAT = -90.0, 90.0
         MIN_LON, MAX_LON = -180.0, 180.0
         if not (MIN_LAT <= lat <= MAX_LAT):
-            raise ValueError("Breitengrad muss zwischen -90 und 90 liegen")
+            raise ValueError("latitude muss zwischen -90 und 90 liegen")
         if not (MIN_LON <= lon <= MAX_LON):
             raise ValueError("Längengrad muss zwischen -180 und 180 liegen")
         if not all(math.isfinite(x) for x in v):
@@ -136,7 +136,7 @@ class ChargingStation(BaseModel):
         # Realistischer Maximalwert: V4-Supercharger ~325 kW pro Post * 8 Posts = 2600 kW
         MAX_REALISTIC_KW = 5000.0
         if v > MAX_REALISTIC_KW:
-            raise ValueError("max_ladeleistung_kw scheint unrealistisch hoch")
+            raise ValueError("max_ladeleistung_kw scheint unrealistisch high")
         return v
 
     def anzahl_verfuegbare_stalls(self) -> int:
@@ -159,7 +159,7 @@ class ChargingStation(BaseModel):
 
     @property
     def distance_to_km(self) -> float:
-        """Distanz zur letzten Suchkoordinate (in km).
+        """Distance zur letzten Suchkoordinate (in km).
 
         Wird von Provider gesetzt, um Distanzberechnung zu vermeiden.
         """
@@ -188,7 +188,7 @@ class ChargingStationProvider(Protocol):
             country_filter: Optionaler Länderfilter (DE/DK/SE)
 
         Returns:
-            Liste von ChargingStation, sortiert nach Distanz (aufsteigend)
+            Liste von ChargingStation, sortiert nach distance (aufsteigend)
         """
         raise NotImplementedError
 
@@ -239,7 +239,7 @@ class ChargingPricingTier(BaseModel):
     )
     unit: Literal["kWh", "min"] = Field(
         ...,
-        description='Abrechnungseinheit: "kWh" (Energie) oder "min" (Zeit)',
+        description='Abrechnungseinheit: "kWh" (energy) oder "min" (time)',
     )
     idle_fee_text: str | None = Field(
         default=None,

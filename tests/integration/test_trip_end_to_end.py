@@ -21,7 +21,6 @@ from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
-
 from tripplanner.charging_infrastructure import FakeChargingStationProvider
 from tripplanner.construction.providers import (
     ConstructionProviderConfig,
@@ -54,7 +53,7 @@ _GARMISCH: tuple[float, float] = (47.4920, 11.0950)
 
 @pytest.fixture
 def vehicle_profile() -> VehicleProfile:
-    """Realistisches Fahrzeugprofil für ein Model 3 Long Range."""
+    """Realistisches vehicle_profile für ein Model 3 Long Range."""
     return VehicleProfile(
         mass_kg=1805.0,
         drag_coefficient=0.23,
@@ -135,7 +134,6 @@ def integration_app(vehicle_profile: VehicleProfile):
     - get_elevation_provider     -> ElevationProvider mit
       CopernicusDEMDataSource (echte /vsicurl/-Calls)
     """
-
     app.dependency_overrides[get_routing_provider] = _make_routing_provider
     app.dependency_overrides[get_charging_provider] = _make_charging_provider
     app.dependency_overrides[get_weather_provider] = _make_weather_provider
@@ -160,8 +158,8 @@ async def test_end_to_end_multi_country_trip(client: TestClient) -> None:
 
     Postet eine kurze Reise mit mehreren Zwischenstopps und prüft:
     1. Antwort ist 201 mit Frames und Ladehalten.
-    2. Gesamtdistanz plausibel (> 20 km).
-    3. Gesamt-Fahrzeit plausibel (> 30 min).
+    2. total_distance plausibel (> 20 km).
+    3. Gesamt-drive_time_s plausibel (> 30 min).
     4. Construction fetch crasht nicht (graceful degradation).
     5. Weather samples sind nicht leer (echte OpenMeteo-Daten).
     """
@@ -188,13 +186,13 @@ async def test_end_to_end_multi_country_trip(client: TestClient) -> None:
     frames = data.get("frames", [])
     assert len(frames) > 0, "Antwort sollte Simulations-Frames enthalten"
 
-    # Distanz und Zeit plausibel
-    distanz = data.get("totalDistanceKm", 0.0)
-    assert distanz > 20, f"Kopenhagen->Malmö sollte >20 km sein, bekam {distanz}"
+    # distance und time plausibel
+    distance = data.get("totalDistanceKm", 0.0)
+    assert distance > 20, f"Kopenhagen->Malmö sollte >20 km sein, bekam {distance}"
 
     gesamt_fahrzeit_min = data.get("totalDrivingTimeMin", 0.0)
     assert gesamt_fahrzeit_min > 15, (
-        f"Gesamt-Fahrzeit sollte >15 min sein, bekam {gesamt_fahrzeit_min}"
+        f"Gesamt-drive_time_s sollte >15 min sein, bekam {gesamt_fahrzeit_min}"
     )
     # SoC-Werte variieren entlang der Route
     soc_values: list[float] = [f["socPct"] for f in frames]
@@ -210,7 +208,7 @@ async def test_elevation_real_data(client: TestClient) -> None:
     Route: München -> Garmisch-Partenkirchen (≈60 km, +500m Höhenunterschied).
     Wenn die Elevation wirklich flach wäre (wie beim Fake), würden
     Energieverbräuche sehr homogen sein. Echte Daten führen zu
-    variablerem SoC-Verbrauch.
+    variablerem SoC-consumption.
     """
     # Guard against the 118-second regression that originally motivated this test (Issue #13).
     # 15 s is generous for real-world network + elevation lookups.
@@ -223,17 +221,17 @@ async def test_elevation_real_data(client: TestClient) -> None:
     )
 
     data = response.json()
-    distanz = data.get("totalDistanceKm", 0.0)
-    assert distanz > 30, f"München->Garmisch sollte >30 km sein, bekam {distanz}"
+    distance = data.get("totalDistanceKm", 0.0)
+    assert distance > 30, f"München->Garmisch sollte >30 km sein, bekam {distance}"
 
     frames = data.get("frames", [])
     assert len(frames) > 0
 
-    # Echte Steigungen führen zu variablerem Energieverbrauch
+    # Echte Steigungen führen zu variablerem energy_consumption
     soc_values: list[float] = [f["socPct"] for f in frames]
     soc_range = max(soc_values) - min(soc_values)
     assert soc_range > 1.0, (
-        f"Echte Elevation sollte variablen Verbrauch erzeugen. Range: {soc_range}"
+        f"Echte Elevation sollte variablen consumption erzeugen. Range: {soc_range}"
     )
 
     elapsed = time.perf_counter() - t0
@@ -263,10 +261,10 @@ async def test_weather_real_values(client: TestClient) -> None:
     frames = data.get("frames", [])
     assert len(frames) > 0
 
-    # Echte Wetterdaten führen zu variablerem Verbrauch
+    # Echte Wetterdaten führen zu variablerem consumption
     soc_values: list[float] = [f["socPct"] for f in frames]
     soc_range = max(soc_values) - min(soc_values)
-    assert soc_range > 0.5, f"OpenMeteo sollte variablen Verbrauch liefern. Range: {soc_range}"
+    assert soc_range > 0.5, f"OpenMeteo sollte variablen consumption liefern. Range: {soc_range}"
 
 
 @pytest.mark.asyncio

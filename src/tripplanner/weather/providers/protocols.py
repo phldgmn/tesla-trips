@@ -16,7 +16,7 @@ class WeatherProvider(Protocol):
         """Abruf von Wetterdaten für mehrere Abfragepunkte.
 
         Args:
-            queries: Liste von Wetterabfragen (Koordinate + Zeitpunkt).
+            queries: Liste von Wetterabfragen (Koordinate + timestamp).
 
         Returns:
             Liste von Wetterdaten, in gleicher Reihenfolge wie queries.
@@ -30,10 +30,10 @@ class WeatherProvider(Protocol):
         original_queries: Sequence[WeatherQuery],
         updated_queries: Sequence[WeatherQuery],
     ) -> list[WeatherSample]:
-        """Neuabfrage bereits abgefragter Punkte mit aktualisiertem Zeitpunkt.
+        """Neuabfrage bereits abgefragter Punkte mit aktualisiertem timestamp.
 
-        Diese Methode ist zentral für die iterative Zeit-/Wetterauflösung.
-        Die Implementierung darf intern Caching nutzen (z. B. auf `coordinate` + `zeitpunkt`-Tupel),
+        Diese Methode ist zentral für die iterative time-/Wetterauflösung.
+        Die Implementierung darf intern Caching nutzen (z. B. auf `coordinate` + `timestamp`-Tupel),
         um unnötige API-Calls zu vermeiden.
 
         Args:
@@ -77,16 +77,16 @@ class FakeWeatherProvider:
         return [
             WeatherSample(
                 coordinate=q.coordinate,
-                zeitpunkt=q.zeitpunkt,
-                temperatur_c=20.0,
-                windgeschwindigkeit_ms=5.0,
-                windrichtung_deg=180.0,
-                niederschlag_mm=0.0,
-                schneefall_cm=0.0,
-                luftdruck_hpa=1013.25,
-                luftfeuchtigkeit_pct=60.0,
-                globalstrahlung_wm2=400.0,
-                bewoelkung_pct=20.0,
+                timestamp=q.timestamp,
+                temperature_c=20.0,
+                wind_speed_ms=5.0,
+                wind_direction_deg=180.0,
+                precipitation_mm=0.0,
+                snowfall_cm=0.0,
+                pressure_hpa=1013.25,
+                humidity_pct=60.0,
+                solar_radiation_wm2=400.0,
+                cloudiness_pct=20.0,
             )
             for q in queries
         ]

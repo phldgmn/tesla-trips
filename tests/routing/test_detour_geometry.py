@@ -17,7 +17,7 @@ def test_find_edges_walk_at_least_margin_in_both_directions() -> None:
         RouteSegment(
             segment_index=i,
             geometrie=[geometrie[i], geometrie[i + 1]],
-            laenge_m=100.0,
+            length_m=100.0,
             strassenklasse="MOTORWAY",
             bearing_deg=0.0,
         )
@@ -28,21 +28,22 @@ def test_find_edges_walk_at_least_margin_in_both_directions() -> None:
     vor_index, nach_index = find_bracket_points(route, segment_index=5, margin_m=250.0)
 
     assert vor_index < 5 < nach_index
-    distanz_zurueck = sum(seg.laenge_m for seg in segments[vor_index:5])
-    distanz_vor = sum(seg.laenge_m for seg in segments[5:nach_index])
+    distanz_zurueck = sum(seg.length_m for seg in segments[vor_index:5])
+    distanz_vor = sum(seg.length_m for seg in segments[5:nach_index])
     assert distanz_zurueck >= 250.0
     assert distanz_vor >= 250.0
 
 
 def test_bracket_points_clamped_at_route_edges() -> None:
     """Near the start/end of the route the bracket points are clamped to the
-    actual edge instead of throwing an index error."""
+    actual edge instead of throwing an index error.
+    """
     geometrie = [(52.0 + i * 0.0009, 13.0) for i in range(5)]
     segments = [
         RouteSegment(
             segment_index=i,
             geometrie=[geometrie[i], geometrie[i + 1]],
-            laenge_m=100.0,
+            length_m=100.0,
             strassenklasse="MOTORWAY",
             bearing_deg=0.0,
         )

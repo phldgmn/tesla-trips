@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from tripplanner.charging_infrastructure.database import SQLiteDatabase
 
 
@@ -256,7 +255,7 @@ class TestSQLiteDatabase:
         assert last_refresh.tzinfo is not None
 
     def test_close(self, tmp_db: SQLiteDatabase) -> None:
-        """close schließt Verbindung ohne Fehler."""
+        """Close schließt Verbindung ohne Fehler."""
         tmp_db.close()
         # Should not raise
 
@@ -348,7 +347,7 @@ class TestSQLiteDatabase:
         second = tmp_db.enqueue_pricing_refresh([3506, 9012])
 
         assert first == 2
-        assert second == 1  # 3506 bereits vorhanden, nur 9012 ist neu
+        assert second == 1  # 3506 bereits vorhanden, nur 9012 ist new
         assert len(tmp_db.load_pricing_queue()) == 3
 
     def test_dequeue_pricing_refresh_removes_entry(

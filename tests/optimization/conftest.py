@@ -6,7 +6,6 @@ from datetime import timedelta
 from typing import Final
 
 import pytest
-
 from tripplanner.charging_infrastructure.models import (
     ChargingStation,
     ConnectorType,
@@ -28,7 +27,7 @@ LEIPZIG_COORD: Final[tuple[float, float]] = (51.3397, 12.3731)
 
 @pytest.fixture
 def vehicle_profile() -> VehicleProfile:
-    """Beispiel-Fahrzeugprofil."""
+    """Beispiel-vehicle_profile."""
     return VehicleProfile(
         mass_kg=1706.0,
         drag_coefficient=0.23,
@@ -56,27 +55,27 @@ def basic_route_3_segments() -> Route:
             RouteSegment(
                 segment_index=0,
                 geometrie=[BERLIN_COORD, (53.0, 12.0)],
-                laenge_m=50_000,
+                length_m=50_000,
                 strassenklasse="MOTORWAY",
-                tempolimit_kmh=130,
+                speed_limit_kmh=130,
                 steigung_rohdaten=0.0,
                 bearing_deg=315.0,
             ),
             RouteSegment(
                 segment_index=1,
                 geometrie=[(53.0, 12.0), (53.3, 11.0)],
-                laenge_m=30_000,
+                length_m=30_000,
                 strassenklasse="MOTORWAY",
-                tempolimit_kmh=120,
+                speed_limit_kmh=120,
                 steigung_rohdaten=0.0,
                 bearing_deg=280.0,
             ),
             RouteSegment(
                 segment_index=2,
                 geometrie=[(53.3, 11.0), HAMBURG_COORD],
-                laenge_m=20_000,
+                length_m=20_000,
                 strassenklasse="MOTORWAY",
-                tempolimit_kmh=110,
+                speed_limit_kmh=110,
                 steigung_rohdaten=0.0,
                 bearing_deg=260.0,
             ),
@@ -88,34 +87,34 @@ def basic_route_3_segments() -> Route:
 
 @pytest.fixture
 def energy_results_3_segments() -> list[SegmentEnergyResult]:
-    """Energieergebnisse für 3 Segmente (niedriger Verbrauch)."""
+    """Energieergebnisse für 3 Segmente (niedriger consumption)."""
     return [
         SegmentEnergyResult(
             segment_index=0,
             energiebedarf_kwh=3.0,
             rekuperation_kwh=0.0,
             energiebedarf_brutto_kwh=3.0,
-            geschwindigkeit_m_s=30.0,
-            fahrzeit_s=1667,
-            streckenlaenge_m=50_000,
+            speed_ms=30.0,
+            drive_time_s=1667,
+            segment_length_m=50_000,
         ),
         SegmentEnergyResult(
             segment_index=1,
             energiebedarf_kwh=2.0,
             rekuperation_kwh=0.0,
             energiebedarf_brutto_kwh=2.0,
-            geschwindigkeit_m_s=25.0,
-            fahrzeit_s=1200,
-            streckenlaenge_m=30_000,
+            speed_ms=25.0,
+            drive_time_s=1200,
+            segment_length_m=30_000,
         ),
         SegmentEnergyResult(
             segment_index=2,
             energiebedarf_kwh=2.0,
             rekuperation_kwh=0.0,
             energiebedarf_brutto_kwh=2.0,
-            geschwindigkeit_m_s=20.0,
-            fahrzeit_s=1000,
-            streckenlaenge_m=20_000,
+            speed_ms=20.0,
+            drive_time_s=1000,
+            segment_length_m=20_000,
         ),
     ]
 
@@ -167,27 +166,27 @@ def route_with_one_station() -> Route:
             RouteSegment(
                 segment_index=0,
                 geometrie=[BERLIN_COORD, (52.5, 12.5)],
-                laenge_m=50_000,
+                length_m=50_000,
                 strassenklasse="MOTORWAY",
-                tempolimit_kmh=130,
+                speed_limit_kmh=130,
                 steigung_rohdaten=0.0,
                 bearing_deg=310.0,
             ),
             RouteSegment(
                 segment_index=1,
                 geometrie=[(52.5, 12.5), (53.0, 11.5)],
-                laenge_m=50_000,
+                length_m=50_000,
                 strassenklasse="MOTORWAY",
-                tempolimit_kmh=120,
+                speed_limit_kmh=120,
                 steigung_rohdaten=0.0,
                 bearing_deg=290.0,
             ),
             RouteSegment(
                 segment_index=2,
                 geometrie=[(53.0, 11.5), HAMBURG_COORD],
-                laenge_m=50_000,
+                length_m=50_000,
                 strassenklasse="MOTORWAY",
-                tempolimit_kmh=110,
+                speed_limit_kmh=110,
                 steigung_rohdaten=0.0,
                 bearing_deg=270.0,
             ),
@@ -199,34 +198,34 @@ def route_with_one_station() -> Route:
 
 @pytest.fixture
 def energy_results_3_long_segments() -> list[SegmentEnergyResult]:
-    """Energieergebnisse für 3 lange Segmente (höherer Verbrauch)."""
+    """Energieergebnisse für 3 lange Segmente (höherer consumption)."""
     return [
         SegmentEnergyResult(
             segment_index=0,
             energiebedarf_kwh=8.0,
             rekuperation_kwh=0.0,
             energiebedarf_brutto_kwh=8.0,
-            geschwindigkeit_m_s=30.0,
-            fahrzeit_s=1667,
-            streckenlaenge_m=50_000,
+            speed_ms=30.0,
+            drive_time_s=1667,
+            segment_length_m=50_000,
         ),
         SegmentEnergyResult(
             segment_index=1,
             energiebedarf_kwh=8.0,
             rekuperation_kwh=0.0,
             energiebedarf_brutto_kwh=8.0,
-            geschwindigkeit_m_s=25.0,
-            fahrzeit_s=2000,
-            streckenlaenge_m=50_000,
+            speed_ms=25.0,
+            drive_time_s=2000,
+            segment_length_m=50_000,
         ),
         SegmentEnergyResult(
             segment_index=2,
             energiebedarf_kwh=8.0,
             rekuperation_kwh=0.0,
             energiebedarf_brutto_kwh=8.0,
-            geschwindigkeit_m_s=20.0,
-            fahrzeit_s=2500,
-            streckenlaenge_m=50_000,
+            speed_ms=20.0,
+            drive_time_s=2500,
+            segment_length_m=50_000,
         ),
     ]
 
@@ -239,27 +238,27 @@ def route_with_waypoint() -> Route:
             RouteSegment(
                 segment_index=0,
                 geometrie=[BERLIN_COORD, (52.5, 12.5)],
-                laenge_m=50_000,
+                length_m=50_000,
                 strassenklasse="MOTORWAY",
-                tempolimit_kmh=130,
+                speed_limit_kmh=130,
                 steigung_rohdaten=0.0,
                 bearing_deg=310.0,
             ),
             RouteSegment(
                 segment_index=1,
                 geometrie=[(52.5, 12.5), (53.0, 11.5)],
-                laenge_m=50_000,
+                length_m=50_000,
                 strassenklasse="MOTORWAY",
-                tempolimit_kmh=120,
+                speed_limit_kmh=120,
                 steigung_rohdaten=0.0,
                 bearing_deg=290.0,
             ),
             RouteSegment(
                 segment_index=2,
                 geometrie=[(53.0, 11.5), HAMBURG_COORD],
-                laenge_m=50_000,
+                length_m=50_000,
                 strassenklasse="MOTORWAY",
-                tempolimit_kmh=110,
+                speed_limit_kmh=110,
                 steigung_rohdaten=0.0,
                 bearing_deg=270.0,
             ),

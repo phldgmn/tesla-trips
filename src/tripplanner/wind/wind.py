@@ -1,7 +1,7 @@
 """Berechnung von Windkomponenten entlang einer Route.
 
 Diese Module implementiert die trigonometrische Projektion der Windvektoren
-auf die Fahrtrichtung (Bearing) eines Route-Segments.
+auf die heading (Bearing) eines Route-Segments.
 """
 
 from __future__ import annotations
@@ -23,20 +23,20 @@ def compute_wind_components(weather: WeatherSample, segment: RouteSegment) -> Wi
     """Berechnet Windkomponenten für ein einzelnes Segment.
 
     Die Windkomponenten werden mittels Vektorprojektion berechnet:
-    - Der Windvektor wird um 180° verschoben (Windrichtung = Richtung, aus der der Wind kommt).
-    - Die Projektion auf die Bearing-Richtung ergibt den Gegenwind/Rückenwind.
-    - Die Projektion auf die senkrechte Richtung ergibt den Seitenwind.
+      The wind vector is shifted by 180° (wind_direction_deg = direction the wind comes from).
+    - Die Projektion auf die Bearing-Richtung ergibt den headwind/Rückenwind.
+    - Die Projektion auf die senkrechte Richtung ergibt den crosswind.
 
     Args:
-        weather: Wetterdaten für den Zeitpunkt des Segments.
-        segment: Route-Segment mit Bearing (Fahrtrichtung am Segmentanfang).
+        weather: Wetterdaten für den timestamp des Segments.
+        segment: Route-Segment mit Bearing (heading am Segmentanfang).
 
     Returns:
         WindComponents mit segment_index, gegenwind_ms und seitenwind_ms.
     """
-    # Windrichtung als Vektorrichtung (180° versetzt, da Windrichtung
+    # wind_direction_deg als Vektorrichtung (180° versetzt, da wind_direction_deg
     # in der Meteorologie die Richtung angibt, aus der der Wind kommt)
-    wind_dir_vector = (weather.windrichtung_deg + 180.0) % 360.0
+    wind_dir_vector = (weather.wind_direction_deg + 180.0) % 360.0
 
     # Bearing des Segments (Pflichtfeld, von routing bereits berechnet)
     bearing = segment.bearing_deg
@@ -45,9 +45,9 @@ def compute_wind_components(weather: WeatherSample, segment: RouteSegment) -> Wi
     delta_theta = bearing - wind_dir_vector
     delta_theta_rad = _degrees_to_radians(delta_theta)
 
-    # Projektion: Gegenwind = cos, Seitenwind = sin
-    v_long = weather.windgeschwindigkeit_ms * math.cos(delta_theta_rad)
-    v_side = weather.windgeschwindigkeit_ms * math.sin(delta_theta_rad)
+    # Projektion: headwind = cos, crosswind = sin
+    v_long = weather.wind_speed_ms * math.cos(delta_theta_rad)
+    v_side = weather.wind_speed_ms * math.sin(delta_theta_rad)
 
     return WindComponents(
         segment_index=segment.segment_index,

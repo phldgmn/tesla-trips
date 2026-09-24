@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from tripplanner.battery import compute_charge_duration, interpolate_charging_power
 from tripplanner.battery.models import (
     ChargingCurve,
@@ -61,7 +60,7 @@ class TestComputeChargeDuration:
     """Tests for compute_charge_duration function."""
 
     def test_zero_duration_same_soc(self, default_parameters: VehicleBatteryParameters) -> None:
-        """Ladedauer sollte 0 sein, wenn Ziel-SoC <= Start-SoC."""
+        """charge_duration sollte 0 sein, wenn Ziel-SoC <= Start-SoC."""
         curve = LadekurveReferenz.model_3_lr_v3()
 
         assert compute_charge_duration(50.0, 50.0, 250.0, curve, default_parameters) == 0.0
@@ -71,7 +70,7 @@ class TestComputeChargeDuration:
     def test_zero_duration_at_boundaries(
         self, default_parameters: VehicleBatteryParameters
     ) -> None:
-        """Ladedauer sollte 0 sein für 0% → 0% und 100% → 100%."""
+        """charge_duration sollte 0 sein für 0% → 0% und 100% → 100%."""
         curve = LadekurveReferenz.model_3_lr_v3()
 
         assert compute_charge_duration(0.0, 0.0, 250.0, curve, default_parameters) == 0.0
@@ -80,7 +79,7 @@ class TestComputeChargeDuration:
     def test_charge_duration_small_soc_ramp(
         self, default_parameters: VehicleBatteryParameters
     ) -> None:
-        """Kleiner SoC-Sprung sollte kürzere Dauer als großer SoC-Sprung liefern."""
+        """Kleiner SoC-Sprung sollte kürzere duration als großer SoC-Sprung liefern."""
         curve = LadekurveReferenz.model_3_lr_v3()
 
         # 50% → 51% (1% Sprung)
@@ -93,7 +92,7 @@ class TestComputeChargeDuration:
         assert duration_large > duration_small
 
     def test_charge_duration_v3_vs_v4(self, default_parameters: VehicleBatteryParameters) -> None:
-        """V4-Kurve liefert kürzere Dauer (höhere Leistung im Mittelbereich)."""
+        """V4-Kurve liefert kürzere duration (höhere Leistung im Mittelbereich)."""
         # V4-Kurve hat höhere Leistung im mittleren SoC-Bereich (250 kW vs 150 kW bei 50%)
 
         duration_v3 = compute_charge_duration(
@@ -103,15 +102,15 @@ class TestComputeChargeDuration:
             20.0, 80.0, 250.0, LadekurveReferenz.model_3_lr_v4(), default_parameters
         )
 
-        # V4 sollte schneller laden (kürzere Dauer)
+        # V4 sollte faster laden (kürzere duration)
         assert duration_v4 < duration_v3
 
     def test_charge_duration_constant_curve(
         self, default_parameters: VehicleBatteryParameters
     ) -> None:
-        """Bei konstanter Leistung sollte die Dauer exakt berechenbar sein."""
+        """Bei konstanter Leistung sollte die duration exakt berechenbar sein."""
         # Konstante 250 kW, 50% von 75 kWh = 37.5 kWh
-        # Zeit = 37.5 kWh / 250 kW = 0.15 h = 540 s (vor Effizienzkorrektur)
+        # time = 37.5 kWh / 250 kW = 0.15 h = 540 s (vor Effizienzkorrektur)
         # Mit 95% Effizienz: 540 / 0.95 ≈ 568.42 s
 
         curve = ChargingCurve(
@@ -131,10 +130,10 @@ class TestComputeChargeDuration:
     def test_charge_duration_limited_by_max_duration(
         self, default_parameters: VehicleBatteryParameters
     ) -> None:
-        """Ladedauer sollte durch max_duration_seconds begrenzt werden."""
+        """charge_duration sollte durch max_duration_seconds begrenzt werden."""
         curve = LadekurveReferenz.model_3_lr_v3()
 
-        # Unbegrenzte Dauer für 0% → 100% ist viel > 100 Sekunden
+        # Unbegrenzte duration für 0% → 100% ist viel > 100 Sekunden
         limited = compute_charge_duration(
             0.0, 100.0, 250.0, curve, default_parameters, max_duration_seconds=100.0
         )
@@ -144,7 +143,7 @@ class TestComputeChargeDuration:
     def test_charge_duration_beyond_capacity(
         self, default_parameters: VehicleBatteryParameters
     ) -> None:
-        """Ladedauer bleibt korrekt, wenn SoC > 100% angefordert wird (auf 100% begrenzt)."""
+        """charge_duration bleibt korrekt, wenn SoC > 100% angefordert wird (auf 100% begrenzt)."""
         curve = LadekurveReferenz.model_3_lr_v3()
 
         duration = compute_charge_duration(80.0, 100.0, 250.0, curve, default_parameters)

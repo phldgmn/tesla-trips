@@ -1,12 +1,12 @@
 """Energy-Modul (Phase 3): Physikalisches Energieverbrauchsmodell.
 
-Das Modul berechnet den Energieverbrauch für Elektrofahrzeuge physikalisch fundiert
+Das Modul berechnet den energy_consumption für Elektrofahrzeuge physikalisch fundiert
 unter Berücksichtigung von:
-- Rollwiderstand (inkl. Straßenbelag-Faktor)
-- Luftwiderstand (inkl. Windkomponenten)
-- Steigung/Höhenenergie
-- Rekuperation (regeneratives Bremsen)
-- HVAC-Verbrauch (temperaturabhängig)
+- rolling_resistance (inkl. Straßenbelag-Faktor)
+- air_drag (inkl. Windkomponenten)
+- gradient/Höhenenergie
+- recuperation (regeneratives Bremsen)
+- HVAC-consumption (temperaturabhängig)
 """
 
 from tripplanner.energy.energy import (

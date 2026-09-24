@@ -6,7 +6,6 @@ import asyncio
 from datetime import datetime
 
 import pytest
-
 from tripplanner.charging_infrastructure.models import ChargingStation, ConnectorType, StallType
 from tripplanner.elevation import ElevationProvider
 from tripplanner.elevation.providers import FakeDataSource
@@ -37,7 +36,7 @@ def _make_route() -> Route:
         RouteSegment(
             segment_index=i,
             geometrie=[coords[i], coords[i + 1]],
-            laenge_m=50_000.0,
+            length_m=50_000.0,
             strassenklasse="MOTORWAY",
             bearing_deg=0.0,
         )

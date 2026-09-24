@@ -9,7 +9,6 @@ from unittest import mock
 
 import httpx
 import pytest
-
 from tripplanner.geo import Coordinate
 from tripplanner.weather.models import WeatherQuery
 from tripplanner.weather.providers import OpenWeatherProvider, SlidingWindowRateLimiter
@@ -19,7 +18,8 @@ BERLIN: Coordinate = (52.5200, 13.4050)
 
 def _to_utc_epoch(naive_utc: datetime) -> int:
     """Converts a naive datetime, treated as UTC, to a Unix epoch (matching
-    OpenWeather's `dt` field and `OpenWeatherProvider`'s naive-UTC convention)."""
+    OpenWeather's `dt` field and `OpenWeatherProvider`'s naive-UTC convention).
+    """
     return int(naive_utc.replace(tzinfo=UTC).timestamp())
 
 
@@ -52,20 +52,20 @@ async def test_openweather_provider_fetch_weather_maps_fields() -> None:
     provider = OpenWeatherProvider(
         api_key="test-key", client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
     )
-    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=target)
+    query = WeatherQuery(coordinate=BERLIN, timestamp=target)
 
     results = await provider.fetch_weather([query])
 
     assert len(results) == 1
     sample = results[0]
-    assert sample.temperatur_c == 18.5
-    assert sample.windgeschwindigkeit_ms == 6.2
-    assert sample.windrichtung_deg == 200.0
-    assert sample.luftfeuchtigkeit_pct == 72.0
-    assert sample.luftdruck_hpa == 1015.0
-    assert sample.bewoelkung_pct == 55.0
-    assert sample.niederschlag_mm == 0.5  # 1.5mm/3h -> 0.5mm/h
-    assert sample.globalstrahlung_wm2 == 0.0
+    assert sample.temperature_c == 18.5
+    assert sample.wind_speed_ms == 6.2
+    assert sample.wind_direction_deg == 200.0
+    assert sample.humidity_pct == 72.0
+    assert sample.pressure_hpa == 1015.0
+    assert sample.cloudiness_pct == 55.0
+    assert sample.precipitation_mm == 0.5  # 1.5mm/3h -> 0.5mm/h
+    assert sample.solar_radiation_wm2 == 0.0
     await provider.close()
 
 
@@ -81,12 +81,12 @@ async def test_openweather_provider_matches_nearest_slot_within_tolerance() -> N
     provider = OpenWeatherProvider(
         api_key="test-key", client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
     )
-    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 16, 0))
+    query = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 17, 16, 0))
 
     results = await provider.fetch_weather([query])
 
     assert len(results) == 1
-    assert results[0].zeitpunkt == datetime(2026, 8, 17, 16, 0)
+    assert results[0].timestamp == datetime(2026, 8, 17, 16, 0)
 
 
 @pytest.mark.asyncio
@@ -100,7 +100,7 @@ async def test_openweather_provider_beyond_tolerance_returns_no_sample() -> None
     provider = OpenWeatherProvider(
         api_key="test-key", client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
     )
-    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 25, 15, 0))
+    query = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 25, 15, 0))
 
     results = await provider.fetch_weather([query])
 
@@ -109,7 +109,7 @@ async def test_openweather_provider_beyond_tolerance_returns_no_sample() -> None
 
 @pytest.mark.asyncio
 async def test_openweather_provider_snow_conversion() -> None:
-    """`snow.3h` (mm water equivalent) converts to hourly `schneefall_cm`."""
+    """`snow.3h` (mm water equivalent) converts to hourly `snowfall_cm`."""
     target = datetime(2026, 8, 17, 15, 0)
     dt_epoch = _to_utc_epoch(target)
 
@@ -122,12 +122,12 @@ async def test_openweather_provider_snow_conversion() -> None:
     provider = OpenWeatherProvider(
         api_key="test-key", client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
     )
-    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=target)
+    query = WeatherQuery(coordinate=BERLIN, timestamp=target)
 
     results = await provider.fetch_weather([query])
 
-    assert results[0].niederschlag_mm == 0.0
-    assert results[0].schneefall_cm == 0.2  # 6mm/3h -> 2mm/h -> 0.2cm
+    assert results[0].precipitation_mm == 0.0
+    assert results[0].snowfall_cm == 0.2  # 6mm/3h -> 2mm/h -> 0.2cm
 
 
 @pytest.mark.asyncio
@@ -157,7 +157,7 @@ async def test_openweather_provider_http_error_propagates() -> None:
     provider = OpenWeatherProvider(
         api_key="bad-key", client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
     )
-    query = WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 15, 0))
+    query = WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 17, 15, 0))
 
     with pytest.raises(httpx.HTTPStatusError):
         await provider.fetch_weather([query])
@@ -175,13 +175,13 @@ async def test_openweather_provider_refetch_weather_delegates_to_fetch() -> None
     provider = OpenWeatherProvider(
         api_key="test-key", client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
     )
-    original = [WeatherQuery(coordinate=BERLIN, zeitpunkt=datetime(2026, 8, 17, 12, 0))]
-    updated = [WeatherQuery(coordinate=BERLIN, zeitpunkt=target)]
+    original = [WeatherQuery(coordinate=BERLIN, timestamp=datetime(2026, 8, 17, 12, 0))]
+    updated = [WeatherQuery(coordinate=BERLIN, timestamp=target)]
 
     results = await provider.refetch_weather(original, updated)
 
     assert len(results) == 1
-    assert results[0].zeitpunkt == target
+    assert results[0].timestamp == target
 
 
 @pytest.mark.asyncio
@@ -213,7 +213,7 @@ async def test_openweather_provider_throttles_below_requests_per_minute() -> Non
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         rate_limiter=limiter,
     )
-    queries = [WeatherQuery(coordinate=(52.0 + i, 13.0), zeitpunkt=target) for i in range(7)]
+    queries = [WeatherQuery(coordinate=(52.0 + i, 13.0), timestamp=target) for i in range(7)]
 
     with mock.patch("asyncio.sleep", side_effect=fake_sleep):
         results = await provider.fetch_weather(queries)

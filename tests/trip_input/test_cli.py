@@ -9,8 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
-from typer.testing import CliRunner
-
 from tripplanner.charging_infrastructure.client import TeslaLocationsClient
 from tripplanner.charging_infrastructure.providers import (
     FakeChargingStationProvider,
@@ -23,6 +21,7 @@ from tripplanner.routing.providers import FakeRoutingProvider
 from tripplanner.trip_input.cli import app, parse_coord, parse_waypoint
 from tripplanner.trip_input.providers_factory import ProductionProviders
 from tripplanner.weather.providers import FakeWeatherProvider
+from typer.testing import CliRunner
 
 runner = CliRunner()
 
@@ -31,11 +30,11 @@ runner = CliRunner()
 def mock_trip_result() -> MagicMock:
     """Mock für ein Trip-Simulation-Ergebnis."""
     mock_frame = MagicMock()
-    mock_frame.zeitpunkt = datetime(2026, 8, 15, 8, 30, 0)
+    mock_frame.timestamp = datetime(2026, 8, 15, 8, 30, 0)
     mock_frame.position = (52.5200, 13.4050)
     mock_frame.soc_pct = 75.0
     mock_frame.zustand = MagicMock(value="fahren")
-    mock_frame.geschwindigkeit_kmh = 100.0
+    mock_frame.speed_kmh = 100.0
 
     mock_result = MagicMock()
     mock_result.gesamt_distanz_km = 290.0
@@ -76,13 +75,13 @@ class TestCliParseFunctions:
             parse_coord("52.52,abc")
 
     def test_parse_waypoint_valid_with_duration(self) -> None:
-        """Test: Waypoint mit Dauer wird korrekt geparst."""
+        """Test: Waypoint mit duration wird korrekt geparst."""
         coord, duration = parse_waypoint("52.5200,13.4050:30")
         assert coord == (52.5200, 13.4050)
         assert duration == timedelta(minutes=30)
 
     def test_parse_waypoint_valid_without_duration(self) -> None:
-        """Test: Waypoint ohne Dauer wird korrekt geparst."""
+        """Test: Waypoint ohne duration wird korrekt geparst."""
         coord, duration = parse_waypoint("52.5200,13.4050")
         assert coord == (52.5200, 13.4050)
         assert duration is None
@@ -101,7 +100,7 @@ class TestCliCommand:
     """Integrationstests für den CLI-Befehl (kein Subcommand 'trips')."""
 
     def test_cli_minimal_required_args(self, mock_trip_result: MagicMock) -> None:
-        """Test: Minimale erforderliche Argumente (start, destination, departure-time)."""
+        """Test: minimum erforderliche Argumente (start, destination, departure-time)."""
         with patch(
             "tripplanner.trip_input.cli.create_trip_simulation",
             new_callable=AsyncMock,
@@ -253,7 +252,7 @@ class TestCliCommand:
         assert "Ungültige Eingabe" in result.stderr or "Error" in result.stderr
 
     def test_cli_invalid_waypoint_duration(self) -> None:
-        """Test: Ungültige Dauer im Waypoint -> Exit Code 1."""
+        """Test: Ungültige duration im Waypoint -> Exit Code 1."""
         result = runner.invoke(
             app,
             [
@@ -369,7 +368,8 @@ class TestCliCommand:
 
     def test_cli_max_lade_soc_pct_wird_weitergereicht(self, mock_trip_result: MagicMock) -> None:
         """Test: `--max-lade-soc-pct` wird an `create_trip_simulation`
-        durchgereicht."""
+        durchgereicht.
+        """
         with patch(
             "tripplanner.trip_input.cli.create_trip_simulation",
             new_callable=AsyncMock,
@@ -433,7 +433,6 @@ class TestCliCommand:
 
     def test_cli_validation_error(self) -> None:
         """Test: ValidationError aus create_trip_simulation -> Exit Code 1."""
-
         with patch(
             "tripplanner.trip_input.cli.create_trip_simulation",
             new_callable=AsyncMock,

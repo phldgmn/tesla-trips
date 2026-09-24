@@ -88,10 +88,10 @@ def _evaluate_fast_path(fast: _ChargingCurveFastPath, soc_pct: float) -> float:
 
 
 class SoCState(BaseModel):
-    """Batteriezustand zu einem Zeitpunkt."""
+    """Batteriezustand zu einem timestamp."""
 
     soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ladestand in Prozent (0-100)")
-    zeitpunkt: float = Field(..., description="Zeitpunkt in Sekunden seit Reisebeginn")
+    timestamp: float = Field(..., description="timestamp in Sekunden seit Reisebeginn")
 
 
 class ChargingCurvePoint(BaseModel):
@@ -271,7 +271,7 @@ class ChargingCurve(BaseModel):
 
 
 class VehicleBatteryParameters(BaseModel):
-    """Fahrzeug-spezifische Batterieeigenschaften.
+    """vehicle-spezifische Batterieeigenschaften.
 
     Vorrangig für spätere Kalibrierung mit Fahrdaten vorgesehen.
     Default-Werte basierend auf typischem Model 3 LR Verhalten.
@@ -299,7 +299,7 @@ class VehicleBatteryParameters(BaseModel):
         default=1.0,
         ge=0.7,
         le=1.1,
-        description="Multiplikator für Ladedauer basierend auf Batterie-/Umgebungstemperatur",
+        description="Multiplikator für charge_duration basierend auf Batterie-/Umgebungstemperatur",
     )
 
 

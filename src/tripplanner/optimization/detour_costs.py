@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 DETOUR_ROUTENFAKTOR: float = 1.6
-"""Multiplikator, um aus der Luftlinien-Entfernung Station<->Route eine
+"""Multiplikator, um aus der Luftlinien-distance Station<->Route eine
 realistische Straßendistanz zu schätzen (echte Straßen sind selten
 geradlinig - kalibriert an den 1.2x-2x, die `_step_route_charging_detours`
 live gegen GraphHopper für Abstecher zu Ladestationen beobachtet, siehe
@@ -24,7 +24,7 @@ live gegen GraphHopper für Abstecher zu Ladestationen beobachtet, siehe
 DETOUR_GESCHWINDIGKEIT_KMH: float = 70.0
 """Angenommene Durchschnittsgeschwindigkeit auf dem Abstecher zur Ladestation
 (oft Landstraße/Zubringer, nicht die Haupttrasse - konservativ niedriger als
-ein Autobahn-Tempolimit)."""
+ein Autobahn-speed_limit_kmh)."""
 
 
 def detour_kosten(
@@ -70,9 +70,9 @@ def detour_kosten(
     if offroute_distance_m <= 0.0:
         return 0.0, 0.0, 0.0, 0.0
 
-    strecke_m = offroute_distance_m * DETOUR_ROUTENFAKTOR
+    segment_length_m = offroute_distance_m * DETOUR_ROUTENFAKTOR
     detour_geschwindigkeit_m_s = DETOUR_GESCHWINDIGKEIT_KMH * 1000.0 / 3600.0
-    zeit_s = strecke_m / detour_geschwindigkeit_m_s
-    energie_kwh = strecke_m * avg_verbrauch_kwh_pro_m
-    soc_pct = calc_soc_verbrauch_pct(energie_kwh, vehicle_profile.battery_capacity_kwh)
-    return zeit_s, soc_pct, zeit_s, soc_pct
+    time_s = segment_length_m / detour_geschwindigkeit_m_s
+    energy_kwh = segment_length_m * avg_verbrauch_kwh_pro_m
+    soc_pct = calc_soc_verbrauch_pct(energy_kwh, vehicle_profile.battery_capacity_kwh)
+    return time_s, soc_pct, time_s, soc_pct

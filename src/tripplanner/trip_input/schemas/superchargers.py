@@ -12,8 +12,8 @@ class SuperchargerStationAPI(BaseModel):
 
     slug: str = Field(..., description="tesla_location_id (location_url_slug)")
     name: str = Field(..., description="Standortname")
-    latitude: float = Field(..., description="WGS84 Breitengrad")
-    longitude: float = Field(..., description="WGS84 Laengengrad")
+    latitude: float = Field(..., description="WGS84 latitude")
+    longitude: float = Field(..., description="WGS84 longitude")
     country: str = Field(..., description="ISO-2 Laendercode")
     total_stalls: int = Field(..., description="Anzahl Ladeplaetze")
     power_kilowatt: int = Field(..., description="Maximale Ladeleistung kW")
@@ -48,7 +48,7 @@ class SuperchargerPricingAPI(BaseModel):
     )
     updated_utc: str | None = Field(
         default=None,
-        description="ISO-8601 Zeitpunkt der letzten Preisaktualisierung, None wenn nie gescraped.",
+        description="ISO-8601 timestamp der letzten Preisaktualisierung, None wenn nie gescraped.",
     )
 
 

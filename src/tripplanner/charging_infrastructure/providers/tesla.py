@@ -103,7 +103,7 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
         # `_lat_bands` gebaut wurde - ändert sich `self._stations` (Reload
         # nach `refresh()`/`update_station()` o.ä., die den Cache auf `None`
         # setzen), erkennt `get_stations_in_radius()` das automatisch über
-        # den Identitätsvergleich und baut den Index neu, ohne dass jede
+        # den Identitätsvergleich und baut den Index new, ohne dass jede
         # Cache-Invalidierungsstelle den Index separat zurücksetzen müsste.
         self._lat_bands: dict[int, list[ChargingStation]] | None = None
         self._lat_bands_source: list[ChargingStation] | None = None
@@ -409,12 +409,12 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
             country_filter: Optionaler Länderfilter (DE/DK/SE)
 
         Returns:
-            Liste von ChargingStation, sortiert nach Distanz (aufsteigend)
+            Liste von ChargingStation, sortiert nach distance (aufsteigend)
         """
         if self._stations is None:
             self._stations = self._load_stations_from_db()
-        # Breitengrad-Index neu aufbauen, falls `self._stations` seit dem
-        # letzten Aufbau neu geladen wurde (Identitätsvergleich statt
+        # latitude-Index new aufbauen, falls `self._stations` seit dem
+        # letzten Aufbau new geladen wurde (Identitätsvergleich statt
         # Invalidierung an jeder `self._stations = None`-Stelle, siehe
         # `__init__`).
         if self._lat_bands is None or self._lat_bands_source is not self._stations:
@@ -425,7 +425,7 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
         if country_filter:
             candidates = [s for s in candidates if s.country == country_filter]
 
-        # Sortieren nach Distanz (aufsteigend)
+        # Sortieren nach distance (aufsteigend)
         paired = [(haversine_distance_m(coordinate, s.coordinate) / 1000.0, s) for s in candidates]
         paired.sort(key=lambda x: x[0])
         return [station for _, station in paired]

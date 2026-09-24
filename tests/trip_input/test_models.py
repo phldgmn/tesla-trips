@@ -5,13 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
-
 from tripplanner.trip_input.models import FerryExclusion, TripRequest, VehicleProfile
 
 
 @pytest.fixture
 def vehicle_profile() -> VehicleProfile:
-    """Beispiel-Fahrzeugprofil für TripRequest-Tests."""
+    """Beispiel-vehicle_profile für TripRequest-Tests."""
     return VehicleProfile(
         mass_kg=1706.0,
         drag_coefficient=0.23,

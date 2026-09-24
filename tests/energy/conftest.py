@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-
 from tripplanner.elevation.models import SegmentGradient
 from tripplanner.energy.models import SegmentEnergyResult, VehicleEnergyParameters
 from tripplanner.geo import Coordinate
@@ -18,42 +17,42 @@ HAMBURG: Coordinate = (53.5511, 9.9937)
 
 
 def make_weather_sample(
-    temperatur_c: float = 20.0,
-    windgeschwindigkeit_ms: float = 0.0,
-    windrichtung_deg: float = 0.0,
+    temperature_c: float = 20.0,
+    wind_speed_ms: float = 0.0,
+    wind_direction_deg: float = 0.0,
 ) -> WeatherSample:
     """Hilfsfunktion zur Erstellung von WeatherSample-Instanzen."""
     return WeatherSample(
         coordinate=BERLIN,
-        zeitpunkt=datetime(2025, 6, 15, 12, 0, tzinfo=UTC),
-        temperatur_c=temperatur_c,
-        windgeschwindigkeit_ms=windgeschwindigkeit_ms,
-        windrichtung_deg=windrichtung_deg,
-        niederschlag_mm=0.0,
-        schneefall_cm=0.0,
-        luftdruck_hpa=1013.0,
-        luftfeuchtigkeit_pct=50.0,
-        globalstrahlung_wm2=300.0,
-        bewoelkung_pct=0.0,
+        timestamp=datetime(2025, 6, 15, 12, 0, tzinfo=UTC),
+        temperature_c=temperature_c,
+        wind_speed_ms=wind_speed_ms,
+        wind_direction_deg=wind_direction_deg,
+        precipitation_mm=0.0,
+        snowfall_cm=0.0,
+        pressure_hpa=1013.0,
+        humidity_pct=50.0,
+        solar_radiation_wm2=300.0,
+        cloudiness_pct=0.0,
     )
 
 
 def make_route_segment(
     segment_index: int,
-    laenge_m: float = 1000.0,
+    length_m: float = 1000.0,
     bearing_deg: float = 0.0,
-    tempolimit_kmh: int = 120,
-    oberflaeche: str | None = None,
+    speed_limit_kmh: int = 120,
+    surface: str | None = None,
     steigung_rohdaten: list[float] | None = None,
 ) -> RouteSegment:
     """Hilfsfunktion zur Erstellung von RouteSegment-Instanzen."""
     return RouteSegment(
         segment_index=segment_index,
         geometrie=[BERLIN, HAMBURG],
-        laenge_m=laenge_m,
+        length_m=length_m,
         strassenklasse="PRIMARY",
-        oberflaeche=oberflaeche,
-        tempolimit_kmh=tempolimit_kmh,
+        surface=surface,
+        speed_limit_kmh=speed_limit_kmh,
         steigung_rohdaten=steigung_rohdaten[0] if steigung_rohdaten else None,
         bearing_deg=bearing_deg,
     )
@@ -91,9 +90,9 @@ def make_segment_energy_result(
     energiebedarf_kwh: float = 1.5,
     rekuperation_kwh: float = 0.0,
     energiebedarf_brutto_kwh: float = 1.5,
-    geschwindigkeit_m_s: float = 27.78,
-    fahrzeit_s: float = 30.0,
-    streckenlaenge_m: float = 1000.0,
+    speed_ms: float = 27.78,
+    drive_time_s: float = 30.0,
+    segment_length_m: float = 1000.0,
 ) -> SegmentEnergyResult:
     """Hilfsfunktion zur Erstellung von SegmentEnergyResult-Instanzen."""
     return SegmentEnergyResult(
@@ -101,9 +100,9 @@ def make_segment_energy_result(
         energiebedarf_kwh=energiebedarf_kwh,
         rekuperation_kwh=rekuperation_kwh,
         energiebedarf_brutto_kwh=energiebedarf_brutto_kwh,
-        geschwindigkeit_m_s=geschwindigkeit_m_s,
-        fahrzeit_s=fahrzeit_s,
-        streckenlaenge_m=streckenlaenge_m,
+        speed_ms=speed_ms,
+        drive_time_s=drive_time_s,
+        segment_length_m=segment_length_m,
     )
 
 
@@ -117,39 +116,39 @@ def default_model3_params() -> VehicleEnergyParameters:
 # Fixtures fuer RouteSegment
 @pytest.fixture
 def segment_eben() -> RouteSegment:
-    """Ebene Strecke (1000 m, Tempolimit 120 km/h, Steigung 0 %)."""
+    """Ebene segment (1000 m, speed_limit_kmh 120 km/h, gradient 0 %)."""
     return make_route_segment(
         segment_index=0,
-        laenge_m=1000.0,
+        length_m=1000.0,
         bearing_deg=0.0,
-        tempolimit_kmh=120,
-        oberflaeche="asphalt",
+        speed_limit_kmh=120,
+        surface="asphalt",
         steigung_rohdaten=[0.0, 0.0, 0.0, 0.0, 0.0],
     )
 
 
 @pytest.fixture
 def segment_steigung_3pct() -> RouteSegment:
-    """Strecke mit +3 % Steigung (800 m, Tempolimit 100 km/h)."""
+    """segment mit +3 % gradient (800 m, speed_limit_kmh 100 km/h)."""
     return make_route_segment(
         segment_index=1,
-        laenge_m=800.0,
+        length_m=800.0,
         bearing_deg=0.0,
-        tempolimit_kmh=100,
-        oberflaeche="asphalt",
+        speed_limit_kmh=100,
+        surface="asphalt",
         steigung_rohdaten=[0.0, 1.5, 3.0, 2.5, 0.0],
     )
 
 
 @pytest.fixture
 def segment_gefaelle_4pct() -> RouteSegment:
-    """Strecke mit -4 % Gefaelle (1200 m, Tempolimit 110 km/h)."""
+    """segment mit -4 % Gefaelle (1200 m, speed_limit_kmh 110 km/h)."""
     return make_route_segment(
         segment_index=2,
-        laenge_m=1200.0,
+        length_m=1200.0,
         bearing_deg=0.0,
-        tempolimit_kmh=110,
-        oberflaeche="asphalt",
+        speed_limit_kmh=110,
+        surface="asphalt",
         steigung_rohdaten=[0.0, -2.0, -4.0, -3.0, 0.0],
     )
 
@@ -163,7 +162,7 @@ def gradient_eben() -> SegmentGradient:
 
 @pytest.fixture
 def gradient_steigung_3pct() -> SegmentGradient:
-    """Segment-Gradient mit +3 % Steigung."""
+    """Segment-Gradient mit +3 % gradient."""
     return make_segment_gradient(segment_index=1, slope_percent=3.0, hoehendifferenz_m=24.0)
 
 
@@ -176,13 +175,13 @@ def gradient_gefaelle_4pct() -> SegmentGradient:
 # Fixtures fuer Wind
 @pytest.fixture
 def wind_components_windstill() -> WindComponents:
-    """Windkomponenten fuer Windstille (0 m/s Gegenwind)."""
+    """Windkomponenten fuer Windstille (0 m/s headwind)."""
     return make_wind_components(segment_index=0, gegenwind_ms=0.0, seitenwind_ms=0.0)
 
 
 @pytest.fixture
 def wind_components_gegenwind() -> WindComponents:
-    """Windkomponenten mit Gegenwind (5 m/s)."""
+    """Windkomponenten mit headwind (5 m/s)."""
     return make_wind_components(segment_index=0, gegenwind_ms=5.0, seitenwind_ms=1.0)
 
 
@@ -196,16 +195,16 @@ def wind_components_rueckenwind() -> WindComponents:
 @pytest.fixture
 def wetter_sample_ref() -> WeatherSample:
     """Referenzwetter (20°C, windstill)."""
-    return make_weather_sample(temperatur_c=20.0, windgeschwindigkeit_ms=0.0, windrichtung_deg=0.0)
+    return make_weather_sample(temperature_c=20.0, wind_speed_ms=0.0, wind_direction_deg=0.0)
 
 
 @pytest.fixture
 def wetter_sample_neg10c_heizung() -> WeatherSample:
     """Wetter fuer Heizungsfall (-10°C, Klima auf Heizung)."""
-    return make_weather_sample(temperatur_c=-10.0, windgeschwindigkeit_ms=0.0, windrichtung_deg=0.0)
+    return make_weather_sample(temperature_c=-10.0, wind_speed_ms=0.0, wind_direction_deg=0.0)
 
 
 @pytest.fixture
 def wetter_sample_32c_klima() -> WeatherSample:
-    """Wetter fuer Klimafall (32°C, Klima auf maximale Leistung)."""
-    return make_weather_sample(temperatur_c=32.0, windgeschwindigkeit_ms=0.0, windrichtung_deg=0.0)
+    """Wetter fuer Klimafall (32°C, Klima auf maximum Leistung)."""
+    return make_weather_sample(temperature_c=32.0, wind_speed_ms=0.0, wind_direction_deg=0.0)

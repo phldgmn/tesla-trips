@@ -2,7 +2,7 @@
 
 Dieses Paket gruppiert die Provider nach Verantwortlichkeit:
 
-- ``spatial``:      Raeumlicher Stations-Index (Breitengrad-Baender).
+- ``spatial``:      Raeumlicher Stations-Index (latitude-Baender).
 - ``record_mapping``: Umwandlung zwischen Tesla-API-Daten und DB-Records.
 - ``local_file``:   ``LocalFileChargingStationProvider`` (lokale JSON-Datei).
 - ``fake``:         ``FakeChargingStationProvider`` (Tests).

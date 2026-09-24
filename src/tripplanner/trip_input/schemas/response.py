@@ -73,8 +73,8 @@ def _build_construction_zones_api(
         ):
             construction_zones_api[-1].events.append(
                 ConstructionZoneEventAPI(
-                    closure_type=zone.sperrungstyp.value,
-                    speed_limit_kmh=zone.tempolimit_kmh,
+                    closure_type=zone.closure_type.value,
+                    speed_limit_kmh=zone.speed_limit_kmh,
                     detour_notice=zone.umleitungshinweis,
                     country=zone.land.value,
                     valid_from=zone.gueltig_von,
@@ -90,15 +90,15 @@ def _build_construction_zones_api(
                 position=zone_position,
                 events=[
                     ConstructionZoneEventAPI(
-                        closure_type=zone.sperrungstyp.value,
-                        speed_limit_kmh=zone.tempolimit_kmh,
+                        closure_type=zone.closure_type.value,
+                        speed_limit_kmh=zone.speed_limit_kmh,
                         detour_notice=zone.umleitungshinweis,
                         country=zone.land.value,
                         valid_from=zone.gueltig_von,
                         valid_to=zone.gueltig_bis,
                     )
                 ],
-                length_m=zone.laenge_m,
+                length_m=zone.length_m,
             ),
         )
         last_position = zone_position
@@ -109,12 +109,12 @@ def _build_construction_zones_api(
 class FrameAPI(CamelCaseResponseAPI):
     """Einzelner Simulationsframe in der API-Response."""
 
-    timestamp: str = Field(..., description="ISO-8601 Zeitpunkt")
+    timestamp: str = Field(..., description="ISO-8601 timestamp")
     position: tuple[float, float] = Field(
         ..., description="(lat, lon), konsistent mit Domänenmodell"
     )
     distance_m: float = Field(
-        ..., ge=0.0, description="Kumulierte Distanz vom Reisebeginn entlang der Route in Metern"
+        ..., ge=0.0, description="Kumulierte distance vom Reisebeginn entlang der Route in Metern"
     )
     soc_pct: float = Field(..., ge=0.0, le=100.0)
     state: str = Field(..., description="'FAHREN', 'LADEN' oder 'PAUSE'")
@@ -122,28 +122,28 @@ class FrameAPI(CamelCaseResponseAPI):
     temperature_c: float | None = Field(
         default=None,
         description=(
-            "Fuer diesen Streckenpunkt angenommene Temperatur in Grad Celsius "
+            "Fuer diesen Streckenpunkt angenommene temperature in Grad Celsius "
             "(None wenn Wetter bei der Berechnung nicht beruecksichtigt wurde)."
         ),
     )
     wind_speed_ms: float | None = Field(
         default=None,
         ge=0.0,
-        description="Fuer diesen Streckenpunkt angenommene Windgeschwindigkeit in m/s "
-        "(None wie temperatur_c).",
+        description="Fuer diesen Streckenpunkt angenommene wind_speed_ms in m/s "
+        "(None wie temperature_c).",
     )
     wind_direction_deg: float | None = Field(
         default=None,
         ge=0.0,
         le=360.0,
-        description="Fuer diesen Streckenpunkt angenommene Windrichtung in Grad "
-        "(0° = N, 90° = O; None wie temperatur_c).",
+        description="Fuer diesen Streckenpunkt angenommene wind_direction_deg in Grad "
+        "(0° = N, 90° = O; None wie temperature_c).",
     )
     precipitation_mm: float | None = Field(
         default=None,
         ge=0.0,
-        description="Fuer diesen Streckenpunkt angenommener Niederschlag in mm/h "
-        "(None wie temperatur_c).",
+        description="Fuer diesen Streckenpunkt angenommener precipitation in mm/h "
+        "(None wie temperature_c).",
     )
 
 
@@ -154,7 +154,7 @@ class ChargingStopAPI(CamelCaseResponseAPI):
     station_id: str = Field(..., description="Eindeutige ID der Ladestation")
     position: tuple[float, float] = Field(..., description="(lat, lon) der Ladestation")
     distance_m: float = Field(
-        ..., ge=0.0, description="Kumulierte Distanz entlang der Route, an der abgebogen wird"
+        ..., ge=0.0, description="Kumulierte distance entlang der Route, an der abgebogen wird"
     )
     detour_geometry: list[Coordinate] = Field(
         default_factory=list,
@@ -189,10 +189,10 @@ class ChargingStopAPI(CamelCaseResponseAPI):
     )
     arrival_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
     target_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ziel-SoC nach dem Laden in %")
-    charging_duration_s: int = Field(..., ge=0, description="Ladedauer in Sekunden")
+    charging_duration_s: int = Field(..., ge=0, description="charge_duration in Sekunden")
     energy_charged_kwh: float = Field(..., ge=0.0, description="Geladene Energiemenge in kWh")
-    arrival_time: str = Field(..., description="ISO-8601 Ankunftszeitpunkt an der Station")
-    departure_time: str = Field(..., description="ISO-8601 Abfahrtszeitpunkt von der Station")
+    arrival_time: str = Field(..., description="ISO-8601 arrival_time an der Station")
+    departure_time: str = Field(..., description="ISO-8601 departure_time von der Station")
     price_per_kwh: float | None = Field(
         default=None,
         ge=0.0,
@@ -239,11 +239,11 @@ class FerrySegmentAPI(CamelCaseResponseAPI):
     )
     departure: str | None = Field(
         default=None,
-        description="Vom Nutzer vorgegebene Abfahrtszeit (ISO-8601), sofern vorhanden",
+        description="Vom Nutzer vorgegebene departure_time (ISO-8601), sofern vorhanden",
     )
     arrival: str | None = Field(
         default=None,
-        description="Vom Nutzer vorgegebene Ankunftszeit (ISO-8601), sofern vorhanden",
+        description="Vom Nutzer vorgegebene arrival_time (ISO-8601), sofern vorhanden",
     )
 
 
@@ -257,22 +257,22 @@ class ChargingCostByCurrencyAPI(CamelCaseResponseAPI):
 class ConstructionZoneEventAPI(CamelCaseResponseAPI):
     """One underlying construction/roadwork event merged into a ConstructionZoneAPI marker."""
 
-    closure_type: str = Field(..., description="Art der Sperrung/Baustelle")
+    closure_type: str = Field(..., description="Art der Sperrung/construction_zone")
     speed_limit_kmh: int | None = Field(
-        default=None, description="Reduziertes Tempolimit in km/h (None wenn keine Beschränkung)"
+        default=None, description="Reduced speed_limit_kmh in km/h (None if no speed limit)"
     )
     detour_notice: str | None = Field(
         default=None, description="Freitext-Information zur Umleitung (optional)"
     )
-    country: str = Field(..., description="Land, in dem die Baustelle liegt")
-    valid_from: datetime = Field(..., description="Startzeitpunkt der Baustelle (ISO 8601)")
+    country: str = Field(..., description="Land, in dem die construction_zone liegt")
+    valid_from: datetime = Field(..., description="Startzeitpunkt der construction_zone (ISO 8601)")
     valid_to: datetime | None = Field(
-        default=None, description="Endzeitpunkt der Baustelle (ISO 8601), None wenn unbestimmt"
+        default=None, description="construction_zone end timestamp (ISO 8601), None if indefinite"
     )
 
 
 class ConstructionZoneAPI(CamelCaseResponseAPI):
-    """API-repräsentation eines Baustellen-Markers, der mehrere nahe Events zusammenfasst."""
+    """API representation of a construction_zone marker that groups nearby events."""
 
     position: Coordinate = Field(
         ..., description="Repräsentative (lat, lon) Position (erstes Event entlang der Route)"
@@ -294,10 +294,10 @@ class WaypointStopAPI(CamelCaseResponseAPI):
 
     position: tuple[float, float] = Field(..., description="(lat, lon) des Zwischenstopps")
     distance_m: float = Field(
-        ..., ge=0.0, description="Kumulierte Distanz entlang der Route bei diesem Zwischenstopp"
+        ..., ge=0.0, description="Kumulierte distance entlang der Route bei diesem Zwischenstopp"
     )
-    arrival_time: str = Field(..., description="ISO-8601 Ankunftszeitpunkt am Zwischenstopp")
-    departure_time: str = Field(..., description="ISO-8601 Zeitpunkt der (erzwungenen) Abfahrt")
+    arrival_time: str = Field(..., description="ISO-8601 arrival_time am Zwischenstopp")
+    departure_time: str = Field(..., description="ISO-8601 timestamp der (erzwungenen) Abfahrt")
     charging_power_kw: float | None = Field(
         default=None, ge=0.0, description="Genutzte Ladeleistung in kW, None falls nicht geladen"
     )
@@ -311,9 +311,9 @@ class WaypointStopAPI(CamelCaseResponseAPI):
 class TripSimulationResultAPI(CamelCaseResponseAPI):
     """API-Response für /trips-Endpunkt."""
 
-    total_distance_km: float = Field(..., description="Gesamtdistanz in km")
+    total_distance_km: float = Field(..., description="total_distance in km")
     total_driving_time_min: float = Field(..., description="Gesamtfahrzeit in Minuten")
-    total_charging_time_min: float = Field(..., description="Gesamtladezeit in Minuten")
+    total_charging_time_min: float = Field(..., description="total_charge_time in Minuten")
     total_waiting_time_min: float = Field(
         default=0.0,
         description=(
@@ -360,8 +360,7 @@ class TripSimulationResultAPI(CamelCaseResponseAPI):
         ),
     )
     construction_zones: list[ConstructionZoneAPI] = Field(
-        default_factory=list,
-        description="Baustellen entlang der Route fuer die Kartendarstellung (leer, falls keine)",
+        default_factory=list, description="construction_zones along the route for map rendering"
     )
 
 
@@ -422,7 +421,7 @@ def _attach_charging_pricing(
     missing_pricing = 0
     for stop in simulation_result.charging_stops:
         cached = charging_provider.get_cached_pricing(stop.station_id)
-        rate = select_owner_rate_for_time(cached.tiers, stop.ankunftszeit)
+        rate = select_owner_rate_for_time(cached.tiers, stop.arrival_time)
         if rate is None:
             priced_stops.append(stop)
             missing_pricing += 1

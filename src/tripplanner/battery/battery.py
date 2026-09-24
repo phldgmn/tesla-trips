@@ -1,6 +1,6 @@
 """Zentrale Lade- und Entlade-Logik für das battery-Modul.
 
-Die Berechnungen basieren auf physikalischen Gesetzen (Energie = Leistung x Zeit),
+Die Berechnungen basieren auf physikalischen Gesetzen (energy = Leistung x time),
 angepasst an die stückweise lineare Ladekurve und Fahrzeugparameter.
 """
 
@@ -38,11 +38,11 @@ def compute_charge_duration(  # noqa: PLR0913, PLR0917 -- alle 6 Parameter sind 
     parameters: VehicleBatteryParameters,
     max_duration_seconds: float | None = None,
 ) -> float:
-    """Berechnet die Ladedauer in Sekunden von `start_soc_pct` bis `target_soc_pct`.
+    """Berechnet die charge_duration in Sekunden von `start_soc_pct` bis `target_soc_pct`.
 
     Bei konstanter Ladeleistung `charging_power_kw`.
 
-    Die reale Ladedauer wird durch die Kurve begrenzt: Die effektive Ladeleistung
+    Die reale charge_duration wird durch die Kurve begrenzt: Die effektive Ladeleistung
     ist das Minimum aus `charging_power_kw` und der Kurvenleistung bei jedem SoC-Punkt.
 
     Algorithmus (numerische Integration über die stückweise lineare Kurve):
@@ -53,7 +53,7 @@ def compute_charge_duration(  # noqa: PLR0913, PLR0917 -- alle 6 Parameter sind 
 
     Die Kurve selbst kann stückweise linear oder (Standard) als shape-preserving
     cubic Hermite-Interpolation (PCHIP) vorliegen, siehe `ChargingCurve` in
-    models.py - für Letztere ist das Integral nicht mehr analytisch geschlossen
+    models.py - für Letztere ist das Integral nicht more analytisch geschlossen
     lösbar, daher wird durchgehend eine numerische Rechteckregel mit feiner
     Diskretisierung verwendet. Diese funktioniert unverändert für beide
     Interpolationsarten, da sie nur `charging_curve.ladeleistung_bei_soc()`
@@ -64,11 +64,11 @@ def compute_charge_duration(  # noqa: PLR0913, PLR0917 -- alle 6 Parameter sind 
         target_soc_pct: Ziel-SoC in Prozent (0-100)
         charging_power_kw: Konstante Ladeleistung (kW)
         charging_curve: Die Ladekurve des Fahrzeugs
-        parameters: Fahrzeug-Batterieparameter
-        max_duration_seconds: Optional: Maximale Dauer, die erreicht werden darf
+        parameters: vehicle-Batterieparameter
+        max_duration_seconds: Optional: Maximale duration, die erreicht werden darf
 
     Returns:
-        Ladedauer in Sekunden (0 wenn start_soc_pct >= target_soc_pct)
+        charge_duration in Sekunden (0 wenn start_soc_pct >= target_soc_pct)
     """
     if start_soc_pct >= target_soc_pct:
         return 0.0
@@ -97,14 +97,14 @@ def compute_charge_duration(  # noqa: PLR0913, PLR0917 -- alle 6 Parameter sind 
         if power <= 0:
             continue  # Vermeide Division durch Null
 
-        # Energie für diesen SoC-Schritt
+        # energy für diesen SoC-Schritt
         dQ_kwh = (soc_delta / 100.0) * capacity_kwh
-        # Zeit = Energie / Leistung (in Stunden), umrechnen in Sekunden
+        # time = energy / Leistung (in Stunden), umrechnen in Sekunden
         dtime_h = dQ_kwh / power
         dtime_s = dtime_h * 3600.0
         total_time_s += dtime_s
 
-    # Wirkungsgrad und Temperatur korrigieren
+    # Wirkungsgrad und temperature korrigieren
     total_time_s /= efficiency
     total_time_s *= temp_factor
 

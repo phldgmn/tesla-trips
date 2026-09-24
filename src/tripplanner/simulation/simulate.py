@@ -66,25 +66,25 @@ def _find_segment_for_time(
     time_s: float,
     route: Route,
 ) -> tuple[int, float]:
-    """Finde das Segment und den Fortschritt fuer eine gegebene, skalierte Fahrzeit.
+    """Finde das Segment und den Fortschritt fuer eine gegebene, skalierte drive_time_s.
 
-    Sucht ueber die kumulierte Segment-FAHRZEIT (`cumulative_times`, aus
-    `SegmentEnergyResult.fahrzeit_s`) statt ueber die kumulierte Distanz -
+    Sucht ueber die kumulierte Segment-drive_time_s (`cumulative_times`, aus
+    `SegmentEnergyResult.drive_time_s`) statt ueber die kumulierte distance -
     damit Position, Segment-Index und
     SoC-Baseline der TATSAECHLICHEN, je Segment unterschiedlichen
-    Geschwindigkeit folgen statt einer einzigen Durchschnittsgeschwindigkeit
+    speed folgen statt einer einzigen Durchschnittsgeschwindigkeit
     ueber die gesamte Reise. Siehe `simulate_trip`: ohne dies "hinkt" die
-    Positions-/SoC-Schaetzung nach einem Ladehalt mehrere Frames lang der
+    Positions-/SoC-Schaetzung nach einem Ladehalt mehrere Frames long der
     tatsaechlichen Segment-Grenze (`Ladehalt.segment_index`) hinterher, sobald
-    die lokale Geschwindigkeit von der Reise-Durchschnittsgeschwindigkeit
+    die lokale speed von der Reise-Durchschnittsgeschwindigkeit
     abweicht (z. B. langsamere Zufahrt zur Ladestation) - sichtbar als
     kurzzeitig falscher (zu niedriger) SoC direkt nach dem Ladehalt.
 
     Args:
-        cumulative_times: Kumulierte Fahrzeit (s) bis zum Ende jedes Segments,
+        cumulative_times: Kumulierte drive_time_s (s) bis zum Ende jedes Segments,
             bereits so skaliert, dass `cumulative_times[-1] == total_time_s`.
-        total_time_s: Gesamte reine Fahrzeit der Reise in Sekunden.
-        time_s: Gewuenschte, bereits um Ladezeit bereinigte Fahrzeit seit
+        total_time_s: Gesamte reine drive_time_s der Reise in Sekunden.
+        time_s: Gewuenschte, bereits um Ladezeit bereinigte drive_time_s seit
             Reisebeginn.
         route: Die Route.
 
@@ -125,7 +125,7 @@ def _build_charging_stop_summaries(
     Args:
         ladehalte_sortiert: Sortierte Liste der Ladehalte.
         detouren: Detour-Geometrien pro Ladehalt.
-        distanz_bei_ladehalt: Erfasste Distanz beim Erreichen jedes Ladehalts.
+        distanz_bei_ladehalt: Erfasste distance beim Erreichen jedes Ladehalts.
         cumulative_distances: Kumulierte Routendistanz je Segment.
         battery_capacity_kwh: Nutzbare Batteriekapazitaet in kWh.
 
@@ -141,10 +141,10 @@ def _build_charging_stop_summaries(
                 station_id=ladehalt.station.station_id,
                 position=ladehalt.station.coordinate,
                 # Fallback (kein LADEN-Frame erfasst, z. B. sehr kurze
-                # Ladedauer unterhalb der Frame-Aufloesung
-                # `output_resolution_seconds`): Distanz am Beginn des
+                # charge_duration unterhalb der Frame-Aufloesung
+                # `output_resolution_seconds`): distance am Beginn des
                 # Ladehalt-Segments.
-                distanz_m=distanz_bei_ladehalt.get(
+                distance_m=distanz_bei_ladehalt.get(
                     id(ladehalt),
                     cumulative_distances[ladehalt.segment_index - 1]
                     if ladehalt.segment_index > 0
@@ -163,7 +163,7 @@ def _build_charging_stop_summaries(
                     / 100.0
                     * battery_capacity_kwh,
                 ),
-                ankunftszeit=ladehalt.ankunftszeit,
+                arrival_time=ladehalt.arrival_time,
                 departure_time=ladehalt.departure_time,
             )
         )
@@ -195,10 +195,10 @@ def _build_waypoint_stop_summaries(
                 # _map_waypoints_to_segments`) `segment_index` abgeleitet -
                 # NICHT aus der zeitbasierten Positionsrekonstruktion (siehe
                 # Kommentar bei `distanz_bei_ladehalt` oben).
-                distanz_m=cumulative_distances[aufenthalt.segment_index - 1]
+                distance_m=cumulative_distances[aufenthalt.segment_index - 1]
                 if aufenthalt.segment_index > 0
                 else 0.0,
-                ankunftszeit=aufenthalt.ankunftszeit,
+                arrival_time=aufenthalt.arrival_time,
                 departure_time=aufenthalt.departure_time,
                 charging_power_kw=aufenthalt.charging_power_kw,
                 arrival_soc_pct=aufenthalt.arrival_soc_pct,
@@ -218,7 +218,7 @@ def _compute_total_times(
     charging_plan: ChargingPlan,
     end_time_s: float,
 ) -> tuple[float, float, float]:
-    """Berechne Gesamt-Fahrzeit, -Ladezeit und -Wartezeit in Minuten.
+    """Berechne Gesamt-drive_time_s, -Ladezeit und -Wartezeit in Minuten.
 
     Args:
         charging_plan: Der optimierte Ladeplan.
@@ -229,17 +229,17 @@ def _compute_total_times(
     """
     gesamt_ladezeit_min = 0.0
     for ladehalt in charging_plan.ladehalte:
-        ladezeit_s = (ladehalt.departure_time - ladehalt.ankunftszeit).total_seconds()
+        ladezeit_s = (ladehalt.departure_time - ladehalt.arrival_time).total_seconds()
         gesamt_ladezeit_min += ladezeit_s / 60.0
 
     # Zwischenstopp-Aufenthalte zaehlen ausschliesslich als Wartezeit
     # (`gesamt_wartezeit_min`) - auch wenn an ihnen geladen wird. Nur die
     # tatsaechlichen Ladestopps (Supercharger, `ladehalte`; siehe
-    # `gesamt_ladezeit_min` oben) gehen in die Gesamtladezeit ein. Beide
+    # `gesamt_ladezeit_min` oben) gehen in die total_charge_time ein. Beide
     # zusammen mit `gesamt_fahrzeit_min` ergeben die volle Gesamtreisezeit.
     gesamt_wartezeit_min = 0.0
     for aufenthalt in charging_plan.zwischenstopp_aufenthalte:
-        wartezeit_s = (aufenthalt.departure_time - aufenthalt.ankunftszeit).total_seconds()
+        wartezeit_s = (aufenthalt.departure_time - aufenthalt.arrival_time).total_seconds()
         gesamt_wartezeit_min += wartezeit_s / 60.0
 
     gesamt_fahrzeit_min = max(0.0, (end_time_s / 60.0) - gesamt_ladezeit_min - gesamt_wartezeit_min)
@@ -267,7 +267,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         segment_energy: Energiebedarf je Segment
         start_soc_pct: Start-SoC in %
         output_resolution_seconds: Zeitauflösung der Ausgabe (default: 60s)
-        departure_time: Abfahrtszeitpunkt der Reise (timezone-aware datetime)
+        departure_time: departure_time der Reise (timezone-aware datetime)
         battery_capacity_kwh: Nutzbare Batteriekapazitaet in kWh (default: 62.5 kWh)
         charging_stop_detours: Optionales, ueber GraphHopper geroutetes Detour-Ergebnis
             je Ladehalt (Schluessel: `id()` des `ChargingStop`-Objekts aus
@@ -275,20 +275,20 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
             des Abstechers zur Ladestation (siehe
             `tripplanner.trip_input.api._step_route_charging_detours`). Fehlt ein
             Eintrag, bleibt `ChargingStopSummary.detour_geometrie` leer.
-        construction_zones: Baustellen entlang der Route (optional), fuer die
+        construction_zones: construction_zones entlang der Route (optional), fuer die
             Kartendarstellung unveraendert in `TripSimulationResult.construction_zones`
             durchgereicht.
         weather_samples: Eine `WeatherSample` je Route-Segment (gleiche
             Reihenfolge wie `route.segments`, siehe
             `tripplanner.trip_input.pipeline._step_5_fetch_weather`), fuer die
-            Routen-Hover-Anzeige im Frontend (`SimulationFrame.temperatur_c`
+            Routen-Hover-Anzeige im Frontend (`SimulationFrame.temperature_c`
             etc.). `None` (Standard, oder wenn Wetter bei der Berechnung nicht
             beruecksichtigt wurde, siehe `WeatherDetailLevel` 'off') laesst
             diese Felder auf jedem Frame leer statt irrefuehrende Platzhalter-
             werte anzuzeigen.
 
     Returns:
-        TripSimulationResult: Zeitreihe aus Frames (Zeit, Position, SoC, Zustand, Geschwindigkeit)
+        TripSimulationResult: Zeitreihe aus Frames (time, Position, SoC, Zustand, speed)
 
     Raises:
         ValueError: Wenn SoC-Werte ungueltig sind oder keine passenden Energy-Ergebnisse vorliegen.
@@ -310,8 +310,8 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
             raise ValueError(f"Kein Energy-Ergebnis fuer Segment {seg_idx}")
 
     # Wetterdaten je Segment fuer die Routen-Hover-Anzeige im Frontend
-    # (`SimulationFrame.temperatur_c` etc., siehe `buildRouteHoverText` in
-    # `popups.ts`) - unabhaengig vom Fahrzeug-Zustand (FAHREN/LADEN/PAUSE)
+    # (`SimulationFrame.temperature_c` etc., siehe `buildRouteHoverText` in
+    # `popups.ts`) - unabhaengig vom vehicle-Zustand (FAHREN/LADEN/PAUSE)
     # zugeordnet, da sie nur die Position beschreiben, nicht die Fahrt.
     weather_by_segment: dict[int, WeatherSample] = (
         dict(enumerate(weather_samples)) if weather_samples else {}
@@ -320,10 +320,10 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     cumulative_distances: list[float] = []
     total_distance_m = 0.0
     for segment in route.segments:
-        total_distance_m += segment.laenge_m
+        total_distance_m += segment.length_m
         cumulative_distances.append(total_distance_m)
 
-    # Praefix-Summe der Segment-Energie fuer O(1) "Energie seit Segment X"
+    # Praefix-Summe der Segment-energy fuer O(1) "energy seit Segment X"
     # Lookups statt O(n) Neuaufsummierung pro Frame (`energy_prefix[i]` =
     # kumulierter Energiebedarf der Segmente [0, i)).
     energy_prefix: list[float] = [0.0] * (len(route.segments) + 1)
@@ -352,16 +352,16 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     frames: list[SimulationFrame] = []
     # Kumulierte Routendistanz, an der jeder Ladehalt beginnt (Schluessel:
     # `id()` des Ladehalts) - erfasst beim ersten LADEN-Frame, siehe unten.
-    # Fuer `ChargingStopSummary.distanz_m` und um `ladehalt_detour_geometrie`
+    # Fuer `ChargingStopSummary.distance_m` und um `ladehalt_detour_geometrie`
     # an der richtigen Stelle in die Karten-Geometrie einzufuegen (siehe
     # `route-line.ts` im Frontend). Zwischenstopp-Aufenthalte brauchen dieses
     # zeitbasierte Tracking NICHT: ihr `segment_index` (siehe
     # `NetworkXOptimizer._map_waypoints_to_segments`) zeigt bereits exakt auf
     # den per GraphHopper-Via-Punkt aufgeloesten Geometrie-Punkt, sodass
-    # `WaypointStopSummary.distanz_m` direkt aus `cumulative_distances`
+    # `WaypointStopSummary.distance_m` direkt aus `cumulative_distances`
     # abgeleitet wird (siehe unten) - rein geometrisch, unabhaengig von der
-    # zeitbasierten Positionsrekonstruktion (die bei Routen mit Faehren vor
-    # dem Zwischenstopp durch GraphHoppers unrealistische Faehr-Segmentzeiten
+    # zeitbasierten Positionsrekonstruktion (die bei Routen mit ferries vor
+    # dem Zwischenstopp durch GraphHoppers unrealistische ferry-Segmentzeiten
     # um mehrere Kilometer abweichen kann, siehe Regressionstest).
     distanz_bei_ladehalt: dict[int, float] = {}
 
@@ -370,16 +370,16 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     current_time_s = 0.0
     ms_to_kmh = 3.6
 
-    # Verwende uebergebene Abfahrtszeit als Basis
+    # Verwende uebergebene departure_time als Basis
     base_time = departure_time
 
     # Ladehalte/Zwischenstopp-Aufenthalte mit relativen (Sekunden-seit-
     # Abfahrt) Ankunfts-/Abfahrtszeiten vorab aufbereiten. Wird sowohl zur
     # Bestimmung des aktuellen Halts/Aufenthalts als auch zur Umrechnung von
-    # "Gesamtzeit" in "reine Fahrzeit" gebraucht (siehe unten).
+    # "total_time" in "reine drive_time_s" gebraucht (siehe unten).
     ladehalte_mit_relzeit = [
         (
-            (lh.ankunftszeit - base_time).total_seconds(),
+            (lh.arrival_time - base_time).total_seconds(),
             (lh.departure_time - base_time).total_seconds(),
             lh,
         )
@@ -387,7 +387,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     ]
     aufenthalte_mit_relzeit = [
         (
-            (a.ankunftszeit - base_time).total_seconds(),
+            (a.arrival_time - base_time).total_seconds(),
             (a.departure_time - base_time).total_seconds(),
             a,
         )
@@ -399,28 +399,28 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     total_waypoint_wait_time_s = sum(
         rel_abfahrt - rel_ankunft for rel_ankunft, rel_abfahrt, _ in aufenthalte_mit_relzeit
     )
-    # Reine Fahrzeit = Gesamtreisezeit abzueglich aller Lade-/Wartezeiten. Die
-    # zurueckgelegte Distanz muss proportional zur bereits VERSTRICHENEN
-    # FAHRZEIT wachsen, nicht zur verstrichenen Gesamtzeit (siehe Bugfix
-    # unten) - sonst "faehrt" das Fahrzeug waehrend eines Ladehalts/
+    # Reine drive_time_s = Gesamtreisezeit abzueglich aller Lade-/Wartezeiten. Die
+    # zurueckgelegte distance muss proportional zur bereits VERSTRICHENEN
+    # drive_time_s wachsen, nicht zur verstrichenen total_time (siehe Bugfix
+    # unten) - sonst "faehrt" das vehicle waehrend eines Ladehalts/
     # Zwischenstopp-Aufenthalts entlang der Route weiter, statt stehen zu
     # bleiben.
     total_driving_time_s = max(
         end_time_s - total_charging_time_s - total_waypoint_wait_time_s, 1e-9
     )
 
-    # Kumulierte, je Segment aus der tatsaechlichen Geschwindigkeit
-    # berechnete Fahrzeit (`SegmentEnergyResult.fahrzeit_s`) statt einer
+    # Kumulierte, je Segment aus der tatsaechlichen speed
+    # berechnete drive_time_s (`SegmentEnergyResult.drive_time_s`) statt einer
     # einzigen Durchschnittsgeschwindigkeit ueber die gesamte Reise (siehe
     # `_find_segment_for_time`) - auf `total_driving_time_s` skaliert, damit
-    # Start (t=0 -> Distanz 0) und Ende (t=total_driving_time_s -> Distanz
+    # Start (t=0 -> distance 0) und Ende (t=total_driving_time_s -> distance
     # total_distance_m) trotz eventueller kleiner Abweichungen zwischen der
     # Summe der Segment-Fahrzeiten und der vom Optimierer gelieferten
     # Gesamtreisezeit exakt erhalten bleiben.
     raw_cumulative_times: list[float] = []
     raw_elapsed_time_s = 0.0
     for i in range(len(route.segments)):
-        raw_elapsed_time_s += energy_map[i].fahrzeit_s
+        raw_elapsed_time_s += energy_map[i].drive_time_s
         raw_cumulative_times.append(raw_elapsed_time_s)
     total_raw_time_s = raw_cumulative_times[-1] if raw_cumulative_times else 0.0
     time_scale = total_driving_time_s / total_raw_time_s if total_raw_time_s > 0 else 1.0
@@ -428,8 +428,8 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
 
     while current_time_s <= end_time_s + 1e-6:
         # Aktuellen Ladehalt/Zwischenstopp-Aufenthalt bestimmen und zugleich
-        # die bereits waehrend Halten/Aufenthalten verstrichene Zeit bis zum
-        # aktuellen Zeitpunkt aufsummieren (fuer bereits abgeschlossene
+        # die bereits waehrend Halten/Aufenthalten verstrichene time bis zum
+        # aktuellen timestamp aufsummieren (fuer bereits abgeschlossene
         # vollstaendig, fuer den laufenden anteilig). Ein Ladehalt und ein
         # Zwischenstopp-Aufenthalt ueberlappen sich nie zeitlich (dieselbe
         # Fahrt kann nicht an zwei Orten gleichzeitig stehen).
@@ -452,13 +452,13 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
                 aktueller_aufenthalt = aufenthalt
                 rel_ankunftszeit_s = rel_ankunft
 
-        # Zurueckgelegte Distanz/Segment-Index anhand der bereits verstrichenen
-        # reinen Fahrzeit, aufgeloest ueber die TATSAECHLICHE, je Segment
-        # unterschiedliche Geschwindigkeit (siehe `_find_segment_for_time`) -
+        # Zurueckgelegte distance/Segment-Index anhand der bereits verstrichenen
+        # reinen drive_time_s, aufgeloest ueber die TATSAECHLICHE, je Segment
+        # unterschiedliche speed (siehe `_find_segment_for_time`) -
         # nicht ueber eine einzige Durchschnittsgeschwindigkeit der gesamten
         # Reise, sonst "hinkt" die Positions-/SoC-Schaetzung nach einem
-        # Ladehalt der tatsaechlichen Segment-Grenze hinterher (Ladehalt-Zeit
-        # "friert" die Distanz ein statt sie weiterzurechnen).
+        # Ladehalt der tatsaechlichen Segment-Grenze hinterher (Ladehalt-time
+        # "friert" die distance ein statt sie weiterzurechnen).
         effective_driving_time_s = current_time_s - stationaer_elapsed_before_now_s
 
         segment_idx, progress_in_segment = _find_segment_for_time(
@@ -467,12 +467,12 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         segment = route.segments[segment_idx]
         current_distance_m = (
             cumulative_distances[segment_idx - 1] if segment_idx > 0 else 0.0
-        ) + progress_in_segment * segment.laenge_m
+        ) + progress_in_segment * segment.length_m
         wetter = weather_by_segment.get(segment_idx)
 
         if aktueller_ladehalt is not None:
             zustand = TripState.LADEN
-            geschwindigkeit_kmh = 0.0
+            speed_kmh = 0.0
             distanz_bei_ladehalt.setdefault(id(aktueller_ladehalt), current_distance_m)
 
             total_charge_time_s = aktueller_ladehalt.geschaetzte_ladedauer_s
@@ -484,17 +484,17 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
                 )
         elif aktueller_aufenthalt is not None:
             # Zwischenstopp-Aufenthalt: PAUSE ohne Ladeleistung, LADEN mit -
-            # das Fahrzeug steht in beiden Faellen an der Zwischenstopp-
+            # das vehicle steht in beiden Faellen an der Zwischenstopp-
             # Koordinate (siehe Positions-Block unten).
             zustand = (
                 TripState.LADEN
                 if aktueller_aufenthalt.charging_power_kw is not None
                 else TripState.PAUSE
             )
-            geschwindigkeit_kmh = 0.0
+            speed_kmh = 0.0
 
             total_wait_time_s = (
-                aktueller_aufenthalt.departure_time - aktueller_aufenthalt.ankunftszeit
+                aktueller_aufenthalt.departure_time - aktueller_aufenthalt.arrival_time
             ).total_seconds()
             if total_wait_time_s > 0:
                 wait_progress = (current_time_s - rel_ankunftszeit_s) / total_wait_time_s
@@ -507,7 +507,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
 
             if segment_idx in energy_map:
                 energy = energy_map[segment_idx]
-                geschwindigkeit_kmh = energy.geschwindigkeit_m_s * ms_to_kmh
+                speed_kmh = energy.speed_ms * ms_to_kmh
 
                 # SoC-Baseline: der zuletzt VOR/AN diesem Segment abgeschlossene
                 # Ladehalt ODER Zwischenstopp-Aufenthalt (dessen Ziel-SoC),
@@ -524,7 +524,7 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
                     baseline_soc_pct = checkpoint_ziel_soc_pct
                     baseline_segment_idx = checkpoint_segment_idx
 
-                # Energie seit der Baseline: Praefix-Summe der vollstaendig
+                # energy seit der Baseline: Praefix-Summe der vollstaendig
                 # durchfahrenen Segmente zwischen Baseline und aktuellem
                 # Segment + anteilig aktuelles Segment.
                 completed_segments_energy_kwh = (
@@ -539,15 +539,15 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
                         baseline_soc_pct - (cumulative_energy_kwh / battery_capacity_kwh) * 100.0,
                     )
             else:
-                geschwindigkeit_kmh = 0.0
+                speed_kmh = 0.0
 
         if aktueller_ladehalt is not None:
-            # Waehrend eines Ladehalts steht das Fahrzeug an der Station -
+            # Waehrend eines Ladehalts steht das vehicle an der Station -
             # exakte Stationskoordinate statt Streckeninterpolation, damit
             # alle LADEN-Frames eines Halts auf demselben Punkt liegen.
             position = aktueller_ladehalt.station.coordinate
         elif aktueller_aufenthalt is not None:
-            # Waehrend eines Zwischenstopp-Aufenthalts steht das Fahrzeug an
+            # Waehrend eines Zwischenstopp-Aufenthalts steht das vehicle an
             # dessen Koordinate - exakte Koordinate statt Streckeninterpolation,
             # analog zum Ladehalt oben.
             position = aktueller_aufenthalt.coordinate
@@ -558,16 +558,16 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
                 segment, start_pt_idx, end_pt_idx, progress_in_segment
             )
         frame = SimulationFrame(
-            zeitpunkt=departure_time + timedelta(seconds=current_time_s),
+            timestamp=departure_time + timedelta(seconds=current_time_s),
             position=position,
-            distanz_m=current_distance_m,
+            distance_m=current_distance_m,
             soc_pct=current_soc_pct,
             zustand=zustand,
-            geschwindigkeit_kmh=geschwindigkeit_kmh,
-            temperatur_c=wetter.temperatur_c if wetter else None,
-            windgeschwindigkeit_ms=wetter.windgeschwindigkeit_ms if wetter else None,
-            windrichtung_deg=wetter.windrichtung_deg if wetter else None,
-            niederschlag_mm=wetter.niederschlag_mm if wetter else None,
+            speed_kmh=speed_kmh,
+            temperature_c=wetter.temperature_c if wetter else None,
+            wind_speed_ms=wetter.wind_speed_ms if wetter else None,
+            wind_direction_deg=wetter.wind_direction_deg if wetter else None,
+            precipitation_mm=wetter.precipitation_mm if wetter else None,
         )
         frames.append(frame)
 

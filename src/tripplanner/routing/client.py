@@ -90,13 +90,13 @@ class GraphHopperClient:
             elevation: Falls True, Elevation in Polyline einbeziehen
             details: Liste von gewünschten Path Details
                 (z. B. ["road_class", "max_speed", "average_slope", "surface"])
-            custom_model: Optionaler custom_model JSON für individuelles Fahrzeugprofil
+            custom_model: Optionaler custom_model JSON für individuelles vehicle_profile
 
         Returns:
             GraphHopperResponse mit decoded Polyline und Details
 
         Raises:
-            ValueError: Wenn weniger als 2 Punkte übergeben werden
+            ValueError: Wenn less als 2 Punkte übergeben werden
             httpx.HTTPStatusError: Bei HTTP-Fehlern (4xx/5xx)
         """
         min_points = 2

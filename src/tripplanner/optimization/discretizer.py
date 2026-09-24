@@ -1,4 +1,4 @@
-"""Diskretisierungsfunktionen für SoC und Zeit.
+"""Diskretisierungsfunktionen für SoC und time.
 
 Hilfsfunktionen zur Umrechnung zwischen kontinuierlichen Werten und
 diskreten Buckets für A*/Dijkstra-Suche im Zustandsraum.
@@ -13,7 +13,7 @@ SOC_STEP_PCT_DEFAULT: float = 1.0
 """Standard-Schrittweite für SoC-Diskretisierung in Prozent (1%)."""
 
 TIME_STEP_MIN_DEFAULT: int = 15
-"""Standard-Schrittweite für Zeit-Diskretisierung in Minuten (15 min)."""
+"""Standard-Schrittweite für time-Diskretisierung in Minuten (15 min)."""
 
 
 def soc_to_bucket(soc_pct: float, soc_step_pct: float = SOC_STEP_PCT_DEFAULT) -> int:
@@ -66,21 +66,21 @@ def bucket_to_soc(bucket: int, soc_step_pct: float = SOC_STEP_PCT_DEFAULT) -> fl
 
 
 def time_to_bucket(
-    zeitpunkt: datetime,
+    timestamp: datetime,
     base_time: datetime,
     time_step_min: int = TIME_STEP_MIN_DEFAULT,
 ) -> int:
-    """Konvertiert datetime-Zeitpunkt in diskreten Zeit-Bucket-Index.
+    """Konvertiert datetime-timestamp in diskreten time-Bucket-Index.
 
-    Die Zeit wird relativ zur Startzeit berechnet (Rundung auf volle Viertelstunde).
+    Die time wird relativ zur Startzeit berechnet (Rundung auf volle Viertelstunde).
 
     Args:
-        zeitpunkt: Zeitpunkt als datetime-Objekt.
+        timestamp: timestamp als datetime-Objekt.
         base_time: Basiszeit (Startzeit der Reise).
-        time_step_min: Schrittweite für Zeit-Diskretisierung in Minuten.
+        time_step_min: Schrittweite für time-Diskretisierung in Minuten.
 
     Returns:
-        Zeit-Bucket-Index (0 = Startzeit, 1 = Startzeit + 15 min, etc.).
+        time-Bucket-Index (0 = Startzeit, 1 = Startzeit + 15 min, etc.).
 
     Example:
         >>> start = datetime(2025, 1, 1, 8, 0, 0)
@@ -93,7 +93,7 @@ def time_to_bucket(
         raise ValueError(f"time_step_min muss positiv sein, ist aber {time_step_min}")
 
     # Berechne Zeitdifferenz zur Basiszeit
-    delta = zeitpunkt - base_time
+    delta = timestamp - base_time
     delta_minutes = int(delta.total_seconds() / 60)
 
     # Runde auf volle time_step_min
@@ -107,15 +107,15 @@ def time_to_bucket(
 def bucket_to_time(
     bucket: int, base_time: datetime, time_step_min: int = TIME_STEP_MIN_DEFAULT
 ) -> datetime:
-    """Konvertiert Zeit-Bucket-Index in datetime-Zeitpunkt.
+    """Konvertiert time-Bucket-Index in datetime-timestamp.
 
     Args:
-        bucket: Zeit-Bucket-Index.
+        bucket: time-Bucket-Index.
         base_time: Basiszeit (Startzeit der Reise).
-        time_step_min: Schrittweite für Zeit-Diskretisierung in Minuten.
+        time_step_min: Schrittweite für time-Diskretisierung in Minuten.
 
     Returns:
-        Zeitpunkt als datetime-Objekt.
+        timestamp als datetime-Objekt.
 
     Example:
         >>> base = datetime(2025, 1, 1, 8, 0, 0)
@@ -136,7 +136,7 @@ def bucket_to_time(
 def create_state_node(
     segment_index: int,
     soc_pct: float,
-    zeitpunkt: datetime,
+    timestamp: datetime,
     soc_step_pct: float = SOC_STEP_PCT_DEFAULT,
 ) -> tuple[int, int, int]:
     """Erstelle einen StateNode-Tuple für NetworkX-Graphen.
@@ -144,14 +144,14 @@ def create_state_node(
     Args:
         segment_index: Index des Route-Segments.
         soc_pct: SoC-Wert in Prozent.
-        zeitpunkt: Zeitpunkt als datetime.
+        timestamp: timestamp als datetime.
         soc_step_pct: Schrittweite für SoC-Diskretisierung.
 
     Returns:
         Tuple (segment_index, soc_bucket, time_bucket).
     """
     soc_bucket = soc_to_bucket(soc_pct, soc_step_pct)
-    time_bucket = time_to_bucket(zeitpunkt, zeitpunkt, TIME_STEP_MIN_DEFAULT)
+    time_bucket = time_to_bucket(timestamp, timestamp, TIME_STEP_MIN_DEFAULT)
     return (segment_index, soc_bucket, time_bucket)
 
 
@@ -178,14 +178,14 @@ def get_all_time_buckets_for_duration(
     duration_s: float,
     time_step_min: int = TIME_STEP_MIN_DEFAULT,
 ) -> list[int]:
-    """Erstelle Liste aller Zeit-Buckets für eine gegebene Dauer.
+    """Erstelle Liste aller time-Buckets für eine gegebene duration.
 
     Args:
-        duration_s: Dauer in Sekunden.
-        time_step_min: Schrittweite für Zeit-Diskretisierung in Minuten.
+        duration_s: duration in Sekunden.
+        time_step_min: Schrittweite für time-Diskretisierung in Minuten.
 
     Returns:
-        Liste aller Zeit-Bucket-Indizes.
+        Liste aller time-Bucket-Indizes.
     """
     duration_min = duration_s / 60.0
     num_buckets = round(duration_min / time_step_min) + 1

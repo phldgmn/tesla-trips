@@ -13,8 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
-
-from tripplanner.construction.models import Land, Sperrungstyp
+from tripplanner.construction.models import ClosureType, Land
 from tripplanner.construction.providers_de_datexii import (
     NRW_ARBEITSSTELLEN_KD_URL,
     NRW_ARBEITSSTELLEN_LD_URL,
@@ -37,9 +36,9 @@ def _make_route_near_maintenance_zone() -> Route:
     segment = RouteSegment(
         segment_index=0,
         geometrie=[(51.210673, 14.553138), (51.211490, 14.567740)],
-        laenge_m=1000.0,
+        length_m=1000.0,
         strassenklasse="MOTORWAY",
-        tempolimit_kmh=100,
+        speed_limit_kmh=100,
         bearing_deg=45.0,
     )
     return Route(
@@ -54,9 +53,9 @@ def _make_route_far_from_any_zone() -> Route:
     segment = RouteSegment(
         segment_index=0,
         geometrie=[(10.0, 10.0), (10.01, 10.01)],
-        laenge_m=1000.0,
+        length_m=1000.0,
         strassenklasse="MOTORWAY",
-        tempolimit_kmh=100,
+        speed_limit_kmh=100,
         bearing_deg=45.0,
     )
     return Route(
@@ -116,8 +115,8 @@ class TestFetchConstructionZones:
         zone = zones[0]
         assert zone.land == Land.DE
         assert zone.betroffene_segmente == [0]
-        assert zone.sperrungstyp == Sperrungstyp.PARTIALLY_CLOSED  # MaintenanceWorks
-        assert zone.tempolimit_kmh == 80  # no delayBand in feed -> default
+        assert zone.closure_type == ClosureType.PARTIALLY_CLOSED  # MaintenanceWorks
+        assert zone.speed_limit_kmh == 80  # no delayBand in feed -> default
         assert zone.gueltig_von.isoformat() == "2024-11-18T07:00:00+00:00"
         assert zone.gueltig_bis is not None
         assert provider._client.get.call_count == 2
@@ -140,9 +139,9 @@ class TestFetchConstructionZones:
         segment = RouteSegment(
             segment_index=0,
             geometrie=[(48.357943, 7.797467), (48.357985, 7.797550)],
-            laenge_m=1000.0,
+            length_m=1000.0,
             strassenklasse="MOTORWAY",
-            tempolimit_kmh=100,
+            speed_limit_kmh=100,
             bearing_deg=45.0,
         )
         route = Route(segments=[segment], gesamtlaenge_m=1000.0, geometrie=segment.geometrie)
@@ -157,7 +156,7 @@ class TestFetchConstructionZones:
         zones = await provider.fetch_construction_zones(route, [Land.DE])
 
         assert len(zones) == 1
-        assert zones[0].sperrungstyp == Sperrungstyp.PARTIALLY_CLOSED
+        assert zones[0].closure_type == ClosureType.PARTIALLY_CLOSED
 
 
 class TestFeedCache:
@@ -185,7 +184,7 @@ class TestFeedCache:
 
     @pytest.mark.asyncio
     async def test_different_cache_keys_trigger_separate_calls(self, tmp_path: Path) -> None:
-        """ld and kd feeds are cached independently."""
+        """Ld and kd feeds are cached independently."""
         provider = _make_provider(cache_dir=str(tmp_path))
         provider._client.get = AsyncMock(return_value=_xml_response(EMPTY_FEED_XML))
 

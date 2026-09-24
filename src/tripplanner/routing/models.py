@@ -10,7 +10,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-# Repräsentiert eine Koordinate (Breitengrad, Längengrad)
+# Repräsentiert eine Koordinate (latitude, Längengrad)
 Coordinate = tuple[float, float]
 """Eine WGS84-Koordinate als (lat, lon) in Dezimalgrad."""
 
@@ -22,11 +22,11 @@ class RouteSegment(BaseModel):
     geometrie: list[Coordinate] = Field(
         ..., description="Liste von (lat, lon) Koordinaten, die das Segment beschreiben"
     )
-    laenge_m: float = Field(..., ge=0, description="Länge des Segments in Metern")
+    length_m: float = Field(..., ge=0, description="Länge des Segments in Metern")
     strassenklasse: str = Field(
         ..., description="Straßenklasse (MOTORWAY, TRUNK, PRIMARY, SECONDARY, TRACK, etc.)"
     )
-    oberflaeche: str | None = Field(
+    surface: str | None = Field(
         default=None,
         description=(
             "Straßenbelag aus GraphHopper Path-Detail `surface` (z. B. asphalt, gravel, "
@@ -34,17 +34,17 @@ class RouteSegment(BaseModel):
             "Faktor konsumiert (siehe docs/plans/06-energy.md, Abschnitt 5.1.1)."
         ),
     )
-    tempolimit_kmh: int | None = Field(
-        default=None, ge=0, description="Tempolimit in km/h (None wenn nicht verfügbar)"
+    speed_limit_kmh: int | None = Field(
+        default=None, ge=0, description="speed_limit_kmh in km/h (None wenn nicht verfügbar)"
     )
     steigung_rohdaten: float | None = Field(
-        default=None, ge=-100, le=100, description="Steigung in Prozent (None wenn nicht verfügbar)"
+        default=None, ge=-100, le=100, description="gradient in Prozent (None wenn nicht verfügbar)"
     )
     bearing_deg: float = Field(
         ...,
         ge=0.0,
         lt=360.0,
-        description="Fahrtrichtung (Bearing) am Segmentanfang in Grad (0°=Nord, 90°=Ost), "
+        description="heading (Bearing) am Segmentanfang in Grad (0°=Nord, 90°=Ost), "
         "vom routing-Modul aus Start-/Endkoordinate des Segments berechnet "
         "(Vorwärtsazimut, WGS84-Großkreis). Wird von `wind` zur Windkomponenten-"
         "Projektion konsumiert.",
@@ -58,7 +58,7 @@ class RouteSegment(BaseModel):
             "genutzt, um Fährabschnitte der Route zu erkennen."
         ),
     )
-    strassenname: str | None = Field(
+    street_name: str | None = Field(
         default=None,
         description=(
             "Straßen-/Fährlinienname aus GraphHopper Path-Detail `street_name` "
@@ -66,7 +66,7 @@ class RouteSegment(BaseModel):
             "nicht verfügbar oder leer."
         ),
     )
-    strassenref: str | None = Field(
+    street_ref: str | None = Field(
         default=None,
         description=(
             "Straßen-/Autobahnref aus GraphHopper Path-Detail `street_ref` "
@@ -80,9 +80,7 @@ class RouteSegment(BaseModel):
 class Route(BaseModel):
     """Die gesamte berechnete Route mit Metadaten."""
 
-    segments: list[RouteSegment] = Field(
-        ..., description="Liste aller Route-Segmente in Fahrtrichtung"
-    )
+    segments: list[RouteSegment] = Field(..., description="Liste aller Route-Segmente in heading")
     gesamtlaenge_m: float = Field(..., ge=0, description="Gesamtlänge der Route in Metern")
     geometrie: list[Coordinate] = Field(
         ..., description="Vollständige Geometrie der Route als Liste von Koordinaten"
@@ -155,11 +153,11 @@ class FerrySegment(BaseModel):
     name: str = Field(
         ...,
         description=(
-            "Fährname aus dem ersten nicht-leeren `strassenname` innerhalb des Laufs, "
+            "Fährname aus dem ersten nicht-leeren `street_name` innerhalb des Laufs, "
             "'Unnamed ferry' falls GraphHopper keinen Namen liefert."
         ),
     )
-    laenge_m: float = Field(
+    length_m: float = Field(
         ..., ge=0, description="Gesamtlänge aller zusammenhängenden Fährsegmente in Metern"
     )
     bbox_sw: Coordinate = Field(..., description="Südwest-Ecke der gepufferten Bounding Box")
@@ -179,7 +177,7 @@ class FerrySegment(BaseModel):
     departure: datetime | None = Field(
         default=None,
         description=(
-            "Vom Nutzer vorgegebene Abfahrtszeit dieser Fährverbindung, sofern ein "
+            "Vom Nutzer vorgegebene departure_time dieser Fährverbindung, sofern ein "
             "passendes `trip_input.models.FerryTimeWindow` in der Anfrage enthalten "
             "war (siehe `trip_input.api._match_ferry_time_windows`); sonst `None`."
         ),
@@ -187,6 +185,6 @@ class FerrySegment(BaseModel):
     arrival: datetime | None = Field(
         default=None,
         description=(
-            "Vom Nutzer vorgegebene Ankunftszeit dieser Fährverbindung, analog zu `departure`."
+            "Vom Nutzer vorgegebene arrival_time dieser Fährverbindung, analog zu `departure`."
         ),
     )

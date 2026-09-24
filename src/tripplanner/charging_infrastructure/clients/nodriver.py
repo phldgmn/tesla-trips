@@ -112,16 +112,16 @@ class NodriverBrowserFetcher:
                     "`uv sync --extra scraping`"
                 ) from exc
 
-            self._browser = await uc.start(headless=self._headless)
+            self._browser = await uc.start(headless=self._headless)  # type: ignore[attr-defined]
         return self._browser
 
     async def _fetch_async(self, url: str) -> tuple[int, str]:
         """Fuehrt die eigentliche CDP-Navigation in der nodriver-Loop aus.
 
-        Der Statuscode stammt vom CDP ``Network.responseReceived``-Event der
+        Der status_code stammt vom CDP ``Network.responseReceived``-Event der
         Haupt-Dokument-Antwort. Der Rohtext wird per
         ``Network.getResponseBody`` geholt; da Chrome den Body des
-        Hauptdokuments dort in der Regel nicht mehr vorhaelt ("No resource
+        Hauptdokuments dort in der Regel nicht more vorhaelt ("No resource
         with given identifier"), wird als Fallback je nach MIME-Typ das
         gerenderte JSON-Text (``document.body.innerText`` - exakt fuer in
         ``<pre>`` gerenderte JSON-Antworten) bzw. das rohe HTML
@@ -187,7 +187,7 @@ class NodriverBrowserFetcher:
         """Holt den Response-Body via CDP, mit MIME-abhaengigem Fallback.
 
         Zunaechst ``Network.getResponseBody``; da Chrome den Body des
-        Hauptdokuments dort meist nicht mehr vorhaelt ("No resource with
+        Hauptdokuments dort meist nicht more vorhaelt ("No resource with
         given identifier"), wird je nach MIME-Typ der Rohtext aus dem
         Dokument abgeleitet: JSON rendert Chrome in <pre>, dort ist
         ``innerText`` der exakte JSON-Text; bei HTML liefert
@@ -224,7 +224,7 @@ class NodriverBrowserFetcher:
         return body
 
     def fetch(self, url: str) -> tuple[int, str]:
-        """Holt eine URL und liefert (Statuscode, Rohtext) synchron.
+        """Holt eine URL und liefert (status_code, Rohtext) synchron.
 
         Blockiert den aufrufenden Thread bis zur Antwort. Wirft ``CurlError``
         bei Browser-/Netzwerk-Fehlern.
@@ -244,13 +244,13 @@ class NodriverBrowserFetcher:
 
         1. Chromium-Subprozess terminieren und deterministisch abwarten
            (Sonst haengt ``aclose()`` beim ``wait_closed()`` einer
-           halboffenen CDP-Verbindung, weil der Peer nicht mehr
+           halboffenen CDP-Verbindung, weil der Peer nicht more
            antwortet).
         2. ``aclose()``: schliesst die CDP-Verbindung und beendet deren
            Listener-Task.
         3. Alle uebrigen Loop-Tasks abbrechen und abwarten. Damit
            enthaelt die Loop beim ``loop.close()`` keine ausstehenden
-           Koroutinen mehr. Wichtig, weil sonst deren suspendierte
+           Koroutinen more. Wichtig, weil sonst deren suspendierte
            Generatoren spaeter beim Python-Interpreter-Abschluss
            (``gc_collect_main``) zerrissen werden - das haengt den
            Prozess-Exit (z. B. unter pytest) minutenlang auf.
@@ -302,9 +302,9 @@ class NodriverBrowserFetcher:
     def _kill_process(process: Any | None) -> None:
         """Beendet einen (asyncio-)Subprozess synchron und deterministisch.
 
-        Fallback fuer den Fall, dass die Browser-Loop nicht mehr erreichbar
+        Fallback fuer den Fall, dass die Browser-Loop nicht more erreichbar
         ist (z. B. Thread gestorben). Terminiert den Prozess mit SIGTERM,
-        wartet kurz und eskaliert auf SIGKILL.
+        wartet short und eskaliert auf SIGKILL.
         """
         if process is None:
             return
@@ -513,7 +513,7 @@ class NodriverTeslaClient:
                 _debug_log(
                     self._debug_log,
                     f"Versuch {attempt}/{WAF_RETRY_MAX_ATTEMPTS} fehlgeschlagen "
-                    f"({last_error}), Browser wird neu gestartet und erneut versucht.",
+                    f"({last_error}), Browser wird new gestartet und erneut versucht.",
                     label="RETRY",
                 )
                 await asyncio.to_thread(self._fetcher.restart)

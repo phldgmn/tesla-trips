@@ -30,10 +30,10 @@ from tripplanner.cache.store import TTLCache
 from tripplanner.construction import matching
 from tripplanner.construction.models import (
     DEFAULT_ROADWORKS_SPEED_LIMIT_KMH,
+    ClosureType,
     ConstructionProvider,
     ConstructionZone,
     Land,
-    Sperrungstyp,
 )
 from tripplanner.geo import Coordinate
 
@@ -47,7 +47,7 @@ AUTOBAHN_BASE_URL = "https://verkehr.autobahn.de/o/autobahn"
 
 # The Autobahn GmbH API exposes no structured speed-limit field. 80 km/h is
 # the standard real-world default speed limit at active German Autobahn
-# roadworks absent more specific data (used for both derived Sperrungstyp
+# roadworks absent more specific data (used for both derived ClosureType
 # values below, since ConstructionZone's validator requires tempolimit_kmh
 # for both PARTIALLY_CLOSED and TEMPORARY_SPEED_LIMIT).
 _DE_ROADWORKS_DEFAULT_SPEED_LIMIT_KMH = DEFAULT_ROADWORKS_SPEED_LIMIT_KMH
@@ -64,9 +64,9 @@ def _extract_autobahn_ids(
 ) -> set[str]:
     """Extract distinct German Autobahn IDs (e.g. "A9") from motorway segments.
 
-    Reads ``segment.strassenref`` (the GraphHopper ``street_ref`` path detail)
+    Reads ``segment.street_ref`` (the GraphHopper ``street_ref`` path detail)
     which carries the OSM ``ref`` tag (e.g. "A 5") independently of
-    ``segment.strassenname`` (the OSM ``name`` tag, always ``None`` for most
+    ``segment.street_name`` (the OSM ``name`` tag, always ``None`` for most
     motorway segments).  This avoids the ~110-ID nationwide query that caused
     a 33 s regression in commit 6ece8a5.
 
@@ -78,9 +78,9 @@ def _extract_autobahn_ids(
     """
     autobahn_ids: set[str] = set()
     for segment in route.segments:
-        if segment.strassenklasse != "MOTORWAY" or not segment.strassenref:
+        if segment.strassenklasse != "MOTORWAY" or not segment.street_ref:
             continue
-        match = _AUTOBAHN_ID_PATTERN.search(segment.strassenref)
+        match = _AUTOBAHN_ID_PATTERN.search(segment.street_ref)
         if match:
             # The Autobahn GmbH API requires the compact form ("A5"), but
             # GraphHopper's street_ref detail may contain a space ("A 5"):
@@ -129,9 +129,9 @@ def _parse_autobahn_roadwork(
 
     impact_symbols = entry.get("impact", {}).get("symbols", [])
     sperrungstyp = (
-        Sperrungstyp.PARTIALLY_CLOSED
+        ClosureType.PARTIALLY_CLOSED
         if "CLOSED" in impact_symbols
-        else Sperrungstyp.TEMPORARY_SPEED_LIMIT
+        else ClosureType.TEMPORARY_SPEED_LIMIT
     )
 
     start_timestamp = entry.get("startTimestamp")
@@ -145,18 +145,18 @@ def _parse_autobahn_roadwork(
     # Proximity-only matching (500 m threshold) is the best available
     # heuristic.  This is a known data-source limitation.
     segment_length = (
-        route.segments[segment_index].laenge_m if 0 <= segment_index < len(route.segments) else None
+        route.segments[segment_index].length_m if 0 <= segment_index < len(route.segments) else None
     )
 
     return ConstructionZone(
         betroffene_segmente=[segment_index],
-        tempolimit_kmh=_DE_ROADWORKS_DEFAULT_SPEED_LIMIT_KMH,
-        sperrungstyp=sperrungstyp,
+        speed_limit_kmh=_DE_ROADWORKS_DEFAULT_SPEED_LIMIT_KMH,
+        closure_type=sperrungstyp,
         umleitungshinweis=None,
         land=Land.DE,
         gueltig_von=gueltig_von,
         gueltig_bis=None,
-        laenge_m=segment_length,
+        length_m=segment_length,
     )
 
 
@@ -228,7 +228,7 @@ class AutobahnConstructionProvider(ConstructionProvider):
     ) -> list[ConstructionZone]:
         """Fetch and parse roadworks from the Autobahn GmbH open API for DE.
 
-        Extracts Autobahn IDs from ``segment.strassenref`` (GraphHopper
+        Extracts Autobahn IDs from ``segment.street_ref`` (GraphHopper
         ``street_ref`` path detail) so only the handful of motorways actually
         traversed by this route are queried — no more ~110 nationwide IDs.
         Roadworks are then matched against route segments via the shared

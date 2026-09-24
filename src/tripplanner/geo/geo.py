@@ -44,7 +44,7 @@ def haversine_distance_m(a: Coordinate, b: Coordinate) -> float:
         b: Zweite Koordinate `(lat, lon)` in Dezimalgrad.
 
     Returns:
-        Distanz in Metern (Luftlinie entlang der Erdoberfläche).
+        distance in Metern (Luftlinie entlang der Erdoberfläche).
     """
     lat1 = math.radians(a[0])
     lat2 = math.radians(b[0])
@@ -69,7 +69,7 @@ def geodesic_length_m(coords: list[Coordinate]) -> float:
         coords: Liste von `(lat, lon)`-WGS84-Koordinaten entlang des Pfads.
 
     Returns:
-        Gesamtlänge in Metern. `0.0` bei Pfaden mit weniger als zwei Punkten.
+        Gesamtlänge in Metern. `0.0` bei Pfaden mit less als zwei Punkten.
     """
     if len(coords) < _MIN_SEGMENT_POINTS:
         return 0.0
