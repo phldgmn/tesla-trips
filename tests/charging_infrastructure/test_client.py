@@ -536,6 +536,7 @@ class _FakeFetcher:
 class TestCreateTeslaClient:
     """Tests fuer die Factory-Funktion ``create_tesla_client``."""
 
+    @pytest.mark.skipif(AsyncSession is None, reason="curl_cffi not installed")
     def test_returns_curl_cffi_when_requested(self) -> None:
         client = create_tesla_client(transport="curl_cffi")
         assert isinstance(client, TeslaLocationsClient)
@@ -549,10 +550,12 @@ class TestCreateTeslaClient:
         with pytest.raises(ValueError, match="Unbekannter Tesla-Client-Transport"):
             create_tesla_client(transport="magic")
 
+    @pytest.mark.skipif(AsyncSession is None, reason="curl_cffi not installed")
     def test_factory_respects_custom_args(self) -> None:
         client = create_tesla_client(transport="curl_cffi", rate_limit_delay_s=1.25)
         assert client._delay == 1.25
 
+    @pytest.mark.skipif(AsyncSession is None, reason="curl_cffi not installed")
     def test_nodriver_falls_back_to_curl_cffi_on_import_error(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
