@@ -1,4 +1,4 @@
-"""Diskretisierungsfunktionen für SoC und time.
+"""Discretization functions for SoC and time.
 
 Hilfsfunktionen zur Umrechnung zwischen kontinuierlichen Werten und
 diskreten Buckets für A*/Dijkstra-Suche im Zustandsraum.
@@ -10,10 +10,10 @@ from datetime import datetime, timedelta
 
 # Default-Diskretisierungsparameter
 SOC_STEP_PCT_DEFAULT: float = 1.0
-"""Standard-Schrittweite für SoC-Diskretisierung in Prozent (1%)."""
+"""Standard step size for SoC discretization in percentage (1%)."""
 
 TIME_STEP_MIN_DEFAULT: int = 15
-"""Standard-Schrittweite für time-Diskretisierung in Minuten (15 min)."""
+"""Standard step size for time discretization in minutes (15 min)."""
 
 
 def soc_to_bucket(soc_pct: float, soc_step_pct: float = SOC_STEP_PCT_DEFAULT) -> int:
@@ -77,7 +77,7 @@ def time_to_bucket(
     Args:
         timestamp: timestamp als datetime-Objekt.
         base_time: Basiszeit (Startzeit der Reise).
-        time_step_min: Schrittweite für time-Diskretisierung in Minuten.
+        time_step_min: step size for time discretization in minutes.
 
     Returns:
         time-Bucket-Index (0 = Startzeit, 1 = Startzeit + 15 min, etc.).
@@ -92,7 +92,7 @@ def time_to_bucket(
     if time_step_min <= 0:
         raise ValueError(f"time_step_min muss positiv sein, ist aber {time_step_min}")
 
-    # Berechne Zeitdifferenz zur Basiszeit
+    # calculate Zeitdifferenz zur Basiszeit
     delta = timestamp - base_time
     delta_minutes = int(delta.total_seconds() / 60)
 
@@ -112,7 +112,7 @@ def bucket_to_time(
     Args:
         bucket: time-Bucket-Index.
         base_time: Basiszeit (Startzeit der Reise).
-        time_step_min: Schrittweite für time-Diskretisierung in Minuten.
+        time_step_min: step size for time discretization in minutes.
 
     Returns:
         timestamp als datetime-Objekt.
@@ -139,10 +139,10 @@ def create_state_node(
     timestamp: datetime,
     soc_step_pct: float = SOC_STEP_PCT_DEFAULT,
 ) -> tuple[int, int, int]:
-    """Erstelle einen StateNode-Tuple für NetworkX-Graphen.
+    """Create a StateNode tuple for NetworkX graphs.
 
     Args:
-        segment_index: Index des Route-Segments.
+        segment_index: Index des Route-segments.
         soc_pct: SoC-Wert in Prozent.
         timestamp: timestamp als datetime.
         soc_step_pct: Schrittweite für SoC-Diskretisierung.
@@ -156,7 +156,7 @@ def create_state_node(
 
 
 def get_all_soc_buckets(soc_step_pct: float = SOC_STEP_PCT_DEFAULT) -> list[int]:
-    """Erstelle Liste aller möglichen SoC-Buckets (0 bis 100).
+    """Create list of all possible SoC buckets (0 to 100).
 
     Args:
         soc_step_pct: Schrittweite für Diskretisierung in Prozent.
@@ -178,11 +178,11 @@ def get_all_time_buckets_for_duration(
     duration_s: float,
     time_step_min: int = TIME_STEP_MIN_DEFAULT,
 ) -> list[int]:
-    """Erstelle Liste aller time-Buckets für eine gegebene duration.
+    """Create list of all time buckets for a given duration.
 
     Args:
         duration_s: duration in Sekunden.
-        time_step_min: Schrittweite für time-Diskretisierung in Minuten.
+        time_step_min: step size for time discretization in minutes.
 
     Returns:
         Liste aller time-Bucket-Indizes.

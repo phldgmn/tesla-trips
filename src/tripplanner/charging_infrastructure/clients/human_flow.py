@@ -5,7 +5,7 @@ Ablauf pro Standort (nachgebildet aus echten Browser-Netzwerk-Captures):
 1. Navigiert zu ``https://www.tesla.com/{locale}/findus`` (die Kartenseite).
 2. Tippt (zeichenweise, mit menschlichem Tempo) eine Suchanfrage in das
    Such-Input-Feld (``input.tds-form-input-search``). Tesla feuert daraufhin
-   eigene XHR/fetch-Anfragen unter ``/api/findus/*``, deren Antwort hier
+   eigene XHR/fetch-requestn unter ``/api/findus/*``, deren response hier
    abgefangen wird (siehe ``search_locations``).
 3. Waehlt ein Ergebnis aus - nachgebildet durch eine Navigation zu der
    URL-Form, die ein echter Klick auf ein Suchergebnis erzeugt (beobachtet
@@ -82,7 +82,7 @@ async def _collect_responses(
     timeout_s: float,
     debug_log: Any = None,
 ) -> dict[str, str]:
-    """Faengt CDP-Netzwerk-Antworten passend zu ``url_markers`` ab.
+    """Faengt CDP-Netzwerk-responseen passend zu ``url_markers`` ab.
 
     Registriert CDP-Response-/Ladeende-Handler, fuehrt ``action`` aus und
     liest den Response-Body jedes passenden Requests bei ``Network.
@@ -90,7 +90,7 @@ async def _collect_responses(
     ``enable_durable_messages=True`` aufgerufen: unser ``action`` loest bei
     ``_run_location_and_charger_details`` typischerweise eine Navigation
     aus (Ergebnisauswahl), waehrend deren fuer die Zielseite selbst
-    initiierte ``fetch()``-Antworten abgefangen werden sollen. Ohne dieses
+    initiierte ``fetch()``-responseen abgefangen werden sollen. Ohne dieses
     Flag verwirft Chrome bereits gepufferte Response-Bodies bei einer
     Navigation (auch same-origin) - ``Network.getResponseBody`` schlaegt
     dann mit "No resource with given identifier" fehl, selbst wenn der Body
@@ -102,12 +102,12 @@ async def _collect_responses(
             Navigation, ...).
         url_markers: Mapping von Ergebnis-Name auf URL-Teilstring, nach dem
             in jeder Response-URL gesucht wird.
-        timeout_s: Maximale Wartezeit auf alle Antworten.
+        timeout_s: Maximale Wartezeit auf alle responseen.
         debug_log: Optionaler Debug-Log-Pfad (siehe ``common._debug_log``).
 
     Returns:
         Mapping Name -> Response-Body fuer jede erfolgreich gelesene
-        Antwort; fehlende Eintraege bei Timeout oder nicht more
+        response; fehlende Eintraege bei Timeout oder nicht more
         abrufbarem Body ausgelassen.
     """
     from nodriver import cdp
@@ -183,7 +183,7 @@ async def _response_body(tab: Any, request_id: Any) -> str:
 
     Args:
         tab: Aktiver ``nodriver``-Tab.
-        request_id: CDP-Request-ID der abzufragenden Antwort.
+        request_id: CDP-Request-ID der abzufragenden response.
 
     Returns:
         Response-Body als Text (leer bei fehlendem Body).
@@ -227,7 +227,7 @@ async def _run_search(browser: Any, base_url: str, query: str, locale: str, debu
     """Navigiert zur Kartenseite und sucht ``query`` im Such-Input.
 
     Tippt ``query`` in die Suche und liefert den Body der resultierenden
-    Such-JSON-Antwort.
+    Such-JSON-response.
 
     Args:
         browser: Gestartetes ``nodriver``-``Browser``-Objekt.
@@ -239,10 +239,10 @@ async def _run_search(browser: Any, base_url: str, query: str, locale: str, debu
         debug_log: Optionaler Debug-Log-Pfad (siehe ``common._debug_log``).
 
     Returns:
-        Roh-Body der Such-Antwort.
+        Roh-Body der Such-response.
 
     Raises:
-        CurlError: Wenn keine passende Antwort abgefangen wurde.
+        CurlError: Wenn keine passende response abgefangen wurde.
     """
     tab = browser.main_tab
     findus_url = f"{base_url}/{_locale_path(locale)}/findus"
@@ -303,7 +303,7 @@ async def _run_location_and_charger_details(
         ``{"location-details": <body>, "charger-details": <body>}``.
 
     Raises:
-        CurlError: Wenn eine der beiden Antworten nicht abgefangen wurde.
+        CurlError: Wenn eine der beiden responseen nicht abgefangen wurde.
     """
     tab = browser.main_tab
     findus_url = f"{lookup.base_url}/{_locale_path(lookup.locale)}/findus"
@@ -382,7 +382,7 @@ class NodriverHumanFlowTeslaClient(NodriverTeslaClient):
         """Sucht Standorte ueber das echte Such-Input der Kartenseite.
 
         Tippt ``query`` in ``input.tds-form-input-search`` und faengt die
-        resultierende Such-JSON-Antwort ab, statt Teslas komplette
+        resultierende Such-JSON-response ab, statt Teslas komplette
         Bulk-Standortliste (``fetch_locations``) abzurufen und client-seitig
         zu filtern - insbesondere nuetzlich zur Aufloesung stale
         numerischer Slugs, ohne die (haeufiger blockierte) Bulk-API zu
@@ -393,11 +393,11 @@ class NodriverHumanFlowTeslaClient(NodriverTeslaClient):
             locale: Tesla-Locale fuer den URL-Pfad (z.B. ``de_DE``).
 
         Returns:
-            Liste der gefundenen Standort-Dicts (Tesla-Suchergebnis-Format).
+            Liste der gefundenen Standort-Dicts (Tesla-Suchergebnis-format).
             Leer, wenn die Suche kein auswertbares JSON lieferte.
 
         Raises:
-            CurlError: Bei anhaltendem WAF-Block oder wenn keine Antwort
+            CurlError: Bei anhaltendem WAF-Block oder wenn keine response
                 empfangen wurde.
         """
         last_error = CurlError("kein Versuch unternommen")
@@ -446,8 +446,8 @@ class NodriverHumanFlowTeslaClient(NodriverTeslaClient):
         das echte Such-Input nach ``search_query`` (Default: ``slug``, was
         i.d.R. bereits ausreichend Treffer liefert), navigiert dann zur
         Detailansicht von ``slug`` und liefert die dabei abgefangenen
-        ``get-location-details``-Daten (angereichert um die
-        ``get-charger-details``-Daten unter dem Zusatzschluessel
+        ``get-location-details``-data (angereichert um die
+        ``get-charger-details``-data unter dem Zusatzschluessel
         ``_charger_details``). Bei anhaltendem Fehlschlag (WAF-Block,
         Such-Input nicht gefunden, ...) faellt der Aufruf auf den direkten
         JSON-API-GET der Basisklasse zurueck.
@@ -462,8 +462,8 @@ class NodriverHumanFlowTeslaClient(NodriverTeslaClient):
                 Supercharger).
 
         Returns:
-            ``data``-Teil der ``get-location-details``-Antwort (leer bei
-            leerer/kaputter Antwort, wie bei der Basisklasse), angereichert
+            ``data``-Teil der ``get-location-details``-response (leer bei
+            leerer/kaputter response, wie bei der Basisklasse), angereichert
             um ``_charger_details``.
         """
         query = search_query if search_query is not None else slug

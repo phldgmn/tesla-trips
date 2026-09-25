@@ -1,8 +1,8 @@
-"""Referenz-Ladekurven für bekannte Tesla-Modelle / Konfigurationen.
+"""Referenz-charging_curven für bekannte Tesla-modele / configurationen.
 
-Reine Datendefinitionen (Community-Messwerte) - kein Hot-Path-Logik. Die
-Klasse wird von `models.LadekurveReferenz` re-exportiert, damit bestehende
-Importe (`tripplanner.battery.models.LadekurveReferenz`) weiter auflösen.
+Reine datadefinitionen (Community-Messwerte) - kein Hot-Path-Logik. Die
+Klasse wird von `models.charging_curveReferenz` re-exportiert, damit bestehende
+Importe (`tripplanner.battery.models.charging_curveReferenz`) weiter auflösen.
 """
 
 from __future__ import annotations
@@ -11,14 +11,14 @@ from .models import ChargingCurve, ChargingCurvePoint, InterpolationMethod
 
 
 class LadekurveReferenz:
-    """Referenz-Ladekurven für gängige Tesla-Modelle / Konfigurationen.
+    """Referenz-charging_curven für gaengige Tesla-modele / configurationen.
 
     Basierend auf Community-Messdaten (Forums, supercharge.info).
     """
 
     @staticmethod
     def model_3_lr_v3() -> ChargingCurve:
-        """Grobe 6-Punkte-Näherung für Model 3 Long Range mit V3-Supercharger.
+        """Grobe 6-Punkte-Naeherung für Model 3 Long Range mit V3-Supercharger.
 
         Typische Messwerte:
         - 0-20%: ~250-280 kW
@@ -26,7 +26,7 @@ class LadekurveReferenz:
         - 50-80%: auf ~80 kW
         - 80-100%: starkes Abbremsen auf <20 kW
 
-        Für eine deutlich feinere, realistischere Kurve (inkl. anfänglichem
+        For a significantly finer, more realistic curve (incl. initial
         Leistungsanstieg durch Vorkonditionierung) siehe `model_3_lr_v3_measured()`.
         """
         return ChargingCurve(
@@ -43,17 +43,17 @@ class LadekurveReferenz:
 
     @staticmethod
     def model_3_sr() -> ChargingCurve:
-        """Feingranulare, realistische Referenzladekurve für Model 3 SR (V3-Supercharger).
+        """fine-grained realistic reference charging curve for Model 3 SR (V3-Supercharger).
 
         25 Stützpunkte,
         verbunden per PCHIP (`InterpolationMethod.HERMITE`) statt linear. Bildet
-        insbesondere den anfänglichen Leistungsanstieg durch Batterie-
+        insbesondere den anfaenglichen Leistungsanstieg durch Batterie-
         Vorkonditionierung ab: Rampe von ~50 kW bei 0% SoC auf einen Peak von
         ~170 kW bei 9-10% SoC, danach Abfall zum Balancing hin auf 9 kW bei 100%.
 
         Hinweis: In der Ursprungsanalyse, aus der diese Stützpunkte stammen,
         wurden dazu passend `effizienz_ladeelektronik=0.92` und
-        `max_ladeleistung_kw=250.0` in `VehicleBatteryParameters` verwendet
+        `max_ladeleistung_kw=250.0` in `VehicleBatteryParameters` uses
         (statt der allgemeinen Defaults 0.95 / 250.0) - bei Bedarf entsprechend
         anpassen, insbesondere `effizienz_ladeelektronik`.
         """
@@ -93,7 +93,7 @@ class LadekurveReferenz:
     def model_3_lr_v4() -> ChargingCurve:
         """Referenzladekurve für Model 3 Long Range mit V4-Supercharger (325 kW Installation).
 
-        V4 ermöglicht längeren Hochleistungsbetrieb.
+        V4 ermöglicht laengeren Hochleistungsbetrieb.
         """
         return ChargingCurve(
             points=[

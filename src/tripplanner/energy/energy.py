@@ -1,7 +1,7 @@
-"""Energieverbrauchs-Modul (Phase 3).
+"""Energieconsumptions-Modul (Phase 3).
 
-Physikalisch fundierte Berechnung des Energieverbrauchs für Elektrofahrzeuge
-unter Berücksichtigung von rolling_resistance, air_drag, gradient, recuperation
+Physics-based calculation of energy consumption for electric vehicles
+considering rolling_resistance, air_drag, gradient, recuperation
 und HVAC-consumption.
 """
 
@@ -20,7 +20,7 @@ from tripplanner.wind.models import WindComponents
 # Luftdichte (ISA-Standard bei 15°C, 1013 hPa)
 LUFTDICHE_KGM3: float = 1.225
 
-# ISA-Referenzwerte für Luftdichte-Berechnung
+# ISA reference values for air density calculation
 ISA_TEMPERATUR_C: float = 15.0
 ISA_LUFTDRUCK_HPA: float = 1013.25
 
@@ -30,7 +30,7 @@ ERDBESCHLEUNIGUNG_MS2: float = 9.81
 # Maximaler Rekuperationswert
 REKUPERATION_MAX_POWER_W: float = 80_000  # 80 kW
 
-# Straßenbelag-Faktoren für rolling_resistance
+# road surface factors for rolling_resistance
 OBERFLAECHEN_ROLLWIDERSTAND_FAKTOR: dict[str, float] = {
     "asphalt": 1.0,
     "paved": 1.0,
@@ -46,20 +46,20 @@ OBERFLAECHEN_ROLLWIDERSTAND_FAKTOR: dict[str, float] = {
 
 DEFAULT_OBERFLAECHEN_FAKTOR: float = 1.0
 
-# Schwellenwerte für Witterungs-Faktor (siehe f_strassenzustand)
+# Thresholds for weather factor (siehe f_strassenzustand)
 SCHNEEFALL_SCHWELLE_CM: float = 0.5
 NIEDERSCHLAG_SCHWELLE_MM: float = 0.5
 
 
-def f_oberflaeche(surface: str | None) -> float:
-    """Rollwiderstands-Multiplikator für den gegebenen Straßenbelag.
+def f_road_surface(surface: str | None) -> float:
+    """Roll resistance multiplier for the given road surface.
 
     Args:
-        surface: Straßenbelag (z. B. "asphalt", "gravel", None).
+        surface: road_surface (z. B. "asphalt", "gravel", None).
 
     Returns:
-        Multiplikator für den Rollwiderstandsbeiwert. Bei None oder unbekanntem
-        Belag wird der Default-Faktor 1.0 zurückgegeben.
+        Multiplier for the rolling resistance coefficient. For None or unknown
+        road surface the default factor 1.0 is returned.
     """
     if surface is None:
         return DEFAULT_OBERFLAECHEN_FAKTOR
@@ -67,10 +67,10 @@ def f_oberflaeche(surface: str | None) -> float:
 
 
 def berechne_luftdichte(temperature_c: float, pressure_hpa: float) -> float:
-    """Berechnet die Luftdichte basierend auf temperature und Luftdruck.
+    """Calculatet die Luftdichte based auf temperature und Luftdruck.
 
     Verwendet die ideale Gasgleichung: rho = p / (R_spez * T)
-    R_spez für trockene Luft ≈ 287.058 J/(kg·K)
+    R_specific for dry air ≈ 287.058 J/(kg·K)
 
     Args:
         temperature_c: temperature in °C
@@ -83,7 +83,7 @@ def berechne_luftdichte(temperature_c: float, pressure_hpa: float) -> float:
     t_kelvin = temperature_c + 273.15
     # Luftdruck in Pa
     p_pa = pressure_hpa * 100.0
-    # Spezifische Gaskonstante für trockene Luft
+    # Specific gas constant for dry air
     r_spez = 287.058
     return p_pa / (r_spez * t_kelvin)
 
@@ -94,24 +94,24 @@ def f_strassenzustand(
     snowfall_cm: float,
     temperature_c: float,
 ) -> float:
-    """Rollwiderstands-Multiplikator für Straßenbelag UND Witterung.
+    """Roll resistance multiplier for road surface AND weather.
 
     Kombiniert den Belag-Faktor (Asphalt, Gravel, etc.) mit einem
-    Witterungs-Faktor (trocken, nass, Schnee, Eis).
+    weathers-Faktor (trocken, nass, Schnee, Eis).
 
     Args:
-        surface: Straßenbelag (z. B. "asphalt", "gravel", None).
+        surface: road_surface (z. B. "asphalt", "gravel", None).
         precipitation_mm: precipitation in mm (Stundensumme).
         snowfall_cm: snowfall in cm (Wasserequivalent).
-        temperature_c: temperature in °C (für Eis-Erkennung).
+        temperature_c: temperature in °C (for ice detection).
 
     Returns:
-        Kombinierter Multiplikator für den Rollwiderstandsbeiwert.
+        Combined multiplier for the rolling resistance coefficient.
     """
-    # Basis-Faktor für Belag
-    f_belag = f_oberflaeche(surface)
+    # base factor for road surface
+    f_belag = f_road_surface(surface)
 
-    # Witterungs-Faktor
+    # weathers-Faktor
     if snowfall_cm > SCHNEEFALL_SCHWELLE_CM:
         # Schnee auf der Fahrbahn
         f_wetter = 1.8
@@ -119,7 +119,7 @@ def f_strassenzustand(
         # Nasse Fahrbahn
         f_wetter = 1.2
     elif temperature_c < 0.0 and precipitation_mm > 0.0:
-        # Eisglätte (gefrierender rain bei < 0°C)
+        # ice/sleet (freezing rain below 0°C)
         f_wetter = 2.5
     else:
         # Trocken
@@ -137,26 +137,26 @@ def calculate_segment_consumption(
     construction_zones: Sequence[ConstructionZone] | None = None,
     tempolimit_override_kmh: float | None = None,
 ) -> SegmentEnergyResult:
-    """Berechnet den energy_consumption für ein einzelnes Segment.
+    """Calculates energy_consumption for a single segment.
 
     Args:
-        segment: Routing-Segment (Geometrie, Länge, speed_limit_kmh, Straßenbelag).
-        gradient: Höhenprofil-Gradient für dieses Segment.
-        wetter: Wetterdaten (temperature, Wind) zum erwarteten Durchfahrtszeitpunkt.
+        segment: routing segment (geometry, length, speed_limit_kmh, road surface).
+        gradient: elevation profile gradient for this segment.
+        wetter: weatherdaten (temperature, Wind) zum erwarteten Durchfahrtszeitpunkt.
         wind: Projektion des Windes auf die heading (Gegen-/crosswind).
-        fahrzeug_params: Fahrzeugparameter (Masse, cW, rolling_resistance, etc.).
-        construction_zones: optionale Liste von construction_zones (überschreibt speed_limit_kmh).
-        tempolimit_override_kmh: optionales speed_limit_kmh-Override (für construction_zones-Logik).
+        fahrzeug_params: Fahrzeugparameter (Mass, cW, rolling_resistance, etc.).
+        construction_zones: optional list of construction zones (overrides speed_limit_kmh).
+        tempolimit_override_kmh: optional speed_limit_kmh override (for construction zone logic).
 
     Returns:
-        SegmentEnergyResult mit Energiebedarf, recuperation, drive_time_s und speed.
+        segmentEnergyResult mit Energiebedarf, recuperation, drive_time_s und speed.
 
     Algorithmus:
-        1. Bestimme Effective Speed (speed_limit_kmh oder Überschreitung, max. 150 km/h).
-        2. Berechne Kräfte (rolling_resistance inkl. Straßenbelag-Faktor, air_drag,
+        1. Determine effective speed (speed_limit_kmh or override, max 150 km/h).
+        2. Calculate forces (rolling_resistance including road_surface_factor, air_drag,
            gradient, recuperation).
-        3. Konvertiere Kräfte → Leistung → energy über drive_time_s.
-        4. Addiere Nebenverbraucher (temperaturabhängig).
+        3. Convert forces → power → energy via drive_time_s.
+        4. Add auxiliary consumption (temperature-dependent).
         5. Subtrahiere recuperation (physikalisch begrenzt).
     """
     # 1. speed und drive_time_s bestimmen
@@ -180,8 +180,8 @@ def calculate_segment_consumption(
     # 2. Winkel berechnen
     alpha_rad = math.atan(gradient.steigung_prozent / 100.0)
 
-    # 3. Kräfte berechnen
-    # 3.1 rolling_resistance (inkl. Straßenbelag-Faktor UND Witterung)
+    # 3. Calculate forces
+    # 3.1 rolling_resistance (inkl. road_surface_factor UND weather)
     f_ober = f_strassenzustand(
         segment.surface,
         wetter.precipitation_mm,
@@ -194,7 +194,7 @@ def calculate_segment_consumption(
     # 3.2 air_drag (inkl. Dachbox-Korrektur)
     cw_eff = fahrzeug_params.drag_coefficient
     if fahrzeug_params.roof_box:
-        cw_eff += 0.04  # Konservative Schätzung für Dachbox
+        cw_eff += 0.04  # Conservative estimate for roof box
 
     # relative speed zum Luftmassenstrom
     # headwind erhöht den Widerstand (addieren), Rückenwind verringert ihn (subtrahieren)
@@ -210,28 +210,28 @@ def calculate_segment_consumption(
         * (v_relativ**2)
     )
 
-    # 3.3 gradient (Höhenenergie)
+    # 3.3 gradient (elevation_energy)
     F_steigung = fahrzeug_params.mass_kg * ERDBESCHLEUNIGUNG_MS2 * math.sin(alpha_rad)
 
     # 4. energy für Bewegung
-    # Nur positive gradient verbraucht energy (bei Gefällen gibt der Motor keine energy auf)
+    # Nur positive gradient consumptiont energy (bei descentn gibt der Motor keine energy auf)
     F_bewegung = F_roll + F_luft + max(0.0, F_steigung)
     E_bewegung_j = F_bewegung * s_m
 
-    # 5. HVAC-consumption (temperaturabhängig)
+    # 5. HVAC-consumption (temperaturabhaengig)
     T_c = wetter.temperature_c
     P_next_to_kw = fahrzeug_params.auxiliary_baseline_kw
 
-    delta_T_min = fahrzeug_params.komforttemperatur_min_c - T_c
-    delta_T_max = T_c - fahrzeug_params.komforttemperatur_max_c
+    delta_T_min = fahrzeug_params.comfort_temperature_min_c - T_c
+    delta_T_max = T_c - fahrzeug_params.comfort_temperature_max_c
 
     if delta_T_min > 0:
         # Heizung nötig
-        P_heiz_kw = fahrzeug_params.heizung_max_kw * min(delta_T_min / 10.0, 1.0)
+        P_heiz_kw = fahrzeug_params.heating_max_kw * min(delta_T_min / 10.0, 1.0)
         P_next_to_kw += P_heiz_kw
     elif delta_T_max > 0:
         # Klima nötig
-        P_klima_kw = fahrzeug_params.klimaanlage_max_kw * min(delta_T_max / 10.0, 1.0)
+        P_klima_kw = fahrzeug_params.ac_max_kw * min(delta_T_max / 10.0, 1.0)
         P_next_to_kw += P_klima_kw
 
     E_next_to_j = P_next_to_kw * 1000 * t_s  # kW → W, dann * s
@@ -239,7 +239,7 @@ def calculate_segment_consumption(
     # 6. recuperation (nur bei Verzögerung)
     # Vereinfachung: v_anfang = v_mittel, v_ende reduziert um 10 % der gradient (in m/s Äquivalent)
     v_anfang_ms = v_mittel_ms
-    # Verzögerung bei gradient, Beschleunigung bei Gefälle
+    # Verzögerung bei gradient, Beschleunigung bei descent
     aenderung_ms = 0.1 * abs(gradient.steigung_prozent)
     v_end_ms = max(v_anfang_ms - aenderung_ms, 0) if gradient.steigung_prozent > 0 else v_anfang_ms
 
@@ -285,33 +285,33 @@ def calculate_total_consumption(
     fahrzeug_params: VehicleEnergyParameters,
     construction_zones: Sequence[ConstructionZone] | None = None,
 ) -> list[SegmentEnergyResult]:
-    """Berechnet den energy_consumption für eine gesamte Route (Segment-für-Segment).
+    """Calculatet den energy_consumption für eine gesamte Route (segment-für-segment).
 
-    Wrapper-Funktion für parallele oder sequenzielle Verarbeitung mehrerer Segmente.
-    Wetter- und Winddaten müssen der Reihenfolge der Route Segmente entsprechen.
+    Wrapper function for parallel or sequential processing of multiple segments.
+    weather- und Wind data müssen der Reihenfolge der Route segmente entsprechen.
 
     Args:
-        route_segments: Liste aller Route-Segmente in heading.
-        gradients: Liste der SegmentGradient für jedes Segment (muss gleiche Länge haben).
-        wetter_samples: Liste der WeatherSample für jedes Segment (muss gleiche Länge haben).
-        wind_components: Liste der WindComponents für jedes Segment (muss gleiche Länge haben).
-        fahrzeug_params: Fahrzeugparameter für alle Segmente.
-        construction_zones: optionale Liste von construction_zones (überschreibt speed_limit_kmh).
+        route_segments: Liste aller Route-segmente in heading.
+        gradients: List of segment gradient for each segment (must be same length).
+        wetter_samples: Liste der WeatherSample für jedes segment (muss gleiche Laenge haben).
+        wind_components: Liste der WindComponents für jedes segment (muss gleiche Laenge haben).
+        fahrzeug_params: Fahrzeugparameter für alle segmente.
+        construction_zones: optional list of construction zones (overrides speed_limit_kmh).
 
     Returns:
-        Liste von SegmentEnergyResult für jedes Segment.
+        Liste von segmentEnergyResult für jedes segment.
     """
     if not route_segments:
         return []
 
-    # Prüfen, dass alle Listen gleiche Länge haben
+    # Prüfen, dass alle Listen gleiche Laenge haben
     n = len(route_segments)
     if len(gradients) != n:
-        raise ValueError(f"gradients hat {len(gradients)} Einträge, erwartet {n}")
+        raise ValueError(f"gradients hat {len(gradients)} Eintraege, erwartet {n}")
     if len(wetter_samples) != n:
-        raise ValueError(f"wetter_samples hat {len(wetter_samples)} Einträge, erwartet {n}")
+        raise ValueError(f"wetter_samples hat {len(wetter_samples)} Eintraege, erwartet {n}")
     if len(wind_components) != n:
-        raise ValueError(f"wind_components hat {len(wind_components)} Einträge, erwartet {n}")
+        raise ValueError(f"wind_components hat {len(wind_components)} Eintraege, erwartet {n}")
 
     ergebnisse: list[SegmentEnergyResult] = []
 

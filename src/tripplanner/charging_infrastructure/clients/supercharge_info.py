@@ -15,7 +15,7 @@ class SuperchargeInfoClient:
 
     Die API ist öffentlich, benötigt keinen API-Key und blockiert keine
     einfachen HTTP-Clients (kein WAF). Dokumentierte Endpunkte:
-    - /service/supercharge/allSites   -> vollstaendiger Datensatz
+    - /service/supercharge/allSites   -> vollstaendiger datasatz
     - /service/supercharge/databaseInfo -> Aenderungs-Timestamp
     - /service/supercharge/allChanges  -> Delta-Aenderungen
     """
@@ -43,7 +43,7 @@ class SuperchargeInfoClient:
         self._debug_log = debug_log
 
     async def _log_response(self, response: httpx.Response, label: str) -> None:
-        """Loggt eine HTTP-Antwort fuer Debug-Zwecke."""
+        """Loggt eine HTTP-response fuer Debug-Zwecke."""
         body = response.text[:2000]
         _debug_log(
             self._debug_log,

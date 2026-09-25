@@ -31,7 +31,7 @@ class SmhiProvider:
     `time` field (was `validTime`), a flat `data` object (was a `parameters`
     list of `{name, values}` entries), and renamed parameters (see
     `_extract_smhi_sample`). Sweden-only coverage (per SMHI: "only locations
-    close to Sweden can be added"); `LoadBalancedWeatherProvider` restricts
+    close to Sweden can be added"); `LoadBalancedWeatherprovider` restricts
     this provider to coordinates `detect_country` classifies as `"SE"`.
     """
 

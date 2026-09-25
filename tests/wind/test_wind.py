@@ -224,6 +224,6 @@ def test_compute_wind_components_for_route_laengenfehler() -> None:
 
     with pytest.raises(
         ValueError,
-        match="weather_samples \\(2\\) und segments \\(3\\) müssen gleiche Länge haben",
+        match="weather_samples \\(2\\) and segments \\(3\\) must be the same length",
     ):
         compute_wind_components_for_route(weather_samples, segments)

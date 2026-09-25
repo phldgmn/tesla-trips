@@ -56,7 +56,7 @@ class Waypoint(BaseModel):
 class FerryExclusion(BaseModel):
     """A ferry connection the user wants to avoid.
 
-    Originates from a `FerrySegment` previously detected in a computed route via
+    Originates from a `Ferrysegment` previously detected in a computed route via
     `tripplanner.routing.detect_ferries()` (same field names for
     `name`/`bbox_sw`/`bbox_ne`, but defined separately): `routing` already imports
     `trip_input.models` (`TripRequest`), so importing the other way would create a

@@ -1,4 +1,4 @@
-"""Geteilte, abhängigkeitsfreie geografische Primitive.
+"""Geteilte, abhaengigkeitsfreie geografische Primitive.
 
 Kein Business-Modul im Sinne der Modulgrenzen-Regel — analog zu einer externen
 Bibliothek von jedem anderen `tripplanner`-Modul importierbar (siehe

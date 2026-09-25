@@ -1,4 +1,4 @@
-"""API-Schema-Modelle für trip_input (Supercharger-/Request-/Response-Schemata)."""
+"""API schema models for trip_input (supercharger/request/response schemas)."""
 
 from tripplanner.trip_input.schemas.request import (
     ChargingDurationSpecificationAPI,

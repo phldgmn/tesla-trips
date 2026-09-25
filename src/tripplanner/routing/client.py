@@ -19,7 +19,7 @@ Coordinate = tuple[float, float]
 logger = logging.getLogger(__name__)
 
 # Gateway-/Überlast-Status, die GraphHopper u. a. beim Warmlaufen liefert.
-# 4xx werden nie wiederholt (fehlerhafte Anfrage bleibt fehlerhaft).
+# 4xx werden nie wiederholt (fehlerhafte request bleibt fehlerhaft).
 _RETRYABLE_STATUS = frozenset({502, 503, 504})
 
 
@@ -46,9 +46,9 @@ class GraphHopperClient:
         self.api_key = api_key
         self._max_attempts = max_attempts
         self._backoff_base_s = backoff_base_s
-        # retries=2 wiederholt nur Verbindungsfehler (connect/reset), keine
+        # retries=2 wiederholt nur connectionsfehler (connect/reset), keine
         # HTTP-Statuscodes. Lange Routen mit `ch.disable=True` brauchen ein
-        # großzügiges Read-Timeout.
+        # grosszügiges Read-Timeout.
         self._client = AsyncClient(
             base_url=base_url,
             transport=AsyncHTTPTransport(retries=2),
@@ -56,7 +56,7 @@ class GraphHopperClient:
         )
 
     async def _send_with_retry(self, method: str, url: str, **kwargs: object) -> Response:
-        """Sendet eine idempotente Anfrage; wiederholt 502/503/504 mit Backoff."""
+        """Sendet eine idempotente request; wiederholt 502/503/504 mit Backoff."""
         for attempt in range(1, self._max_attempts):
             response = await self._client.request(method, url, **kwargs)  # type: ignore[arg-type]
             if response.status_code not in _RETRYABLE_STATUS:
@@ -116,11 +116,11 @@ class GraphHopperClient:
         if custom_model:
             payload["custom_model"] = custom_model
             # GraphHopper lehnt `custom_model` ab, solange das Profil im CH
-            # ("speed mode") läuft - live gegen den Projekt-GraphHopper-Server
+            # ("speed mode") laeuft - live gegen den Projekt-GraphHopper-Server
             # verifiziert (Fehler: "The 'custom_model' parameter is currently
             # not supported for speed mode, you need to disable speed mode
             # with `ch.disable=true`."). Muss bei JEDEM custom_model-Request
-            # gesetzt werden, unabhängig vom Anwendungsfall.
+            # gesetzt werden, unabhaengig vom Anwendungsfall.
             payload["ch.disable"] = True
 
         response = await self._send_with_retry("POST", "/route", json=payload)
@@ -128,11 +128,11 @@ class GraphHopperClient:
             response.raise_for_status()
         except HTTPStatusError as exc:
             # GraphHopper liefert bei 4xx (z. B. "Point out of bounds", wenn
-            # die Koordinaten außerhalb des geladenen OSM-Extrakts liegen)
-            # eine aussagekräftige `message` im JSON-Body. httpx' generische
-            # Fehlermeldung enthält diesen Text nicht - ohne ihn ist der
+            # die Koordinaten ausserhalb des geladenen OSM-Extrakts liegen)
+            # eine aussagekraeftige `message` im JSON-Body. httpx' generische
+            # Fehlermeldung enthaelt diesen Text nicht - ohne ihn ist der
             # Fehler für Nutzer (siehe API-Fehlermeldung in api.py) nicht
-            # diagnostizierbar. Body-Detail anhängen, falls vorhanden.
+            # diagnostizierbar. Body-Detail anhaengen, falls vorhanden.
             detail = None
             with suppress(ValueError):
                 detail = response.json().get("message")
@@ -146,15 +146,15 @@ class GraphHopperClient:
     async def info(self) -> dict[str, object]:
         """Ruft die GraphHopper `/info`-Metadaten ab.
 
-        Enthält u. a. `encoded_values`: die Path-Details/Encoded-Values, die
-        der verbundene Server tatsächlich unterstützt (abhängig von dessen
-        `graph.encoded_values`-Konfiguration, z. B. `average_slope` setzt
-        eine aktivierte Elevation-Quelle voraus). Wird von
-        `GraphHopperRoutingProvider` genutzt, um nur unterstützte Path-Details
+        Enthaelt u. a. `encoded_values`: die Path-Details/Encoded-Values, die
+        der verbundene Server tatsaechlich unterstützt (abhaengig von dessen
+        `graph.encoded_values`-configuration, z. B. `average_slope` setzt
+        eine aktivierte Elevation-source voraus). Wird von
+        `GraphHopperRoutingprovider` genutzt, um nur unterstützte Path-Details
         anzufragen statt mit HTTP 400 zu scheitern.
 
         Returns:
-            Rohes JSON-Dict der `/info`-Antwort.
+            Rohes JSON-Dict der `/info`-response.
 
         Raises:
             httpx.HTTPStatusError: Bei HTTP-Fehlern (4xx/5xx).
@@ -165,7 +165,7 @@ class GraphHopperClient:
         return result
 
     async def close(self) -> None:
-        """Schließt den HTTP Client."""
+        """Schliesst den HTTP Client."""
         await self._client.aclose()
 
     async def __aenter__(self) -> GraphHopperClient:
@@ -173,5 +173,5 @@ class GraphHopperClient:
         return self
 
     async def __aexit__(self, *args: object) -> None:
-        """Verlässt den async Context-Manager und schließt den HTTP-Client."""
+        """Verlaesst den async Context-Manager und schliesst den HTTP-Client."""
         await self.close()

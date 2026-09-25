@@ -1,8 +1,8 @@
-"""DE construction-zone provider: NRW Mobilitätsdaten DATEX II export.
+"""DE construction-zone provider: NRW Mobilitaetsdaten DATEX II export.
 
-Default DE provider, superseding `providers_de_autobahn.AutobahnConstructionProvider`
+Default DE provider, superseding `providers_de_autobahn.AutobahnConstructionprovider`
 per direct user instruction. Consumes the two DATEX II Situation Publication
-feeds published by the NRW Mobilitätsdaten "systemadapter-mobilithek-exporter"
+feeds published by the NRW Mobilitaetsdaten "systemadapter-mobilithek-exporter"
 (aggregated nationwide Autobahn Arbeitsstellen data, not NRW-only despite the
 supplier identifier), covering long-duration ("ld") and short-duration ("kd")
 roadworks separately:
@@ -44,7 +44,7 @@ from tripplanner.geo import geodesic_length_m
 logger = logging.getLogger(__name__)
 
 # Public, unauthenticated DATEX II Situation Publication feeds operated by
-# NRW Mobilitätsdaten (Mobilithek exporter). "ld" = long-duration, "kd" =
+# NRW Mobilitaetsdaten (Mobilithek exporter). "ld" = long-duration, "kd" =
 # short-duration ("kurze duration") Autobahn roadworks; both are fetched and
 # combined since neither alone covers all active roadworks.
 NRW_ARBEITSSTELLEN_LD_URL = (
@@ -64,7 +64,7 @@ _DE_DATEXII_DEFAULT_SPEED_LIMIT_KMH = DEFAULT_ROADWORKS_SPEED_LIMIT_KMH
 
 
 class DatexIIGermanyConstructionProvider(ConstructionProvider):
-    """Default DE construction-zone provider: NRW Mobilitätsdaten DATEX II export.
+    """Default DE construction-zone provider: NRW Mobilitaetsdaten DATEX II export.
 
     DE-only — any other country in `laender` is ignored. Fetches and caches
     the long- and short-duration Autobahn Arbeitsstellen feeds, parses them

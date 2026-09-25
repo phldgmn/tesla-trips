@@ -1,6 +1,6 @@
-"""Datenmodelle für das energy-Modul (physikalisches Verbrauchsmodell).
+"""data models for the energy module (physical consumption model).
 
-Pydantic-Modelle zur Darstellung von Fahrzeugparametern und Segment-Ergebnissen.
+Pydantic-modele zur Darstellung von Fahrzeugparametern und segment-Ergebnissen.
 """
 
 from __future__ import annotations
@@ -9,24 +9,24 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class VehicleEnergyParameters(BaseModel):
-    """Physikalische Fahrzeugparameter für Energieberechnung.
+    """Physical vehicle parameters for energy calculation.
 
     Alle Default-Werte basieren auf öffentlich verifizierten Spezifikationen
     des Tesla Model 3 (2024/2025).
     """
 
-    # Aerodynamik
+    # Aerodynamics
     drag_coefficient: float = Field(
         default=0.23,
         ge=0.0,
-        description="Drag coefficient (cW) für Tesla Model 3 (Standardfassung). "
+        description="Drag coefficient (cW) for Tesla Model 3 (Standard trim). "
         "Neuere Generation (Highland facelift) erreicht 0.219, "
-        "aber 0.23 bleibt als Standard für latitude Kompatibilität.",
+        "but 0.23 remains as standard for latitude compatibility.",
     )
     frontal_area_m2: float = Field(
         default=2.22,
         ge=0.0,
-        description="Frontalfläche in m² (Tesla Model 3).",
+        description="Frontal area in m² (Tesla Model 3).",
     )
 
     # rolling_resistance
@@ -34,11 +34,11 @@ class VehicleEnergyParameters(BaseModel):
         default=0.011,
         ge=0.0,
         le=0.02,
-        description="Rollwiderstandsbeiwert c_r für Model 3 mit Standardreifen "
+        description="Rolling resistance coefficient c_r for Model 3 with standard tires "
         "bei 2.9 bar (42 psi). Bereich 0.010-0.011 typisch.",
     )
 
-    # Masse
+    # Mass
     mass_kg: float = Field(
         default=1706.0,
         ge=1500.0,
@@ -46,18 +46,18 @@ class VehicleEnergyParameters(BaseModel):
         description="vehicle_weight in kg. Basis: "
         "Rear-Wheel Drive 3,759 lbs ≈ 1,706 kg. "
         "Long Range AWD ≈ 1,828 kg, Performance ≈ 1,845 kg. "
-        "Obere Grenze 2200 kg für alle Frontend-Presets.",
+        "Upper limit 2200 kg for all frontend presets.",
     )
 
-    # Batterie & Antrieb
+    # Battery & Drive
     battery_capacity_kwh: float = Field(
         default=62.5,
         ge=50.0,
         le=200.0,
-        description="Nutzbare Batteriekapazität in kWh. "
+        description="Usable battery capacity in kWh. "
         "Standard Range (2025 LFP): 62.5 kWh (Gesamt ca. 65 kWh). "
         "Long Range/Performance: ~75-82 kWh nutzbar. "
-        "Erhöht für Testzwecke auf 200 kWh.",
+        "Increased to 200 kWh for testing purposes.",
     )
     wirkungsgrad_antrieb: float = Field(
         default=0.94,
@@ -73,7 +73,7 @@ class VehicleEnergyParameters(BaseModel):
         "(Kettenwirkungsgrad: Rad → Motor → Batterie ≈ 75 %).",
     )
 
-    # Nebenverbraucher
+    # Nebenconsumptioner
     auxiliary_baseline_kw: float = Field(
         default=0.34,
         ge=0.0,
@@ -81,29 +81,29 @@ class VehicleEnergyParameters(BaseModel):
         description="Baseline-consumption in kW bei Parke- und Standby-Bedingungen "
         "(ohne Klimaanlage/Heizung).",
     )
-    klimaanlage_max_kw: float = Field(
+    ac_max_kw: float = Field(
         default=5.5,
         ge=3.0,
         le=8.0,
         description="Maximale Leistungsaufnahme der Klimaanlage (A/C). "
         "Full blast ≈ 5-7 kW, typischer Betrieb ≈ 1-4 kW.",
     )
-    heizung_max_kw: float = Field(
+    heating_max_kw: float = Field(
         default=6.0,
         ge=3.0,
         le=10.0,
-        description="Maximale Heizleistung (PTC-Heizer oder Wärmepumpe). "
-        "PTC-Heizung (ältere Modelle): bis 7 kW. "
-        "Wärmepumpe (Highland): effizienter, aber 6 kW als obere Grenze sicher.",
+        description="Maximale Heizleistung (PTC-Heizer oder Waermepumpe). "
+        "PTC-Heizung (aeltere Modelle): bis 7 kW. "
+        "Waermepumpe (Highland): effizienter, aber 6 kW als obere Grenze sicher.",
     )
-    komforttemperatur_min_c: float = Field(
+    comfort_temperature_min_c: float = Field(
         default=18.0,
         ge=10.0,
         le=22.0,
         description="Untere Komforttemperaturgrenze (°C). "
         "Unterhalb dieses Wertes steigt Heizungsleistung linear an.",
     )
-    komforttemperatur_max_c: float = Field(
+    comfort_temperature_max_c: float = Field(
         default=24.0,
         ge=20.0,
         le=28.0,
@@ -128,8 +128,8 @@ class VehicleEnergyParameters(BaseModel):
         return v  # Wird in Berechnungsmethode berücksichtigt
 
     @model_validator(mode="after")
-    def adjust_cr_for_reifentyp(self) -> VehicleEnergyParameters:
-        """Passive Anpassung des Rollwiderstands für verschiedene Reifentypen."""
+    def adjust_cr_for_tire_type(self) -> VehicleEnergyParameters:
+        """Passive adjustment of rolling resistance for different tire types."""
         typ_factors = {
             "standard": 1.0,
             "winter": 1.25,
@@ -142,7 +142,7 @@ class VehicleEnergyParameters(BaseModel):
 
 
 class SegmentEnergyResult(BaseModel):
-    """Ergebnis der Energieberechnung für ein Route-Segment."""
+    """Result of energy calculation for a route segment."""
 
     segment_index: int
     energiebedarf_kwh: float  # Positiv: consumption, Negativ: recuperation (überschüssige energy)
@@ -150,4 +150,4 @@ class SegmentEnergyResult(BaseModel):
     energiebedarf_brutto_kwh: float  # Summe aller Verbraucher (ohne recuperation)
     speed_ms: float  # Mittlere speed im Segment (m/s)
     drive_time_s: float  # drive_time_s des Segments (s)
-    segment_length_m: float  # Länge des Segments (m)
+    segment_length_m: float  # Laenge des Segments (m)

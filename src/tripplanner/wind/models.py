@@ -1,6 +1,6 @@
-"""Datenmodelle für das wind-Modul.
+"""data models für das wind-Modul.
 
-Pydantic-Modelle zur Darstellung von Windkomponenten entlang einer Route.
+Pydantic-modele zur Darstellung von Wind components entlang einer Route.
 """
 
 from __future__ import annotations
@@ -9,10 +9,10 @@ from pydantic import BaseModel, Field
 
 
 class WindComponents(BaseModel):
-    """Windkomponenten entlang einer Route.
+    """Wind components entlang einer Route.
 
     Attributes:
-        segment_index: Nullbasierter Index des Segments in der Route.
+        segment_index: Nullbasierter Index des segments in der Route.
         gegenwind_ms: headwind-/Rückenwind-Komponente in m/s.
             Positiv = headwind (bremsend), negativ = Rückenwind (unterstützend).
         seitenwind_ms: crosswind-Komponente in m/s.

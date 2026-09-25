@@ -1,7 +1,7 @@
 """Zentrale Lade- und Entlade-Logik für das battery-Modul.
 
-Die Berechnungen basieren auf physikalischen Gesetzen (energy = Leistung x time),
-angepasst an die stückweise lineare Ladekurve und Fahrzeugparameter.
+Die calculationen basieren auf physikalischen Gesetzen (energy = Leistung x time),
+angepasst an die stückweise lineare charging_curve und Fahrzeugparameter.
 """
 
 from __future__ import annotations
@@ -16,16 +16,16 @@ def interpolate_charging_power(
     soc_pct: float,
     charging_curve: ChargingCurve,
 ) -> float:
-    """Berechnet die Ladeleistung (kW) für einen gegebenen SoC mittels linearer Interpolation.
+    """Calculatet die charging_power (kW) für einen gegebenen SoC mittels linearer Interpolation.
 
-    Extrapolation außerhalb des Bereichs mit dem Randwert.
+    Extrapolation ausserhalb des Bereichs mit dem Randwert.
 
     Args:
         soc_pct: SoC in Prozent (0-100)
-        charging_curve: Die Ladekurve mit diskreten Punkten
+        charging_curve: Die charging_curve mit diskreten Punkten
 
     Returns:
-        Ladeleistung in kW für den gegebenen SoC
+        charging power in kW for the given SoC
     """
     return charging_curve.ladeleistung_bei_soc(soc_pct)
 
@@ -38,15 +38,15 @@ def compute_charge_duration(  # noqa: PLR0913, PLR0917 -- alle 6 Parameter sind 
     parameters: VehicleBatteryParameters,
     max_duration_seconds: float | None = None,
 ) -> float:
-    """Berechnet die charge_duration in Sekunden von `start_soc_pct` bis `target_soc_pct`.
+    """Calculatet die charge_duration in Sekunden von `start_soc_pct` bis `target_soc_pct`.
 
-    Bei konstanter Ladeleistung `charging_power_kw`.
+    Bei konstanter charging_power `charging_power_kw`.
 
-    Die reale charge_duration wird durch die Kurve begrenzt: Die effektive Ladeleistung
+    Die reale charge_duration wird durch die Kurve begrenzt: Die effektive charging_power
     ist das Minimum aus `charging_power_kw` und der Kurvenleistung bei jedem SoC-Punkt.
 
     Algorithmus (numerische Integration über die stückweise lineare Kurve):
-    1. Begrenze die Ladeleistung durch die Kurve:
+    1. Begrenze die charging_power durch die Kurve:
        eff_leistung(soc) = min(charging_power_kw, kurven_leistung(soc))
     2. Integriere über den SoC-Bereich: ∫ dQ / eff_leistung(soc)
     3. Multipliziere mit dem Wirkungsgrad der Ladeelektronik und Temperaturfaktor
@@ -55,15 +55,15 @@ def compute_charge_duration(  # noqa: PLR0913, PLR0917 -- alle 6 Parameter sind 
     cubic Hermite-Interpolation (PCHIP) vorliegen, siehe `ChargingCurve` in
     models.py - für Letztere ist das Integral nicht more analytisch geschlossen
     lösbar, daher wird durchgehend eine numerische Rechteckregel mit feiner
-    Diskretisierung verwendet. Diese funktioniert unverändert für beide
+    Diskretisierung uses. Diese funktioniert unveraendert für beide
     Interpolationsarten, da sie nur `charging_curve.ladeleistung_bei_soc()`
     punktweise auswertet.
 
     Args:
         start_soc_pct: Start-SoC in Prozent (0-100)
         target_soc_pct: Ziel-SoC in Prozent (0-100)
-        charging_power_kw: Konstante Ladeleistung (kW)
-        charging_curve: Die Ladekurve des Fahrzeugs
+        charging_power_kw: Konstante charging_power (kW)
+        charging_curve: Die charging_curve des Fahrzeugs
         parameters: vehicle-Batterieparameter
         max_duration_seconds: Optional: Maximale duration, die erreicht werden darf
 
@@ -77,7 +77,7 @@ def compute_charge_duration(  # noqa: PLR0913, PLR0917 -- alle 6 Parameter sind 
     efficiency = parameters.effizienz_ladeelektronik
     temp_factor = parameters.temperatur_korrekturfaktor
 
-    # Begrenze die Ladeleistung durch die Kurve
+    # Begrenze die charging_power durch die Kurve
     def effective_power(soc_pct: float) -> float:
         curve_power = charging_curve.ladeleistung_bei_soc(soc_pct)
         return min(charging_power_kw, curve_power)
@@ -97,7 +97,7 @@ def compute_charge_duration(  # noqa: PLR0913, PLR0917 -- alle 6 Parameter sind 
         if power <= 0:
             continue  # Vermeide Division durch Null
 
-        # energy für diesen SoC-Schritt
+        # energy for this SoC step
         dQ_kwh = (soc_delta / 100.0) * capacity_kwh
         # time = energy / Leistung (in Stunden), umrechnen in Sekunden
         dtime_h = dQ_kwh / power

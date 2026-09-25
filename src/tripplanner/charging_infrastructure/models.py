@@ -1,7 +1,7 @@
-"""Datenmodelle für das `charging_infrastructure`-Modul.
+"""data models für das `charging_infrastructure`-Modul.
 
-Pydantic-Modelle zur Modellierung von Tesla-Supercharger-Stationen,
-inklusive Provider-Protocol für den abstrakten Datenzugriff.
+Pydantic-modele zur modelierung von Tesla-Supercharger-Stationen,
+inklusive provider-Protocol für den abstrakten datazugriff.
 Alle Koordinaten folgen der Konvention: `Coordinate = tuple[float, float]`
 mit `(lat, lon)` in Dezimalgrad (WGS84).
 """
@@ -19,7 +19,7 @@ from tripplanner.geo import Coordinate
 
 
 class StallType(Enum):
-    """Bezeichnung für den Stall-Typ, basierend auf supercharge.info-Daten."""
+    """Bezeichnung für den Stall-Typ, based auf supercharge.info-data."""
 
     V2 = "V2"
     """V2-Supercharger (typisch 150 kW pro Stall)."""
@@ -57,7 +57,7 @@ class ConnectorType(Enum):
 
 
 class ChargingStation(BaseModel):
-    """Modell einer Tesla Supercharger-Station.
+    """model einer Tesla Supercharger-Station.
 
     Basierend auf supercharge.info JSON-Struktur und OpenChargeMap-Referenzdaten.
     Koordinaten nach WGS84 (GPS).
@@ -97,11 +97,11 @@ class ChargingStation(BaseModel):
     )
     country: Literal["DE", "DK", "SE"] = Field(
         ...,
-        description="ISO-Ländercode, wo sich die Station befindet",
+        description="ISO-Laendercode, wo sich die Station befindet",
     )
     ist_24_7: bool = Field(
         default=True,
-        description="Tesla Supercharger sind typischerweise 24/7 zugänglich",
+        description="Tesla Supercharger sind typischerweise 24/7 zugaenglich",
     )
     status: Literal["online", "offline", "wartung", "temporaer_geschlossen"] = Field(
         default="online",
@@ -120,17 +120,17 @@ class ChargingStation(BaseModel):
         MIN_LAT, MAX_LAT = -90.0, 90.0
         MIN_LON, MAX_LON = -180.0, 180.0
         if not (MIN_LAT <= lat <= MAX_LAT):
-            raise ValueError("latitude muss zwischen -90 und 90 liegen")
+            raise ValueError("Latitude must be between -90 and 90")
         if not (MIN_LON <= lon <= MAX_LON):
-            raise ValueError("Längengrad muss zwischen -180 und 180 liegen")
+            raise ValueError("Lon must be between -180 and 180")
         if not all(math.isfinite(x) for x in v):
-            raise ValueError("Koordinaten dürfen nicht NaN oder Inf sein")
+            raise ValueError("Coordinates must not be NaN or Inf")
         return v
 
     @field_validator("max_ladeleistung_kw")
     @classmethod
     def validate_max_ladeleistung_kw(cls, v: float) -> float:
-        """Validiert die maximale Ladeleistung (muss positiv und realistisch sein)."""
+        """Validiert die maximale charging_power (muss positiv und realistisch sein)."""
         if v <= 0:
             raise ValueError("max_ladeleistung_kw muss positiv sein")
         # Realistischer Maximalwert: V4-Supercharger ~325 kW pro Post * 8 Posts = 2600 kW
@@ -140,11 +140,11 @@ class ChargingStation(BaseModel):
         return v
 
     def anzahl_verfuegbare_stalls(self) -> int:
-        """Gesamtanzahl der Stalls unabhängig vom Typ."""
+        """Gesamtanzahl der Stalls unabhaengig vom Typ."""
         return sum(self.stalls.values())
 
     def max_parallel_usability(self) -> int:
-        """Schätzung, wie viele Stalls gleichzeitig genutzt werden können.
+        """Schaetzung, wie viele Stalls gleichzeitig genutzt werden können.
 
         V2/V3 nutzen oft gemeinsame Kabinette (z. B. 4 Posts teilen 1 MW).
         Vereinfachung: pro 4 Posts ein gemeinsamer Kabinetttakt.
@@ -161,17 +161,17 @@ class ChargingStation(BaseModel):
     def distance_to_km(self) -> float:
         """Distance zur letzten Suchkoordinate (in km).
 
-        Wird von Provider gesetzt, um Distanzberechnung zu vermeiden.
+        Wird von provider gesetzt, um Distanzberechnung zu vermeiden.
         """
-        # Wird von Provider gesetzt
+        # Wird von provider gesetzt
         return 0.0
 
 
 @runtime_checkable
 class ChargingStationProvider(Protocol):
-    """Protocol für den Zugriff auf Supercharger-Daten.
+    """Protocol für den Zugriff auf Supercharger-data.
 
-    Ermöglicht Austausch der Datenquelle (lokale Datei, Crawler, API).
+    Ermöglicht Austausch der dataquelle (lokale Datei, Crawler, API).
     """
 
     async def get_stations_in_radius(
@@ -185,7 +185,7 @@ class ChargingStationProvider(Protocol):
         Args:
             coordinate: (lat, lon) als Tuple (WGS84)
             radius_km: Suchradius in Kilometern (Flugdistanz)
-            country_filter: Optionaler Länderfilter (DE/DK/SE)
+            country_filter: Optionaler Laenderfilter (DE/DK/SE)
 
         Returns:
             Liste von ChargingStation, sortiert nach distance (aufsteigend)
@@ -201,11 +201,11 @@ class ChargingStationProvider(Protocol):
 
         Args:
             route: Die geplante Route
-            search_radius_km: Radius um jeden Segment-Mittelpunkt
+            search_radius_km: Radius um jeden segment-Mittelpunkt
 
         Returns:
             Dict mapping segment_index -> liste von ChargingStation
-            (nur Segmente mit mindestens einer Station)
+            (nur segmente mit mindestens einer Station)
         """
         raise NotImplementedError
 
@@ -213,7 +213,7 @@ class ChargingStationProvider(Protocol):
 class ChargingPricingTier(BaseModel):
     """Ein Preistier mit optionalen zeitbasierten Raten.
 
-    Kann eine Flatrate (time_label=None) oder zeitabhängige Raten abbilden.
+    Kann eine Flatrate (time_label=None) oder zeitabhaengige Raten abbilden.
     """
 
     tier_label: str = Field(
@@ -230,7 +230,7 @@ class ChargingPricingTier(BaseModel):
         ...,
         min_length=3,
         max_length=3,
-        description="Währung als ISO-4217-Code (EUR, SEK, DKK, ...)",
+        description="Waehrung als ISO-4217-Code (EUR, SEK, DKK, ...)",
     )
     amount: float = Field(
         ...,
@@ -252,7 +252,7 @@ class ChargingStationWithPricing(BaseModel):
 
     station: ChargingStation = Field(
         ...,
-        description="Die zugehörige Ladestation",
+        description="Die zugehörige charging station",
     )
     pricing: list[ChargingPricingTier] = Field(
         default_factory=list,

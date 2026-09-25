@@ -1,4 +1,4 @@
-"""CLI-Entry-Point für trip_input: Reiseplanung über Typer-CLI.
+"""CLI entry point for trip_input: trip planning via Typer CLI.
 
 Aufruf: `python -m tripplanner.trip_input.cli trips [OPTIONEN]`
         `python -m tripplanner.trip_input.cli charger refresh supercharge-info`
@@ -28,12 +28,12 @@ from tripplanner.weather.providers import FakeWeatherProvider
 
 from .cli_charger import charger_app
 
-# Konstanten für CLI
+# Constants for CLI
 _EXPECTED_PARTS_COUNT = 2
 _COORD_SEPARATOR = ","
 _DURATION_SEPARATOR = ":"
 
-app = typer.Typer(help="Tesla Trip Planner - CLI für Reiseplanung und Simulation")
+app = typer.Typer(help="Tesla Trip Planner - CLI for trip planning and simulation")
 app.add_typer(charger_app, name="charger")
 
 
@@ -230,7 +230,7 @@ def trips(  # noqa: PLR0913, PLR0917
         typer.echo(f"Validierungsfehler: {e}", err=True)
         raise typer.Exit(code=1) from None
     except ValueError as e:
-        typer.echo(f"Ungültige Eingabe: {e}", err=True)
+        typer.echo(f"Invalid input: {e}", err=True)
         raise typer.Exit(code=1) from None
     except Exception as e:  # noqa: BLE001 - CLI boundary: report any failure as exit code 1
         typer.echo(f"Fehler bei der Berechnung: {e}", err=True)

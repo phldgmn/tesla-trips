@@ -49,7 +49,7 @@ _LOAD_TIMEOUT_S: float = 20.0
 """Max. Wartezeit auf ``document.readyState == "complete"`` im neuen Tab."""
 
 _POLL_INTERVAL_S: float = 0.25
-"""interval zwischen den Polling-Versuchen (Tab-Suche und Ladezustand)."""
+"""interval zwischen den Polling-Versuchen (Tab-Suche und charge_state)."""
 
 _OSASCRIPT_TIMEOUT_S: float = 45.0
 """Hartes Timeout fuer den gesamten ``osascript``-Subprozess (Sicherheitsnetz
@@ -169,7 +169,7 @@ end tell
 class SafariTeslaClient(TeslaJsonEndpointsMixin):
     """HTTP-Client fuer die oeffentliche Tesla Locations-API via echtem Safari.
 
-    Nutzt die bereits laufende, per Nutzer authentifizierte Safari-Instanz
+    Uses die bereits laufende, per Nutzer authentifizierte Safari-Instanz
     (AppleScript/``osascript``), um URLs in einem Hintergrund-Tab zu laden.
     Kein eigener Browser-Prozess, kein Fokus-Diebstahl, keine Container-
     Netzwerk-Isolation - siehe Modul-Docstring fuer Details.
@@ -209,7 +209,7 @@ class SafariTeslaClient(TeslaJsonEndpointsMixin):
         self._lock: asyncio.Lock = asyncio.Lock()
 
     async def _log_request(self, url: str) -> None:
-        """Loggt eine Anfrage fuer Debug-Zwecke."""
+        """Loggt eine request fuer Debug-Zwecke."""
         _debug_log(self._debug_log, f"GET {url}", label="SAFARI")
 
     async def _run_applescript(self, script: str, *, cleanup_url: str | None = None) -> str:
@@ -226,7 +226,7 @@ class SafariTeslaClient(TeslaJsonEndpointsMixin):
 
         Raises:
             CurlError: Bei Timeout, Nicht-Null-Exitcode (AppleScript-Fehler,
-                z.B. Safari nicht erreichbar oder Apple-Events nicht erlaubt)
+                z.B. Safari nicht erreichbar oder Apple-Events nicht allowed)
                 oder wenn ``osascript`` selbst nicht gestartet werden kann.
         """
         try:
@@ -299,7 +299,7 @@ class SafariTeslaClient(TeslaJsonEndpointsMixin):
     async def _fetch(self, url: str) -> str:
         """Fuehrt GET aus und liefert den Response-Body als Text.
 
-        Wiederholt bei Akamai-WAF-Bloecken, leeren Antworten oder
+        Wiederholt bei Akamai-WAF-Bloecken, leeren responseen oder
         Automation-Fehlern bis zu ``WAF_RETRY_MAX_ATTEMPTS`` mal mit
         exponentiellem Backoff (siehe ``waf_retry_delay_s``).
 
@@ -310,7 +310,7 @@ class SafariTeslaClient(TeslaJsonEndpointsMixin):
             Response-Body als Text
 
         Raises:
-            CurlError: Bei anhaltenden WAF-Bloecken, leeren Antworten oder
+            CurlError: Bei anhaltenden WAF-Bloecken, leeren responseen oder
                 Safari-Automation-Fehlern
         """
         last_error = self.CurlError("kein Versuch unternommen")

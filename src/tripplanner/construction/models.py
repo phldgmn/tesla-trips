@@ -1,4 +1,4 @@
-"""Datenmodelle für das construction-Modul: construction_zones, closure_types, Provider-Protocol.
+"""data models für das construction-Modul: construction_zones, closure_types, provider-Protocol.
 
 Alle Koordinaten im Projekt folgen der Konvention: (lat, lon) in Dezimalgrad (WGS84).
 """
@@ -14,7 +14,7 @@ DEFAULT_ROADWORKS_SPEED_LIMIT_KMH = 80
 
 
 class ClosureType(StrEnum):
-    """closure_type gemäß DATEX II RoadOrCarriagewayManagementType."""
+    """closure_type gemaeß DATEX II RoadOrCarriagewayManagementType."""
 
     FULLY_CLOSED = "fullyClosed"
     PARTIALLY_CLOSED = "partiallyClosed"
@@ -25,7 +25,7 @@ class ClosureType(StrEnum):
 
 
 class Land(StrEnum):
-    """Ländercodes für construction_zones (DE=Deutschland, DK=Dänemark, SE=Schweden)."""
+    """Laendercodes für construction zones (DE=Deutschland, DK=Daenemark, SE=Sweden)."""
 
     DE = "DE"
     DK = "DK"
@@ -36,17 +36,17 @@ class ConstructionZone(BaseModel):
     """Ein construction_zones-Abschnitt mit speed_limit_kmh, closure_type und Umleitungshinweis.
 
     Args:
-        betroffene_segmente: Liste von RouteSegment-IDs (0-basiert), die von der
+        betroffene_segmente: Liste von Routesegment-IDs (0-basiert), die von der
             construction_zone betroffen sind.
         speed_limit_kmh: Reduziertes speed_limit_kmh in km/h (None wenn keine
-            Beschränkung).
+            Beschraenkung).
         closure_type: Art der Sperrung/construction_zone.
         umleitungshinweis: Freitext-Information zur Umleitung (optional).
         land: Land, in dem die construction_zone liegt.
         gueltig_von: Startzeitpunkt der construction_zone (ISO 8601).
         gueltig_bis: Endzeitpunkt der construction_zone (ISO 8601), None wenn
             unbestimmt.
-        length_m: Geschätzte Länge der betroffenen Straßenstrecke in Metern
+        length_m: estimated length of the affected road section in meters
             (None wenn nicht berechenbar).
     """
 
@@ -54,19 +54,19 @@ class ConstructionZone(BaseModel):
         description="List of RouteSegment IDs (0-based) affected by the construction_zone."
     )
     speed_limit_kmh: Annotated[int | None, Field(ge=0, le=200, default=None)] = Field(
-        description="Reduziertes speed_limit_kmh in km/h (None wenn keine Beschränkung)."
+        description="Reduziertes speed_limit_kmh in km/h (None wenn keine Beschraenkung)."
     )
-    closure_type: ClosureType = Field(description="Art der Sperrung/construction_zone.")
+    closure_type: ClosureType = Field(description="Type of closure/construction_zone.")
     umleitungshinweis: Annotated[str | None, Field(max_length=500, default=None)] = Field(
-        description="Freitext-Information zur Umleitung (optional)."
+        description="Free-text information about the detour (optional)."
     )
-    land: Land = Field(description="Land, in dem die construction_zone liegt.")
-    gueltig_von: datetime = Field(description="Startzeitpunkt der construction_zone (ISO 8601).")
+    land: Land = Field(description="Country in which the construction_zone is located.")
+    gueltig_von: datetime = Field(description="Start time of the construction_zone (ISO 8601).")
     gueltig_bis: Annotated[datetime | None, Field(default=None)] = Field(
         description="Endzeitpunkt der construction_zone (ISO 8601), None wenn unbestimmt."
     )
     length_m: Annotated[float | None, Field(ge=0, default=None)] = Field(
-        description="Geschätzte Länge der betroffenen Straßenstrecke in Metern."
+        description="Geschaetzte length der betroffenen Strassenstrecke in Metern."
     )
 
     @model_validator(mode="after")
@@ -94,9 +94,9 @@ class ConstructionZone(BaseModel):
 
 
 class ConstructionProvider(Protocol):
-    """Protocol für Datenprovider von Baustelleninformationen.
+    """Protocol für dataprovider von Baustelleninformationen.
 
-    Alle implementierenden Provider müssen die Methode `fetch_construction_zones` implementieren,
+    Alle implementierenden provider müssen die Methode `fetch_construction_zones` implementieren,
     die eine Liste von ConstructionZone für eine gegebene Route zurückgibt.
     """
 
@@ -105,7 +105,7 @@ class ConstructionProvider(Protocol):
         route: "tripplanner.routing.models.Route",
         laender: list[Land],
     ) -> list[ConstructionZone]:
-        """Abfrage von construction_zones entlang der Route für die angegebenen Länder."""
+        """Query von construction zones entlang der Route für die angegebenen Laender."""
         raise NotImplementedError
 
 

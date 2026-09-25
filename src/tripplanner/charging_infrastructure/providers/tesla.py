@@ -1,4 +1,4 @@
-"""Implementierung des ChargingStationProvider mit SQLite-DB + supercharge.info-API."""
+"""implementation des ChargingStationprovider mit SQLite-DB + supercharge.info-API."""
 
 from __future__ import annotations
 
@@ -37,13 +37,13 @@ _DEFAULT_DB_PATH: Path = Path(__file__).resolve().parents[4] / "data" / "tesla_s
 
 
 class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
-    """Supercharger-Daten aus SQLite-DB mit supercharge.info-API-Refresh.
+    """Supercharger-data aus SQLite-DB mit supercharge.info-API-Refresh.
 
-    Default: liest aus data/tesla_superchargers.db (erzeugt Datenbank bei
-    erstmaligem Zugriff automatisch und lädt initiale Daten).
+    Default: liest aus data/tesla_superchargers.db (erzeugt databank bei
+    erstmaligem Zugriff automatisch und loads initiale data).
 
     Usage:
-        provider = TeslaChargingStationProvider()
+        provider = TeslaChargingStationprovider()
         stations = await provider.get_stations_in_radius((52.5, 13.4), 10)
         await provider.refresh()
     """
@@ -66,7 +66,7 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
 
     # --- Abwaertskompatible Aliase fuer die nach ``record_mapping``
     # --- ausgelagerten Mapping-Static-Methoden (Tests importieren sie teils
-    # --- weiterhin ueber ``TeslaChargingStationProvider._<name>``).
+    # --- weiterhin ueber ``TeslaChargingStationprovider._<name>``).
 
     @staticmethod
     def _tesla_detail_to_db_record(
@@ -84,7 +84,7 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
         client: SuperchargeInfoClient | None = None,
         debug_log: Path | None = None,
     ) -> None:
-        """Initialisiert den Provider.
+        """Initialisiert den provider.
 
         Args:
             db_path: Pfad zur SQLite-DB. Default: data/tesla_superchargers.db
@@ -98,13 +98,13 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
         self._client = client
         self._debug_log = debug_log
         self._stations: list[ChargingStation] | None = None
-        # Räumlicher Index über `self._stations` (siehe `_build_lat_bands`).
-        # `_lat_bands_source` hält die Identität der Stationsliste, aus der
-        # `_lat_bands` gebaut wurde - ändert sich `self._stations` (Reload
-        # nach `refresh()`/`update_station()` o.ä., die den Cache auf `None`
-        # setzen), erkennt `get_stations_in_radius()` das automatisch über
-        # den Identitätsvergleich und baut den Index new, ohne dass jede
-        # Cache-Invalidierungsstelle den Index separat zurücksetzen müsste.
+        # Spatial index over `self._stations` (siehe `_build_lat_bands`).
+        # `_lat_bands_source` holds the identity of the station list from which
+        # `_lat_bands` gebaut wurde - aendert sich `self._stations` (Reload
+        # nach `refresh()`/`update_station()` o.ae., die den Cache auf `None`
+        # setting), recognizes `get_stations_in_radius()` das automatisch über
+        # the identity comparison and rebuilds the index, without each
+        # cache invalidation point would have to reset the index separately.
         self._lat_bands: dict[int, list[ChargingStation]] | None = None
         self._lat_bands_source: list[ChargingStation] | None = None
         # Serialises on-demand Tesla scrapes (browser/curl sessions) triggered
@@ -112,20 +112,20 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
         self.scrape_slot = asyncio.Semaphore(1)
 
     def close(self) -> None:
-        """Schließt die zugrunde liegende SQLite-Verbindung.
+        """Schliesst die zugrunde liegende SQLite-connection.
 
-        Aufrufer (z. B. `trip_input.api._lifespan`), die den Provider
+        caller (z. B. `trip_input.api._lifespan`), die den provider
         prozessweit wiederverwenden, MÜSSEN dies beim Shutdown aufrufen, um
-        die Datenbankverbindung sauber freizugeben.
+        die databankverbindung sauber freizugeben.
         """
         self._db.close()
 
     async def refresh(self) -> int:
-        """Holt aktuelle Daten von supercharge.info und schreibt sie in die DB.
+        """Holt aktuelle data von supercharge.info und schreibt sie in die DB.
 
         1. Fetch all sites via API
-        2. Filtere auf Europe (address.region == "Europe")
-        3. Mappe jedes Site auf DB-Record-Format
+        2. filter auf Europe (address.region == "Europe")
+        3. Mappe jedes Site auf DB-Record-format
         4. Rufe SQLiteDatabase.replace_all_stations() auf
 
         Returns:
@@ -152,19 +152,19 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
         resume_from_slug: str | None = None,
         delay_s: float = 0.5,
     ) -> int:
-        """Holt aktuelle Supercharger-Daten von der Tesla Locations-API.
+        """Holt aktuelle Supercharger-data von der Tesla Locations-API.
 
         Phase 1 (immer): Holt die Standortliste (get-locations), filtert auf
-        Supercharger, erzeugt Basis-Datensaetze (UUID, Slug, Koordinaten, Typ)
-        und speichert sie sofort in die SQLite-Datenbank.
+        Supercharger, erzeugt Basis-datasaetze (UUID, Slug, Koordinaten, Typ)
+        und speichert sie sofort in die SQLite-databank.
 
         Phase 2 (optional, enrich_details=True): Ruft fuer jeden Standort die
-        Detaildaten ab (get-location-details) und reichert die DB-Datensaetze
-        mit Stallzahlen, Ladeleistung, Oeffnungszeiten etc. an. Zeigt einen
+        Detaildaten ab (get-location-details) und reichert die DB-datasaetze
+        mit Stallzahlen, charging_power, Oeffnungszeiten etc. an. Zeigt einen
         tqdm-Progress-Bar an.
 
         Bei 403 (WAF-Block) wird Phase 2 sofort abgebrochen, die bisher
-        angereicherten Daten bleiben erhalten, und ein CurlError mit dem
+        angereicherten data bleiben erhalten, und ein CurlError mit dem
         fehlgeschlagenen Slug wird ausgeloest (fuer Resume mit --resume-from).
 
         Args:
@@ -188,13 +188,13 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
             tesla_client = create_tesla_client(debug_log=self._debug_log)
 
         try:
-            # --- Phase 1: Standortliste abrufen und Basis-Datensaetze speichern ---
+            # --- Phase 1: Standortliste abrufen und Basis-datasaetze speichern ---
             all_records = await self._fetch_tesla_locations(countries, tesla_client)
 
             if not all_records:
                 return 0
 
-            # Phase-1-Daten sofort in DB schreiben
+            # Phase-1-data sofort in DB schreiben
             self._db.replace_all_stations(all_records)
             self._stations = None
             total = len(all_records)
@@ -232,7 +232,7 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
                     total,
                 )
             except CurlError:
-                # Teilweise angereicherte Daten trotzdem speichern
+                # Teilweise angereicherte data trotzdem speichern
                 if enriched != all_records:
                     self._db.replace_all_stations(enriched)
                     self._stations = None
@@ -244,7 +244,7 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
 
             return total
         finally:
-            # Eigenen Client (z. B. Chromium-Browser) deterministisch beenden.
+            # deterministically stop own client (e.g. Chromium browser).
             if created:
                 await tesla_client.close()
 
@@ -253,7 +253,7 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
         countries: list[str],
         tesla_client: TeslaClient,
     ) -> list[dict[str, Any]]:
-        """Phase 1: Holt Standortliste und erzeugt Basis-Datensaetze.
+        """Phase 1: Holt Standortliste und erzeugt Basis-datasaetze.
 
         Args:
             countries: Liste der ISO-2-Laendercodes
@@ -292,7 +292,7 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
         """Holt Detaildaten fuer alle Stationen (Phase 2).
 
         Args:
-            enriched: Liste der Basis-Datensaetze (wird inline modifiziert)
+            enriched: Liste der Basis-datasaetze (wird inline modifiziert)
             loc_by_slug: Mapping slug -> locations-Dict (fuer inHkMoTw)
             tesla_client: TeslaClient
             delay_s: Verzoegerung zwischen Requests
@@ -341,15 +341,15 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
         return enriched
 
     def _load_stations_from_db(self) -> list[ChargingStation]:
-        """Lädt Stationen aus der DB und wandelt sie in ChargingStation um.
+        """Laedt Stationen aus der DB und wandelt sie in ChargingStation um.
 
-        Filtert auf Länder, die vom aktuellen ChargingStation-Modell
-        unterstützt werden (DE, DK, SE), sowie auf tatsächlich betriebsbereite
+        Filtert auf Laender, die vom aktuellen ChargingStation-model
+        unterstützt werden (DE, DK, SE), sowie auf tatsaechlich betriebsbereite
         Stationen (`status == "OPEN"`). Stationen mit Status `CONSTRUCTION`
         ("Coming Soon"), `PERMIT` oder `PLAN` existieren noch nicht physisch
         (z. B. "Torsvik, Sweden", "Quickborn, Germany") bzw. sind reine
-        Lieferzentren im Bau (z. B. "Ringsted, Denmark") und dürfen daher
-        nicht als Ladestopp-Kandidat in Routing/Scraping auftauchen - siehe
+        delivery centers under construction (z. B. "Ringsted, Denmark") und dürfen daher
+        nicht als charging_stop-Kandidat in Routing/Scraping auftauchen - siehe
         `db_record_to_charging_station`'s `status_map` für die Werte, die
         `CONSTRUCTION`/`PERMIT`/`PLAN` annehmen können.
         """
@@ -406,7 +406,7 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
         Args:
             coordinate: (lat, lon) als Tuple (WGS84)
             radius_km: Suchradius in Kilometern (Flugdistanz)
-            country_filter: Optionaler Länderfilter (DE/DK/SE)
+            country_filter: Optionaler Laenderfilter (DE/DK/SE)
 
         Returns:
             Liste von ChargingStation, sortiert nach distance (aufsteigend)
@@ -414,7 +414,7 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
         if self._stations is None:
             self._stations = self._load_stations_from_db()
         # latitude-Index new aufbauen, falls `self._stations` seit dem
-        # letzten Aufbau new geladen wurde (Identitätsvergleich statt
+        # letzten Aufbau new geladen wurde (Identitaetsvergleich statt
         # Invalidierung an jeder `self._stations = None`-Stelle, siehe
         # `__init__`).
         if self._lat_bands is None or self._lat_bands_source is not self._stations:
@@ -439,7 +439,7 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
 
         Args:
             route: Die geplante Route (muss segments-Attribut haben)
-            search_radius_km: Radius um jeden Segment-Mittelpunkt
+            search_radius_km: Radius um jeden segment-Mittelpunkt
 
         Returns:
             Dict mapping segment_index -> liste von ChargingStation
@@ -467,9 +467,9 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
     ) -> ChargingStation | None:
         """Ruft Detaildaten fuer eine einzelne Station von der Tesla API ab.
 
-        Holt frische Daten von get-location-details fuer den gegebenen
+        Holt frische data von get-location-details fuer den gegebenen
         Slug, aktualisiert den DB-Eintrag und liefert das aktualisierte
-        ChargingStation-Modell zurueck.
+        ChargingStation-model zurueck.
 
         Args:
             slug: tesla_location_id (location_url_slug)
@@ -521,7 +521,7 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
             # Zurueck in ChargingStation konvertieren
             return db_record_to_charging_station(db_record)
         finally:
-            # Eigenen Client (z. B. Chromium-Browser) deterministisch beenden.
+            # deterministically stop own client (e.g. Chromium browser).
             if created:
                 await tesla_client.close()
 

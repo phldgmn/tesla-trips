@@ -1,6 +1,6 @@
-"""CLI-Entry-Punkt für die Supercharger-Datenverwaltung.
+"""CLI entry point for supercharger data management.
 
-Enthält den Typer-Sub-App ``charger_app`` (``refresh``/``pricing-queue``/
+Contains the Typer sub-app ``charger_app`` (``refresh``/``pricing-queue``/
 ``scrape-pricing``), der in ``cli.py`` unter dem Unterbefehl ``charger``
 registriert wird.
 
@@ -33,7 +33,7 @@ def refresh(  # noqa: PLR0913, PLR0917
     ],
     countries: Annotated[
         str,
-        typer.Option("--countries", "-c", help="Länder (Komma-getrennt, default DE,DK,SE)"),
+        typer.Option("--countries", "-c", help="Countries (comma-separated, default DE,DK,SE)"),
     ] = "DE,DK,SE",
     enrich: Annotated[
         bool,
@@ -52,12 +52,12 @@ def refresh(  # noqa: PLR0913, PLR0917
         typer.Option("--debug", help="Request/Response-Debug-Log in .cache/logs/charger_debug.log"),
     ] = False,
 ) -> None:
-    """Aktualisiert Supercharger-Daten von einer externen Quelle.
+    """Aktualisiert Supercharger-data von einer externen source.
 
-    Die Daten werden in die lokale SQLite-Datenbank geladen und stehen
-    danach offline für Routenplanung zur Verfügung.
+    Die data werden in die lokale SQLite-databank geladen und stehen
+    then available offline for route planning.
 
-    Bei Quelle 'tesla' wird zunaechst die Standortliste (get-locations)
+    Bei source 'tesla' wird zunaechst die Standortliste (get-locations)
     abgerufen und gespeichert. Mit --enrich werden zusaetzlich Detaildaten
     pro Station geholt (tqdm-Progress-Bar). Bei 403 wird abgebrochen und
     der fehlgeschlagene Slug ausgegeben. Mit --resume-from kann spaeter
@@ -75,7 +75,7 @@ def refresh(  # noqa: PLR0913, PLR0917
     valid_sources = {"supercharge-info", "tesla"}
     if source not in valid_sources:
         typer.echo(
-            f"Ungültige Quelle '{source}'. Erlaubt: {', '.join(sorted(valid_sources))}",
+            f"Invalid source '{source}'. Allowed: {', '.join(sorted(valid_sources))}",
             err=True,
         )
         raise typer.Exit(code=1)
@@ -94,7 +94,9 @@ def refresh(  # noqa: PLR0913, PLR0917
         debug_log.write_text(f"=== charger refresh {source} {datetime.now(UTC).isoformat()} ===\n")
         typer.echo(f"Debug-Log: {debug_log}")
 
-    typer.echo(f"Lade Supercharger-Daten von '{source}' für Länder: {', '.join(country_list)}...")
+    typer.echo(
+        f"Loading supercharger data from '{source}' for countries: {', '.join(country_list)}..."
+    )
 
     async def _run_refresh() -> int:
         provider = TeslaChargingStationProvider(
@@ -159,7 +161,7 @@ def pricing_queue(
 
     Stationen werden bei jeder Routen-Finalisierung (siehe `POST /trips`,
     `ttp trips`) automatisch eingereiht, wenn ihre Preisdaten fehlen oder
-    aelter als `TeslaChargingStationProvider.PRICING_MAX_AGE` sind. Dieser
+    aelter als `TeslaChargingStationprovider.PRICING_MAX_AGE` sind. Dieser
     Befehl zeigt nur den aktuellen Stand; zum Abarbeiten siehe
     `charger scrape-pricing`.
 

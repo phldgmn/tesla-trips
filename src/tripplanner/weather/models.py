@@ -1,10 +1,10 @@
-"""Wetter-Datenmodelle für das Tesla-Tripplaner-Projekt.
+"""weather-data models für das Tesla-Tripplaner-Projekt.
 
 Diese Module definieren die offiziellen Typen aus dem Register:
-- `WeatherQuery`: Abfrage für einen einzelnen Wetterereignis
-- `WeatherSample`: Wetterdaten für einen timestamp an einer Koordinate
+- `WeatherQuery`: query für einen einzelnen weatherereignis
+- `WeatherSample`: weatherdaten für einen timestamp an einer Koordinate
 - `OpenMeteoResponse`: Raw-Response von Open-Meteo Forecast API (intern)
-- `WeatherDetailLevel`: Steuerungsgrad der Wetterauflösung ("off" | "low" | "medium" | "high")
+- `WeatherDetailLevel`: Steuerungsgrad der weatherauflösung ("off" | "low" | "medium" | "high")
 """
 
 from datetime import datetime
@@ -38,23 +38,23 @@ pre-stop conditions across the whole stationary period.
 
 
 class WeatherQuery(BaseModel):
-    """Abfrage für ein einzelnes Wetterereignis."""
+    """query für ein einzelnes weatherereignis."""
 
     coordinate: Coordinate
     """WGS84 (lat, lon)."""
 
     timestamp: datetime
-    """timestamp der Wetterabfrage."""
+    """timestamp der weatherabfrage."""
 
 
 class WeatherSample(BaseModel):
-    """Wetterdaten für einen timestamp an einer Koordinate."""
+    """weatherdaten für einen timestamp an einer Koordinate."""
 
     coordinate: Coordinate
     """WGS84 (lat, lon)."""
 
     timestamp: datetime
-    """timestamp der Wetterdaten."""
+    """timestamp der weatherdaten."""
 
     temperature_c: float = Field(ge=-100.0, le=70.0, description="temperature in °C")
     """temperature in °C."""
@@ -83,7 +83,7 @@ class WeatherSample(BaseModel):
     """Globalstrahlung in W/m² (Stundensumme)."""
 
     cloudiness_pct: float = Field(ge=0.0, le=100.0, description="Bewölkung in %")
-    """Bewölkung in %."""
+    """cloud cover in %."""
 
 
 class OpenMeteoResponse(BaseModel):
@@ -93,7 +93,7 @@ class OpenMeteoResponse(BaseModel):
     """latitude."""
 
     longitude: float
-    """Längengrad."""
+    """Laengengrad."""
 
     timezone: str
     """Zeitzone (IANA-Name)."""
@@ -102,10 +102,10 @@ class OpenMeteoResponse(BaseModel):
     """Zeitzonen-Kürzel."""
 
     elevation: float
-    """Höhe über NN in Metern."""
+    """height über NN in Metern."""
 
     hourly: dict[str, list[float | int | str | None]]
-    """Hourly-Daten als Dictionary mit Parameternamen als Keys."""
+    """Hourly-data als Dictionary mit Parameternamen als Keys."""
 
     hourly_units: dict[str, str]
-    """Einheiten für die hourly-Daten."""
+    """Einheiten für die hourly-data."""

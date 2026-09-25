@@ -35,7 +35,7 @@ class NodriverBrowserFetcher:
     ``nodriver`` steuert einen echten Chromium-Browser via CDP und bringt eine
     eigene asyncio-Event-Loop mit, die nicht mit ``asyncio.run()`` oder der
     laufenden FastAPI-Loop kompatibel ist. Dieser Wrapper startet daher einen
-    Daemon-Thread mit eigener Event-Loop und reicht Anfragen aus dem
+    Daemon-Thread mit eigener Event-Loop und reicht requestn aus dem
     aufrufenden Thread via ``asyncio.run_coroutine_threadsafe`` hinein.
 
     Der Browser wird pro Fetcher-Instanz nur einmal gestartet und bei
@@ -119,20 +119,20 @@ class NodriverBrowserFetcher:
         """Fuehrt die eigentliche CDP-Navigation in der nodriver-Loop aus.
 
         Der status_code stammt vom CDP ``Network.responseReceived``-Event der
-        Haupt-Dokument-Antwort. Der Rohtext wird per
+        Haupt-Dokument-response. Der Rohtext wird per
         ``Network.getResponseBody`` geholt; da Chrome den Body des
         Hauptdokuments dort in der Regel nicht more vorhaelt ("No resource
         with given identifier"), wird als Fallback je nach MIME-Typ das
         gerenderte JSON-Text (``document.body.innerText`` - exakt fuer in
-        ``<pre>`` gerenderte JSON-Antworten) bzw. das rohe HTML
-        (``get_content()``, inkl. ``__NEXT_DATA__``-Script-Inhalten) genutzt.
+        ``<pre>`` gerenderte JSON-responseen) bzw. das rohe HTML
+        (`get_content()`, including ``__NEXT_DATA__`` script contents) used.
         """
         from nodriver import cdp
 
         browser = await self._ensure_browser()
         tab = browser.main_tab
 
-        # Status-, MIME- und Request-ID der Haupt-Dokument-Antwort via
+        # Status-, MIME- und Request-ID der Haupt-Dokument-response via
         # Network-Events einsammeln, BEVOR navigiert wird (sonst verpassen
         # wir die Response).
         captured: dict[str, Any] = {}
@@ -226,7 +226,7 @@ class NodriverBrowserFetcher:
     def fetch(self, url: str) -> tuple[int, str]:
         """Holt eine URL und liefert (status_code, Rohtext) synchron.
 
-        Blockiert den aufrufenden Thread bis zur Antwort. Wirft ``CurlError``
+        Blockiert den aufrufenden Thread bis zur response. Wirft ``CurlError``
         bei Browser-/Netzwerk-Fehlern.
         """
         if self._closed:
@@ -244,9 +244,9 @@ class NodriverBrowserFetcher:
 
         1. Chromium-Subprozess terminieren und deterministisch abwarten
            (Sonst haengt ``aclose()`` beim ``wait_closed()`` einer
-           halboffenen CDP-Verbindung, weil der Peer nicht more
+           halboffenen CDP-connection, weil der Peer nicht more
            antwortet).
-        2. ``aclose()``: schliesst die CDP-Verbindung und beendet deren
+        2. ``aclose()``: schliesst die CDP-connection und beendet deren
            Listener-Task.
         3. Alle uebrigen Loop-Tasks abbrechen und abwarten. Damit
            enthaelt die Loop beim ``loop.close()`` keine ausstehenden
@@ -281,8 +281,8 @@ class NodriverBrowserFetcher:
         ``browser._process`` ist ein ``asyncio.subprocess.Process``.
         ``terminate()`` (SIGTERM) reicht nicht aus, wenn der Prozess
         nicht auf das Signal reagiert - dann wird eskaliert. Ein
-        hängenbleibender Chromium-Prozess hält die CDP-Verbindung offen,
-        wodurch ``aclose()`` beim ``wait_closed()`` hängen könnte.
+        haengenbleibender Chromium-Prozess haelt die CDP-connection offen,
+        wodurch ``aclose()`` beim ``wait_closed()`` haengen könnte.
         """
         if process is None or getattr(process, "returncode", None) is not None:
             return
@@ -377,7 +377,7 @@ class NodriverBrowserFetcher:
         """Fuehrt eine beliebige Koroutine mit Zugriff auf den Browser aus.
 
         Anders als ``fetch()`` (reine GET-Navigation einer einzelnen URL)
-        erlaubt dies mehrstufige Interaktionen (Tippen, Klicken, mehrere
+        allowed dies mehrstufige Interaktionen (Tippen, Klicken, mehrere
         Netzwerk-Intercepts) auf derselben Browser-Instanz, ohne die Thread-/
         Browser-Lifecycle-Logik dieser Klasse zu duplizieren - genutzt vom
         Human-Flow-Client (siehe ``human_flow.py``).
@@ -411,7 +411,7 @@ class NodriverBrowserFetcher:
 class NodriverTeslaClient:
     """HTTP-Client fuer die oeffentliche Tesla Locations-API via nodriver.
 
-    Nutzt einen echten Chromium-Browser (nodriver, CDP), um den Akamai-WAF von
+    Uses einen echten Chromium-Browser (nodriver, CDP), um den Akamai-WAF von
     tesla.com zu umgehen. Anders als ``TeslaLocationsClient`` (curl_cffi mit
     TLS-Fingerprint-Impersonation) rendert er die Seiten wie ein echter
     Browser und umgeht damit auch strengere Absicherungen - dafuer pro Request
@@ -426,7 +426,7 @@ class NodriverTeslaClient:
 
     PRICING_BASE_URL: str = "https://www.tesla.com/de_de/findus/location/supercharger"
     """Oeffentliche Standort-Detailseite (einzige Seite mit kWh-Preisen). Der
-    `de_de`-Locale-Praefix ist erforderlich - siehe
+    `de_de`-Locale-Praefix ist required - siehe
     `common.TeslaJsonEndpointsMixin.PRICING_BASE_URL` fuer die Begruendung
     (ohne Locale liefert Tesla fuer manche Standorte eine geo-abhaengige
     Zwischenseite ohne `formattedData`)."""
@@ -460,7 +460,7 @@ class NodriverTeslaClient:
             self._owns_fetcher = False
 
     async def _log_request(self, method: str, url: str) -> None:
-        """Loggt eine Anfrage fuer Debug-Zwecke."""
+        """Loggt eine request fuer Debug-Zwecke."""
         _debug_log(self._debug_log, f"{method} {url}", label="NODRIVER")
 
     async def _fetch(self, url: str) -> str:
@@ -468,7 +468,7 @@ class NodriverTeslaClient:
 
         Wiederholt bei Akamai-WAF-Bloecken (auch bei HTTP 200 - Tesla liefert
         die "Access Denied"-Blockseite nicht zuverlaessig mit 403/429) und bei
-        403/429/leeren Antworten bis zu ``WAF_RETRY_MAX_ATTEMPTS`` mal, mit
+        403/429/leeren responseen bis zu ``WAF_RETRY_MAX_ATTEMPTS`` mal, mit
         exponentiellem Backoff und einem frischen Browser-Prozess (neuer
         Fingerprint, keine Cookies) pro Versuch - verifiziertes Muster gegen
         Akamai (siehe ``docs/Tesla-Supercharger-Detail-Scraping.md``). Andere
@@ -482,7 +482,7 @@ class NodriverTeslaClient:
 
         Raises:
             CurlError: Bei anhaltenden WAF-Bloecken/Rate-Limits oder anderen
-                HTTP-Fehlern, leeren Antworten oder Netzwerkfehlern
+                HTTP-Fehlern, leeren responseen oder Netzwerkfehlern
         """
         last_error = CurlError("nodriver: kein Versuch unternommen")
         for attempt in range(1, WAF_RETRY_MAX_ATTEMPTS + 1):
@@ -522,7 +522,7 @@ class NodriverTeslaClient:
         raise last_error
 
     async def _fetch_json(self, url: str) -> dict[str, Any]:
-        """Fuehrt GET aus und parst JSON-Antwort (siehe ``_fetch``)."""
+        """Fuehrt GET aus und parst JSON-response (siehe ``_fetch``)."""
         body = await self._fetch(url)
         try:
             parsed = json.loads(body)

@@ -1,6 +1,6 @@
-"""Geografische Grundberechnungen: Vorwärtsazimut und Großkreisdistanz.
+"""Geografische Grundberechnungen: Vorwaertsazimut und Grosskreisdistanz.
 
-Reine, abhängigkeitsfreie Funktionen ohne Zustand — siehe Modul-Docstring in
+Reine, abhaengigkeitsfreie Funktionen ohne Zustand — siehe Modul-Docstring in
 `tripplanner.geo.__init__` für die projektweite Koordinatenkonvention.
 """
 
@@ -14,9 +14,9 @@ _MIN_SEGMENT_POINTS = 2
 
 
 def bearing_deg(start: Coordinate, end: Coordinate) -> float:
-    """Berechnet den Vorwärtsazimut (Bearing) von `start` nach `end`.
+    """Calculatet den Vorwaertsazimut (Bearing) von `start` nach `end`.
 
-    Nutzt die Großkreis-Bearing-Formel auf der WGS84-Kugelapproximation.
+    Uses die Grosskreis-Bearing-Formel auf der WGS84-Kugelapproximation.
 
     Args:
         start: Startkoordinate `(lat, lon)` in Dezimalgrad.
@@ -37,14 +37,14 @@ def bearing_deg(start: Coordinate, end: Coordinate) -> float:
 
 
 def haversine_distance_m(a: Coordinate, b: Coordinate) -> float:
-    """Berechnet die Großkreisdistanz zwischen zwei WGS84-Koordinaten.
+    """Calculatet die Grosskreisdistanz zwischen zwei WGS84-Koordinaten.
 
     Args:
         a: Erste Koordinate `(lat, lon)` in Dezimalgrad.
         b: Zweite Koordinate `(lat, lon)` in Dezimalgrad.
 
     Returns:
-        distance in Metern (Luftlinie entlang der Erdoberfläche).
+        distance in Metern (Luftlinie entlang der Erdoberflaeche).
     """
     lat1 = math.radians(a[0])
     lat2 = math.radians(b[0])
@@ -60,16 +60,16 @@ def haversine_distance_m(a: Coordinate, b: Coordinate) -> float:
 
 
 def geodesic_length_m(coords: list[Coordinate]) -> float:
-    """Berechnet die Gesamtlänge eines Koordinatenpfads (Großkreisdistanz).
+    """Calculatet die Gesamtlaenge eines Koordinatenpfads (Grosskreisdistanz).
 
-    Summiert die Großkreisdistanz zwischen aufeinanderfolgenden Punkten in
+    Summiert die Grosskreisdistanz zwischen aufeinanderfolgenden Punkten in
     `coords`.
 
     Args:
         coords: Liste von `(lat, lon)`-WGS84-Koordinaten entlang des Pfads.
 
     Returns:
-        Gesamtlänge in Metern. `0.0` bei Pfaden mit less als zwei Punkten.
+        Gesamtlaenge in Metern. `0.0` bei Pfaden mit less als zwei Punkten.
     """
     if len(coords) < _MIN_SEGMENT_POINTS:
         return 0.0

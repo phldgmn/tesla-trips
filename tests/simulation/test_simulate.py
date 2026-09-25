@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from tripplanner.charging_infrastructure.models import ChargingStation
 from tripplanner.energy.models import SegmentEnergyResult
-from tripplanner.optimization.models import ChargingPlan, ChargingStop, ZwischenstoppAufenthalt
+from tripplanner.optimization.models import ChargingPlan, ChargingStop, WaypointDwell
 from tripplanner.routing.models import Coordinate, Route, RouteSegment
 from tripplanner.simulation import TripState, simulate_trip
 from tripplanner.weather.models import WeatherSample
@@ -645,7 +645,7 @@ class TestSocBaselineAfterChargingStop:
         assert result.frames[-1].soc_pct != pytest.approx(wrong_end_soc, abs=1.0)
 
 
-class TestZwischenstoppAufenthalt:
+class TestWaypointDwell:
     """Regressionstests: eine erzwungene Zwischenstopp-Wartezeit
     (`ChargingPlan.zwischenstopp_aufenthalte`) muss als stationaere Phase
     simuliert werden (vehicle steht an der Zwischenstopp-Koordinate) statt
@@ -664,7 +664,7 @@ class TestZwischenstoppAufenthalt:
         """
         base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
         stopp_koordinate = (51.0, 12.0)
-        aufenthalt = ZwischenstoppAufenthalt(
+        aufenthalt = WaypointDwell(
             coordinate=stopp_koordinate,
             segment_index=1,
             arrival_time=base_time + timedelta(seconds=1500),
@@ -708,7 +708,7 @@ class TestZwischenstoppAufenthalt:
         """
         base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
         stopp_koordinate = (51.0, 12.0)
-        aufenthalt = ZwischenstoppAufenthalt(
+        aufenthalt = WaypointDwell(
             coordinate=stopp_koordinate,
             segment_index=1,
             arrival_time=base_time + timedelta(seconds=1500),
@@ -757,7 +757,7 @@ class TestZwischenstoppAufenthalt:
         siehe `TestSocBaselineAfterChargingStop`).
         """
         base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
-        aufenthalt = ZwischenstoppAufenthalt(
+        aufenthalt = WaypointDwell(
             coordinate=(51.0, 12.0),
             segment_index=1,
             arrival_time=base_time + timedelta(seconds=1500),
@@ -813,7 +813,7 @@ class TestZwischenstoppAufenthalt:
         unten), 55 km vom tatsaechlichen Zwischenstopp entfernt.
         """
         base_time = datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC)
-        aufenthalt = ZwischenstoppAufenthalt(
+        aufenthalt = WaypointDwell(
             coordinate=(50.5, 9.0),
             segment_index=2,
             arrival_time=base_time + timedelta(seconds=3300),

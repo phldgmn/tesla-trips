@@ -1,19 +1,19 @@
-"""Energy-Modul (Phase 3): Physikalisches Energieverbrauchsmodell.
+"""Energy-Modul (Phase 3): Physikalisches Energieconsumptionsmodell.
 
-Das Modul berechnet den energy_consumption für Elektrofahrzeuge physikalisch fundiert
-unter Berücksichtigung von:
-- rolling_resistance (inkl. Straßenbelag-Faktor)
-- air_drag (inkl. Windkomponenten)
-- gradient/Höhenenergie
+This module calculates energy consumption für Elektrofahrzeuge physikalisch fundiert
+considering:
+- rolling_resistance (inkl. road_surface_factor)
+- air_drag (inkl. Wind components)
+- gradient/elevation_energy
 - recuperation (regeneratives Bremsen)
-- HVAC-consumption (temperaturabhängig)
+- HVAC consumption (temperature-dependent)
 """
 
 from tripplanner.energy.energy import (
     berechne_luftdichte,
     calculate_segment_consumption,
     calculate_total_consumption,
-    f_oberflaeche,
+    f_road_surface,
     f_strassenzustand,
 )
 from tripplanner.energy.models import SegmentEnergyResult, VehicleEnergyParameters
@@ -24,6 +24,6 @@ __all__ = [
     "berechne_luftdichte",
     "calculate_segment_consumption",
     "calculate_total_consumption",
-    "f_oberflaeche",
+    "f_road_surface",
     "f_strassenzustand",
 ]

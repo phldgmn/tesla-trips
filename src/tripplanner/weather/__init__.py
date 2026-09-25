@@ -1,17 +1,17 @@
 """Public interface for the `weather` module.
 
 Re-exports:
-- `WeatherProvider`: Protocol for weather data providers
+- `Weatherprovider`: Protocol for weather data providers
 - `fetch_weather_for_route`: fetches weather along a route
 - `fetch_weather_by_detail`: detail-level-aware weather fetching
-- `OpenMeteoClient` / `OpenMeteoProvider`: Open-Meteo Forecast API (global, keyless)
-- `MetNorwayProvider`: MET Norway Locationforecast 2.0 API (global, keyless)
-- `OpenWeatherProvider`: OpenWeather forecast API (global, API key,
+- `OpenMeteoClient` / `OpenMeteoprovider`: Open-Meteo Forecast API (global, keyless)
+- `MetNorwayprovider`: MET Norway Locationforecast 2.0 API (global, keyless)
+- `OpenWeatherprovider`: OpenWeather forecast API (global, API key,
   client-side rate-limited below the free-tier 60 requests/minute cap)
 - `SlidingWindowRateLimiter`: generic async rolling-window rate limiter
-- `SmhiProvider`: SMHI meteorological forecasts API (Sweden only, keyless)
-- `DmiProvider`: DMI HARMONIE DINI forecast EDR API (Denmark only, keyless)
-- `LoadBalancedWeatherProvider` / `WeatherProviderEntry`: country-aware,
+- `Smhiprovider`: SMHI meteorological forecasts API (Sweden only, keyless)
+- `Dmiprovider`: DMI HARMONIE DINI forecast EDR API (Denmark only, keyless)
+- `LoadBalancedWeatherprovider` / `WeatherproviderEntry`: country-aware,
   load-balanced composite with automatic failover
 - `detect_country`: best-effort DE/DK/SE coordinate classification
 - `WeatherDetailLevel`: weather granularity control ("off" | "low" | "medium" | "high")

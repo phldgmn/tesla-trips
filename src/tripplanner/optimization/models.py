@@ -1,7 +1,7 @@
-"""Datenmodelle für das optimization-Modul.
+"""data models for the optimization module.
 
-Pydantic-Modelle zur Darstellung von Ladeplänen, Constraints und dem
-Optimizer-Interface für Austauschbarkeit zwischen NetworkX und OR-Tools.
+Pydantic models for representing charging plans, constraints, and the
+optimizer interface for interchangeability between NetworkX and OR-Tools.
 """
 
 from __future__ import annotations
@@ -22,49 +22,49 @@ from tripplanner.trip_input.models import VehicleProfile, Waypoint
 class ChargingStop(BaseModel):
     """Ein Ladehalt mit Station, Ankunfts- und Ziel-SoC sowie Zeitangaben.
 
-    Wird als Ergebnis der Optimierung verwendet. Hinweis: Dieses Modell
+    Wird als Ergebnis der Optimierung uses. Hinweis: Dieses model
     unterscheidet sich von `tripplanner.battery.models.ChargingStop`:
-    Hier werden Datetime-Objekte verwendet (keine Sekunden-seit-Reisebeginn).
+    Hier werden Datetime-Objekte uses (keine Sekunden-seit-Reisebeginn).
     """
 
     station: ChargingStation
-    segment_index: int = Field(ge=0, description="Segment-Index der Ladestation")
-    arrival_soc_pct: float = Field(ge=0.0, le=100.0, description="SoC bei Ankunft in %")
+    segment_index: int = Field(ge=0, description="Segment-Index der charging station")
+    arrival_soc_pct: float = Field(ge=0.0, le=100.0, description="SoC upon arrival in %")
     target_soc_pct: float = Field(
         ge=0.0, le=100.0, description="Angestrebter SoC nach dem Laden in %"
     )
-    geschaetzte_ladedauer_s: int = Field(ge=0, description="Geschätzte charge_duration in Sekunden")
+    geschaetzte_ladedauer_s: int = Field(ge=0, description="Estimated charge duration in seconds")
     arrival_time: datetime = Field(description="timestamp der Ankunft an der Station")
     departure_time: datetime = Field(description="timestamp der Abfahrt von der Station")
 
     @field_validator("arrival_soc_pct", "target_soc_pct")
     @classmethod
     def validate_soc_range(cls, v: float) -> float:
-        """Validiere SoC-Werte im erlaubten Bereich [0, 100]."""
+        """Validiere SoC-Werte im alloweden Bereich [0, 100]."""
         max_soc_pct = 100.0
         if v < 0.0 or v > max_soc_pct:
             raise PydanticCustomError(
                 "soc_range_error",
-                "SoC muss zwischen 0.0 und 100.0 liegen, ist aber {value}",
+                "SoC must be between 0.0 and 100.0, ist aber {value}",
                 {"value": v},
             )
         return v
 
 
 class OptimizationConstraints(BaseModel):
-    """Harte Constraints und Sicherheitsparameter für die Optimierung."""
+    """Hard constraints and safety parameters for the optimization."""
 
     min_soc_pct: float = Field(
         default=15.0,
         ge=0.0,
         le=100.0,
-        description="Minimal zulässiger SoC (Sicherheitsreserve)",
+        description="Minimum allowed SoC (safety reserve)",
     )
     target_soc_pct: float = Field(
         default=80.0,
         ge=0.0,
         le=100.0,
-        description="Gewünschter SoC am Ziel",
+        description="Desired SoC at destination",
     )
     max_etappenlaenge_km: float = Field(
         default=500.0,
@@ -85,12 +85,12 @@ class OptimizationConstraints(BaseModel):
         ge=0.0,
         le=100.0,
         description=(
-            "Minimal zulässiger SoC beim ANKOMMEN an einer Ladestation (nicht "
+            "Minimum allowed SoC upon ARRIVAL at a charging station (not "
             "unterwegs auf offener segment - dort gilt weiterhin `min_soc_pct`). "
             "Da an einer Ladestation garantiert nachgeladen wird, darf der SoC "
             "dort bewusst tiefer sinken als das allgemeine Sicherheits-Minimum - "
-            "das ermöglicht, die besonders schnelle Ladeleistung im unteren "
-            "SoC-Bereich der Ladekurve auszunutzen, statt unnötig früh (und "
+            "which allows to exploit the particularly fast charging power in the lower "
+            "SoC range of the charging curve, instead of unnecessarily early (and "
             "damit langsamer) nachzuladen."
         ),
     )
@@ -106,11 +106,11 @@ class OptimizationConstraints(BaseModel):
         le=1800,
         description=(
             "Minimale duration eines einzelnen Ladevorgangs, WENN geladen wird. "
-            "Ein Kandidat-Ladeziel, dessen Ladezeit darunter läge, wird auf "
+            "A candidate charging target whose charging time would be below this is raised to "
             "genau diese Mindestdauer gestreckt statt verworfen - verhindert "
-            "unnötig kurze Ladehalte (z. B. 1 Minute), ohne den Ladehalt an "
+            "unnecessarily short charging stops (e.g. 1 minute), without moving the charging stop to "
             "sich zu erzwingen (die parallele 'Station überspringen'-Option "
-            "bleibt unverändert verfügbar, siehe `_add_drive_edge`)."
+            "bleibt unveraendert verfügbar, siehe `_add_drive_edge`)."
         ),
     )
     max_charge_soc_pct: float = Field(
@@ -195,11 +195,11 @@ class DetourKosten(BaseModel):
     )
 
 
-class ZwischenstoppAufenthalt(BaseModel):
+class WaypointDwell(BaseModel):
     """Aufenthalt an einem Zwischenstopp waehrend der Fahrt.
 
     Erzwungene Wartezeit aus `Waypoint.stay_duration`/`planned_departure`,
-    optional mit Ladung ueber eine vor Ort verfuegbare Ladeleistung (z. B.
+    optional mit Ladung ueber eine vor Ort verfuegbare charging_power (z. B.
     eine Wallbox am Uebernachtungsziel) - unabhaengig von regulaeren
     Ladehalten an Supercharger-Stationen (`ChargingStop`), die eine eigene
     Stations-/Preis-/Detour-Infrastruktur besitzen, welche fuer einen
@@ -213,11 +213,11 @@ class ZwischenstoppAufenthalt(BaseModel):
     charging_power_kw: float | None = Field(
         default=None,
         ge=0.0,
-        description="Genutzte Ladeleistung in kW, None falls nicht geladen wurde",
+        description="Charging power used in kW, None if not charging wurde",
     )
-    arrival_soc_pct: float = Field(ge=0.0, le=100.0, description="SoC bei Ankunft in %")
+    arrival_soc_pct: float = Field(ge=0.0, le=100.0, description="SoC upon arrival in %")
     target_soc_pct: float = Field(
-        ge=0.0, le=100.0, description="SoC bei Abfahrt in % (== Ankunfts-SoC ohne Ladung)"
+        ge=0.0, le=100.0, description="SoC upon departure in % (== Ankunfts-SoC ohne Ladung)"
     )
 
 
@@ -230,7 +230,7 @@ class ChargingPlan(BaseModel):
         default_factory=dict,
         description="Mindestankunftszeit für Zwischenstopps (wenn nicht geladen wird)",
     )
-    zwischenstopp_aufenthalte: list[ZwischenstoppAufenthalt] = Field(
+    zwischenstopp_aufenthalte: list[WaypointDwell] = Field(
         default_factory=list,
         description="Erzwungene Wartezeiten/Ladungen an Zwischenstopps (chronologisch)",
     )
@@ -239,7 +239,7 @@ class ChargingPlan(BaseModel):
 class StateNode(BaseModel):
     """Interner Knoten im Zustandsgraphen: (segment_index, soc_bucket, time_bucket).
 
-    Wird nicht als Pydantic-Exportmodell verwendet, dient nur interner Darstellung.
+    Wird nicht als Pydantic-Exportmodell uses, dient nur interner Darstellung.
     """
 
     segment_index: int
@@ -248,9 +248,9 @@ class StateNode(BaseModel):
 
 
 class OptimizerInterface(Protocol):
-    """Protocol für Austauschbarkeit zwischen NetworkX (Prototyp) und OR-Tools."""
+    """Protocol for interchangeability between NetworkX (Prototyp) und OR-Tools."""
 
-    def optimize(  # noqa: PLR0913, PLR0917 -- vollständiger Zustand des Optimierungsproblems, siehe docs/plans/07-optimization.md Abschnitt 4
+    def optimize(  # noqa: PLR0913, PLR0917 -- vollstaendiger Zustand des Optimierungsproblems, siehe docs/plans/07-optimization.md Abschnitt 4
         self,
         route: Route,
         segments: list[RouteSegment],
@@ -267,15 +267,15 @@ class OptimizerInterface(Protocol):
         ferry_time_windows: dict[int, tuple[int, datetime, datetime]] | None = None,
         detour_kosten: dict[str, DetourKosten] | None = None,
     ) -> ChargingPlan:
-        """Optimierungsmethode, die von beiden Backend-Implementierungen bereitgestellt wird.
+        """Optimierungsmethode, die von beiden Backend-implementationen bereitgestellt wird.
 
         `charging_duration_specifications` (optionale, vom Nutzer vorgegebene feste Ladedauern in
         Sekunden je Stations-ID) überschreibt die automatische SoC-basierte
-        charge_duration-Berechnung für die betroffene Station. `ferry_time_windows`
-        (optionale, vom Nutzer vorgegebene Fährfahrpläne, als
+        charge_duration-calculation für die betroffene Station. `ferry_time_windows`
+        (optionale, vom Nutzer vorgegebene Faehrfahrplaene, als
         `segment_index_start -> (segment_index_end, departure, arrival)`, siehe
-        `tripplanner.routing.models.FerrySegment`) lässt Segmente in diesem
-        Bereich als fixe Fährüberfahrt statt als normale Fahrtkanten modellieren.
+        `tripplanner.routing.models.Ferrysegment`) laesst segmente in diesem
+        Bereich als fixe Faehrüberfahrt statt als normale Fahrtkanten modellieren.
         `detour_kosten` (optional, real routed detour costs per station, see
         `optimization.detour_routing.precompute_detour_costs`) is looked up
         before falling back to the straight-line heuristic when computing

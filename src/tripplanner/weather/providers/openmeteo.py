@@ -49,14 +49,14 @@ class OpenMeteoClient:
         self,
         queries: Sequence[WeatherQuery],
     ) -> list[OpenMeteoResponse]:
-        """Abruf von Wetterdaten für mehrere Standorte + Zeitpunkte.
+        """Abruf von weatherdaten für mehrere Standorte + Zeitpunkte.
 
         Args:
-            queries: Liste von Wetterabfragen (Koordinate + timestamp).
+            queries: Liste von weatherabfragen (Koordinate + timestamp).
 
         Returns:
             Liste von OpenMeteoResponse, in gleicher Reihenfolge wie queries.
-            Bei fehlenden Daten für einen Punkt wird None zurückgegeben.
+            Bei fehlenden data für einen Punkt wird None zurückgegeben.
         """
         if not queries:
             return []
@@ -100,14 +100,14 @@ class OpenMeteoClient:
         return [r for r in results if r is not None]
 
     async def close(self) -> None:
-        """Schließt den HTTP-Client."""
+        """Schliesst den HTTP-Client."""
         await self._client.aclose()
 
 
 class OpenMeteoProvider:
-    """Wetter-Provider über Open-Meteo Forecast API.
+    """weather-provider über Open-Meteo Forecast API.
 
-    Nutzt intern ``OpenMeteoClient`` für HTTP-Calls und implementiert
+    Uses intern ``OpenMeteoClient`` für HTTP-Calls und implementiert
     zweistufiges Caching: ein in-memory ``dict`` für schnelle Wiederholungen
     innerhalb eines Prozesses sowie einen persistenten ``TTLCache`` (SQLite),
     der auch über Prozessgrenzen hinweg wirksam ist.
@@ -120,16 +120,16 @@ class OpenMeteoProvider:
         cache_ttl_seconds: float = 3600.0,
         cache_dir: Path | str | None = None,
     ) -> None:
-        """Initialisiert den Provider.
+        """Initialisiert den provider.
 
         Args:
             client: Optionaler OpenMeteoClient. Wenn None, wird ein neuer Client erstellt.
             cache_ttl_seconds: TTL für den persistenten Cache in Sekunden
                 (Standard: 3600 = 1 Stunde, entsprechend dem stündlichen
                 Aktualisierungsrhythmus von Open-Meteo).
-            cache_dir: Verzeichnis für die SQLite-Datenbank des persistenten
+            cache_dir: Verzeichnis für die SQLite-databank des persistenten
                 Caches. Wenn ``None``, wird der Standardpfad
-                ``<TRIPPLANNER_CACHE_DIR>/external_api_cache.sqlite`` verwendet.
+                ``<TRIPPLANNER_CACHE_DIR>/external_api_cache.sqlite`` uses.
         """
         self._client = client or OpenMeteoClient()
         self._cache: dict[tuple[Coordinate, datetime], WeatherSample] = {}
@@ -147,7 +147,7 @@ class OpenMeteoProvider:
         self,
         queries: Sequence[WeatherQuery],
     ) -> list[WeatherSample]:
-        """Abruf von Wetterdaten für mehrere Abfragepunkte.
+        """Abruf von weatherdaten für mehrere querypunkte.
 
         Uses grid-rounded + hour-snapped cache keys so that near-duplicate
         coordinates within 0.1° and timestamps in the same clock hour
@@ -259,7 +259,7 @@ class OpenMeteoProvider:
         return [r for r in results if r is not None]
 
     async def close(self) -> None:
-        """Schließt den HTTP-Client."""
+        """Schliesst den HTTP-Client."""
         await self._client.close()
 
 
@@ -271,9 +271,9 @@ def _extract_sample_from_response(
     """Extrahiert ein WeatherSample aus einer OpenMeteoResponse.
 
     Args:
-        response: OpenMeteoResponse mit hourly-Daten.
+        response: OpenMeteoResponse mit hourly-data.
         timestamp: Gewünschter timestamp.
-        query_koordinate: Original-Koordinatenpunkt der Abfrage.
+        query_koordinate: Original-Koordinatenpunkt der query.
 
     Returns:
         WeatherSample oder None, wenn der timestamp nicht gefunden wird.

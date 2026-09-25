@@ -1,9 +1,9 @@
-"""Pipeline für trip_input: Orchestrierung der 11 Datenfluss-Schritte.
+"""Pipeline for trip_input: orchestration of the 11 data flow steps.
 
-Dieses Modul enthält die elf `_step_*`-Funktionen und die zentrale
-Orchestrierung `create_trip_simulation()`, die alle Schritte in der
-richtigen Reihenfolge ausführt (Routing, Höhenprofil, Segmentierung,
-Wetter, construction_zones, energy, Ladeplanung, Simulation, Preise).
+This module contains the eleven `_step_*` functions and the central
+orchestration `create_trip_simulation()` that executes all steps in the
+correct order (routing, elevation profile, segmentation,
+weather, construction zones, energy, charging planning, simulation, pricing).
 """
 
 from __future__ import annotations
@@ -68,13 +68,13 @@ async def _step_1_route_calculate(
     request: TripRequest,
     routing_provider: RoutingProvider | None = None,
 ) -> Route:
-    """Schritt 1: OSM-Routing berechnen (inkl. Zwischenstopps als Pflicht-Waypoints).
+    """Step 1: Calculate OSM routing (including waypoints as mandatory waypoints).
 
     Als Default-Provider wird `FakeRoutingProvider` verwendet, damit die Pipeline
-    ohne echten GraphHopper-Server läuft. Für Produktion kann ein echter Provider
-    wie `GraphHopperRoutingProvider` übergeben werden. Ruft `berechne_route()`
-    (nicht `berechne_route_mit_waypoints()`) auf, damit Präferenzen aus `request`
-    (z. B. Fährvermeidung) den Provider erreichen.
+    runs without a real GraphHopper server. For production a real provider
+    such as `GraphHopperRoutingProvider` can be passed. Calls `berechne_route()`
+    (not `berechne_route_mit_waypoints()`) so preferences from `request`
+    (e.g. ferry avoidance) reach the provider.
     """
     provider = routing_provider or FakeRoutingProvider()
     return await provider.berechne_route(request)
@@ -107,9 +107,9 @@ def _step_4_estimate_initial_eta(
     route: Route,
     departure_time: datetime,
 ) -> list[tuple[RouteSegment, timedelta]]:
-    """Schritt 4: Initiale ETA-Schätzung je Segment.
+    """Step 4: Initial ETA estimation per segment.
 
-    Grobe Schätzung basierend auf durchschnittlicher speed
+    Rough estimate based on average speed
     (Default: 110 km/h auf Autobahnen, 60 km/h sonst).
     """
     segment_eta_list: list[tuple[RouteSegment, timedelta]] = []
@@ -117,7 +117,7 @@ def _step_4_estimate_initial_eta(
     for segment in route.segments:
         laenge_km = segment.length_m / 1000.0
 
-        # speed basierend auf Straßenart schätzen
+        # speed estimate based on road type
         durchschnittsgeschwindigkeit_kmh = 110.0  # Default: Autobahn
         if segment.surface and "unpaved" in segment.surface.lower():
             durchschnittsgeschwindigkeit_kmh = 50.0
@@ -182,11 +182,11 @@ async def _step_6_construction_sites(
     route: Route,
     countries: list[str] | None = None,
 ) -> list[ConstructionZone]:
-    """Schritt 6: construction_zones entlang der Route einbeziehen.
+    """Step 6: Include construction zones along the route.
 
-    Optional: Für die Erstimplementierung kann mit leerer Liste gearbeitet werden.
-    Ein `ConstructionProvider` (z. B. `FakeConstructionProvider`) kann übergeben
-    werden, um Baustellendaten zu nutzen.
+    Optional: The initial implementation can work with an empty list.
+    A `ConstructionProvider` (e.g. `FakeConstructionProvider`) can be passed
+    werden, um Construction data zu nutzen.
     """
     if construction_provider is None:
         return []
@@ -208,7 +208,7 @@ async def _step_7_calculate_segment_energy(  # noqa: PLR0913, PLR0917
 ) -> list[SegmentEnergyResult]:
     """Schritt 7: energy_consumption je Segment berechnen.
 
-    Berücksichtigt Wetterdaten, Höhenprofil, Wind und construction_zones-Tempolimits.
+    Considers weather data, elevation profile, wind, and construction zone speed limits.
     """
     # construction_zones-Tempolimits pro Segment zuordnen
     segment_to_tempolimit: dict[int, int | None] = {}
@@ -217,7 +217,7 @@ async def _step_7_calculate_segment_energy(  # noqa: PLR0913, PLR0917
             if zone.speed_limit_kmh is not None:
                 segment_to_tempolimit[segment_idx] = zone.speed_limit_kmh
 
-    # WindComponents für alle Segmente berechnen
+    # Calculate WindComponents for all segments
     wind_components = compute_wind_components_for_route(weather_samples, route_segments)
 
     # VehicleEnergyParameters erzeugen
@@ -232,7 +232,7 @@ async def _step_7_calculate_segment_energy(  # noqa: PLR0913, PLR0917
         roof_box=vehicle_profile.roof_box,
     )
 
-    # Reales Höhenprofil-basiertes Gradient je Segment
+    # Reales elevation profile-basiertes Gradient je Segment
     gradients = elevation_provider.calculate_segment_gradients(elevation_points, route)
 
     # energy_consumption pro Segment berechnen
@@ -404,19 +404,19 @@ def _step_9_update_eta(
     segment_eta_list: list[tuple[RouteSegment, timedelta]],
     charging_plan: ChargingPlan,
 ) -> list[tuple[RouteSegment, timedelta]]:
-    """Schritt 9: ETA je Segment mit tatsächlicher Fahr-/Lade-/Wartezeit aktualisieren.
+    """Step 9: Update ETA per segment with actual driving/charging/wait time.
 
-    Fester Iterationsschritt genügt für diese Orchestrierungsebene;
+    Fixed iteration step is sufficient for this orchestration level;
     echte Iterationsschleife ist bereits konzeptionell in optimization/weather vorgesehen.
 
-    Berücksichtigt sowohl reguläre Ladehalte (`charging_plan.ladehalte`) als
+    Considers both regular charging stops (`charging_plan.charging_stops`) and
     auch erzwungene Zwischenstopp-Wartezeiten (`charging_plan.
     zwischenstopp_aufenthalte`, aus `Waypoint.stay_duration`/
-    `planned_departure`) - ohne Letzteres würden alle Segmente NACH einem
-    Zwischenstopp mit Wartezeit (z. B. einer Übernachtung) mit einer ETA
-    berechnet, die die tatsächliche Wartedauer ignoriert; nachgelagerte
-    Wetterabfragen (`fetch_weather_by_detail`) würden dann für die time VOR
-    der Wartezeit statt für die tatsächliche departure_time danach abgefragt.
+    `planned_departure`) - without these, all segments AFTER a
+    waypoint with a wait (e.g. an overnight stay) would get an ETA
+    calculated that ignores the actual wait time; downstream
+    weather queries (`fetch_weather_by_detail`) would then query for the time BEFORE
+    the wait instead of for the actual departure time after.
     """
     # simpler Aktualisierungsschritt: Lade-/Wartezeiten zu den ETA-Werten addieren
     neue_eta_liste: list[tuple[RouteSegment, timedelta]] = []
@@ -436,14 +436,14 @@ def _step_9_update_eta(
 
     # `segment_idx` per `enumerate()` statt `route.segments.index(segment)`:
     # `segment_eta_list` wird in `_step_4_estimate_initial_eta()` durch
-    # Iteration über `route.segments` IN DERSELBEN REIHENFOLGE aufgebaut (ein
+    # Iteration over `route.segments` IN THE SAME ORDER constructed (one
     # Tupel pro Segment, keine Filterung/Umsortierung) - der Listenindex
-    # entspricht also bereits exakt dem Segment-Index. `.index()` würde
-    # stattdessen für JEDES Segment eine LINEARE Suche mit tiefer Pydantic-
-    # Objektgleichheit über ALLE Segmente durchführen (O(n²) mit teurem
+    # already exactly corresponds to the segment index. `.index()` würde
+    # stattdessen for EACH segment a LINEAR search with deep Pydantic-
+    # object equality across ALL segments (O(n²) with expensive
     # Vergleich statt O(n)) - bei feingranularen Routen (tausende Segmente,
-    # z. B. ein Segment pro GraphHopper-Polyline-Punktpaar) ein spürbarer,
-    # zudem komplett unnötiger Kostenfaktor.
+    # e.g. one segment per GraphHopper polyline point pair) a noticeable,
+    # also completely unnecessary cost factor.
     for segment_idx, (segment, urspruengliche_dauer) in enumerate(segment_eta_list):
         ladezeit = ladezeiten_pro_segment.get(segment_idx, timedelta())
         wartezeit = wartezeiten_pro_segment.get(segment_idx, timedelta())
@@ -570,13 +570,13 @@ def _match_ferry_time_window(
     detected_ferries: list[FerrySegment],
     ferry_time_windows: list[FerryTimeWindow],
 ) -> list[FerrySegment]:
-    """Reichert erkannte Fährverbindungen um Nutzer-Zeitfenster an.
+    """Augments detected ferry connections with user time windows.
 
-    Identifikation über `name` (bei mehrdeutigem Namen über die nächste
+    Identification via `name` (for ambiguous names via the nearest
     Bounding-Box-Mitte) - analog zur Identifikationskonvention von
     `FerryExclusion`. Nicht (more) passende Zeitfenster (Name in der aktuellen
     Route nicht more vorhanden) werden stillschweigend ignoriert - konsistent
-    mit dem selbstkorrigierenden Ansatz der Fährvermeidung (siehe
+    consistent with the self-correcting approach of ferry avoidance (see
     docs/superpowers/specs/2026-08-15-ferry-avoidance-design.md).
     """
     ergebnis: list[FerrySegment] = []
@@ -911,12 +911,12 @@ async def create_trip_simulation(  # noqa: PLR0913, PLR0915, PLR0917
             battery_capacity_kwh=request.vehicle_profile.battery_capacity_kwh,
             charging_stop_detours=charging_stop_detours,
             construction_zones=construction_zones,
-            # Wetterwerte NICHT an die Frames anhängen, wenn der Nutzer Wetter
-            # explizit deaktiviert hat ("off") - `weather_samples` enthält in
+            # Weather values NOT append to frames when user weather
+            # explicitly disabled ("off") - `weather_samples` contains in
             # diesem Fall trotzdem `FakeWeatherProvider`-Platzhalterwerte
             # (siehe `_step_5_fetch_weather`), die als "angenommenes Wetter"
-            # im Routen-Hover-Tooltip (`buildRouteHoverText`) irreführend
-            # wären.
+            # in the route hover tooltip (`buildRouteHoverText`) misleading
+            # would be.
             weather_samples=weather_samples if weather_detail != "off" else None,
         )
 

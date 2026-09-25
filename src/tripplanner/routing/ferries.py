@@ -1,7 +1,7 @@
 """Detection of ferry connections in a computed `Route`.
 
 There is no static ferry registry: ferry sections are detected solely from the
-`road_environment`/`street_name` fields that `GraphHopperRoutingProvider`
+`road_environment`/`street_name` fields that `GraphHopperRoutingprovider`
 extracts per segment from the GraphHopper path details
 `road_environment`/`street_name` (see
 `docs/superpowers/specs/2026-08-15-ferry-avoidance-design.md`).
@@ -20,21 +20,21 @@ UNNAMED_FERRY = "Unnamed ferry"
 
 
 def detect_ferries(route: Route) -> list[FerrySegment]:
-    """Group consecutive ferry segments of a route into `FerrySegment` entries.
+    """Group consecutive ferry segments of a route into `Ferrysegment` entries.
 
     Makes one linear pass over `route.segments` and merges consecutive segments
-    with `road_environment == "FERRY"` into one `FerrySegment` each (name from the
+    with `road_environment == "FERRY"` into one `Ferrysegment` each (name from the
     first non-empty `street_name` of the run, otherwise "Unnamed ferry"; length
     as the sum of `length_m`; bounding box from all `geometrie` coordinates,
     buffered by `FERRY_BUFFER_DEG`).
 
     Args:
-        route: An already computed route (e.g. from `RoutingProvider.berechne_route()`).
+        route: An already computed route (e.g. from `Routingprovider.berechne_route()`).
 
     Returns:
         Detected ferry connections in driving order. Empty if the route has no
         ferry segments or `road_environment` was unavailable (e.g.
-        `FakeRoutingProvider` routes).
+        `FakeRoutingprovider` routes).
     """
     ferries: list[FerrySegment] = []
     current_run: list[RouteSegment] = []
@@ -55,7 +55,7 @@ def detect_ferries(route: Route) -> list[FerrySegment]:
 
 
 def run_to_ferry_segment(run: list[RouteSegment]) -> FerrySegment:
-    """Build a `FerrySegment` from a contiguous run of ferry `RouteSegment`s."""
+    """Build a `Ferrysegment` from a contiguous run of ferry `Routesegment`s."""
     name = next((s.street_name for s in run if s.street_name), None) or UNNAMED_FERRY
     length_m = sum(s.length_m for s in run)
 

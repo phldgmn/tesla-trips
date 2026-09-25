@@ -1,4 +1,4 @@
-"""API-Schicht für trip_input: Orchestrierung der 11 Datenfluss-Schritte.
+"""API layer for trip_input: orchestration of the 11 data flow steps.
 
 Diese Modul implementiert:
 - `create_trip_simulation()`: Kernfunktion zur Orchestrierung aller Schritte
@@ -68,10 +68,10 @@ __all__ = [
 ]
 
 # =============================================================================
-# GraphHopper-Konfiguration
+# GraphHopper-configuration
 # =============================================================================
 
-# Umgebungsvariable für die GraphHopper-Basis-URL (siehe README.md,
+# Environment variable for the GraphHopper base URL (see README.md,
 # .github/workflows/ci.yml).
 GRAPHHOPPER_URL_ENV_VAR = "GRAPHHOPPER_URL"
 
@@ -111,11 +111,11 @@ async def list_superchargers(
     country: str | None = None,
     provider: TeslaChargingStationProvider = Depends(get_supercharger_provider),  # noqa: B008
 ) -> list[SuperchargerStationAPI]:
-    """Listet alle Supercharger-Stationen aus der Datenbank.
+    """Listet alle Supercharger-Stationen aus der databank.
 
     Args:
         country: Optionaler ISO-2 Laenderfilter (in SQL angewendet).
-        provider: Prozessweiter Tesla-Provider (DI).
+        provider: Prozessweiter Tesla-provider (DI).
 
     Returns:
         Liste von SuperchargerStationAPI.
@@ -133,7 +133,7 @@ async def get_supercharger_detail(
 
     Args:
         slug: tesla_location_id (location_url_slug).
-        provider: Prozessweiter Tesla-Provider (DI).
+        provider: Prozessweiter Tesla-provider (DI).
 
     Returns:
         SuperchargerStationAPI.
@@ -153,16 +153,16 @@ async def refresh_supercharger(
     response: Response,
     provider: TeslaChargingStationProvider = Depends(get_supercharger_provider),  # noqa: B008
 ) -> SuperchargerStationAPI:
-    """Aktualisiert eine Supercharger-Station mit frischen Daten von der Tesla API.
+    """Aktualisiert eine Supercharger-Station mit frischen data von der Tesla API.
 
     Ruft die Tesla API server-seitig ueber `TeslaClient` ab (Default-
     Transport: `NodriverTeslaClient`, ein echter Chromium-Browser via CDP;
     alternativ `TeslaLocationsClient` mit curl_cffi/TLS-Fingerprint). Der
     Browser-Ansatz umgeht den Akamai-WAF-Block, dem einfache Python-HTTP-
-    Clients (httpx) und zum Teil auch curl_cffi unterliegen. Ein direkter
+    Clients (httpx) and to some extent curl_cffi are subject. Ein direkter
     Cross-Origin-Fetch aus dem Frontend-JS ist keine Alternative: die
     Tesla-API liefert keine Access-Control-Allow-Origin-Header, wodurch der
-    Browser das Lesen der Antwort unabhaengig vom WAF-Status verweigert.
+    Browser das Lesen der response unabhaengig vom WAF-Status verweigert.
 
     Nur ein Scrape laeuft gleichzeitig (`scrape_slot`); wurde die Station
     vor less als `REFRESH_COOLDOWN` aktualisiert, wird der gespeicherte
@@ -171,16 +171,16 @@ async def refresh_supercharger(
     Args:
         slug: tesla_location_id (location_url_slug).
         response: Response (fuer den `X-Cache`-Header).
-        provider: Prozessweiter Tesla-Provider (DI).
+        provider: Prozessweiter Tesla-provider (DI).
 
     Returns:
         Aktualisierte SuperchargerStationAPI.
 
     Raises:
         HTTPException: 401 ohne gueltiges Admin-Token (falls konfiguriert),
-            404 wenn Station unbekannt oder Tesla-API keine Daten
+            404 wenn Station unbekannt oder Tesla-API keine data
             liefert, 502 bei WAF-Block, Netzwerkfehlern oder wenn die
-            Tesla-Antwort nicht auf ChargingStation abgebildet werden kann
+            Tesla-response nicht auf ChargingStation abgebildet werden kann
             (z. B. Land ausserhalb DE/DK/SE).
     """
     async with provider.scrape_slot:
@@ -204,7 +204,7 @@ async def refresh_supercharger(
 
 
 def _cached_pricing_to_api(slug: str, cached: CachedPricing) -> SuperchargerPricingAPI:
-    """Wandelt `CachedPricing` in das API-Response-Modell um."""
+    """Converts `CachedPricing` to the API response model."""
     return SuperchargerPricingAPI(
         slug=slug,
         tiers=cached.tiers,
@@ -221,7 +221,7 @@ async def get_supercharger_pricing(
 
     Args:
         slug: tesla_location_id (location_url_slug).
-        provider: Prozessweiter Tesla-Provider (DI).
+        provider: Prozessweiter Tesla-provider (DI).
 
     Returns:
         SuperchargerPricingAPI mit leeren `tiers` und `updated_utc=None`, wenn
@@ -250,7 +250,7 @@ async def refresh_supercharger_pricing(
     Args:
         slug: tesla_location_id (location_url_slug) der Station.
         response: Response (fuer den `X-Cache`-Header).
-        provider: Prozessweiter Tesla-Provider (DI).
+        provider: Prozessweiter Tesla-provider (DI).
 
     Returns:
         SuperchargerPricingAPI mit den frisch gespeicherten Preisdaten
@@ -260,7 +260,7 @@ async def refresh_supercharger_pricing(
     Raises:
         HTTPException: 401 ohne gueltiges Admin-Token (falls konfiguriert),
             404 wenn `slug` unbekannt ist, 502 bei WAF-Block,
-            Netzwerkfehlern oder wenn die Tesla-Antwort nicht auswertbar war.
+            Netzwerkfehlern oder wenn die Tesla-response nicht auswertbar war.
     """
     async with provider.scrape_slot:
         cached = provider.get_cached_pricing(slug)
@@ -285,8 +285,8 @@ async def refresh_supercharger_pricing(
 @app.post("/trips", response_model=TripSimulationResultAPI, status_code=201)
 async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
     request: TripRequestAPI,
-    # B008: Depends(...) im Default ist das FastAPI-Standardidiom für Dependency
-    # Injection, kein veränderliches Objekt/kein echter Bug (siehe FastAPI-Doku).
+    # B008: Depends(...) default is the FastAPI standard idiom for dependency
+    # injection, no mutable object/no real bug (see FastAPI docs).
     routing_provider: RoutingProvider = Depends(get_routing_provider),  # noqa: B008
     charging_provider: ChargingStationProvider = Depends(get_charging_provider),  # noqa: B008
     weather_provider: WeatherProvider = Depends(get_weather_provider),  # noqa: B008
@@ -467,11 +467,11 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
         logger.warning("Trip simulation rejected (422): %s", e)
         raise HTTPException(
             status_code=422,
-            detail=f"Route nicht durchführbar: {e!s}",
+            detail=f"Route not feasible: {e!s}",
         ) from e
     except httpx.HTTPError as e:
         # Weather providers never raise here anymore (see
-        # `LoadBalancedWeatherProvider`: failures fail over between
+        # `LoadBalancedWeatherprovider`: failures fail over between
         # providers and degrade to a neutral placeholder instead of
         # propagating), so any `httpx.HTTPError` reaching this handler
         # originates from the routing (GraphHopper) call.

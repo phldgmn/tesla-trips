@@ -1,15 +1,15 @@
-"""Provider-Factory für Produktion.
+"""Production provider factory.
 
-Liefert eine vorkonfigurierte Menge von Produktion-Providern, die
-für die Reiseplanung benötigt werden: Routing, Elevation, Weather,
-Construction und Charging.
+Provides a pre-configured set of production providers needed
+for trip planning: routing, elevation, weather,
+construction, and charging.
 
-Konfiguration erfolgt ausschließlich über Umgebungsvariablen (und, für
-Construction-Credentials, optional über `credentials.local.yaml` im
-Repo-Root, siehe `_load_local_credentials`). Optional können
-Constructor-Überschreibungen für elevation_data_source und
-construction_provider übergeben werden, um Phase-C/D-Implementierungen
-später einzubinden, ohne diesen Code erneut ändern zu müssen.
+Configuration is done exclusively via environment variables (and, for
+construction credentials, optionally via `credentials.local.yaml` in the
+repo root, see `_load_local_credentials`. Optional
+constructor overrides for elevation_data_source and
+construction_provider can be passed to allow phase-C/D implementations
+to be integrated later without changing this code again.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ _LOCAL_CREDENTIALS_PATH = _REPO_ROOT / "credentials.local.yaml"
 
 
 class ProductionProviders(NamedTuple):
-    """Produktions-Provider-Tuple: routing, elevation, weather, construction, charging.
+    """Production providers tuple: routing, elevation, weather, construction, charging.
 
     All 5 production providers needed for trip planning.
     """
@@ -63,28 +63,28 @@ async def build_production_providers(
     elevation_data_source: DEMDataSourceProtocol | None = None,
     construction_provider: ConstructionProviderImpl | None = None,
 ) -> ProductionProviders:
-    """Erstellt alle Produktion-Provider für die Reiseplanung.
+    """Builds all production providers for trip planning.
 
     Args:
-        elevation_data_source: Optionaler DEMDataSourceProtocol für ElevationProvider.
-            Wenn None, wird eine CopernicusDEMDataSource verwendet (echte
-            Copernicus-DEM-GLO-30-Kacheln via GDAL /vsicurl/ gegen den
-            öffentlichen `copernicus-dem-30m`-Bucket, siehe `elevation/providers.py`).
-        construction_provider: Optionaler ConstructionProviderImpl. Wenn None,
-            wird ein Provider mit echten Credentials aus Umgebungsvariablen
-            bzw. `credentials.local.yaml` erstellt (siehe
-            `_load_local_credentials`); Länder ohne Credentials werden von
-            `ConstructionProviderImpl` selbst übersprungen, nicht hier.
+        elevation_data_source: Optional DEM data source protocol for the elevation provider.
+            If None, a CopernicusDEMDataSource is used (real
+            Copernicus-DEM-GLO-30 tiles via GDAL /vsicurl/ against the
+            public `copernicus-dem-30m` bucket, see `elevation/providers.py`).
+        construction_provider: Optional ConstructionProviderImpl. If None,
+            a provider with real credentials from environment variables
+            or `credentials.local.yaml` is created (see
+            `_load_local_credentials`; countries without credentials are handled by
+            `ConstructionProviderImpl` itself, not here.
 
     Returns:
-        ProductionProviders mit allen benötigten Providern.
+        Production providers with all required providers.
 
     Note:
-        `elevation_data_source` wird primär für Tests überschrieben (z. B. mit
+        `elevation_data_source` is primarily overridden for tests (e.g. with
         `FakeDataSource`), damit keine Live-Netzwerkzugriffe in Unit-Tests
         stattfinden (siehe AGENTS.md).
     """
-    # Routing: GraphHopper über Umgebungsvariable
+    # Routing: GraphHopper via environment variable
     gh_url = os.environ.get("GRAPHHOPPER_URL", "http://localhost:8989")
     routing = GraphHopperRoutingProvider(client=GraphHopperClient(base_url=gh_url))
 
@@ -105,7 +105,7 @@ async def build_production_providers(
     # Weather: country-aware, load-balanced composite (siehe _build_weather_provider).
     weather = _build_weather_provider(local_credentials)
 
-    # Construction: konfigurierbarer Provider; Default lädt echte Credentials
+    # Construction: configurable provider; default loads real credentials
     # aus Umgebungsvariablen/credentials.local.yaml (siehe _load_local_credentials).
     if construction_provider is None:
         dk_creds = local_credentials.get("DK", {})
@@ -180,7 +180,7 @@ def _build_weather_provider(
 
 
 async def close_production_providers(providers: ProductionProviders) -> None:
-    """Schließt alle asynchronen Ressourcen der Produktion-Provider.
+    """Close all async resources of the production providers.
 
     Args:
         providers: ProductionProviders-Tuple von build_production_providers().
@@ -188,7 +188,7 @@ async def close_production_providers(providers: ProductionProviders) -> None:
     await providers.routing.client.close()
     await providers.weather.close()
     await providers.construction.close()
-    # charging ist synchronous (TeslaChargingStationProvider schließt SQLite)
+    # charging is synchronous (TeslaChargingStationProvider closes SQLite)
     providers.charging.close()
 
 

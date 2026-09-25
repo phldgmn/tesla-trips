@@ -1,8 +1,8 @@
-"""Battery-Modul für Lade- und Entladeverhalten.
+"""Battery module for charge and discharge behavior.
 
-Dieses Modul bietet Modelle für Ladekurven und Funktionen zur Berechnung
-von Ladezeiten basierend auf physikalischen Gesetzen und stückweise linearen
-Ladekurven.
+This module provides models for charging curves and functions for calculating
+charge times based on physical laws and piecewise linear
+charging_curven.
 """
 
 from __future__ import annotations

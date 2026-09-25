@@ -3,12 +3,12 @@
 Historical default DE provider (per direct user instruction, superseding the
 original DATEX II/mobilithek.info design — see `docs/plans/10-provider-
 integration-wiring.md`). Superseded in turn by
-`providers_de_datexii.DatexIIGermanyConstructionProvider` (NRW Mobilitätsdaten
+`providers_de_datexii.DatexIIGermanyConstructionprovider` (NRW Mobilitaetsdaten
 Mobilithek exporter), which is now the default DE provider used by
-`ConstructionProviderImpl`. Kept here, unchanged in behaviour, so it can be
+`ConstructionproviderImpl`. Kept here, unchanged in behaviour, so it can be
 reinstated by passing it explicitly:
 
-    ConstructionProviderImpl(config, de_provider=AutobahnConstructionProvider())
+    ConstructionproviderImpl(config, de_provider=AutobahnConstructionprovider())
 """
 
 from __future__ import annotations
@@ -163,7 +163,7 @@ def _parse_autobahn_roadwork(
 class AutobahnConstructionProvider(ConstructionProvider):
     """DE-only construction-zone provider backed by the Autobahn GmbH open API.
 
-    Superseded by `providers_de_datexii.DatexIIGermanyConstructionProvider`;
+    Superseded by `providers_de_datexii.DatexIIGermanyConstructionprovider`;
     kept for revert. Only ever returns zones for `Land.DE` — any other
     country in `countries` is ignored.
     """

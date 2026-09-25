@@ -373,7 +373,7 @@ class TestNetworkXOptimizer:
 
         optimizer = create_networkx_optimizer(soc_step_pct=5.0, time_step_min=30)
 
-        with pytest.raises(ValueError, match="Kein erreichbarer Zielknoten"):
+        with pytest.raises(ValueError, match="No reachable target node found"):
             optimizer.optimize(
                 route=route,
                 segments=route.segments,
@@ -558,7 +558,7 @@ class TestZeitbudgetBeruecksichtigtLadezeit:
         """End-to-end: Eine Route, die 4 volle Ladezyklen braucht, MUSS trotz der
         dafuer noetigen Ladezeit (deutlich more als der alte fixe 75-Minuten-
         Puffer) als fahrbar erkannt werden, statt faelschlich mit
-        'Kein erreichbarer Zielknoten' abgelehnt zu werden.
+        'No reachable target node found' abgelehnt zu werden.
         """
         anzahl_segmente = 6
         segment_laenge_m = 200_000.0
@@ -657,7 +657,7 @@ class TestLadehaltUeberlebtKnotenKollision:
     Kombination aus Segment, gerundetem SoC und gerundeter time, aber ueber
     eine Route ohne Ladehalt erreicht). `_fuege_ladekante_hinzu` initialisiert
     `type`/`station_id` nur beim ERSTEN Anlegen eines Knotens
-    (`if next_node not in G.nodes`) - kollidiert eine spaeter gefundene,
+    (`if next_node not in G.nodes`) - kollidiert eine spaeter founde,
     guenstigere Ladekante mit einem bereits bestehenden (kollidierenden)
     Knoten, bleibt dessen `type="drive"` ohne `station_id` bestehen, obwohl
     die tatsaechlich gewaehlte Kante sehr wohl eine Ladekante ist.
@@ -727,7 +727,7 @@ class TestLadehaltUeberlebtKnotenKollision:
             soc_step_pct=optimizer.soc_step_pct,
             time_step_min=optimizer.time_step_min,
             base_time=base_time,
-            avg_verbrauch_kwh_pro_m=0.0,
+            avg_consumption_kwh_per_m=0.0,
         )
         heap: list[tuple[float, int, tuple[int, int, int]]] = []
         builder.fuege_ladekante_hinzu(
@@ -819,7 +819,7 @@ class TestORToolsOptimizer:
                 departure_time=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
             )
 
-        assert "OR-Tools-Backend ist eine spätere Ausbaustufe" in str(exc_info.value)
+        assert "OR-Tools backend is a future development stage" in str(exc_info.value)
 
 
 class TestLadedauerVorgabe:
@@ -1399,7 +1399,7 @@ class TestFaehrZeitfenster:
         ferry_departure = departure_time + timedelta(minutes=5)
         ferry_arrival = ferry_departure + timedelta(minutes=30)
 
-        with pytest.raises(ValueError, match="Kein erreichbarer Zielknoten"):
+        with pytest.raises(ValueError, match="No reachable target node found"):
             optimizer.optimize(
                 route=route,
                 segments=route.segments,
@@ -1428,7 +1428,7 @@ class TestDominanzPruningVerhindertKombinatorischeExplosion:
     O(SoC-Buckets x time-Buckets) tatsaechlich erweiterte (dominierte)
     Knoten gehalten statt O(SoC-Buckets) - bei Routen mit vielen
     Ladestationen UND einer teuren Kandidaten-Bewertung pro Knoten (siehe
-    `_lade_ziel_kandidaten`/`_kandidaten_mit_mindestladedauer`, beide mit
+    `_charging_target_candidates`/`_candidates_with_min_charge_duration`, beide mit
     Bisektionen ueber die Ladekurve) eskalierte das von einigen Sekunden
     zu einem praktischen Haenger (Nutzer-Report: > 100s fuer die reale
     Optimierung einer Deutschland->Schweden-Route mit vielen Ladestationen).
@@ -1666,7 +1666,7 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
            statt FIFO-BFS) - ohne sie wuerde bereits die Kombination aus
            frueh gewaehlten Ladehalten suboptimal bleiben.
         2. Reichweiten-/kurvenbasierte Ladeziel-Kandidaten
-           (`_lade_ziel_kandidaten`) statt starrer 80/90/100%-Rundwerte -
+           (`_charging_target_candidates`) statt starrer 80/90/100%-Rundwerte -
            mit dem Default `min_arrival_soc_pct=5.0` darf die Suche an
            der LETZTEN Station bis auf 5% herunterfahren (statt vorzeitig an
            einer FRUEHEREN Station more zu laden als noetig) und dort die
@@ -1739,7 +1739,7 @@ class TestGraphKonstruktionFindetDijkstraOptimum:
 class TestMindestLadedauerVerhindertKurzeLadehalte:
     """Tests für `OptimizationConstraints.min_charging_time_s`: ein Kandidat-
     Ladeziel, dessen Ladezeit darunter läge, wird auf die Mindestdauer
-    gestreckt statt verworfen (siehe `_kandidaten_mit_mindestladedauer`) -
+    gestreckt statt verworfen (siehe `_candidates_with_min_charge_duration`) -
     ein tatsächlicher Ladehalt dauert dadurch entweder gar nicht oder
     minimum `min_charging_time_s` (Nutzer-Report: 1-Minuten-Ladehalt,
     gefolgt von einem weiteren Halt nach nur gut 10 Minuten Fahrt).
@@ -1760,7 +1760,7 @@ class TestMindestLadedauerVerhindertKurzeLadehalte:
         # 70% -> 71%/72% laden dauert bei dieser Kurve deutlich unter 600s
         # (siehe Kurvenpunkt 50-80% bei 150kW); 70% -> 95% dauert deutlich
         # laenger als 600s und bleibt daher unveraendert.
-        ergebnis = charging_math.kandidaten_mit_mindestladedauer(
+        ergebnis = charging_math.candidates_with_min_charge_duration(
             kandidaten=[71.0, 72.0, 95.0],
             arrival_soc_pct=70.0,
             ladekurve=ladekurve,
@@ -1793,7 +1793,7 @@ class TestMindestLadedauerVerhindertKurzeLadehalte:
         ladekurve = LadekurveReferenz.model_3_lr_v3()
         kandidaten = [71.0, 72.0, 95.0]
 
-        ergebnis = charging_math.kandidaten_mit_mindestladedauer(
+        ergebnis = charging_math.candidates_with_min_charge_duration(
             kandidaten=kandidaten,
             arrival_soc_pct=70.0,
             ladekurve=ladekurve,
@@ -1876,7 +1876,7 @@ class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
                     roof_box=False,
                 ),
                 detour_kosten={"real-station": real_kosten},
-                avg_verbrauch_kwh_pro_m=0.0,
+                avg_consumption_kwh_per_m=0.0,
             )
         )
 
@@ -1924,7 +1924,7 @@ class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
                 offroute_distance_m=200.0,
                 vehicle_profile=vehicle_profile,
                 detour_kosten={"asymmetrische-station": asymmetrische_kosten},
-                avg_verbrauch_kwh_pro_m=0.0,
+                avg_consumption_kwh_per_m=0.0,
             )
         )
 
@@ -1958,7 +1958,7 @@ class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
                     rueckweg_energie_kwh=0.0,
                 )
             },
-            avg_verbrauch_kwh_pro_m=0.0002,  # set as optimize() normally would
+            avg_consumption_kwh_per_m=0.0002,  # set as optimize() normally would
         )
 
         # Heuristic: 1000m * 1.6 / (70 km/h) = ~82.3s, identisch fuer beide
@@ -1983,7 +1983,7 @@ class TestDetourKostenNutztRealeRoutingDatenWennVorhanden:
             offroute_distance_m=1000.0,
             vehicle_profile=vehicle_profile,
             detour_kosten=None,
-            avg_verbrauch_kwh_pro_m=0.0002,
+            avg_consumption_kwh_per_m=0.0002,
         )
 
         assert hinweg_zeit_s == pytest.approx(82.3, abs=0.5)
@@ -2174,7 +2174,7 @@ class TestMaxChargeSocCapsRegularStops:
         5% destination floor) leaves no feasible plan, so the optimizer
         reports the trip as undrivable.
         """
-        with pytest.raises(ValueError, match="Route nicht fahrbar"):
+        with pytest.raises(ValueError, match="Route not feasible"):
             self._optimiere(35.0)
 
     def test_cap_at_or_above_physical_minimum_leaves_plan_unchanged(self) -> None:
@@ -2269,7 +2269,7 @@ class TestMaxChargeSocCapsRegularStops:
 
 
 class TestMaxChargeSocStretchClamping:
-    """`_kandidaten_mit_mindestladedauer` stretches candidates whose charge
+    """`_candidates_with_min_charge_duration` stretches candidates whose charge
     time would fall below the minimum duration - the result MUST stay
     clamped to `max_charge_soc_pct` (the charge limit is hard, the minimum
     duration only soft).
@@ -2280,7 +2280,7 @@ class TestMaxChargeSocStretchClamping:
         # 70% from 20% (60 kWh) takes well under 2400s, so the candidate is
         # stretched to the SoC after 2400s (~100%) - with a 70% cap the
         # clamped target must be exactly the cap.
-        ergebnis = charging_math.kandidaten_mit_mindestladedauer(
+        ergebnis = charging_math.candidates_with_min_charge_duration(
             kandidaten=[70.0],
             arrival_soc_pct=20.0,
             ladekurve=ladekurve,
@@ -2295,7 +2295,7 @@ class TestMaxChargeSocStretchClamping:
         (regression: default behavior unchanged).
         """
         ladekurve = LadekurveReferenz.model_3_sr()
-        ergebnis = charging_math.kandidaten_mit_mindestladedauer(
+        ergebnis = charging_math.candidates_with_min_charge_duration(
             kandidaten=[70.0],
             arrival_soc_pct=20.0,
             ladekurve=ladekurve,

@@ -93,7 +93,7 @@ class TileCache:
             return {}
 
     def _tile_name(self, lat: float, lon: float) -> str:
-        """Berechne den Copernicus-DEM-Kachelnamen für die 1x1-Grad-Zelle einer Koordinate."""
+        """Calculate den Copernicus-DEM-Kachelnamen für die 1x1-Grad-Zelle einer Koordinate."""
         from tripplanner.elevation.providers import copernicus_tile_name
 
         return copernicus_tile_name(lat, lon)

@@ -1,4 +1,4 @@
-"""ConstructionProviderImpl: DE delegation + DK/SE DATEX II implementation.
+"""ConstructionproviderImpl: DE delegation + DK/SE DATEX II implementation.
 
 Extracted from providers.py. Deletes the six thin one-line matching wrappers
 from the class body; those now live in matching.py and are used directly by tests.
@@ -52,13 +52,13 @@ DATEXII_ENDPOINTS: dict[Land, str] = {
 
 
 class ConstructionProviderImpl(ConstructionProvider):
-    """Implementierung des ConstructionProvider: DE (delegiert), DATEX II (DK, SE).
+    """implementation des Constructionprovider: DE (delegiert), DATEX II (DK, SE).
 
-    DE-Baustellendaten werden an einen injizierbaren `ConstructionProvider`
-    delegiert (`de_provider`), standardmäßig
-    `providers_de_datexii.DatexIIGermanyConstructionProvider` (NRW
-    Mobilitätsdaten DATEX II Export). `providers_de_autobahn.
-    AutobahnConstructionProvider` bleibt für ein Revert verfügbar.
+    DE-Construction data werden an einen injizierbaren `Constructionprovider`
+    delegiert (`de_provider`), standardmaeßig
+    `providers_de_datexii.DatexIIGermanyConstructionprovider` (NRW
+    Mobilitaetsdaten DATEX II Export). `providers_de_autobahn.
+    AutobahnConstructionprovider` bleibt für ein Revert verfügbar.
     """
 
     _config: ConstructionProviderConfig
@@ -75,15 +75,15 @@ class ConstructionProviderImpl(ConstructionProvider):
         """Initialize the provider.
 
         Args:
-            config: Provider configuration (credentials, timeout) for the
+            config: provider configuration (credentials, timeout) for the
                 DK/SE DATEX II paths.
             client: Optional pre-opened httpx.AsyncClient for process-wide
-                reuse (mirrors `OpenMeteoProvider.__init__`). When None, a new
+                reuse (mirrors `OpenMeteoprovider.__init__`). When None, a new
                 client is created eagerly so the provider also works without
                 `async with`. Also passed to the default `de_provider`.
-            de_provider: Provider used for `Land.DE`. Defaults to
-                `DatexIIGermanyConstructionProvider` (NRW Mobilitätsdaten
-                DATEX II export). Pass `AutobahnConstructionProvider()` to
+            de_provider: provider used for `Land.DE`. Defaults to
+                `DatexIIGermanyConstructionprovider` (NRW Mobilitaetsdaten
+                DATEX II export). Pass `AutobahnConstructionprovider()` to
                 revert to the Autobahn GmbH open API.
         """
         self._config = config
@@ -230,7 +230,7 @@ class ConstructionProviderImpl(ConstructionProvider):
         strtree: STRtree,
         segment_geoms: list[LineString],
     ) -> list[ConstructionZone]:
-        """Abfrage und Parsing für ein DATEX-II-Land (DK, SE).
+        """Query und Parsing für ein DATEX-II-Land (DK, SE).
 
         Cached per country + coarse bounding-box so nearby/similar routes
         hit the same cache entry.
@@ -403,7 +403,7 @@ class ConstructionProviderImpl(ConstructionProvider):
         )
 
     def _route_to_bounding_box(self, route: routing_models.Route) -> str:
-        """Konvertiert Route zu Bounding Box für API-Abfrage."""
+        """Konvertiert Route zu Bounding Box für API-query."""
         coords: list[tuple[float, float]] = []
         for segment in route.segments:
             for lat, lon in segment.geometrie:

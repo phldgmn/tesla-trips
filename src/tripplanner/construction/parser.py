@@ -1,7 +1,7 @@
 """DATEX II XML Parser für Baustelleninformationen.
 
-Nutzt xmlschema (v3.3) für Validierung und Parsing. Falls xmlschema nicht verfügbar,
-fällt auf xml.etree.ElementTree zurück (für Unit-Tests ohne externe Abhängigkeiten).
+Uses xmlschema (v3.3) für Validierung und Parsing. Falls xmlschema nicht verfügbar,
+faellt auf xml.etree.ElementTree zurück (für Unit-Tests ohne externe Abhaengigkeiten).
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 class DATEXIIConstructionZoneInternal(NamedTuple):
-    """Internes Modell für DATEX II Parse-Ergebnis (nicht exportiert)."""
+    """Internes model für DATEX II Parse-Ergebnis (nicht exportiert)."""
 
     closure_type: str
     gueltig_von: datetime
@@ -216,7 +216,7 @@ def _parse_situation_record(sr: ET.Element, land: Land) -> DATEXIIConstructionZo
                     except ValueError:
                         pass
 
-    # NRW Mobilitätsdaten schema variant: posList nested directly under
+    # NRW Mobilitaetsdaten schema variant: posList nested directly under
     # groupOfLocations (e.g. groupOfLocations/linearExtension/linearExtended/
     # gmlLineString/posList) rather than under locationReference.
     if not koordinaten and locations is not None:
@@ -260,7 +260,7 @@ def _parse_datetime(dt_str: str | None) -> datetime:
 
 
 def _delay_band_to_speed(delay_band: str | None) -> int | None:
-    """Mappe delayBand auf speed_limit_kmh (Konfiguration für feine Anpassung)."""
+    """Mappe delayBand auf speed_limit_kmh (configuration für feine Anpassung)."""
     if not delay_band:
         return None
 
@@ -307,7 +307,7 @@ def _parse_coordinates(
 def _parse_v3_pos_list(pos_str: str) -> list[tuple[float, float]]:
     """Parse a DATEX II v3 ``posList`` string into (lat, lon) pairs.
 
-    Format: space-separated numeric pairs, first number = latitude (for
+    format: space-separated numeric pairs, first number = latitude (for
     EPSG:4258 in Denmark / GML default order).  E.g.
     ``"55.66038 12.49383 55.66040 12.49385"`` →
     ``[(55.66038, 12.49383), (55.66040, 12.49385)]``.

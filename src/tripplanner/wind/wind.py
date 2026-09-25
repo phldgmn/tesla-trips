@@ -1,7 +1,7 @@
-"""Berechnung von Windkomponenten entlang einer Route.
+"""calculation von Wind components entlang einer Route.
 
 Diese Module implementiert die trigonometrische Projektion der Windvektoren
-auf die heading (Bearing) eines Route-Segments.
+auf die heading (Bearing) eines Route-segments.
 """
 
 from __future__ import annotations
@@ -20,16 +20,16 @@ def _degrees_to_radians(deg: float) -> float:
 
 
 def compute_wind_components(weather: WeatherSample, segment: RouteSegment) -> WindComponents:
-    """Berechnet Windkomponenten für ein einzelnes Segment.
+    """Calculatet Wind components für ein einzelnes segment.
 
-    Die Windkomponenten werden mittels Vektorprojektion berechnet:
+    Die Wind components werden mittels Vektorprojektion berechnet:
       The wind vector is shifted by 180° (wind_direction_deg = direction the wind comes from).
     - Die Projektion auf die Bearing-Richtung ergibt den headwind/Rückenwind.
     - Die Projektion auf die senkrechte Richtung ergibt den crosswind.
 
     Args:
-        weather: Wetterdaten für den timestamp des Segments.
-        segment: Route-Segment mit Bearing (heading am Segmentanfang).
+        weather: weatherdaten für den timestamp des segments.
+        segment: Route-segment mit Bearing (heading am segmentanfang).
 
     Returns:
         WindComponents mit segment_index, gegenwind_ms und seitenwind_ms.
@@ -38,7 +38,7 @@ def compute_wind_components(weather: WeatherSample, segment: RouteSegment) -> Wi
     # in der Meteorologie die Richtung angibt, aus der der Wind kommt)
     wind_dir_vector = (weather.wind_direction_deg + 180.0) % 360.0
 
-    # Bearing des Segments (Pflichtfeld, von routing bereits berechnet)
+    # Bearing des segments (Pflichtfeld, von routing bereits berechnet)
     bearing = segment.bearing_deg
 
     # Winkelunterschied zwischen Windvektor und Bearing
@@ -60,23 +60,23 @@ def compute_wind_components_for_route(
     weather_samples: Sequence[WeatherSample],
     segments: Sequence[RouteSegment],
 ) -> list[WindComponents]:
-    """Berechnet Windkomponenten für alle Segmente entlang der Route.
+    """Calculatet Wind components für alle segmente entlang der Route.
 
     Args:
-        weather_samples: Wetterdaten je Wetterabfragepunkt. Muss gleiche Länge
+        weather_samples: weatherdaten je weatherabfragepunkt. Muss gleiche Laenge
             wie segments haben.
-        segments: Route-Segmente (muss gleiche Länge wie weather_samples haben).
+        segments: Route-segmente (muss gleiche Laenge wie weather_samples haben).
 
     Returns:
         Liste von WindComponents (segment_index passt zu segment.segment_index).
 
     Raises:
-        ValueError: Wenn weather_samples und segments unterschiedliche Längen haben.
+        ValueError: Wenn weather_samples und segments unterschiedliche Laengen haben.
     """
     if len(weather_samples) != len(segments):
         raise ValueError(
-            f"weather_samples ({len(weather_samples)}) und segments ({len(segments)}) "
-            "müssen gleiche Länge haben."
+            f"weather_samples ({len(weather_samples)}) and segments ({len(segments)}) "
+            "must be the same length."
         )
 
     return [compute_wind_components(w, s) for w, s in zip(weather_samples, segments, strict=True)]

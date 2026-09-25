@@ -1,13 +1,13 @@
-"""Provider-Implementierungen fuer den `charging_infrastructure`-Zugriff.
+"""provider-implementationen fuer den `charging_infrastructure`-Zugriff.
 
-Dieses Paket gruppiert die Provider nach Verantwortlichkeit:
+Dieses Paket gruppiert die provider nach Verantwortlichkeit:
 
 - ``spatial``:      Raeumlicher Stations-Index (latitude-Baender).
-- ``record_mapping``: Umwandlung zwischen Tesla-API-Daten und DB-Records.
-- ``local_file``:   ``LocalFileChargingStationProvider`` (lokale JSON-Datei).
-- ``fake``:         ``FakeChargingStationProvider`` (Tests).
+- ``record_mapping``: Umwandlung zwischen Tesla-API-data und DB-Records.
+- ``local_file``:   ``LocalFileChargingStationprovider`` (lokale JSON-Datei).
+- ``fake``:         ``FakeChargingStationprovider`` (Tests).
 - ``pricing_queue``: ``PricingQueueMixin`` fuer den Pricing-Scrape-Queue.
-- ``tesla``:        ``TeslaChargingStationProvider`` (SQLite-DB + API).
+- ``tesla``:        ``TeslaChargingStationprovider`` (SQLite-DB + API).
 """
 
 from .fake import FakeChargingStationProvider

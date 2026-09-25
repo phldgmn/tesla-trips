@@ -1,4 +1,4 @@
-"""Fake-ChargingStationProvider fuer Unit-Tests."""
+"""Fake-ChargingStationprovider fuer Unit-Tests."""
 
 from __future__ import annotations
 
@@ -21,13 +21,13 @@ if TYPE_CHECKING:
 
 
 class FakeChargingStationProvider(ChargingStationProvider):
-    """Fake-Provider für Unit-Tests ohne Dateizugriff.
+    """Fake-provider für Unit-Tests ohne Dateizugriff.
 
-    Liefert feste Testdaten basierend auf dem Suchparameter.
+    Liefert feste Testdaten based auf dem Suchparameter.
     """
 
     def __init__(self, test_stations: list[ChargingStation] | None = None) -> None:
-        """Initialisiere den Fake-Provider mit optionalen Test-Stationen.
+        """Initialisiere den Fake-provider mit optionalen Test-Stationen.
 
         Args:
             test_stations: Liste von Test-Stationen (default: einige Dummy-Stationen)
@@ -86,10 +86,10 @@ class FakeChargingStationProvider(ChargingStationProvider):
     ) -> list[ChargingStation]:
         """Liefert Fake-Testdaten.
 
-        Filtert die eingebenen Test-Stationen nach Radius und Länderfilter.
+        Filtert die eingebenen Test-Stationen nach Radius und Laenderfilter.
         Sortiert nach distance (aufsteigend).
         """
-        # Länderfilter anwenden
+        # Laenderfilter anwenden
         stations = self._stations
         if country_filter:
             stations = [s for s in stations if s.country == country_filter]
@@ -118,15 +118,15 @@ class FakeChargingStationProvider(ChargingStationProvider):
     ) -> dict[int, list[ChargingStation]]:
         """Liefert Fake-Testdaten entlang der Route.
 
-        Verteilt alle konfigurierten Stationen entlang der Route basierend auf
-        der distance zum Segment-Mittelpunkt.
+        Verteilt alle konfigurierten Stationen entlang der Route based auf
+        der distance zum segment-Mittelpunkt.
         """
         result: dict[int, list[ChargingStation]] = {}
         stations = self._stations
         if not stations or not route.segments:
             return result
 
-        # Für jede Station das nächste Segment anhand der Midpoint-distance finden
+        # Für jede Station das naechste segment anhand der Midpoint-distance finden
         for station in stations:
             best_seg_idx = 0
             best_dist = float("inf")
@@ -137,7 +137,7 @@ class FakeChargingStationProvider(ChargingStationProvider):
                     continue
                 mid_idx = len(seg.geometrie) // 2
                 midpoint = seg.geometrie[mid_idx]
-                # Haversine-Näherung: distance in Metern
+                # Haversine-Naeherung: distance in Metern
                 dlat = (station.coordinate[0] - midpoint[0]) * 111.32 * 1000
                 dlon = (
                     (station.coordinate[1] - midpoint[1])

@@ -211,7 +211,7 @@ class TestCliCommand:
         )
 
         assert result.exit_code != 2
-        assert "Ungültige Eingabe" in result.stderr or "Error" in result.stderr
+        assert "Invalid input" in result.stderr or "Error" in result.stderr
 
     def test_cli_invalid_destination_coord(self) -> None:
         """Test: Ungültige Ziel-Koordinate -> Exit Code 1."""
@@ -229,7 +229,7 @@ class TestCliCommand:
         )
 
         assert result.exit_code != 2
-        assert "Ungültige Eingabe" in result.stderr or "Error" in result.stderr
+        assert "Invalid input" in result.stderr or "Error" in result.stderr
 
     def test_cli_invalid_waypoint_format(self) -> None:
         """Test: Ungültiges Waypoint-Format -> Exit Code 1."""
@@ -249,7 +249,7 @@ class TestCliCommand:
         )
 
         assert result.exit_code != 2
-        assert "Ungültige Eingabe" in result.stderr or "Error" in result.stderr
+        assert "Invalid input" in result.stderr or "Error" in result.stderr
 
     def test_cli_invalid_waypoint_duration(self) -> None:
         """Test: Ungültige duration im Waypoint -> Exit Code 1."""
@@ -269,7 +269,7 @@ class TestCliCommand:
         )
 
         assert result.exit_code != 2
-        assert "Ungültige Eingabe" in result.stderr or "Error" in result.stderr
+        assert "Invalid input" in result.stderr or "Error" in result.stderr
 
     def test_cli_invalid_date_format(self) -> None:
         """Test: Ungültiges Datumsformat -> Exit Code 1."""
@@ -287,7 +287,7 @@ class TestCliCommand:
         )
 
         assert result.exit_code != 2
-        assert "Ungültige Eingabe" in result.stderr or "Error" in result.stderr
+        assert "Invalid input" in result.stderr or "Error" in result.stderr
 
     def test_cli_invalid_start_soc(self) -> None:
         """Test: Start-SoC außerhalb Bereich -> Exit Code != 0 (Typer validiert)."""
@@ -475,7 +475,7 @@ class TestCliCommand:
             )
 
             assert result.exit_code == 1
-            assert "Ungültige Eingabe" in result.stderr
+            assert "Invalid input" in result.stderr
 
 
 class TestCliHelp:

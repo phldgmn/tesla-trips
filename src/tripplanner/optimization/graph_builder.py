@@ -1,19 +1,19 @@
-"""State-Graph-Konstruktion für den NetworkX-Optimizer.
+"""State graph construction for the NetworkX optimizer.
 
-`StateGraphBuilder` ist die interne Implementierung der Zustandsgraph-
-Erzeugung (Knoten + Kanten des diskretisierten Lade-/Fahr-Problems), die
-aus `NetworkXOptimizer` nach `optimizer.py` extrahiert wurde. Er kapselt
-sämtlichen Zustand, den die Graph-Konstruktion braucht (`soc_step_pct`,
-`time_step_min`, `base_time`, `avg_verbrauch_kwh_pro_m`, `push_seq`-Zähler)
-in seinem `__init__` und portiert die acht bisherigen privaten Methoden von
+`StateGraphBuilder` is the internal implementation of the state graph-
+creation (nodes + edges of the discretized charging/driving problem) that
+extracted from `NetworkXOptimizer` into `optimizer.py`. It encapsulates
+all the state that the graph construction needs (`soc_step_pct`,
+`time_step_min`, `base_time`, `avg_consumption_kwh_per_m`, `push_seq` counter)
+in its `__init__` and ports the eight previous private methods of
 `NetworkXOptimizer` (`_generate_graph`, `_schedule`, `_required_departure`,
 `_add_drive_edge`, `_add_ferry_edge`, `_add_charging_edges`,
-`_fuege_ladekante_hinzu`, `_add_waypoint_wait_edge`) als eigene
-Builder-Methoden.
+`_fuege_ladekante_hinzu`, `_add_waypoint_wait_edge`) as its own
+builder methods.
 
-`StateGraphBuilder` ist ein privates Implementierungsdetail von
-`NetworkXOptimizer` und wird NICHT aus `optimization/__init__.py`
-re-exportiert.
+`StateGraphBuilder` is a private implementation detail of
+`NetworkXOptimizer` and is NOT exported from `optimization/__init__.py`
+re-exported.
 """
 
 from __future__ import annotations
@@ -40,51 +40,51 @@ if TYPE_CHECKING:
     from tripplanner.trip_input.models import VehicleProfile, Waypoint
 
 
-# Konstanten für Kostenfunktion (identisch zu `optimizer.py`)
-COST_INF: float = 1e9  # Unendlich für unzulässige Kanten
+# constants for cost function (same as `optimizer.py`)
+COST_INF: float = 1e9  # Infinity for invalid edges
 MAX_SOC_PCT: float = 100.0
-# Verschwindend kleiner Kosten-Tie-Breaker (Sekunden je geladenem Prozentpunkt)
-# für Ladekanten an REGULAERN Ladestationen (NICHT an Zwischenstopps, siehe
+# Vanishingly small cost tie-breaker (seconds per percentage point charged)
+# for charging edges at REGULAR charging stations (NOT at waypoint stops, see
 # `add_waypoint_wait_edge`): faellt ein Ladehalt vor einer erzwungenen,
 # spaeten departure_time (`Waypoint.planned_departure`/`stay_duration`), ist
-# die zusaetzliche Ladezeit dort rechnerisch EXAKT kostenneutral - jede
+# die zusaetzliche charge_time dort rechnerisch EXAKT kostenneutral - jede
 # Sekunde laenger geladen wird 1:1 durch eine Sekunde kuerzeres Warten am
-# Zwischenstopp kompensiert (`add_waypoint_wait_edge`, `kosten = wait_time_s`
+# waypoint (`add_waypoint_wait_edge`, `costs = wait_time_s`
 # ist affin in der arrival_time). Ohne einen Tie-Breaker waehlt Dijkstra bei
 # dieser exakten Kostengleichheit ein beliebiges (oft unnoetig hohes)
 # Ladeziel statt des tatsaechlich benoetigten Minimums (siehe Nutzer-Report:
-# Ladestation short vor einem ueber Nacht ladenden Zwischenstopp laedt bis auf
-# den `max_charge_soc_pct`-Deckel, obwohl der Zwischenstopp selbst ohnehin
-# unbegrenzt bis 100% nachlaedt). Der Wert ist um Groessenordnungen kleiner
-# als jede real ins Gewicht fallende Zeitdifferenz (Sekunden bis Minuten je
-# time-Bucket) und kann daher NIE eine echte Zeitoptimierung verfaelschen -
-# er entscheidet nur echte Gleichstaende zugunsten des sparsameren Ladeziels.
+# charging_station short vor einem ueber Nacht charging Zwischenstopp laedt bis auf
+# the `max_charge_soc_pct` cap, even though the waypoint itself anyway
+# unlimited to 100% anyway). The value is many orders of magnitude smaller
+# than any time difference that actually matters (seconds to minutes per
+# time bucket) and can therefore NEVER distort a real time optimization -
+# er decides nur echte Gleichstaende zugunsten des sparsameren Ladeziels.
 LADE_TIEBREAK_S_PRO_PROZENTPUNKT: float = 1e-4
 
 
 class StateGraphBuilder:
-    """Konstruiert den diskretisierten Zustandsgraphen für die Optimierung."""
+    """Constructs the discretized state graph for the optimization."""
 
     def __init__(
         self,
         soc_step_pct: float,
         time_step_min: int,
         base_time: datetime,
-        avg_verbrauch_kwh_pro_m: float,
+        avg_consumption_kwh_per_m: float,
     ) -> None:
         """Initialisiert den Builder mit dem Graph-Konstruktions-Zustand.
 
         Args:
-            soc_step_pct: Schrittweite für SoC-Diskretisierung in Prozent.
-            time_step_min: Schrittweite für time-Diskretisierung in Minuten.
-            base_time: Basis-timestamp für die time-Bucket-Berechnung.
-            avg_verbrauch_kwh_pro_m: Durchschnittlicher consumption der Route
-                (kWh/m), Basis für die Detour-Kosten-Heuristik.
+            soc_step_pct: step size for SoC discretization in percentage.
+            time_step_min: step size for time discretization in minutes.
+            base_time: Base timestamp for the time bucket calculation.
+            avg_consumption_kwh_pro_m: Durchschnittlicher consumption der Route
+                (kWh/m), base for the detour cost heuristic.
         """
         self.soc_step_pct = soc_step_pct
         self.time_step_min = time_step_min
         self.base_time = base_time
-        self.avg_verbrauch_kwh_pro_m = avg_verbrauch_kwh_pro_m
+        self.avg_consumption_kwh_per_m = avg_consumption_kwh_per_m
         self.push_seq: itertools.count[int] = itertools.count()
 
     def schedule(
@@ -123,35 +123,35 @@ class StateGraphBuilder:
         ferry_pins: dict[int, tuple[int, datetime, datetime]],
         detour_kosten: dict[str, DetourKosten] | None = None,
     ) -> None:
-        """Generiere Knoten und Kanten für den Zustandsgraphen."""
+        """Generate nodes and edges for the state graph."""
         # Dijkstra-artige Erweiterung mit Min-Heap statt FIFO-BFS: nur
         # erreichbare Knoten erzeugen. Eine reine FIFO-Reihenfolge (frueher:
         # `deque`/`popleft`) verletzt die Dijkstra-Invariante, dass ein Knoten
-        # erst dann als "final" markiert (und seine ausgehenden Kanten erzeugt)
+        # erst dann als "final" markiert (und seine ausgehenden edges erzeugt)
         # werden darf, wenn er mit MINIMALEN Gesamtkosten aus der Warteschlange
         # entnommen wird. Bei FIFO kann ein Knoten mit einem zuerst entdeckten,
         # aber teureren/pessimistischeren SoC verarbeitet werden, WAEHREND ein
         # spaeterer, guenstigerer Pfad zu demselben Knoten `total_cost`/`soc_pct`
         # zwar noch aktualisiert (siehe Kommentare in `add_drive_edge` etc.),
-        # dessen ausgehende Kanten aber NIE (er ist ja schon "visited") new
-        # erzeugt werden. Ergebnis: nachgelagerte Kanten (z. B. "Ladestation
+        # dessen ausgehende edges aber NIE (er ist ja schon "visited") new
+        # erzeugt werden. Ergebnis: nachgelagerte edges (z. B. "charging_station
         # ueberspringen, weiterfahren") werden mit einem zu niedrigen SoC
         # geplant und faelschlich als unzulaessig verworfen - das erzwingt
         # unnoetige Zwischenladestopps, obwohl der tatsaechlich guenstigste
         # (spaeter gefundene) Zustand ausgereicht haette (siehe Nutzer-Report:
-        # unnoetiger 70%->80%-Ladestopp in Kamen vor Holdorf-Ankunft mit 24%).
+        # unnoetiger 70%->80%-charging_stop in Kamen vor Holdorf-Ankunft mit 24%).
         # Ein Min-Heap mit "lazy deletion" (veraltete Eintraege werden beim Pop
         # anhand von `visited` uebersprungen) behebt das bei nichtnegativen
-        # Kantengewichten (drive_time_s/Ladezeit/Wartezeit sind stets >= 0)
+        # edgesgewichten (drive_time_s/charge_time/Wartezeit sind stets >= 0)
         # korrekt: der erste Pop eines Knotens liefert garantiert dessen
         # minimale Gesamtkosten.
         visited: set[tuple[int, int, int]] = set()
         # Dominanz-Pruning: fuer dieselbe Position+SoC (`seg_idx, soc_bucket`)
         # ist ein SPAETERER arrival_time bei GLEICHEN oder hoeheren
-        # Gesamtkosten NIE von Vorteil - `total_cost` ist in diesem Modell
-        # ueberall exakt die seit Abfahrt verstrichene time (jede Kante ist
-        # eine Zeitdauer: drive_time_s/Ladezeit/Wartezeit/ferry-Wartezeit), und
-        # saemtliche Folgekosten (energy_consumption, Ladekurve, `max_time_
+        # Gesamtkosten NIE von Vorteil - `total_cost` ist in diesem model
+        # ueberall exakt die seit Abfahrt verstrichene time (jede edge ist
+        # eine Zeitdauer: drive_time_s/charge_time/Wartezeit/ferry-Wartezeit), und
+        # saemtliche Folgekosten (energy_consumption, charging_curve, `max_time_
         # buckets`-Limit, sogar ferry-Abfahrtsfenster - frueher ankommen
         # heisst dort hoechstens laenger warten, nie eine Ferry verpassen,
         # die ein spaeterer Zustand noch erreicht haette) haengen NUR vom
@@ -159,11 +159,11 @@ class StateGraphBuilder:
         # nie vom Kalenderzeitpunkt selbst. Der erste (Heap-Reihenfolge:
         # guenstigste) besuchte Knoten je `(seg_idx, soc_bucket)` erweitert
         # daher IMMER mindestens so guenstige Folgezustaende wie jeder
-        # spaetere - dessen eigene ausgehende Kanten sind somit ueberfluessig
+        # spaetere - dessen eigene ausgehende edges sind somit ueberfluessig
         # und werden uebersprungen. Ohne dieses Pruning haelt der Zustands-
-        # graph pro Entscheidungspunkt bis zu O(SoC-Buckets x time-Buckets)
+        # graph pro decisionspunkt bis zu O(SoC-Buckets x time-Buckets)
         # tatsaechlich erweiterte Knoten statt O(SoC-Buckets) - bei Routen
-        # mit vielen Ladestationen (z. B. lange Auslandsstrecken mit dichtem
+        # mit vielen charging_stationen (z. B. lange Auslandsstrecken mit dichtem
         # Schnelllader-Netz) der dominante Faktor fuer eine quadratisch statt
         # linear mit der Stationsanzahl wachsende Laufzeit (siehe Nutzer-
         # Report: > 100s Optimierungszeit).
@@ -174,30 +174,30 @@ class StateGraphBuilder:
         G.nodes[start_node]["total_cost"] = 0.0
         G.nodes[start_node]["parent"] = None
 
-        # Sortierte Liste aller Entscheidungspunkte (Ladestation, Zwischenstopp
-        # oder Fähr-Einstieg). Zwischen zwei Entscheidungspunkten gibt es im
+        # Sortierte Liste aller decisionspunkte (charging_station, Zwischenstopp
+        # or ferry boarding). Between two decision points, there are in
         # Zustandsgraphen keine Verzweigung - eine Fahrtkante darf die
-        # dazwischenliegenden Roh-Segmente daher in EINEM Sprung überspringen
-        # (siehe `add_drive_edge`) statt pro Roh-Segment einen eigenen
+        # raw segments in between can therefore be skipped in ONE jump
+        # (siehe `add_drive_edge`) statt pro Roh-segment einen eigenen
         # Zustandsknoten zu erzeugen. Das reduziert die Knotenzahl von
-        # O(Roh-Segmente x SoC-Buckets x time-Buckets) auf
-        # O(Entscheidungspunkte x SoC-Buckets x time-Buckets) - bei
-        # feingranularen Routen (tausende Roh-Segmente, wenige Dutzend
-        # Ladestationen) der entscheidende Faktor (docs/plans/07-optimization.md).
+        # O(Roh-segmente x SoC-Buckets x time-Buckets) auf
+        # O(decisionspunkte x SoC-Buckets x time-Buckets) - bei
+        # feingranularen Routen (tausende Roh-segmente, wenige Dutzend
+        # charging_stationen) der criticale Faktor (docs/plans/07-optimization.md).
         checkpoints: list[int] = sorted(set(waypoint_map) | set(station_segments) | set(ferry_pins))
 
-        # Segmente von Zwischenstopps, an denen TATSAECHLICH geladen werden
-        # kann (Ladeleistung gesetzt UND eine erzwungene Wartezeit vorliegt,
+        # segmente von Zwischenstopps, an denen TATSAECHLICH geladen werden
+        # kann (charging_power gesetzt UND eine erzwungene Wartezeit vorliegt,
         # siehe `add_waypoint_wait_edge`/`required_departure` - ohne
-        # Wartezeit findet dort kein Ladevorgang statt, siehe
-        # `Waypoint.charging_power_kw`). Fuer diese Segmente gilt beim Anfahren
-        # dieselbe abgesenkte Ankunfts-Untergrenze wie an einer Ladestation
+        # Wartezeit findet dort kein charging_process statt, siehe
+        # `Waypoint.charging_power_kw`). Fuer diese segmente gilt beim Anfahren
+        # dieselbe abgesenkte Ankunfts-Untergrenze wie an einer charging_station
         # (`min_arrival_soc_pct` statt des allgemeinen
         # `min_soc_pct`-Sicherheitsreserve fuer offene segment) - an einer
-        # Ladestation UND an einem ladefaehigen Zwischenstopp ist ein
+        # charging_station UND an einem ladefaehigen Zwischenstopp ist ein
         # niedriger Ankunfts-SoC unbedenklich, weil garantiert nachgeladen
-        # wird (siehe Nutzer-Report: Ankunft an einem ladenden Zwischenstopp
-        # mit 21% statt der erwarteten ~5%, weil der Fahrt-Kante dorthin
+        # wird (siehe Nutzer-Report: Ankunft an einem charging Zwischenstopp
+        # mit 21% statt der erwarteten ~5%, weil der Fahrt-edge dorthin
         # faelschlich das Offene-segment-Minimum auferlegt wurde).
         waypoint_charge_segments: set[int] = {
             seg_idx
@@ -255,16 +255,16 @@ class StateGraphBuilder:
                 continue
             dominanz_erweitert.add(dominanz_key)
 
-            # Prüfe, ob Ziel erreicht (alle Segmente abgefahren)
+            # Check if target reached (all segments traversed)
             if seg_idx == len(segments) and soc_bucket >= ziel_soc_bucket:
                 continue  # Ziel erreicht, nicht weiter erweitern
 
-            # 2. Fahrtkante: bis zum naechsten Entscheidungspunkt (oder bis
+            # 2. Fahrtkante: bis zum naechsten decisionspunkt (oder bis
             # zum Ziel, falls keiner more folgt) in einem Sprung fahren -
             # ausser der Nutzer hat fuer diese Position einen festen
-            # Fährfahrplan vorgegeben (`ferry_pins`), dann wird die gesamte
-            # Fähr-Ueberfahrt separat modelliert (siehe `add_ferry_edge`).
-            # seg_idx zaehlt bereits abgefahrene Segmente (0 = Start,
+            # ferry schedule given (`ferry_pins`), then the entire
+            # ferry crossing modeled separately (see `add_ferry_edge`).
+            # seg_idx zaehlt bereits abgefahrene segmente (0 = Start,
             # len(segments) = Ziel erreicht).
             if seg_idx < len(segments) and not muss_warten:
                 if seg_idx in ferry_pins:
@@ -295,8 +295,8 @@ class StateGraphBuilder:
                         heap=heap,
                     )
 
-            # 3. Ladekante: An dieser Station laden (wenn verfügbar) - bleibt
-            # auch waehrend einer erzwungenen Zwischenstopp-Wartezeit erlaubt
+            # 3. charging_edge: Charge at this station (if available) - remains
+            # auch waehrend einer erzwungenen Zwischenstopp-Wartezeit allowed
             # (Laden UND Warten schliessen sich nicht aus).
             if seg_idx in station_segments:
                 self.add_charging_edges(
@@ -321,7 +321,7 @@ class StateGraphBuilder:
                     detour_kosten=detour_kosten,
                 )
 
-            # 4. Zwischenstopp-Zwang: bis zur erforderlichen departure_time
+            # 4. Zwischenstopp-Zwang: bis zur requireden departure_time
             # warten - optional mit Ladung ueber `wait_ladeleistung_kw`.
             if muss_warten and required_departure is not None and wait_koordinate is not None:
                 self.add_waypoint_wait_edge(
@@ -346,16 +346,16 @@ class StateGraphBuilder:
     ) -> tuple[datetime | None, tuple[float, float] | None, float | None]:
         """Ermittelt die (spaeteste) erzwungene Mindestabfahrtszeit an `seg_idx`.
 
-        Kombiniert je Waypoint `stay_duration` (relativ zur TATSAECHLICHEN
+        Kombiniert je Waypoint `stay_duration` (relativ zur ACTUALN
         Ankunft `stop_arrival`) und `planned_departure` (absolut) - `stop_arrival`
-        ist der timestamp der TATSAECHLICHEN Ankunft an dieser Position (siehe
+        ist der timestamp der ACTUALN Ankunft an dieser Position (siehe
         `add_drive_edge`/`add_ferry_edge`), nicht der aktuelle Knoten-
         timestamp, der bereits eine laufende Ladung/Wartezeit am selben
         `seg_idx` widerspiegeln kann (sonst wuerde eine relative
         `stay_duration` bei jeder erneuten Pruefung ab dem NEUEN timestamp
         nochmals aufgeschlagen und nie konvergieren). Liegen mehrere
-        Zwischenstopps auf demselben Segment, gewinnt die spaeteste Abfahrts-
-        time (deren Koordinate/Ladeleistung wird fuer die Wartekante genutzt).
+        Zwischenstopps auf demselben segment, gewinnt die spaeteste Abfahrts-
+        time (deren Koordinate/charging_power wird fuer die Wartekante genutzt).
         """
         if seg_idx not in waypoint_map:
             return None, None, None
@@ -397,21 +397,21 @@ class StateGraphBuilder:
         target_soc_target: float,
         heap: list[tuple[float, int, tuple[int, int, int]]],
     ) -> None:
-        """Füge eine aggregierte Fahrtkante von `seg_idx` bis `target_seg_idx` hinzu.
+        """Add an aggregated driving edge from `seg_idx` to `target_seg_idx`.
 
-        `target_seg_idx` ist der naechste Entscheidungspunkt (Ladestation,
-        Zwischenstopp oder Fähr-Einstieg) nach `seg_idx`, oder `len(segments)`
+        `target_seg_idx` ist der naechste decisionspunkt (charging_station,
+        waypoint or ferry boarding) after `seg_idx`, or `len(segments)`
         falls keiner more folgt (siehe `generate_graph`). Zwischen zwei
-        Entscheidungspunkten verzweigt der Zustandsgraph nicht - eine einzelne
-        Fahrtkante über ALLE dazwischenliegenden Roh-Segmente liefert exakt
-        dasselbe Ergebnis wie eine Kante pro Roh-Segment (energy/time sind
+        decisionspunkten verzweigt der Zustandsgraph nicht - eine einzelne
+        driving edge across ALL raw segments in between provides exactly
+        dasselbe Ergebnis wie eine edge pro Roh-segment (energy/time sind
         linear additiv, siehe `cum_time_s`/`cum_energy_kwh` in `optimize()`),
-        vermeidet aber die sonst bei feingranularen Routen (ein Segment pro
+        vermeidet aber die sonst bei feingranularen Routen (ein segment pro
         GraphHopper-Polyline-Punktpaar) explodierende Anzahl an
         Zustandsknoten (docs/plans/07-optimization.md, Risiko "Skalierbarkeit
-        der NetworkX-Lösung").
+        the NetworkX solution").
         """
-        # SoC-consumption für die gesamte Teilstrecke (aggregierte energy über
+        # SoC consumption for the entire subsection (aggregated energy over
         # cum_energy_kwh, siehe optimize()).
         energy_kwh = cum_energy_kwh[target_seg_idx] - cum_energy_kwh[seg_idx]
         verbrauch_pct = charging_math.calc_soc_verbrauch_pct(
@@ -422,11 +422,11 @@ class StateGraphBuilder:
         # consumption wird vom KONTINUIERLICHEN SoC des Vorgaengerknotens
         # abgezogen (nicht vom gerundeten Bucket) und erst danach fuer den
         # neuen Knoten wieder gebuckt - siehe docs/plans/07-optimization.md
-        # (Regressionstest: SoC-Quantisierung bei feingranularen Segmenten).
+        # (Regressionstest: SoC-Quantisierung bei feingranularen segmenten).
         current_soc_pct = G.nodes[current]["soc_pct"]
         new_soc_pct = current_soc_pct - verbrauch_pct
 
-        # Reichweite reicht nicht (SoC unter 0%) - eine unzulaessige Kante wie
+        # Reichweite reicht nicht (SoC unter 0%) - eine unzulaessige edge wie
         # jede andere Unterschreitung der geltenden Sicherheitsreserve.
         # Fuehrt die Fahrtkante zum eigentlichen FAHRTZIEL
         # (`target_seg_idx == total_segments`), gilt dort `target_soc_target`
@@ -436,7 +436,7 @@ class StateGraphBuilder:
         # einschlaegig (sonst kann ein vom Nutzer bewusst low gewaehltes
         # Ziel-SoC, z. B. 5%, nie erreicht werden, siehe Nutzer-Report: Ziel-
         # SoC 5% gesetzt, Ankunft trotzdem bei 27%). Fuehrt sie stattdessen zu
-        # einer Ladestation (`target_seg_idx in station_segments`) oder einem
+        # einer charging_station (`target_seg_idx in station_segments`) oder einem
         # ladefaehigen Zwischenstopp (`target_seg_idx in
         # waypoint_charge_segments`, siehe `generate_graph`), gilt dort
         # ebenfalls NICHT das allgemeine `min_soc_pct`, sondern das
@@ -451,14 +451,14 @@ class StateGraphBuilder:
         else:
             mindest_soc_pct = constraints.min_soc_pct
         if new_soc_pct < 0.0 or new_soc_pct < mindest_soc_pct:
-            return  # Unzulässig
+            return  # Unzulaessig
         new_soc_bucket = soc_to_bucket(new_soc_pct, self.soc_step_pct)
 
         # drive_time_s fuer die gesamte Teilstrecke: aggregierte, aus der
-        # TATSAECHLICHEN je-Segment-speed ermittelte drive_time_s
-        # (`cum_time_s`, siehe `optimize()`/`SegmentEnergyResult.drive_time_s`) -
+        # ACTUALN je-segment-speed ermittelte drive_time_s
+        # (`cum_time_s`, siehe `optimize()`/`segmentEnergyResult.drive_time_s`) -
         # NICHT aus einer pauschalen Durchschnittsgeschwindigkeit. Der neue
-        # time-Bucket wird aus der TATSAECHLICHEN kumulierten time des
+        # time-Bucket wird aus der ACTUALN kumulierten time des
         # Vorgaengerknotens abgeleitet (nicht inkrementell aus dem bereits
         # gerundeten Bucket), sonst ginge bei kurzen Teilstrecken drive_time_s
         # durch Rundung verloren.
@@ -467,7 +467,7 @@ class StateGraphBuilder:
         new_time_bucket = time_to_bucket(neuer_zeitpunkt, self.base_time, self.time_step_min)
 
         if new_time_bucket > max_time_buckets:
-            return  # Zeitlimit überschritten
+            return  # Time limit exceeded
 
         # Kosten berechnen
         kosten = drive_time_s  # Nur drive_time_s, keine Ladezeit
@@ -486,7 +486,7 @@ class StateGraphBuilder:
                 parent=None,
             )
 
-        # Kante hinzufügen mit Kosten
+        # add edge with cost
         current_cost = G.nodes[current].get("total_cost", 0.0)
         new_total_cost = current_cost + kosten
 
@@ -496,12 +496,12 @@ class StateGraphBuilder:
             G.nodes[next_node]["parent"] = current
             G.nodes[next_node]["timestamp"] = neuer_zeitpunkt
             G.nodes[next_node]["stop_arrival"] = neuer_zeitpunkt
-            # `soc_pct` MUSS bei jeder guenstigeren Kante aktualisiert werden
+            # `soc_pct` MUSS bei jeder guenstigeren edge aktualisiert werden
             # (nicht nur beim allerersten Anlegen des Knotens) - sonst kann
             # ein Knoten-Schluessel `(segment_index, soc_bucket, time_bucket)`,
-            # der zuerst durch eine ANDERE (spaeter verworfene) Kante angelegt
+            # der zuerst durch eine ANDERE (spaeter verworfene) edge angelegt
             # wurde, einen veralteten SoC-Wert behalten, obwohl die tatsaechlich
-            # gewaehlte Kante einen anderen kontinuierlichen SoC erreicht (siehe
+            # gewaehlte edge einen anderen kontinuierlichen SoC erreicht (siehe
             # `TestLadehaltUeberlebtKnotenKollision` in test_optimization.py).
             G.nodes[next_node]["soc_pct"] = new_soc_pct
             self.schedule(heap, next_node, new_total_cost)
@@ -525,30 +525,30 @@ class StateGraphBuilder:
         max_time_buckets: int,
         heap: list[tuple[float, int, tuple[int, int, int]]],
     ) -> None:
-        """Fügt eine Kante für eine terminierte Fährüberfahrt hinzu.
+        """Adds an edge for a user-initiated ferry crossing.
 
-        Modelliert eine vom Nutzer terminierte Fährüberfahrt (fixe Abfahrts-/
+        models a user-initiated ferry crossing (fixed departure/
         arrival_time, `optimize()`-Parameter `ferry_time_windows`) in EINEM Sprung
-        von `current` zum Segment nach der Fähre - anstelle der sonst pro Segment
-        erzeugten `add_drive_edge`-Kanten für die dazwischenliegenden
-        Fähr-Segmente (siehe `generate_graph`). Kein SoC-consumption (Motor aus
-        während der Überfahrt) - nur Wartezeit bis zur Abfahrt plus die
-        Überfahrtsdauer als Kosten, analog zu `add_waypoint_wait_edge`s
+        from `current` to the segment after the ferry - instead of the otherwise per segment
+        generated `add_drive_edge` edges for the in-between
+        ferry segments (see `generate_graph`). No SoC consumption (engine off
+        during crossing) - only wait time until departure plus the
+        crossing duration as cost, analogous to `add_waypoint_wait_edge`s
         "kein SoC-Verlust"-Ansatz. `pin` ist
         `(segment_index_end, departure, arrival)`, wobei `segment_index_end` das
-        erste Segment NACH der Fähre ist (siehe
-        `tripplanner.routing.models.FerrySegment.segment_index_end`).
+        first segment AFTER the Faehre ist (siehe
+        `tripplanner.routing.models.Ferrysegment.segment_index_end`).
         """
         segment_index_end, departure, arrival = pin
         current_zeitpunkt = G.nodes[current]["timestamp"]
 
         if current_zeitpunkt > departure:
-            return  # Fähre zu diesem timestamp bereits abgefahren - Pfad unzulässig
+            return  # Ferry already departed at this timestamp - path invalid
 
         neuer_zeitpunkt = arrival
         new_time_bucket = time_to_bucket(neuer_zeitpunkt, self.base_time, self.time_step_min)
         if new_time_bucket > max_time_buckets:
-            return  # Zeitlimit überschritten
+            return  # Time limit exceeded
 
         wartezeit_s = (departure - current_zeitpunkt).total_seconds()
         ueberfahrt_s = (arrival - departure).total_seconds()
@@ -603,28 +603,28 @@ class StateGraphBuilder:
         target_soc_target: float,
         detour_kosten: dict[str, DetourKosten] | None = None,
     ) -> None:
-        """Füge Ladekanten zu allen Stationen in diesem Segment hinzu.
+        """Füge charging_edgen zu allen Stationen in diesem segment hinzu.
 
-        `stations` enthält je Station auch deren Luftlinien-Abstand (Meter)
+        `stations` enthaelt je Station auch deren Luftlinien-Abstand (Meter)
         zum naechstgelegenen Routenpunkt (siehe `map_stations_to_segments`).
         Stationen, die nicht direkt AUF der Route liegen (der Regelfall - der
-        Suchradius `search_radius_km` in `trip_input/api.py` erlaubt bewusst
+        Suchradius `search_radius_km` in `trip_input/api.py` allowed bewusst
         Kandidaten mehrere Kilometer abseits der Route), erfordern einen
-        Hin- und Rückweg-Abstecher. Dessen time-/Energiekosten werden über
-        `detour_kosten` geschätzt und der Ladekante aufgeschlagen - ohne
+        Hin- und return-Abstecher. Dessen time-/Energiekosten werden über
+        `detour_kosten` geestimates und der charging_edge aufgeschlagen - ohne
         das würde die Optimierung eine weit abseits liegende, aber
-        geografisch zufällig dem "billigsten" Segment zugeordnete Station als
+        geografisch zufaellig dem "billigsten" segment zugeordnete Station als
         KOSTENLOS erreichbar behandeln und z. B. einen 90-minütigen Abstecher
         nur fürs Laden waehlen, obwohl eine naehere Station denselben SoC-
         Bedarf gedeckt haette (siehe Nutzer-Report: Jönköping -> Ödeshög und
         zurück statt direkt in Jönköping/Mariestad zu laden).
 
         Für Stationen mit einer vom Nutzer vorgegebenen festen charge_duration
-        (`charging_duration_specifications`, Schlüssel = `station_id`) wird GENAU EINE Kante
+        (`charging_duration_specifications`, Schlüssel = `station_id`) wird EXACTLY ONE edge
         mit dieser duration erzeugt (resultierender SoC per Bisektion über die
-        Ladekurve ermittelt, siehe `soc_nach_fester_ladezeit`) statt der
-        sonstigen SoC-Ziel-Iteration - die Vorgabe ist eine explizite
-        Nutzer-Entscheidung und daher auch nicht durch
+        charging_curve ermittelt, siehe `soc_nach_fester_ladezeit`) statt der
+        sonstigen SoC target iteration - die Vorgabe ist eine explizite
+        Nutzer-decision und daher auch nicht durch
         `constraints.max_ladezeit_s` begrenzt (analog zur ungedeckelten
         Wartezeit in `add_waypoint_wait_edge`).
         """
@@ -636,25 +636,25 @@ class StateGraphBuilder:
                 offroute_distance_m=offroute_distance_m,
                 vehicle_profile=vehicle_profile,
                 detour_kosten=detour_kosten,
-                avg_verbrauch_kwh_pro_m=self.avg_verbrauch_kwh_pro_m,
+                avg_consumption_kwh_per_m=self.avg_consumption_kwh_per_m,
             )
             hinweg_zeit_s, hinweg_soc_pct, rueckweg_zeit_s, rueckweg_soc_pct = detour_ergebnis
             arrival_soc_pct = current_soc_pct - hinweg_soc_pct
             # Untergrenze `min_arrival_soc_pct` gilt fuer den
-            # TATSAECHLICHEN SoC AN der Station, nicht nur fuer den
+            # ACTUALN SoC AN der Station, nicht nur fuer den
             # On-Route-SoC am Checkpoint vor dem Abstecher: eine abseits der
             # Route liegende Station (siehe `detour_kosten`) kostet
-            # zusaetzliche Reichweite fuer den Hinweg dorthin - ohne diesen
+            # zusaetzliche Reichweite fuer den outbound dorthin - ohne diesen
             # Check wuerde `add_drive_edge`s Floor-Pruefung (die nur den
             # On-Route-SoC kennt) durch den anschliessenden Abstecher
             # unterlaufen und ein Ladehalt mit SoC UNTER der vom Nutzer
             # gesetzten Sicherheitsreserve entstehen (siehe Regressionstest
-            # `test_create_trip_simulation_mindest_ankunfts_soc_pct_erlaubt_niedrigere_ladezeit`).
-            # Nutzt bewusst NUR den Hinweg-Anteil (nicht einen gemittelten
-            # Hin-/Rueckweg-Wert, siehe `DetourKosten`-Docstring): der
-            # Rueckweg ist fuer die Ankunft AN der Station irrelevant und ein
+            # `test_create_trip_simulation_mindest_ankunfts_soc_pct_allowed_niedrigere_ladezeit`).
+            # Uses bewusst NUR den outbound-Anteil (nicht einen gemittelten
+            # Hin-/return-Wert, siehe `DetourKosten`-Docstring): der
+            # return ist fuer die Ankunft AN der Station irrelevant und ein
             # gemitteltes "je Richtung"-SoC wuerde eine Station mit kurzem
-            # Hinweg aber langem Rueckweg faelschlich unter die
+            # outbound aber langem return faelschlich unter die
             # Sicherheitsreserve druecken.
             if arrival_soc_pct < constraints.min_arrival_soc_pct:
                 logger.debug(
@@ -714,7 +714,7 @@ class StateGraphBuilder:
                 )
                 continue
 
-            Ziel_soc_values = charging_math.lade_ziel_kandidaten(
+            target_soc_candidates = charging_math.charging_target_candidates(
                 arrival_soc_pct=arrival_soc_pct,
                 seg_idx=seg_idx,
                 checkpoints=checkpoints,
@@ -727,19 +727,19 @@ class StateGraphBuilder:
                 ladekurve=ladekurve,
                 target_soc_target=target_soc_target,
             )
-            Ziel_soc_values = charging_math.kandidaten_mit_mindestladedauer(
-                kandidaten=Ziel_soc_values,
+            target_soc_candidates = charging_math.candidates_with_min_charge_duration(
+                kandidaten=target_soc_candidates,
                 arrival_soc_pct=arrival_soc_pct,
                 ladekurve=ladekurve,
                 battery_capacity_kwh=vehicle_profile.battery_capacity_kwh,
                 min_charging_time_s=float(constraints.min_charging_time_s),
                 max_charge_soc_pct=min(MAX_SOC_PCT, constraints.max_charge_soc_pct),
             )
-            for Ziel_soc in Ziel_soc_values:
+            for Ziel_soc in target_soc_candidates:
                 if Ziel_soc <= arrival_soc_pct:
-                    continue  # Bereits höher als Ziel
+                    continue  # Already higher than target
 
-                # Ladezeit berechnen (echtes Start-/End-SoC-Fenster, siehe
+                # charge_time berechnen (echtes Start-/End-SoC window, siehe
                 # `calc_ladezeit_s`)
                 ladezeit_s = charging_math.calc_ladezeit_s(
                     start_soc_pct=arrival_soc_pct,
@@ -781,34 +781,34 @@ class StateGraphBuilder:
         max_time_buckets: int,
         heap: list[tuple[float, int, tuple[int, int, int]]],
     ) -> None:
-        """Fügt eine Ladekante hinzu (Knoten-/Kanten-/Kosten-Buchhaltung).
+        """Fügt eine charging_edge hinzu (Knoten-/edges-/Kosten-Buchhaltung).
 
-        Erzeugt (falls günstiger als ein bestehender Pfad) eine Ladekante von
+        Erzeugt (falls günstiger als ein bestehender Pfad) eine charging_edge von
         `current` zu einem Knoten, der wieder AUF der Route liegt (derselbe
-        `seg_idx`) - dazwischen liegen Hinweg-Abstecher (`hinweg_zeit_s`, der
-        SoC-consumption dafuer steckt bereits in `arrival_soc_pct`, siehe
+        `seg_idx`) - dazwischen liegen outbound-Abstecher (`hinweg_zeit_s`, der
+        SoC consumption dafuer steckt bereits in `arrival_soc_pct`, siehe
         `add_charging_edges`), die eigentliche Ladung (`arrival_soc_pct` ->
-        `target_soc_pct` in `ladezeit_s`) und der Rückweg-Abstecher
+        `target_soc_pct` in `ladezeit_s`) und der return-Abstecher
         (`rueckweg_zeit_s`/`rueckweg_soc_pct`, siehe `detour_kosten`). Der
-        neue Knoten-SoC ist daher `target_soc_pct` MINUS den Rückweg-consumption,
+        neue Knoten-SoC ist daher `target_soc_pct` MINUS den return-consumption,
         nicht `target_soc_pct` selbst - ein Ladehalt abseits der Route "kostet"
-        auch auf dem Rückweg noch Reichweite. Hin- und Rückweg werden bewusst
+        auch auf dem return noch Reichweite. Hin- und return werden bewusst
         NICHT gemittelt (siehe `DetourKosten`-Docstring): beide Legs koennen
         real unterschiedlich long sein, und jede Seite braucht ihren
         EIGENEN, nicht symmetrisierten Wert, sonst kann eine Station mit
-        kurzem Hinweg aber langem Rückweg (oder umgekehrt) faelschlich als
+        kurzem outbound aber langem return (oder umgekehrt) faelschlich als
         nicht erreichbar/nicht rueckfuehrbar verworfen werden, obwohl sie es
         real ist. `arrival_soc_pct`/`target_soc_pct` (Zustand AN der Station)
-        werden zusätzlich als Kanten-Attribute hinterlegt, damit
-        `extract_charging_stops` den tatsächlichen Lade-Ablauf (nicht den um
-        die Abstecher-Fahrt verfälschten Routen-SoC) berichten kann -
-        gemeinsame Buchhaltung für sowohl die automatische SoC-Ziel-Iteration
+        werden zusaetzlich als edges-Attribute hinterlegt, damit
+        `extract_charging_stops` den tatsaechlichen Lade-Ablauf (nicht den um
+        die Abstecher-Fahrt verfaelschten route SoC) berichten kann -
+        gemeinsame Buchhaltung für sowohl die automatische SoC target iteration
         als auch eine vom Nutzer vorgegebene feste charge_duration (siehe
         `add_charging_edges`).
         """
         route_soc_pct = target_soc_pct - rueckweg_soc_pct
         if route_soc_pct < 0.0:
-            return  # Reichweite reicht nicht für den Rückweg zur Route
+            return  # Range not sufficient for the return to the route
         new_soc_bucket = soc_to_bucket(route_soc_pct, self.soc_step_pct)
 
         arrival_time = G.nodes[current]["timestamp"] + timedelta(seconds=hinweg_zeit_s)
@@ -817,9 +817,9 @@ class StateGraphBuilder:
         new_time_bucket = time_to_bucket(neuer_zeitpunkt, self.base_time, self.time_step_min)
 
         if new_time_bucket > max_time_buckets:
-            return  # Zeitlimit überschritten
+            return  # Time limit exceeded
 
-        # Kosten: Ladezeit PLUS Hin-/Rückweg-drive_time_s des Abstechers (0 für
+        # Kosten: charge_time PLUS Hin-/return-drive_time_s des Abstechers (0 für
         # Stationen direkt auf der Route) PLUS verschwindend kleiner
         # Tie-Breaker zugunsten des sparsameren Ladeziels (siehe
         # `LADE_TIEBREAK_S_PRO_PROZENTPUNKT`).
@@ -871,7 +871,7 @@ class StateGraphBuilder:
             # `type="drive"`, ohne `station_id`) angelegt hat - der Knoten
             # selbst wird dann NICHT erneut mit `type="charge"`/`station_id`
             # initialisiert (siehe `if next_node not in G.nodes` oben). Die
-            # tatsaechlich im Pfad gewaehlte Kante (`prev_node -> curr_node`)
+            # tatsaechlich im Pfad gewaehlte edge (`prev_node -> curr_node`)
             # ist aber immer eindeutig - `extract_charging_stops` liest den
             # Ladehalt daher von der KANTE, nicht vom Knoten (sonst wird der
             # Ladehalt bei einer solchen Kollision aus dem Ergebnis verschluckt,
@@ -896,7 +896,7 @@ class StateGraphBuilder:
             G.nodes[next_node]["stop_arrival"] = stop_arrival
             self.schedule(heap, next_node, new_total_cost)
         else:
-            # Diagnostik: diese Kante wurde BERECHNET, verliert aber gegen
+            # Diagnostik: diese edge wurde BERECHNET, verliert aber gegen
             # einen bereits existierenden guenstigeren Knoten am selben
             # (segment_index, soc_bucket, time_bucket)-Schluessel - sie wird
             # NIE Teil von G und kann daher auch nie auf dem gewaehlten Pfad
@@ -927,16 +927,16 @@ class StateGraphBuilder:
         max_time_buckets: int,
         heap: list[tuple[float, int, tuple[int, int, int]]],
     ) -> None:
-        """Füge Kante hinzu, um bis `required_departure` an einem Zwischenstopp zu warten.
+        """Add edge to wait at a waypoint until `required_departure`.
 
         `required_departure` ist der bereits fertig aufgeloeste, absolute
         Mindestabfahrtszeitpunkt (siehe `generate_graph`, kombiniert aus
-        `Waypoint.stay_duration`/`planned_departure`) - diese Kante wird nur
+        `Waypoint.stay_duration`/`planned_departure`) - diese edge wird nur
         erzeugt, wenn er noch nicht erreicht ist. Optional wird waehrend der
-        Wartezeit ueber eine vor Ort verfuegbare Ladeleistung
+        Wartezeit ueber eine vor Ort verfuegbare charging_power
         (`charging_power_kw`) geladen: der resultierende SoC wird per Bisektion
         (`soc_nach_fester_ladezeit`, mit `charging_power_kw` als Leistungs-
-        deckel gegenueber der vehicle-Ladekurve) fuer die FESTE Wartedauer
+        deckel gegenueber der vehicle-charging_curve) fuer die FESTE Wartedauer
         ermittelt - die Wartezeit selbst ist durch `required_departure`
         vorgegeben und wird durch das Laden weder verlaengert noch verkuerzt.
         """
@@ -947,7 +947,7 @@ class StateGraphBuilder:
 
         new_time_bucket = time_to_bucket(required_departure, self.base_time, self.time_step_min)
         if new_time_bucket > max_time_buckets:
-            return  # Zeitlimit überschritten
+            return  # Time limit exceeded
 
         current_soc_pct = G.nodes[current]["soc_pct"]
         new_soc_pct = current_soc_pct

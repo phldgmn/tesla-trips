@@ -1,11 +1,11 @@
-"""Wind-Modul: Berechnung von headwind- und crosswind-Komponenten.
+"""Wind-Modul: calculation von headwind- und crosswind-Komponenten.
 
-Dieses Modul berechnet aus den Wetterdaten (wind_speed_ms und -richtung)
-und der heading (Bearing) eines Route-Segments die effektiven Windkomponenten:
+Dieses Modul berechnet aus den weatherdaten (wind_speed_ms und -richtung)
+und der heading (Bearing) eines Route-segments die effektiven Wind components:
 - headwind-/Rückenwind-Komponente (m/s, positiv = headwind, negativ = Rückenwind)
 - crosswind-Komponente (m/s, positiv = von rechts, negativ = von links)
 
-Das Modul ist reine Berechnungslogik ohne externe Datenquellen.
+Das Modul ist reine calculationslogik ohne externe dataquellen.
 """
 
 from tripplanner.wind.models import WindComponents

@@ -10,20 +10,20 @@ from tripplanner.trip_input.models import TripRequest
 
 
 class FakeRoutingProvider:
-    """Fake-Implementierung ohne laufenden GraphHopper-Server (Tests & lokaler Dev-Betrieb).
+    """Fake-implementation ohne laufenden GraphHopper-Server (Tests & lokaler Dev-Betrieb).
 
     Diskretisiert jede Teilstrecke (Start -> Zwischenstopp -> ... -> Ziel) in
-    mehrere kleinere Segmente (~SEGMENT_LAENGE_ZIEL_M je Segment), damit Anzahl
-    und Granularität der Segmente mit `GraphHopperRoutingProvider` (ein Segment
+    mehrere kleinere segmente (~SEGMENT_LAENGE_ZIEL_M je segment), damit Anzahl
+    und Granularitaet der segmente mit `GraphHopperRoutingprovider` (ein segment
     pro Polyline-Punktpaar) vergleichbar sind. `NetworkXOptimizer` modelliert
-    Ladehalte und die "letztes Segment vor dem Ziel"-Heuristik pro Segment; mit
-    nur einem einzigen, riesigen Segment pro Teilstrecke waeren diese Modelle
-    unbrauchbar (drive_time_s/Energiebedarf des Segments wuerden effektiv nicht
+    Ladehalte und die "letztes segment vor dem Ziel"-Heuristik pro segment; mit
+    nur einem einzigen, riesigen segment pro Teilstrecke waeren diese modele
+    unbrauchbar (drive_time_s/Energiebedarf des segments wuerden effektiv nicht
     granular genug abgebildet).
     """
 
     SEGMENT_LAENGE_ZIEL_M: float = 5_000.0
-    """Zielgroesse pro Fake-Segment in Metern."""
+    """Zielgroesse pro Fake-segment in Metern."""
 
     async def berechne_route(self, anfrage: TripRequest) -> Route:
         """Compute a fake route for a TripRequest, including its waypoints."""
@@ -103,10 +103,10 @@ class FakeRoutingProvider:
     def _diskretisiere_teilstrecke(
         self, start: Coordinate, end: Coordinate
     ) -> list[tuple[Coordinate, Coordinate, float]]:
-        """Zerlegt eine Teilstrecke in mehrere kuerzere Segmente (~SEGMENT_LAENGE_ZIEL_M).
+        """Zerlegt eine Teilstrecke in mehrere kuerzere segmente (~SEGMENT_LAENGE_ZIEL_M).
 
         Identische Start-/Endkoordinaten (length_m 0) liefern eine leere Liste,
-        sodass der Aufrufer diese Teilstrecke automatisch überspringt.
+        sodass der caller diese Teilstrecke automatisch überspringt.
         """
         gesamtlaenge_m = haversine_distance_m(start, end)
         if gesamtlaenge_m <= 0:

@@ -20,7 +20,7 @@ from tripplanner.elevation.models import SegmentGradient
 from tripplanner.energy.energy import (
     calculate_segment_consumption,
     calculate_total_consumption,
-    f_oberflaeche,
+    f_road_surface,
 )
 from tripplanner.energy.models import VehicleEnergyParameters
 from tripplanner.routing.models import Route, RouteSegment
@@ -542,41 +542,41 @@ class TestEnergyCalculationAdditional:
 
 
 class TestFOberflaeche:
-    """Tests fuer die f_oberflaeche Funktion."""
+    """Tests fuer die f_road_surface Funktion."""
 
-    def test_f_oberflaeche_asphalt(
+    def test_f_road_surface_asphalt(
         self,
     ) -> None:
-        """Test f_oberflaeche fuer Asphalt (Faktor 1.0)."""
-        assert f_oberflaeche("asphalt") == 1.0
+        """Test f_road_surface fuer Asphalt (Faktor 1.0)."""
+        assert f_road_surface("asphalt") == 1.0
 
-    def test_f_oberflaeche_gravel(
+    def test_f_road_surface_gravel(
         self,
     ) -> None:
-        """Test f_oberflaeche fuer Gravel (Faktor 1.5)."""
-        assert f_oberflaeche("gravel") == 1.5
+        """Test f_road_surface fuer Gravel (Faktor 1.5)."""
+        assert f_road_surface("gravel") == 1.5
 
-    def test_f_oberflaeche_grass(
+    def test_f_road_surface_grass(
         self,
     ) -> None:
-        """Test f_oberflaeche fuer Grass (Faktor 2.2)."""
-        assert f_oberflaeche("grass") == 2.2
+        """Test f_road_surface fuer Grass (Faktor 2.2)."""
+        assert f_road_surface("grass") == 2.2
 
-    def test_f_oberflaeche_none(
+    def test_f_road_surface_none(
         self,
     ) -> None:
-        """Test f_oberflaeche fuer None (Fallback auf 1.0)."""
-        assert f_oberflaeche(None) == 1.0
+        """Test f_road_surface fuer None (Fallback auf 1.0)."""
+        assert f_road_surface(None) == 1.0
 
-    def test_f_oberflaeche_unbekannt(
+    def test_f_road_surface_unbekannt(
         self,
     ) -> None:
-        """Test f_oberflaeche fuer unbekannten Belag (Fallback auf 1.0)."""
-        assert f_oberflaeche("unknown_surface") == 1.0
+        """Test f_road_surface fuer unbekannten Belag (Fallback auf 1.0)."""
+        assert f_road_surface("unknown_surface") == 1.0
 
-    def test_f_oberflaeche_case_insensitive(
+    def test_f_road_surface_case_insensitive(
         self,
     ) -> None:
-        """Test f_oberflaeche fuer large/Kleinschreibung."""
-        assert f_oberflaeche("ASPHALT") == 1.0
-        assert f_oberflaeche("Asphalt") == 1.0
+        """Test f_road_surface fuer large/Kleinschreibung."""
+        assert f_road_surface("ASPHALT") == 1.0
+        assert f_road_surface("Asphalt") == 1.0

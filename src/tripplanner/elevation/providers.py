@@ -1,7 +1,7 @@
-"""Provider-Protocol und Implementierungen für DEM-Datenquellen.
+"""provider-Protocol und implementationen für DEM-dataquellen.
 
-Das DEMDataSourceProtocol ermöglicht testbare Höhen-Datenquellen ohne
-feste Abhängigkeit von rasterio.
+Das DEMDataSourceProtocol ermöglicht testbare heightn-dataquellen ohne
+feste Abhaengigkeit von rasterio.
 """
 
 import asyncio
@@ -24,32 +24,32 @@ logger = logging.getLogger(__name__)
 
 @runtime_checkable
 class DEMDataSourceProtocol(Protocol):
-    """Protocol für DEM-Datenquellen (für Testbarkeit).
+    """Protocol für DEM-dataquellen (für Testbarkeit).
 
-    Implementierungen können echte GeoTIFF-Dateien einlesen oder
-    synthetische Daten für Tests bereitstellen.
+    implementationen können echte GeoTIFF-Dateien einlesen oder
+    synthetische data für Tests bereitstellen.
     """
 
     def get_elevation(self, lat: float, lon: float) -> float:
-        """Höhenwert an einer Koordinate abfragen.
+        """Heightnwert an einer Koordinate abfragen.
 
         Args:
             lat: latitude (WGS84)
-            lon: Längengrad (WGS84)
+            lon: Laengengrad (WGS84)
 
         Returns:
-            Höhenwert in Metern oder -9999 (nodata/unbelegt)
+            heightnwert in Metern oder -9999 (nodata/unbelegt)
         """
         ...
 
     async def get_elevations_batch(self, coordinates: list[tuple[float, float]]) -> list[float]:
-        """Höhenwerte für mehrere Koordinaten (optimiert für Batch-Lookup).
+        """Heightnwerte für mehrere Koordinaten (optimiert für Batch-Lookup).
 
         Args:
             coordinates: Liste von (latitude, longitude) Tupeln
 
         Returns:
-            Liste von Höhenwerten in Metern
+            Liste von heightnwerten in Metern
         """
         ...
 
@@ -58,7 +58,7 @@ class DEMDataSourceProtocol(Protocol):
 
         Args:
             lat: latitude
-            lon: Längengrad
+            lon: Laengengrad
 
         Returns:
             DEMTile oder None falls keine Kachel existiert
@@ -73,8 +73,8 @@ class DEMDataSourceProtocol(Protocol):
         Args:
             min_lat: Minimale latitude
             max_lat: Maximale latitude
-            min_lon: Minimale Länge
-            max_lon: Maximale Länge
+            min_lon: Minimale Laenge
+            max_lon: Maximale Laenge
 
         Returns:
             Liste von DEMTiles
@@ -83,11 +83,11 @@ class DEMDataSourceProtocol(Protocol):
 
 
 class FakeDataSource:
-    """Synthetische DEM-Daten für Unit-Tests (kein echtes File I/O).
+    """Synthetische DEM-data für Unit-Tests (kein echtes File I/O).
 
-    Generiert deterministische Höhenwerte basierend auf den Koordinaten
+    Generiert deterministische heightnwerte based auf den Koordinaten
     mittels Hash-Funktion. So sind Tests reproduzierbar ohne externe
-    Abhängigkeiten.
+    Abhaengigkeiten.
     """
 
     def __init__(self, baseline_elevation: float = 100.0, noise_range: float = 5.0) -> None:
@@ -101,29 +101,29 @@ class FakeDataSource:
         self.noise_range = noise_range
 
     def get_elevation(self, lat: float, lon: float) -> float:
-        """Höhenwert an einer Koordinate abfragen.
+        """Heightnwert an einer Koordinate abfragen.
 
-        Deterministisch basierend auf Koordinaten (nicht zufällig!).
+        Deterministically based on coordinates (not random!).
 
         Args:
             lat: latitude (WGS84)
-            lon: Längengrad (WGS84)
+            lon: Laengengrad (WGS84)
 
         Returns:
-            Höhenwert im Bereich [baseline - noise_range/2, baseline + noise_range/2]
+            heightnwert im Bereich [baseline - noise_range/2, baseline + noise_range/2]
         """
         hash_val = hash((round(lat, 5), round(lon, 5))) % 1000
         noise = (hash_val / 1000.0 - 0.5) * self.noise_range
         return self.baseline + noise
 
     async def get_elevations_batch(self, coordinates: list[tuple[float, float]]) -> list[float]:
-        """Höhenwerte für mehrere Koordinaten (optimiert für Batch-Lookup).
+        """Heightnwerte für mehrere Koordinaten (optimiert für Batch-Lookup).
 
         Args:
             coordinates: Liste von (latitude, longitude) Tupeln
 
         Returns:
-            Liste von Höhenwerten in Metern
+            Liste von heightnwerten in Metern
         """
         return [self.get_elevation(lat, lon) for lat, lon in coordinates]
 
@@ -134,10 +134,10 @@ class FakeDataSource:
 
         Args:
             lat: latitude
-            lon: Längengrad
+            lon: Laengengrad
 
         Returns:
-            DEMTile mit synthetischen Daten oder None
+            DEMTile mit synthetischen data oder None
         """
         tile_key = DEMTileKey(
             min_lat=round(lat, 5) - 0.00005,
@@ -145,7 +145,7 @@ class FakeDataSource:
             min_lon=round(lon, 5) - 0.00005,
             max_lon=round(lon, 5) + 0.00005,
         )
-        # 5x5 Pixel Raster mit linearen Höhen
+        # 5x5 Pixel Raster mit linearen heightn
         transform = [
             round(lon, 5) - 0.00005,  # a - x-origin
             0.00002,  # b - x-pixel-size
@@ -157,7 +157,7 @@ class FakeDataSource:
         width = 5
         height = 5
         # Erstelle synthetic raster data (bytes)
-        # Linearer Gradient: 100m bis 120m
+        # Linearer gradient: 100m bis 120m
         raster_data = b""
         for row in range(height):
             for col in range(width):
@@ -183,8 +183,8 @@ class FakeDataSource:
         Args:
             min_lat: Minimale latitude
             max_lat: Maximale latitude
-            min_lon: Minimale Länge
-            max_lon: Maximale Länge
+            min_lon: Minimale Laenge
+            max_lon: Maximale Laenge
 
         Returns:
             Liste von DEMTiles (hier immer genau eine synthetische Kachel)
@@ -249,7 +249,7 @@ class CopernicusDEMDataSource:
         Args:
             base_url: Override für die Bucket-Basis-URL. Werte, die mit
                 ``http://``/``https://`` beginnen, werden über GDALs
-                ``/vsicurl/``-Dateisystem gelesen (Range-Requests, kein
+                ``/vsicurl/``-file system gelesen (Range-Requests, kein
                 Download). Jeder andere Wert wird als lokaler Basispfad
                 behandelt (für Tests gegen eine lokale Test-Kachel). Default:
                 der öffentliche ``copernicus-dem-30m``-Bucket.
@@ -540,8 +540,8 @@ class CopernicusDEMDataSource:
         Args:
             min_lat: Minimale latitude
             max_lat: Maximale latitude
-            min_lon: Minimale Länge
-            max_lon: Maximale Länge
+            min_lon: Minimale Laenge
+            max_lon: Maximale Laenge
 
         Returns:
             Liste der verfügbaren DEMTiles (fehlende Kacheln werden übersprungen)

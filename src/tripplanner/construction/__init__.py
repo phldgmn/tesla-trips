@@ -2,9 +2,9 @@
 
 Exportiert:
 - ConstructionZone: Hauptdatenmodell für construction_zones
-- ClosureType: Aufzählung der ClosureTypes gemäß DATEX II
-- Land: Aufzählung der unterstützten Länder (DE, DK, SE)
-- ConstructionProvider: Interface für construction_zones-Datenprovider
+- ClosureType: Aufzaehlung der ClosureTypes gemaeß DATEX II
+- Land: Aufzaehlung der unterstützten Laender (DE, DK, SE)
+- Constructionprovider: Interface für construction_zones-dataprovider
 """
 
 from tripplanner.construction.models import (

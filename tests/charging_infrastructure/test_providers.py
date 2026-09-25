@@ -275,7 +275,7 @@ class TestTeslaChargingStationProvider:
         (constructed with no explicit `db_path`, as `providers_factory.
         build_production_providers` does in production) then silently loaded
         ZERO charging stations, causing `NetworkXOptimizer.optimize` to reject
-        every trip with charging demand ("Kein erreichbarer Zielknoten
+        every trip with charging demand ("No reachable target node found
         gefunden. Route nicht fahrbar.") instead of raising a clear
         configuration error.
         """

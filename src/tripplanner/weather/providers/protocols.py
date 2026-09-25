@@ -7,20 +7,20 @@ from tripplanner.weather.models import WeatherQuery, WeatherSample
 
 
 class WeatherProvider(Protocol):
-    """Interface für Wetter-Datenprovider (kann durch Fake ersetzt werden)."""
+    """Interface für weather-dataprovider (kann durch Fake ersetzt werden)."""
 
     async def fetch_weather(
         self,
         queries: Sequence[WeatherQuery],
     ) -> list[WeatherSample]:
-        """Abruf von Wetterdaten für mehrere Abfragepunkte.
+        """Abruf von weatherdaten für mehrere querypunkte.
 
         Args:
-            queries: Liste von Wetterabfragen (Koordinate + timestamp).
+            queries: Liste von weatherabfragen (Koordinate + timestamp).
 
         Returns:
-            Liste von Wetterdaten, in gleicher Reihenfolge wie queries.
-            Wird bei fehlenden Daten für einen Punkt eine leere Liste oder
+            Liste von weatherdaten, in gleicher Reihenfolge wie queries.
+            Wird bei fehlenden data für einen Punkt eine leere Liste oder
             None zurückgegeben, wird dies durch ein Sentinel (z. B. None)
         """
         ...
@@ -32,13 +32,13 @@ class WeatherProvider(Protocol):
     ) -> list[WeatherSample]:
         """Neuabfrage bereits abgefragter Punkte mit aktualisiertem timestamp.
 
-        Diese Methode ist zentral für die iterative time-/Wetterauflösung.
-        Die Implementierung darf intern Caching nutzen (z. B. auf `coordinate` + `timestamp`-Tupel),
+        Diese Methode ist zentral für die iterative time-/weatherauflösung.
+        Die implementation darf intern Caching nutzen (z. B. auf `coordinate` + `timestamp`-Tupel),
         um unnötige API-Calls zu vermeiden.
 
         Args:
-            original_queries: Die ursprünglichen Abfragen (unverändert).
-            updated_queries: Die aktualisierten Abfragen mit neuen Zeitpunkten,
+            original_queries: Die ursprünglichen queryn (unveraendert).
+            updated_queries: Die aktualisierten queryn mit neuen Zeitpunkten,
                              gleiche Koordinaten wie original_queries.
 
         Returns:
@@ -48,17 +48,17 @@ class WeatherProvider(Protocol):
 
 
 class FakeWeatherProvider:
-    """Fake-Provider für Unit-Tests.
+    """Fake-provider für Unit-Tests.
 
-    Gibt vordefinierte Wetterdaten zurück, ohne echte API-Calls.
+    Gibt vordefinierte weatherdaten zurück, ohne echte API-Calls.
     """
 
     def __init__(self, samples: list[WeatherSample] | None = None) -> None:
-        """Initialisiert den Fake-Provider.
+        """Initialisiert den Fake-provider.
 
         Args:
             samples: Liste von WeatherSample, die zurückgegeben werden sollen.
-                     Wenn None, werden Dummy-Daten generiert.
+                     Wenn None, werden Dummy-data generiert.
         """
         self._samples = samples or []
         self.fetch_weather_calls: list[Sequence[WeatherQuery]] = []
@@ -68,12 +68,12 @@ class FakeWeatherProvider:
         self,
         queries: Sequence[WeatherQuery],
     ) -> list[WeatherSample]:
-        """Gibt vordefinierte Wetterdaten zurück."""
+        """Gibt vordefinierte weatherdaten zurück."""
         self.fetch_weather_calls.append(queries)
 
         if self._samples:
             return self._samples[: len(queries)]
-        # Dummy-Daten generieren
+        # Dummy-data generieren
         return [
             WeatherSample(
                 coordinate=q.coordinate,
@@ -96,10 +96,10 @@ class FakeWeatherProvider:
         original_queries: Sequence[WeatherQuery],
         updated_queries: Sequence[WeatherQuery],
     ) -> list[WeatherSample]:
-        """Gibt vordefinierte Wetterdaten zurück."""
+        """Gibt vordefinierte weatherdaten zurück."""
         self.refetch_weather_calls.append((original_queries, updated_queries))
         return await self.fetch_weather(updated_queries)
 
     def set_samples(self, samples: list[WeatherSample]) -> None:
-        """Setzt die zurückzugebenden Wetterdaten."""
+        """Setzt die zurückzugebenden weatherdaten."""
         self._samples = samples

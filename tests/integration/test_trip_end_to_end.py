@@ -283,7 +283,7 @@ async def test_construction_no_crash(client: TestClient) -> None:
     )
 
     response = client.post("/trips", json=payload)
-    # Success oder ein konstruktiver Fehler (z.B. Route nicht durchführbar)
+    # Success oder ein konstruktiver Fehler (z.B. Route not feasible)
     # sind beide akzeptabel — Hauptsache kein 500 (Crash)
     assert response.status_code in (201, 422), (
         f"Construction sollte nicht zu 500 führen, bekam {response.status_code}: "

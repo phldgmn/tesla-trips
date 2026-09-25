@@ -1,4 +1,4 @@
-"""Mapping-Funktionen fuer die Umwandlung zwischen Tesla-API-Daten und DB-Records."""
+"""Mapping-Funktionen fuer die Umwandlung zwischen Tesla-API-data und DB-Records."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from ..models import (
     StallType,
 )
 
-# Stall-type power thresholds (kW per stall) - hoisted from TeslaChargingStationProvider
+# Stall-type power thresholds (kW per stall) - hoisted from TeslaChargingStationprovider
 _POWER_V2_MAX = 150
 _POWER_V3_MAX = 250
 _POWER_V3_ULTRA_MAX = 350
@@ -65,7 +65,7 @@ def tesla_location_to_db_record(
 ) -> dict[str, Any]:
     """Wandelt einen Tesla-Locations-Listeneintrag in ein DB-Record-Dict.
 
-    Wird verwendet wenn keine Detaildaten verfuegbar sind.
+    Wird uses wenn keine Detaildaten verfuegbar sind.
 
     Args:
         loc: Dict aus fetch_locations() (mit _slug und _uuid als Fallback)
@@ -138,7 +138,7 @@ def tesla_detail_to_db_record(
 
     Args:
         detail: Detail-Dict von fetch_location_details()
-        country: ISO-2 Ländercode
+        country: ISO-2 Laendercode
 
     Returns:
         DB-Record-Dict für replace_all_stations
@@ -168,7 +168,7 @@ def tesla_detail_to_db_record(
     # trusting only `key_data.status.name` and defaulting to "Open" whenever
     # it is absent - a site still being built may simply not populate that
     # field yet, and silently assuming "Open" falsely marks it usable for
-    # route planning (`TeslaChargingStationProvider.get_all_stations` filters
+    # route planning (`TeslaChargingStationprovider.get_all_stations` filters
     # on `status == "OPEN"`). An unrecognized/missing status therefore falls
     # back to "CONSTRUCTION" (not physically usable), never "OPEN".
     status_map: dict[str, str] = {
@@ -237,13 +237,13 @@ def tesla_detail_to_db_record(
 def db_record_to_charging_station(
     record: dict[str, Any],
 ) -> ChargingStation:
-    """Wandelt ein DB-Record-Dict in ein ChargingStation-Modell um.
+    """Wandelt ein DB-Record-Dict in ein ChargingStation-model um.
 
     Args:
         record: DB-Record-Dict aus load_stations()
 
     Returns:
-        ChargingStation-Modell
+        ChargingStation-model
     """
     power = max(record.get("power_kilowatt", 250), 1)
     stalls_v3 = record.get("stalls_v3", 0)

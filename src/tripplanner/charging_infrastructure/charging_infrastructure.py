@@ -3,6 +3,7 @@
 The FastAPI app obtains its provider via dependency injection
 (`trip_input.app._lifespan`). For scripts/CLI, `provider_session`
 provides a short-lived provider that closes on exit.
+
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ def provider_session(
         provider_type: Type of provider.
             - 'local_file': Local JSON-based provider
             - 'tesla_db': SQLite DB with supercharge.info API refresh
+
     """
     provider: ChargingStationProvider
     if provider_type == "tesla_db":

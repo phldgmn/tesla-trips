@@ -33,7 +33,7 @@ class SlidingWindowRateLimiter:
     `acquire()` blocks until fewer than `max_calls` calls have started
     within the trailing `period_s` seconds, then reserves a slot. Safe to
     share across concurrently-running coroutines (e.g. the coordinate
-    groups `LoadBalancedWeatherProvider` resolves in parallel).
+    groups `LoadBalancedWeatherprovider` resolves in parallel).
     """
 
     def __init__(
@@ -107,7 +107,7 @@ class OpenWeatherProvider:
                 60s window, enforced before every request. Ignored if
                 `rate_limiter` is given.
             rate_limiter: Optional pre-configured limiter (e.g. to share one
-                across multiple `OpenWeatherProvider` instances using the
+                across multiple `OpenWeatherprovider` instances using the
                 same API key, or to inject a fake clock in tests).
         """
         self._api_key = api_key

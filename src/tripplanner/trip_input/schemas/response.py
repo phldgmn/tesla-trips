@@ -1,6 +1,6 @@
-"""API-Response-Schemata für den /trips-Endpunkt.
+"""API response schemas for the /trips endpoint.
 
-Enthält die Response-Modelle (``FrameAPI`` … ``TripSimulationResultAPI``)
+Contains the response models (``FrameAPI`` … ``TripSimulationResultAPI``)
 sowie die Response-Builder-Helfer ``_build_construction_zones_api`` und
 ``_attach_charging_pricing``.
 """
@@ -107,14 +107,14 @@ def _build_construction_zones_api(
 
 
 class FrameAPI(CamelCaseResponseAPI):
-    """Einzelner Simulationsframe in der API-Response."""
+    """Einzelner simulationsframe in der API response."""
 
     timestamp: str = Field(..., description="ISO-8601 timestamp")
     position: tuple[float, float] = Field(
-        ..., description="(lat, lon), konsistent mit Domänenmodell"
+        ..., description="(lat, lon), konsistent mit Domaenenmodell"
     )
     distance_m: float = Field(
-        ..., ge=0.0, description="Kumulierte distance vom Reisebeginn entlang der Route in Metern"
+        ..., ge=0.0, description="Cumulative distance from trip start along the route in meters"
     )
     soc_pct: float = Field(..., ge=0.0, le=100.0)
     state: str = Field(..., description="'FAHREN', 'LADEN' oder 'PAUSE'")
@@ -148,13 +148,13 @@ class FrameAPI(CamelCaseResponseAPI):
 
 
 class ChargingStopAPI(CamelCaseResponseAPI):
-    """Ladehalt in der API-Response, ein Eintrag pro tatsaechlichem Halt."""
+    """Charging stop in the API response, one entry per actual stop."""
 
-    name: str = Field(..., description="Name der Ladestation")
-    station_id: str = Field(..., description="Eindeutige ID der Ladestation")
-    position: tuple[float, float] = Field(..., description="(lat, lon) der Ladestation")
+    name: str = Field(..., description="Name der charging station")
+    station_id: str = Field(..., description="unique ID of the charging station")
+    position: tuple[float, float] = Field(..., description="(lat, lon) der charging station")
     distance_m: float = Field(
-        ..., ge=0.0, description="Kumulierte distance entlang der Route, an der abgebogen wird"
+        ..., ge=0.0, description="Cumulative distance along the route at which the turn is made"
     )
     detour_geometry: list[Coordinate] = Field(
         default_factory=list,
@@ -187,12 +187,14 @@ class ChargingStopAPI(CamelCaseResponseAPI):
             "(None, falls `detour_geometrie` leer ist)"
         ),
     )
-    arrival_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
-    target_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ziel-SoC nach dem Laden in %")
-    charging_duration_s: int = Field(..., ge=0, description="charge_duration in Sekunden")
-    energy_charged_kwh: float = Field(..., ge=0.0, description="Geladene Energiemenge in kWh")
-    arrival_time: str = Field(..., description="ISO-8601 arrival_time an der Station")
-    departure_time: str = Field(..., description="ISO-8601 departure_time von der Station")
+    arrival_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC upon arrival in %")
+    target_soc_pct: float = Field(
+        ..., ge=0.0, le=100.0, description="Target SoC after charging in %"
+    )
+    charging_duration_s: int = Field(..., ge=0, description="charge duration in seconds")
+    energy_charged_kwh: float = Field(..., ge=0.0, description="Energy charged in kWh")
+    arrival_time: str = Field(..., description="ISO-8601 arrival time at the station")
+    departure_time: str = Field(..., description="ISO-8601 departure time from the station")
     price_per_kwh: float | None = Field(
         default=None,
         ge=0.0,
@@ -227,12 +229,12 @@ class ChargingStopAPI(CamelCaseResponseAPI):
 
 
 class FerrySegmentAPI(CamelCaseResponseAPI):
-    """API-Response für eine in der berechneten Route erkannte Fährverbindung."""
+    """API response for a ferry connection detected in the calculated route."""
 
-    name: str = Field(..., description="Fährname (aus GraphHopper street_name oder Fallback)")
-    length_m: float = Field(..., ge=0, description="Länge der Fährverbindung in Metern")
+    name: str = Field(..., description="ferry name (aus GraphHopper street_name oder Fallback)")
+    length_m: float = Field(..., ge=0, description="length der ferry connection in Metern")
     bbox_sw: tuple[float, float] = Field(
-        ..., description="Südwest-Ecke der gepufferten Bounding Box"
+        ..., description="southwest corner of the padded bounding box"
     )
     bbox_ne: tuple[float, float] = Field(
         ..., description="Nordost-Ecke der gepufferten Bounding Box"
@@ -257,15 +259,15 @@ class ChargingCostByCurrencyAPI(CamelCaseResponseAPI):
 class ConstructionZoneEventAPI(CamelCaseResponseAPI):
     """One underlying construction/roadwork event merged into a ConstructionZoneAPI marker."""
 
-    closure_type: str = Field(..., description="Art der Sperrung/construction_zone")
+    closure_type: str = Field(..., description="Type of closure/construction_zone")
     speed_limit_kmh: int | None = Field(
         default=None, description="Reduced speed_limit_kmh in km/h (None if no speed limit)"
     )
     detour_notice: str | None = Field(
-        default=None, description="Freitext-Information zur Umleitung (optional)"
+        default=None, description="Free-text information about the detour (optional)"
     )
-    country: str = Field(..., description="Land, in dem die construction_zone liegt")
-    valid_from: datetime = Field(..., description="Startzeitpunkt der construction_zone (ISO 8601)")
+    country: str = Field(..., description="Country in which the construction_zone is located")
+    valid_from: datetime = Field(..., description="Start time of the construction_zone (ISO 8601)")
     valid_to: datetime | None = Field(
         default=None, description="construction_zone end timestamp (ISO 8601), None if indefinite"
     )
@@ -275,45 +277,44 @@ class ConstructionZoneAPI(CamelCaseResponseAPI):
     """API representation of a construction_zone marker that groups nearby events."""
 
     position: Coordinate = Field(
-        ..., description="Repräsentative (lat, lon) Position (erstes Event entlang der Route)"
+        ..., description="Representative (lat, lon) position (first event along the route)"
     )
     events: list[ConstructionZoneEventAPI] = Field(
-        ..., description="Zusammengefasste Events (Länge > 1 = mehrere nahe Events gemerged)"
+        ..., description="Merged events (length > 1 = mehrere nahe Events gemerged)"
     )
     length_m: float | None = Field(
         default=None,
         description=(
-            "Geschätzte Länge der betroffenen Straßenstrecke in Metern "
-            "(None wenn nicht berechenbar)."
+            "Estimated length of affected road section in meters (None wenn nicht berechenbar)."
         ),
     )
 
 
 class WaypointStopAPI(CamelCaseResponseAPI):
-    """Zwischenstopp-Aufenthalt in der API-Response, ein Eintrag pro Aufenthalt."""
+    """Waypoint stop stay in the API response, one entry per stay."""
 
     position: tuple[float, float] = Field(..., description="(lat, lon) des Zwischenstopps")
     distance_m: float = Field(
-        ..., ge=0.0, description="Kumulierte distance entlang der Route bei diesem Zwischenstopp"
+        ..., ge=0.0, description="Cumulative distance along the route at this waypoint stop"
     )
     arrival_time: str = Field(..., description="ISO-8601 arrival_time am Zwischenstopp")
     departure_time: str = Field(..., description="ISO-8601 timestamp der (erzwungenen) Abfahrt")
     charging_power_kw: float | None = Field(
-        default=None, ge=0.0, description="Genutzte Ladeleistung in kW, None falls nicht geladen"
+        default=None, ge=0.0, description="Charging power used in kW, None if not charging"
     )
-    arrival_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
-    target_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Abfahrt in %")
+    arrival_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC upon arrival in %")
+    target_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC upon departure in %")
     energy_charged_kwh: float = Field(
-        ..., ge=0.0, description="Waehrend des Aufenthalts geladene Energiemenge in kWh"
+        ..., ge=0.0, description="Waehrend des Aufenthalts energy charged in kWh"
     )
 
 
 class TripSimulationResultAPI(CamelCaseResponseAPI):
-    """API-Response für /trips-Endpunkt."""
+    """API response for the /trips endpoint."""
 
     total_distance_km: float = Field(..., description="total_distance in km")
-    total_driving_time_min: float = Field(..., description="Gesamtfahrzeit in Minuten")
-    total_charging_time_min: float = Field(..., description="total_charge_time in Minuten")
+    total_driving_time_min: float = Field(..., description="Total driving time in minutes")
+    total_charging_time_min: float = Field(..., description="total charge time in minutes")
     total_waiting_time_min: float = Field(
         default=0.0,
         description=(
@@ -321,15 +322,15 @@ class TripSimulationResultAPI(CamelCaseResponseAPI):
             "(nicht in gesamt_fahrzeit_min/gesamt_ladezeit_min enthalten)"
         ),
     )
-    start_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Start-SoC in %")
-    target_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ziel-SoC in %")
+    start_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Start SoC in %")
+    target_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Target SoC in %")
     frames: list[FrameAPI] = Field(..., description="Liste von Simulationsframes")
     charging_stops: list[ChargingStopAPI] = Field(
-        default_factory=list, description="Ein Eintrag pro Ladehalt, fuer die Kartendarstellung"
+        default_factory=list, description="Ein Entry per charging stop, for map display"
     )
     waypoint_stops: list[WaypointStopAPI] = Field(
         default_factory=list,
-        description="Ein Eintrag pro Zwischenstopp-Aufenthalt, fuer die Kartendarstellung",
+        description="Ein Entry per waypoint stop, for map display",
     )
     route_geometry: list[Coordinate] = Field(
         ...,
@@ -341,7 +342,7 @@ class TripSimulationResultAPI(CamelCaseResponseAPI):
     )
     detected_ferries: list[FerrySegmentAPI] = Field(
         default_factory=list,
-        description="In der berechneten Route erkannte Fährverbindungen (leer, falls keine)",
+        description="Ferry connections detected in the calculated route (leer, falls keine)",
     )
     total_charging_cost: list[ChargingCostByCurrencyAPI] = Field(
         default_factory=list,
@@ -360,7 +361,7 @@ class TripSimulationResultAPI(CamelCaseResponseAPI):
         ),
     )
     construction_zones: list[ConstructionZoneAPI] = Field(
-        default_factory=list, description="construction_zones along the route for map rendering"
+        default_factory=list, description="construction zones along the route for map rendering"
     )
 
 
@@ -376,25 +377,25 @@ def _attach_charging_pricing(
     which both call `create_trip_simulation`). For each charging stop actually
     used by this route:
 
-    1. Reads cached pricing from the database (`TeslaChargingStationProvider.
+    1. Reads cached pricing from the database (`TeslaChargingStationprovider.
        get_cached_pricing`) and, if available, selects the applicable
        Tesla-owner rate for the stop's arrival time (`select_owner_rate_for_
        time`), attaching `price_per_kwh`/`currency`/`estimated_cost`/
        `pricing_updated_utc` to the returned `ChargingStopSummary`.
     2. Queues the station for a pricing re-scrape (`enqueue_stations_for_
        pricing_refresh`) if its cached pricing is missing or older than
-       `TeslaChargingStationProvider.PRICING_MAX_AGE` - fresh stations are
+       `TeslaChargingStationprovider.PRICING_MAX_AGE` - fresh stations are
        left untouched to avoid unnecessary Tesla-API/WAF traffic. The actual
        re-scrape happens out-of-band (see the `charger scrape-pricing` CLI
        command), NEVER synchronously here: a curl-equivalent request per
        station is too slow and WAF-risky to run inline in the request/
        response cycle.
 
-    Also computes `TripSimulationResult.total_charging_cost` (summed per
+    Also computes `TripsimulationResult.total_charging_cost` (summed per
     currency, since a DE/DK/SE trip can span several) and
     `charging_stops_missing_pricing`.
 
-    Only `TeslaChargingStationProvider` supports cached pricing (SQLite-
+    Only `TeslaChargingStationprovider` supports cached pricing (SQLite-
     backed) - other providers (`Fake`/`LocalFile`, used in tests and as
     defaults) leave stops unpriced, and this step becomes a no-op.
 

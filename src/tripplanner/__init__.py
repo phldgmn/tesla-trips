@@ -1,1 +1,1 @@
-"""Tesla-Tripplaner: personalisierter Reiseplaner für ein Tesla Model 3."""
+"""Tesla Trip Planner: personalized trip planner for a Tesla Model 3."""

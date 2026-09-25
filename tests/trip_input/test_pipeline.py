@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from tripplanner.charging_infrastructure.models import ChargingStation, ConnectorType, StallType
-from tripplanner.optimization.models import ChargingPlan, ChargingStop, ZwischenstoppAufenthalt
+from tripplanner.optimization.models import ChargingPlan, ChargingStop, WaypointDwell
 from tripplanner.routing.models import Coordinate, RouteSegment
 from tripplanner.trip_input.pipeline import _step_9_update_eta
 
@@ -103,7 +103,7 @@ class TestStep9UpdateEtaWaypointWaits:
             ladehalte=[],
             gesamtreisezeit_s=0,
             zwischenstopp_aufenthalte=[
-                ZwischenstoppAufenthalt(
+                WaypointDwell(
                     coordinate=(52.1, 13.0),
                     segment_index=1,
                     arrival_time=arrival,
@@ -130,7 +130,7 @@ class TestStep9UpdateEtaWaypointWaits:
             ladehalte=[],
             gesamtreisezeit_s=0,
             zwischenstopp_aufenthalte=[
-                ZwischenstoppAufenthalt(
+                WaypointDwell(
                     coordinate=(52.1, 13.0),
                     segment_index=1,
                     arrival_time=arrival,
@@ -167,7 +167,7 @@ class TestStep9UpdateEtaWaypointWaits:
             ],
             gesamtreisezeit_s=0,
             zwischenstopp_aufenthalte=[
-                ZwischenstoppAufenthalt(
+                WaypointDwell(
                     coordinate=(52.2, 13.0),
                     segment_index=2,
                     arrival_time=departure_time + timedelta(hours=3),

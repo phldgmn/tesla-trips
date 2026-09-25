@@ -11,10 +11,10 @@ if TYPE_CHECKING:
 
 
 class FakeConstructionProvider(ConstructionProvider):
-    """Fake-Provider für Tests ohne externe API-Aufrufe."""
+    """Fake-provider für Tests ohne externe API-Aufrufe."""
 
     def __init__(self, test_zones: list[ConstructionZone] | None = None) -> None:
-        """Initialisiert den Fake-Provider mit optionalen Test-Zonen."""
+        """Initialisiert den Fake-provider mit optionalen Test-Zonen."""
         self.test_zones = test_zones or []
         self.fetch_construction_zones_calls: list[tuple[routing_models.Route, list[Land]]] = []
 

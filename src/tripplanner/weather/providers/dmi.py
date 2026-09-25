@@ -38,7 +38,7 @@ class DmiProvider:
     Uses the `forecastedr` EDR API, collection `harmonie_dini_sf` (surface
     fields). The model domain covers Denmark, Iceland, the Netherlands, and
     Ireland (per DMI's own collection description) - well beyond Denmark
-    alone - but `LoadBalancedWeatherProvider` restricts this provider to
+    alone - but `LoadBalancedWeatherprovider` restricts this provider to
     coordinates `detect_country` classifies as `"DK"`, matching DMI's
     stated focus and avoiding it as an unnecessary extra candidate
     elsewhere.

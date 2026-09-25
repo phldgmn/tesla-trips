@@ -1,13 +1,13 @@
-"""Provider-Implementierungen für construction-Daten.
+"""provider-implementationen für construction-data.
 
-Enthält:
-- ConstructionProviderConfig: Konfiguration für externe APIs
-- ConstructionProviderImpl: Orchestriert DE/DK/SE. DK/SE werden hier direkt
+Enthaelt:
+- ConstructionproviderConfig: configuration für externe APIs
+- ConstructionproviderImpl: Orchestriert DE/DK/SE. DK/SE werden hier direkt
   über DATEX II Feeds implementiert; DE wird an einen injizierbaren
-  `ConstructionProvider` delegiert (Default: `DatexIIGermanyConstructionProvider`
-  in `providers_de_datexii.py`; `AutobahnConstructionProvider` in
+  `Constructionprovider` delegiert (Default: `DatexIIGermanyConstructionprovider`
+  in `providers_de_datexii.py`; `AutobahnConstructionprovider` in
   `providers_de_autobahn.py` bleibt für ein Revert verfügbar).
-- FakeConstructionProvider: Fake-Provider für Tests
+- FakeConstructionprovider: Fake-provider für Tests
 """
 
 from __future__ import annotations
@@ -16,10 +16,10 @@ from pydantic import BaseModel
 
 
 class ConstructionProviderConfig(BaseModel):
-    """Konfiguration für den ConstructionProviderImpl (DK/SE DATEX-II-Pfad).
+    """configuration für den ConstructionproviderImpl (DK/SE DATEX-II-Pfad).
 
-    DE benötigt keine Konfiguration hier (siehe `de_provider`-Parameter von
-    `ConstructionProviderImpl.__init__`). DK nutzt OAuth2 client_credentials
+    DE benötigt keine configuration hier (siehe `de_provider`-Parameter von
+    `ConstructionproviderImpl.__init__`). DK nutzt OAuth2 client_credentials
     Flow über Azure AD (`dk_client_id`/`dk_secret`/`dk_tenant_id`), SE einen
     Trafikverket `authenticationkey` (`tv_api_key`).
     """

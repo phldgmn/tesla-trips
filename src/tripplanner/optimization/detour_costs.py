@@ -1,4 +1,4 @@
-"""Reine Kostenfunktionen für Abstecher zu Ladestationen (ohne Optimizer-Zustand).
+"""Reine Kostenfunktionen für Abstecher zu charging_stationen (ohne Optimizer-Zustand).
 
 Extrahiert aus `optimizer.py` (Task 2.1) als freie, testbare Funktionen.
 """
@@ -16,14 +16,14 @@ if TYPE_CHECKING:
 
 DETOUR_ROUTENFAKTOR: float = 1.6
 """Multiplikator, um aus der Luftlinien-distance Station<->Route eine
-realistische Straßendistanz zu schätzen (echte Straßen sind selten
+realistische Strassendistanz zu estimate (echte Strassen sind selten
 geradlinig - kalibriert an den 1.2x-2x, die `_step_route_charging_detours`
-live gegen GraphHopper für Abstecher zu Ladestationen beobachtet, siehe
+live gegen GraphHopper für Abstecher zu charging_stationen beobachtet, siehe
 `find_bracket_points`-Docstring in `tripplanner.routing.detour_geometry`)."""
 
 DETOUR_GESCHWINDIGKEIT_KMH: float = 70.0
-"""Angenommene Durchschnittsgeschwindigkeit auf dem Abstecher zur Ladestation
-(oft Landstraße/Zubringer, nicht die Haupttrasse - konservativ niedriger als
+"""Angenommene Durchschnittsgeschwindigkeit auf dem Abstecher zur charging_station
+(oft Landstrasse/Zubringer, nicht die Haupttrasse - konservativ niedriger als
 ein Autobahn-speed_limit_kmh)."""
 
 
@@ -32,7 +32,7 @@ def detour_kosten(
     offroute_distance_m: float,
     vehicle_profile: VehicleProfile,
     detour_kosten: dict[str, DetourKosten] | None,
-    avg_verbrauch_kwh_pro_m: float,
+    avg_consumption_kwh_per_m: float,
 ) -> tuple[float, float, float, float]:
     """Estimates outward/return detour time (s) and SoC cost (%) for a station.
 
@@ -73,6 +73,6 @@ def detour_kosten(
     segment_length_m = offroute_distance_m * DETOUR_ROUTENFAKTOR
     detour_geschwindigkeit_m_s = DETOUR_GESCHWINDIGKEIT_KMH * 1000.0 / 3600.0
     time_s = segment_length_m / detour_geschwindigkeit_m_s
-    energy_kwh = segment_length_m * avg_verbrauch_kwh_pro_m
+    energy_kwh = segment_length_m * avg_consumption_kwh_per_m
     soc_pct = calc_soc_verbrauch_pct(energy_kwh, vehicle_profile.battery_capacity_kwh)
     return time_s, soc_pct, time_s, soc_pct

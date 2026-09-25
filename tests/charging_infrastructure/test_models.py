@@ -82,7 +82,7 @@ class TestChargingStation:
                 connector_types=[ConnectorType.CCS2],
                 country="DE",
             )
-        assert "latitude muss zwischen -90 und 90 liegen" in str(exc_info.value)
+        assert "Latitude must be between -90 and 90" in str(exc_info.value)
 
     def test_invalid_latitude_too_low(self) -> None:
         """Testet, dass latitude < -90 fehlschlägt."""
@@ -96,7 +96,7 @@ class TestChargingStation:
                 connector_types=[ConnectorType.CCS2],
                 country="DE",
             )
-        assert "latitude muss zwischen -90 und 90 liegen" in str(exc_info.value)
+        assert "Latitude must be between -90 and 90" in str(exc_info.value)
 
     def test_invalid_longitude_too_high(self) -> None:
         """Testet, dass Längengrad > 180 fehlschlägt."""
@@ -110,7 +110,7 @@ class TestChargingStation:
                 connector_types=[ConnectorType.CCS2],
                 country="DE",
             )
-        assert "Längengrad muss zwischen -180 und 180 liegen" in str(exc_info.value)
+        assert "Lon must be between -180 and 180" in str(exc_info.value)
 
     def test_invalid_longitude_too_low(self) -> None:
         """Testet, dass Längengrad < -180 fehlschlägt."""
@@ -124,7 +124,7 @@ class TestChargingStation:
                 connector_types=[ConnectorType.CCS2],
                 country="DE",
             )
-        assert "Längengrad muss zwischen -180 und 180 liegen" in str(exc_info.value)
+        assert "Lon must be between -180 and 180" in str(exc_info.value)
 
     def test_invalid_coordinate_nan(self) -> None:
         """Testet, dass NaN-Koordinaten fehlschlagen."""
@@ -138,7 +138,7 @@ class TestChargingStation:
                 connector_types=[ConnectorType.CCS2],
                 country="DE",
             )
-        assert "latitude muss zwischen -90 und 90 liegen" in str(exc_info.value)
+        assert "Latitude must be between -90 and 90" in str(exc_info.value)
 
     def test_invalid_coordinate_inf(self) -> None:
         """Testet, dass Inf-Koordinaten fehlschlagen."""
@@ -152,7 +152,7 @@ class TestChargingStation:
                 connector_types=[ConnectorType.CCS2],
                 country="DE",
             )
-        assert "Längengrad muss zwischen -180 und 180 liegen" in str(exc_info.value)
+        assert "Lon must be between -180 and 180" in str(exc_info.value)
 
     def test_invalid_max_ladeleistung_zero(self) -> None:
         """Testet, dass max_ladeleistung_kw <= 0 fehlschlägt."""

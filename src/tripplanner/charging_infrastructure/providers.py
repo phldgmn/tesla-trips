@@ -1,12 +1,12 @@
-"""Provider-Implementierungen für den `charging_infrastructure`-Zugriff.
+"""provider-implementationen für den `charging_infrastructure`-Zugriff.
 
 Dieses Modul ist ein re-export shim. Alle Symbole wurden in das
 ``providers/``-Paket ausgelagert:
 
-- ``fake``:          ``FakeChargingStationProvider``
-- ``local_file``:    ``LocalFileChargingStationProvider``
+- ``fake``:          ``FakeChargingStationprovider``
+- ``local_file``:    ``LocalFileChargingStationprovider``
 - ``pricing_queue``: ``CachedPricing``, ``PricingQueueDrainResult``
-- ``tesla``:         ``TeslaChargingStationProvider``
+- ``tesla``:         ``TeslaChargingStationprovider``
 """
 
 from .providers import (

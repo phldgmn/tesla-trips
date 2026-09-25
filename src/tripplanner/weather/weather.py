@@ -1,7 +1,7 @@
 """Public weather query functions.
 
 Implementiert:
-- ``fetch_weather_for_route``: Abruf von Wetterdaten entlang einer Route mit Batching
+- ``fetch_weather_for_route``: Abruf von weatherdaten entlang einer Route mit Batching
 - ``fetch_weather_by_detail``: Detail-level-aware weather fetching with nearest-neighbor fan-out
 """
 
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 # Target spacing (metres) between representative weather sample points along
 # the route. Deliberately distance-based, not segment-index-based: a
-# `RouteSegment` is one raw routing-provider polyline edge, and its length
+# `Routesegment` is one raw routing-provider polyline edge, and its length
 # varies wildly with route geometry (a few metres on tight urban curves, up
 # to kilometres on straight motorway stretches). Sampling every N-th
 # *segment* therefore samples every N-th *point on the polyline*, so a long,
@@ -68,7 +68,7 @@ def _cumulative_midpoint_distances_m(
     Returns:
         A list of length ``len(segment_eta_list)`` where entry *i* is the
         cumulative route distance (metres) to the midpoint of segment *i*,
-        computed from ``RouteSegment.length_m``.
+        computed from ``Routesegment.length_m``.
     """
     distances: list[float] = []
     travelled = 0.0
@@ -131,7 +131,7 @@ def _long_stop_boundary_indices(
         threshold: Minimum duration to classify a segment as a long stop.
 
     Returns:
-        Segment indices to force into the sampled set.
+        segment indices to force into the sampled set.
     """
     last_index = len(segment_eta_list) - 1
     indices: set[int] = set()
@@ -153,14 +153,14 @@ def _interpolation_brackets(
         distances_m: Along-route distance to each segment's midpoint (see
             `_cumulative_midpoint_distances_m`); its length is the segment
             count.
-        sampled_indices: Segment indices that were actually queried.
+        sampled_indices: segment indices that were actually queried.
 
     Returns:
         A list of length ``len(distances_m)``; entry *i* is
         ``(left, right, t)`` where *left*/*right* are sampled indices
         bracketing segment *i* by along-route distance and *t* in ``[0, 1]``
         is segment *i*'s fractional position between them (``0`` at *left*,
-        ``1`` at *right*). Segments outside the sampled range, or exactly at
+        ``1`` at *right*). segments outside the sampled range, or exactly at
         a sampled point, clamp to the nearest edge sample (``left == right``,
         ``t = 0``).
 
@@ -442,12 +442,12 @@ async def fetch_weather_for_route(
     route_queries: Sequence[WeatherQuery],
     batch_size: int = 20,
 ) -> list[WeatherSample]:
-    """Abruf von Wetterdaten entlang einer Route mit automatischem Batching.
+    """Abruf von weatherdaten entlang einer Route mit automatischem Batching.
 
     Args:
-        provider: Der zu verwendende Wetterprovider (in Tests: Fake).
-        route_queries: Liste von Abfragen (Koordinate + ETA).
-        batch_size: Maximale Anzahl Abfragen pro API-Call (Open-Meteo empfiehlt <=50).
+        provider: Der zu verwendende weatherprovider (in Tests: Fake).
+        route_queries: Liste von queryn (Koordinate + ETA).
+        batch_size: Maximale Anzahl queryn pro API-Call (Open-Meteo empfiehlt <=50).
 
     Returns:
         Liste von WeatherSample in gleicher Reihenfolge wie route_queries.

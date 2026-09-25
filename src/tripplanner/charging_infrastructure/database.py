@@ -1,8 +1,8 @@
-"""SQLite-Datenbank-Manager für Tesla Supercharger-Daten.
+"""SQLite-databank-Manager für Tesla Supercharger-data.
 
-Verwaltet die lokale SQLite-Datenbank für Supercharger-Daten aus der
-supercharge.info-API. Enthält Schema-Definitionen, CRUD-Zugriff und
-Transaktionslogik für Stations- und Pricing-Daten.
+Verwaltet die lokale SQLite-databank für Supercharger-data aus der
+supercharge.info-API. Enthaelt Schema-Definitionen, CRUD-Zugriff und
+Transaktionslogik für Stations- und Pricing-data.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ _COUNTRY_MAP: dict[str, str] = {
 
 
 class SQLiteDatabase:
-    """Verwaltet eine lokale SQLite-Datenbank für Supercharger-Daten.
+    """Verwaltet eine lokale SQLite-databank für Supercharger-data.
 
     Threading model: every public method opens its own short-lived
     connection (`_connect`) and closes it before returning, so instances are
@@ -62,10 +62,10 @@ class SQLiteDatabase:
     """
 
     def __init__(self, db_path: Path) -> None:
-        """Initialisiert die Datenbank mit dem Pfad zur Datei.
+        """Initialisiert die databank mit dem Pfad zur Datei.
 
         Args:
-            db_path: Pfad zur SQLite-Datenbankdatei.
+            db_path: Pfad zur SQLite-databankdatei.
         """
         self._db_path = db_path
         self._initialized: bool = False
@@ -178,15 +178,15 @@ class SQLiteDatabase:
         """)
 
     def _ensure_initialized(self) -> None:
-        """Stellt sicher, dass die Datenbank initialisiert ist."""
+        """Stellt sicher, dass die databank initialisiert ist."""
         if not self._initialized:
             self.initialize()
 
     def load_stations(self, country_filter: set[str] | None = None) -> list[dict[str, Any]]:
-        """Lädt alle Stationen aus der Datenbank.
+        """Laedt alle Stationen aus der databank.
 
         Args:
-            country_filter: Optionales Set von Ländercodes für Filterung.
+            country_filter: Optionales Set von Laendercodes für Filterung.
 
         Returns:
             Liste von Station-Dicts mit allen Spalten.
@@ -208,7 +208,7 @@ class SQLiteDatabase:
     def load_pricing(
         self, supercharge_info_ids: set[int] | None = None
     ) -> dict[int, list[dict[str, Any]]]:
-        """Lädt Preisdaten aus der Datenbank.
+        """Laedt Preisdaten aus der databank.
 
         Args:
             supercharge_info_ids: Optionales Set von Station-IDs für Filterung.
@@ -238,12 +238,12 @@ class SQLiteDatabase:
             return result
 
     def replace_all_stations(self, stations: list[dict[str, Any]]) -> int:
-        """Ersetzt alle Stationen durch neue Daten.
+        """Ersetzt alle Stationen durch neue data.
 
         Führt alle Änderungen in einer Transaktion aus.
 
         Args:
-            stations: Liste von Station-Dicts mit allen erforderlichen Schlüsseln.
+            stations: Liste von Station-Dicts mit allen requireden Schlüsseln.
 
         Returns:
             Anzahl der eingefügten Stationen.
@@ -305,7 +305,7 @@ class SQLiteDatabase:
         Fuegt die Station ein, falls sie noch nicht existiert (UPSERT).
 
         Args:
-            station: Station-Dict mit allen erforderlichen Schluesseln.
+            station: Station-Dict mit allen requireden Schluesseln.
 
         Returns:
             True wenn aktualisiert, False wenn eingefuegt.
@@ -402,11 +402,11 @@ class SQLiteDatabase:
     def update_tesla_location_id(self, supercharge_info_id: int, slug: str) -> None:
         """Ueberschreibt die `tesla_location_id` (Slug) einer bestehenden Station.
 
-        Wird verwendet, wenn sich ein zuvor gespeicherter Slug als falsch
+        Wird uses, wenn sich ein zuvor gespeicherter Slug als falsch
         herausstellt - z. B. wenn supercharge.info fuer `locationId` einen
         stale numerischen Platzhalter statt Teslas echtem
         `location_url_slug` liefert (siehe
-        `TeslaChargingStationProvider._resolve_numeric_slug`). Anders als
+        `TeslaChargingStationprovider._resolve_numeric_slug`). Anders als
         `update_station()` (das per `tesla_location_id` sucht) identifiziert
         dies die Station ueber die stabile `supercharge_info_id`.
 
@@ -449,7 +449,7 @@ class SQLiteDatabase:
         `tesla_location_id` besitzt (z. B. Stationen ausserhalb DE/DK/SE, die
         nur ueber die supercharge.info-API bekannt sind - siehe
         `ChargingStation.station_id`-Fallback in
-        `TeslaChargingStationProvider._db_record_to_charging_station`).
+        `TeslaChargingStationprovider._db_record_to_charging_station`).
 
         Args:
             supercharge_info_id: Die interne Station-ID.
@@ -517,7 +517,7 @@ class SQLiteDatabase:
         """Liefert je Station den timestamp der zuletzt gespeicherten Preisdaten.
 
         Stationen ohne jegliche `charging_pricing`-Zeilen (noch nie gescraped)
-        fehlen im Ergebnis-Dict, statt eines `None`-Werts - der Aufrufer prueft
+        fehlen im Ergebnis-Dict, statt eines `None`-Werts - der caller prueft
         Abwesenheit ueber `station_id not in result`.
 
         Args:
@@ -586,7 +586,7 @@ class SQLiteDatabase:
 
         Wird sowohl nach einem erfolgreichen Scrape als auch nach einem
         endgueltig fehlgeschlagenen Versuch aufgerufen (siehe
-        `TeslaChargingStationProvider.drain_pricing_queue`) - ein weiterhin
+        `TeslaChargingStationprovider.drain_pricing_queue`) - ein weiterhin
         veralteter Preis wird bei der naechsten Routen-Finalisierung erneut
         eingereiht, statt hier endlos zu blockieren.
 
@@ -641,7 +641,7 @@ class SQLiteDatabase:
             return [dict(row) for row in cur.fetchall()]
 
     def get_meta(self, key: str) -> str | None:
-        """Liest einen Meta-Wert aus der Datenbank.
+        """Liest einen Meta-Wert aus der databank.
 
         Args:
             key: Der Meta-Schlüssel.
@@ -656,7 +656,7 @@ class SQLiteDatabase:
             return row[0] if row else None
 
     def set_meta(self, key: str, value: str) -> None:
-        """Speichert einen Meta-Wert in der Datenbank.
+        """Speichert einen Meta-Wert in der databank.
 
         Args:
             key: Der Meta-Schlüssel.
@@ -674,7 +674,7 @@ class SQLiteDatabase:
 
     @property
     def station_count(self) -> int:
-        """Gibt die Anzahl der Stationen in der Datenbank zurück."""
+        """Gibt die Anzahl der Stationen in der databank zurück."""
         self._ensure_initialized()
         with self._connect() as conn:
             cur = conn.execute("SELECT COUNT(*) FROM charging_stations")
@@ -683,7 +683,7 @@ class SQLiteDatabase:
 
     @property
     def last_refresh_utc(self) -> datetime | None:
-        """Gibt das Datum der letzten vollständigen Aktualisierung zurück."""
+        """Gibt das Datum der letzten vollstaendigen Aktualisierung zurück."""
         value = self.get_meta("last_full_refresh_utc")
         if value is None:
             return None

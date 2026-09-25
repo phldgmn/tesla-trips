@@ -1,6 +1,6 @@
-"""Datenmodelle für das simulation-Modul.
+"""data models für das simulation-Modul.
 
-Pydantic-Modelle zur Darstellung von Simulationsframes und Ergebnissen.
+Pydantic-modele zur Darstellung von simulationsframes und Ergebnissen.
 """
 
 from __future__ import annotations
@@ -13,13 +13,13 @@ from pydantic import BaseModel, Field, model_validator
 from tripplanner.construction.models import ConstructionZone
 from tripplanner.routing.models import Coordinate
 
-# Konstanten für Geschwindigkeitsschwellen
+# Konstanten für speedsschwellen
 _MAX_LADE_GESCHWINDIGKIT_KMH = 0.5
 _MAX_PAUSE_GESCHWINDIGKIT_KMH = 5.0
 
 
 class TripState(StrEnum):
-    """Zustand des Fahrzeugs zu einem timestamp in der Simulation."""
+    """Zustand des Fahrzeugs zu einem timestamp in der simulation."""
 
     FAHREN = "FAHREN"
     LADEN = "LADEN"
@@ -32,7 +32,7 @@ class SimulationFrame(BaseModel):
     timestamp: datetime
     position: tuple[float, float] = Field(..., description="Position als (lat, lon) Tuple in WGS84")
     distance_m: float = Field(
-        ..., ge=0.0, description="Kumulierte distance vom Reisebeginn entlang der Route in Metern"
+        ..., ge=0.0, description="Cumulative distance from trip start along the route in meters"
     )
     soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ladestand in Prozent")
     zustand: TripState
@@ -79,12 +79,12 @@ class SimulationFrame(BaseModel):
 class ChargingStopSummary(BaseModel):
     """Zusammenfassung eines Ladehalts fuer die Visualisierung.
 
-    Ein Eintrag pro tatsaechlichem Ladehalt (nicht pro Simulationsframe) -
-    im Gegensatz zu den `SimulationFrame`-Eintraegen mit `zustand == LADEN`,
+    Ein Eintrag pro tatsaechlichem Ladehalt (nicht pro simulationsframe) -
+    im Gegensatz zu den `simulationFrame`-Eintraegen mit `zustand == LADEN`,
     von denen es waehrend eines einzelnen Ladehalts mehrere geben kann.
     """
 
-    name: str = Field(..., min_length=1, description="Name der Ladestation")
+    name: str = Field(..., min_length=1, description="Name der charging station")
     station_id: str = Field(
         ...,
         min_length=1,
@@ -93,10 +93,10 @@ class ChargingStopSummary(BaseModel):
         "`tripplanner.trip_input.models.ChargingDurationSpecification`)",
     )
     position: tuple[float, float] = Field(
-        ..., description="Position der Ladestation als (lat, lon)"
+        ..., description="Position der charging station als (lat, lon)"
     )
     distance_m: float = Field(
-        ..., ge=0.0, description="Kumulierte distance entlang der Route, an der abgebogen wird"
+        ..., ge=0.0, description="Cumulative distance along the route at which the turn is made"
     )
     detour_geometrie: list[tuple[float, float]] = Field(
         default_factory=list,
@@ -131,13 +131,13 @@ class ChargingStopSummary(BaseModel):
             "falls `detour_geometrie` leer ist)."
         ),
     )
-    arrival_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
+    arrival_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC upon arrival in %")
     target_soc_pct: float = Field(
         ..., ge=0.0, le=100.0, description="Angestrebter SoC nach dem Laden in %"
     )
-    charging_duration_s: int = Field(..., ge=0, description="charge_duration in Sekunden")
+    charging_duration_s: int = Field(..., ge=0, description="charge duration in seconds")
     energie_geladen_kwh: float = Field(
-        ..., ge=0.0, description="Waehrend des Ladehalts geladene Energiemenge in kWh"
+        ..., ge=0.0, description="Waehrend des Ladehalts energy charged in kWh"
     )
     arrival_time: datetime = Field(..., description="timestamp der Ankunft an der Station")
     departure_time: datetime = Field(..., description="timestamp der Abfahrt von der Station")
@@ -181,27 +181,27 @@ class WaypointStopSummary(BaseModel):
 
     Analog zu `ChargingStopSummary`, aber fuer eine erzwungene Wartezeit an
     einem Zwischenstopp (`tripplanner.optimization.models.
-    ZwischenstoppAufenthalt`), optional mit Ladung ueber eine vor Ort
-    verfuegbare Ladeleistung - kein `station_id`/Preis-/Detour-Handling, da
+    WaypointDwell`), optional mit Ladung ueber eine vor Ort
+    verfuegbare charging_power - kein `station_id`/Preis-/Detour-Handling, da
     kein `ChargingStation`-Objekt existiert (der Zwischenstopp ist keine
-    Ladeinfrastruktur).
+    charging_infrastructure).
     """
 
     position: tuple[float, float] = Field(
         ..., description="Position des Zwischenstopps als (lat, lon)"
     )
     distance_m: float = Field(
-        ..., ge=0.0, description="Kumulierte distance entlang der Route bei diesem Zwischenstopp"
+        ..., ge=0.0, description="Cumulative distance along the route at this waypoint stop"
     )
     arrival_time: datetime = Field(..., description="timestamp der Ankunft am Zwischenstopp")
     departure_time: datetime = Field(..., description="timestamp der (erzwungenen) Abfahrt")
     charging_power_kw: float | None = Field(
-        default=None, ge=0.0, description="Genutzte Ladeleistung in kW, None falls nicht geladen"
+        default=None, ge=0.0, description="Charging power used in kW, None if not charging"
     )
-    arrival_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Ankunft in %")
-    target_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC bei Abfahrt in %")
+    arrival_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC upon arrival in %")
+    target_soc_pct: float = Field(..., ge=0.0, le=100.0, description="SoC upon departure in %")
     energie_geladen_kwh: float = Field(
-        ..., ge=0.0, description="Waehrend des Aufenthalts geladene Energiemenge in kWh"
+        ..., ge=0.0, description="Waehrend des Aufenthalts energy charged in kWh"
     )
 
 
@@ -211,7 +211,7 @@ class ChargingCostByCurrency(BaseModel):
     A trip spanning several countries (e.g. Germany -> Denmark -> Sweden) can
     have charging stops priced in different currencies (EUR/DKK/SEK); summing
     raw amounts across currencies without a conversion would be meaningless,
-    so `TripSimulationResult.total_charging_cost` reports one entry per
+    so `TripsimulationResult.total_charging_cost` reports one entry per
     currency actually observed among priced stops instead of a single total.
     """
 
@@ -220,12 +220,12 @@ class ChargingCostByCurrency(BaseModel):
 
 
 class TripSimulationResult(BaseModel):
-    """Vollständige Zeitreihe einer Reise."""
+    """Vollstaendige Zeitreihe einer Reise."""
 
     frames: list[SimulationFrame]
     gesamt_distanz_km: float = Field(..., ge=0, description="total_distance in km")
-    gesamt_fahrzeit_min: float = Field(..., ge=0, description="Gesamtfahrzeit in Minuten")
-    gesamt_ladezeit_min: float = Field(..., ge=0, description="total_charge_time in Minuten")
+    gesamt_fahrzeit_min: float = Field(..., ge=0, description="Total driving time in minutes")
+    gesamt_ladezeit_min: float = Field(..., ge=0, description="total charge time in minutes")
     gesamt_wartezeit_min: float = Field(
         default=0.0,
         ge=0,
@@ -236,16 +236,16 @@ class TripSimulationResult(BaseModel):
             "zahlen in `gesamt_ladezeit_min`."
         ),
     )
-    start_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Start-SoC in %")
-    target_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Ziel-SoC in %")
+    start_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Start SoC in %")
+    target_soc_pct: float = Field(..., ge=0.0, le=100.0, description="Target SoC in %")
     charging_stops: list[ChargingStopSummary] = Field(
         default_factory=list,
-        description="Ein Eintrag pro Ladehalt (chronologisch), fuer die Kartendarstellung",
+        description="Ein Eintrag pro Ladehalt (chronologisch), fuer die map display",
     )
     waypoint_stops: list[WaypointStopSummary] = Field(
         default_factory=list,
         description=(
-            "Ein Eintrag pro Zwischenstopp-Aufenthalt (chronologisch), fuer die Kartendarstellung"
+            "Ein Eintrag pro Zwischenstopp-Aufenthalt (chronologisch), fuer die map display"
         ),
     )
     total_charging_cost: list[ChargingCostByCurrency] = Field(
@@ -265,7 +265,7 @@ class TripSimulationResult(BaseModel):
     )
     construction_zones: list[ConstructionZone] = Field(
         default_factory=list,
-        description="construction_zones entlang der Route fuer die Kartendarstellung",
+        description="construction zones entlang der Route fuer die map display",
     )
 
 
@@ -303,7 +303,7 @@ class LadehaltDetour(BaseModel):
     route_index_vor: int = Field(
         ...,
         ge=0,
-        description="Index in `Route.geometrie`, ab dem diese Geometrie die Hauptroute ersetzt",
+        description="Index in `Route.geometrie`, from which this geometry replaces the main route",
     )
     route_index_nach: int = Field(
         ...,

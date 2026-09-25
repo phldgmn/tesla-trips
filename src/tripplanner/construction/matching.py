@@ -2,7 +2,7 @@
 
 Country-agnostic geometry/spatial-index logic used by every construction
 provider (DE, DK, SE) to map a parsed construction zone onto the route
-segments it affects. Extracted from `ConstructionProviderImpl` so DE-specific
+segments it affects. Extracted from `ConstructionproviderImpl` so DE-specific
 providers (`providers_de_autobahn.py`, `providers_de_datexii.py`) can reuse
 the exact same matching semantics without duplicating them.
 """
@@ -42,9 +42,9 @@ def build_strtree(
 ) -> tuple[STRtree, list[LineString]]:
     """Build an STRtree spatial index from route segments **once**.
 
-    Segment geometries are in ``(lon, lat)`` order for Shapely,
+    segment geometries are in ``(lon, lat)`` order for Shapely,
     converting from the ``(lat, lon)`` order used in
-    ``RouteSegment.geometrie``.
+    ``Routesegment.geometrie``.
 
     Args:
         segments: Route segments to index.
@@ -187,7 +187,7 @@ def filter_opposite_direction(
 
     For zones with LineString geometry, computes the zone's bearing from
     its first and last coordinates and compares it against each matched
-    route segment's ``bearing_deg``.  Segments whose bearing differs by
+    route segment's ``bearing_deg``.  segments whose bearing differs by
     more than 100° (after folding the raw difference into the
     [0°, 180°] range — i.e. roughly 180° apart, opposite direction on a
     divided highway) are excluded.
@@ -199,13 +199,13 @@ def filter_opposite_direction(
 
     Args:
         zone: The DATEX II zone with coordinate and direction metadata.
-        segment_indices: Segment indices already matched by distance.
+        segment_indices: segment indices already matched by distance.
         route_segments: Full route segments for bearing lookup.
         both_directions_values: Source-specific tokens meaning "both
             directions" (no directional filter should be applied).
 
     Returns:
-        Filtered list of segment indices, excluding opposite-direction matches.
+        filterd list of segment indices, excluding opposite-direction matches.
     """
     zone_coords = zone.koordinaten
     zone_start, zone_end = zone_coords[0], zone_coords[-1]

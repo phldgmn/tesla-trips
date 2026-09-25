@@ -90,3 +90,4 @@ def waf_retry_delay_s(attempt: int) -> float:
         Delay in seconds before the next attempt.
     """
     return float(WAF_RETRY_BASE_DELAY_S * (2 ** (attempt - 1)))
+

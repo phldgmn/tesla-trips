@@ -1,4 +1,4 @@
-"""Lokaler Datei-basierter ChargingStationProvider."""
+"""Lokaler Datei-basierter ChargingStationprovider."""
 
 from __future__ import annotations
 
@@ -20,26 +20,26 @@ from .spatial import _build_lat_bands, _stations_in_radius
 
 
 class LocalFileChargingStationProvider(ChargingStationProvider):
-    """Implementierung, die Ladedaten aus einer lokalen JSON-Datei liest.
+    """implementation, die Ladedaten aus einer lokalen JSON-Datei liest.
 
     Für Tests und Produktion (solange kein Crawler implementiert ist).
     """
 
     def __init__(self, data_path: Path) -> None:
-        """Initialisiere den Provider mit dem Pfad zur JSON-Datei.
+        """Initialisiere den provider mit dem Pfad zur JSON-Datei.
 
         Args:
             data_path: Pfad zur JSON-Datei (z. B. data/supercharger_snapshot.json)
         """
         self.data_path = data_path
         self._stations: list[ChargingStation] | None = None
-        # Räumlicher Index über `self._stations`, siehe
-        # `TeslaChargingStationProvider._lat_bands` für die Begründung.
+        # Spatial index over `self._stations`, siehe
+        # `TeslaChargingStationprovider._lat_bands` für die Begründung.
         self._lat_bands: dict[int, list[ChargingStation]] | None = None
         self._lat_bands_source: list[ChargingStation] | None = None
 
     def _load_stations(self) -> list[ChargingStation]:
-        """Lädt und parst die JSON-Datei (lazy)."""
+        """Laedt und parst die JSON-Datei (lazy)."""
         if self._stations is not None:
             return self._stations
 
@@ -68,7 +68,7 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
             erstellungsdatum_str = item.get("erstellungsdatum")
             if isinstance(erstellungsdatum_str, str):
                 try:
-                    # Versuche ISO-Format
+                    # Versuche ISO-format
                     erstellungsdatum = datetime.fromisoformat(
                         erstellungsdatum_str.replace("Z", "+00:00")
                     ).replace(tzinfo=None)
@@ -103,12 +103,12 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
     ) -> list[ChargingStation]:
         """Liefert alle Supercharger innerhalb des gegebenen Radius um die Koordinate.
 
-        Nutzt `haversine_distance_m` von `tripplanner.geo` für die Distanzberechnung.
+        Uses `haversine_distance_m` von `tripplanner.geo` für die Distanzberechnung.
 
         Args:
             coordinate: (lat, lon) als Tuple (WGS84)
             radius_km: Suchradius in Kilometern (Flugdistanz)
-            country_filter: Optionaler Länderfilter (DE/DK/SE)
+            country_filter: Optionaler Laenderfilter (DE/DK/SE)
 
         Returns:
             Liste von ChargingStation, sortiert nach distance (aufsteigend)
@@ -134,12 +134,12 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
     ) -> dict[int, list[ChargingStation]]:
         """Sucht Supercharger entlang der Route.
 
-        Für jedes Segment wird der Mittelpunkt berechnet und in einem Radius von
+        Für jedes segment wird der Mittelpunkt berechnet und in einem Radius von
         `search_radius_km` gesucht.
 
         Args:
             route: Die geplante Route (muss segments-Attribut haben)
-            search_radius_km: Radius um jeden Segment-Mittelpunkt
+            search_radius_km: Radius um jeden segment-Mittelpunkt
 
         Returns:
             Dict mapping segment_index -> liste von ChargingStation
@@ -147,7 +147,7 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
         # Importiere route nur hier um Zyklus zu vermeiden
         result: dict[int, list[ChargingStation]] = {}
         for i, segment in enumerate(route.segments):
-            # Segment-Mittelpunkt als geo-mittlerer Punkt
+            # segment-Mittelpunkt als geo-mittlerer Punkt
             coords: list[Coordinate] = segment.geometrie
             if not coords:
                 continue

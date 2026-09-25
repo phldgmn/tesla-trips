@@ -1,8 +1,8 @@
-"""FastAPI-App-Shell für trip_input.
+"""FastAPI app shell for trip_input.
 
-Enthält die FastAPI-Instanz ``app`` (uvicorn-Ziel ``tripplanner.trip_input.api:app``),
-den App-Lebenszyklus (``_lifespan``), die Logger-Konfiguration und die
-``get_*_provider``-Dependency-Getter für den ``/trips``-Endpunkt.
+Contains the FastAPI instance ``app`` (uvicorn target ``tripplanner.trip_input.api:app``),
+den App-Lebenszyklus (``_lifespan``), die Logger-configuration und die
+``get_*_provider`` dependency getters for the ``/trips`` endpoint.
 """
 
 from __future__ import annotations
@@ -80,12 +80,12 @@ def _configure_logging() -> None:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Verwaltet den Lebenszyklus der prozessweiten Provider-Ressourcen.
+    """Verwaltet den Lebenszyklus der prozessweiten provider-Ressourcen.
 
     Der GraphHopper-HTTP-Client und der Tesla-Supercharger-DB-Zugriff werden
-    einmalig beim Start erzeugt (Connection-/Verbindungs-Pooling über alle
+    created once at startup (connection pooling across all
     Requests hinweg) statt pro Request new aufgebaut zu werden. Die
-    GraphHopper-Basis-URL ist über die Umgebungsvariable `GRAPHHOPPER_URL`
+    GraphHopper base URL is via the environment variable `GRAPHHOPPER_URL`
     konfigurierbar (Default: `http://localhost:8989`, siehe README.md).
     """
     _configure_logging()
@@ -120,12 +120,12 @@ async def _validation_error_handler(_request: Request, exc: RequestValidationErr
 
 
 def get_routing_provider(request: Request) -> RoutingProvider:
-    """FastAPI-Dependency: liefert den produktiven RoutingProvider für `/trips`.
+    """FastAPI dependency: provides the production routing provider for `/trips`.
 
-    Nutzt den in `_lifespan` erzeugten, prozessweit wiederverwendeten
-    `GraphHopperClient` für echtes Straßenrouting über OSM-Daten. In Tests via
-    `app.dependency_overrides[get_routing_provider]` durch `FakeRoutingProvider`
-    ersetzbar (siehe AGENTS.md: keine Live-Calls externer Datenquellen in
+    Uses den in `_lifespan` erzeugten, prozessweit wiederusesen
+    `GraphHopperClient` für echtes Strassenrouting über OSM-data. In Tests via
+    `app.dependency_overrides[get_routing_provider]` durch `FakeRoutingprovider`
+    ersetzbar (siehe AGENTS.md: keine Live-Calls externer dataquellen in
     Unit-Tests).
     """
     providers: ProductionProviders = request.app.state.providers
@@ -133,14 +133,14 @@ def get_routing_provider(request: Request) -> RoutingProvider:
 
 
 def get_charging_provider(request: Request) -> ChargingStationProvider:
-    """FastAPI-Dependency: liefert den produktiven ChargingStationProvider für `/trips`.
+    """FastAPI dependency: provides the production charging station provider for `/trips`.
 
-    Nutzt den in `_lifespan` erzeugten, prozessweit wiederverwendeten
-    `TeslaChargingStationProvider` (SQLite-DB `data/tesla_superchargers.db`,
-    siehe README.md) für echte Supercharger-Standorte. In Tests via
+    Uses den in `_lifespan` erzeugten, prozessweit wiederusesen
+    `TeslaChargingStationprovider` (SQLite-DB `data/tesla_superchargers.db`,
+    see README.md) for real supercharger locations. In tests via
     `app.dependency_overrides[get_charging_provider]` durch eine
-    `FakeChargingStationProvider`-Instanz mit angepassten Stationen ersetzbar
-    (siehe AGENTS.md: keine Live-Calls externer Datenquellen in Unit-Tests).
+    `FakeChargingStationprovider`-Instanz mit angepassten Stationen ersetzbar
+    (siehe AGENTS.md: keine Live-Calls externer dataquellen in Unit-Tests).
     """
     providers: ProductionProviders = request.app.state.providers
     return providers.charging
@@ -169,13 +169,13 @@ def require_admin_token(
     if not expected:
         return
     if x_admin_token is None or not secrets.compare_digest(x_admin_token, expected):
-        raise HTTPException(status_code=401, detail="Admin-Token fehlt oder ist ungueltig")
+        raise HTTPException(status_code=401, detail="Admin token is missing or invalid")
 
 
 def get_elevation_provider(request: Request) -> ElevationProvider:
-    """FastAPI-Dependency: returns the production ElevationProvider for `/trips`.
+    """FastAPI-Dependency: returns the production Elevationprovider for `/trips`.
 
-    Uses the `ElevationProvider` created in `_lifespan` for elevation data.
+    Uses the `Elevationprovider` created in `_lifespan` for elevation data.
     In tests, can be replaced via `app.dependency_overrides[get_elevation_provider]`
     with `FakeDataSource`.
     """
@@ -184,11 +184,11 @@ def get_elevation_provider(request: Request) -> ElevationProvider:
 
 
 def get_weather_provider(request: Request) -> WeatherProvider:
-    """FastAPI-Dependency: returns the production WeatherProvider for `/trips`.
+    """FastAPI-Dependency: returns the production Weatherprovider for `/trips`.
 
-    Uses the `OpenMeteoProvider` created in `_lifespan` for weather data.
+    Uses the `OpenMeteoprovider` created in `_lifespan` for weather data.
     In tests, can be replaced via `app.dependency_overrides[get_weather_provider]`
-    with `FakeWeatherProvider` (see AGENTS.md: no live calls to external data sources
+    with `FakeWeatherprovider` (see AGENTS.md: no live calls to external data sources
     in unit tests).
     """
     providers: ProductionProviders = request.app.state.providers
@@ -196,12 +196,12 @@ def get_weather_provider(request: Request) -> WeatherProvider:
 
 
 def get_construction_provider(request: Request) -> ConstructionProvider:
-    """FastAPI-Dependency: liefert den produktiven ConstructionProvider für `/trips`.
+    """FastAPI dependency: provides the production construction provider for `/trips`.
 
-    Nutzt den in `_lifespan` erzeugten, prozessweit wiederverwendeten
-    `ConstructionProvider` für Baustellendaten. In Tests via
+    Uses den in `_lifespan` erzeugten, prozessweit wiederusesen
+    `Constructionprovider` für Construction data. In Tests via
     `app.dependency_overrides[get_construction_provider]` durch
-    `FakeConstructionProvider` ersetzbar.
+    `FakeConstructionprovider` ersetzbar.
     """
     providers: ProductionProviders = request.app.state.providers
     return providers.construction
@@ -209,9 +209,9 @@ def get_construction_provider(request: Request) -> ConstructionProvider:
 
 @app.get("/health")
 async def health_check() -> dict[str, str]:
-    """Health-Check-Endpunkt.
+    """Health check endpoint.
 
-    Ermöglicht dem Frontend zu prüfen, ob das Backend erreichbar ist.
+    Allows the frontend to check whether the backend is reachable.
     """
     return {"status": "ok"}
 

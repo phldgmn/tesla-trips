@@ -80,25 +80,25 @@ def map_waypoints_to_segments(
     segments: list[RouteSegment],
     route: Route,
 ) -> list[int]:
-    """Ermittelt fuer jeden Waypoint den Segment-Index, an dem er liegt.
+    """Ermittelt fuer jeden Waypoint den segment-Index, an dem er liegt.
 
-    Bevorzugt `route.via_point_indices` - vom Routing-Provider EXAKT
-    gelieferte Segment-Indizes (bei GraphHopper aus der "reached via
-    point"-Instruktion, sign=5; siehe `GraphHopperRoutingProvider.
+    Bevorzugt `route.via_point_indices` - vom Routing-provider EXAKT
+    gelieferte segment-Indizes (bei GraphHopper aus der "reached via
+    point"-Instruktion, sign=5; siehe `GraphHopperRoutingprovider.
     _map_path_to_route`) statt einer reinen Naechster-Punkt-Suche, die
     auf sich selbst kreuzenden/schleifenden Routen mehrdeutig waere
     (siehe `waypoint_to_segment`-Docstring). Faellt auf die monoton
-    fortschreitende Naechster-Punkt-Suche zurueck, falls ein Provider
+    fortschreitende Naechster-Punkt-Suche zurueck, falls ein provider
     keine (oder eine unpassende Anzahl) `via_point_indices` liefert
-    (z. B. ein zukuenftiger/alternativer Provider ohne diese Information).
+    (z. B. ein zukuenftiger/alternativer provider ohne diese Information).
 
     Args:
         waypoints: Liste der Waypoints.
-        segments: Liste aller Route-Segmente.
+        segments: Liste aller Route-segmente.
         route: Die Route mit optionalen `via_point_indices`.
 
     Returns:
-        Segment-Index fuer jeden Waypoint in derselben Reihenfolge.
+        segment-Index fuer jeden Waypoint in derselben Reihenfolge.
     """
     if len(route.via_point_indices) == len(waypoints):
         max_idx = len(segments) - 1
@@ -118,31 +118,31 @@ def waypoint_to_segment(
     segments: list[RouteSegment],
     min_seg_idx: int = 0,
 ) -> int:
-    """Ermittle das Segment, das einem Waypoint am nächsten liegt.
+    """Find the segment closest to a waypoint.
 
-    Sucht nur ab `min_seg_idx` (Segmente vor dem vorherigen, in Fahrt-
+    Sucht nur ab `min_seg_idx` (segmente vor dem vorherigen, in Fahrt-
     richtung bereits zugeordneten Waypoint werden ausgeschlossen).
-    `RouteSegment`s sind einer pro GraphHopper-Polyline-Punktpaar (siehe
-    `GraphHopperRoutingProvider._map_path_to_route`), also sehr
-    feingranular - eine reine Distanzsuche ueber ALLE Segmente kann bei
+    `Routesegment`s sind einer pro GraphHopper-Polyline-Punktpaar (siehe
+    `GraphHopperRoutingprovider._map_path_to_route`), also sehr
+    feingranular - eine reine Distanzsuche ueber ALLE segmente kann bei
     sich kreuzenden/parallel verlaufenden Strassen (z. B. eine Route, die
     nahe an einer bereits befahrenen Kreuzung vorbeikommt) faelschlich
     einen geometrisch nahen, aber entlang der Route weit entfernten
-    Punkt treffen - sichtbar u. a. als falscher SoC-Gradient-Sprung weit
+    Punkt treffen - sichtbar u. a. als falscher SoC-gradient-Sprung weit
     vor/hinter dem tatsaechlichen Zwischenstopp auf der Karte. Da
-    Zwischenstopps als GraphHopper-Via-Punkte in Anfragereihenfolge in
-    die Route geroutet werden (siehe `GraphHopperRoutingProvider.
+    Zwischenstopps als GraphHopper-Via-Punkte in requestreihenfolge in
+    die Route geroutet werden (siehe `GraphHopperRoutingprovider.
     berechne_route`), muessen sie auch entlang der Route in dieser
     Reihenfolge auftreten - ein monoton steigender Suchstart pro
     Waypoint erzwingt das.
 
     Args:
         waypoint: Der zu mappende Waypoint.
-        segments: Liste aller Route-Segmente.
-        min_seg_idx: Erster zu durchsuchender Segment-Index.
+        segments: Liste aller Route-segmente.
+        min_seg_idx: Erster zu durchsuchender segment-Index.
 
     Returns:
-        Der Segment-Index des Waypoints.
+        Der segment-Index des Waypoints.
     """
     wp_coord = waypoint.coordinate
 
@@ -150,7 +150,7 @@ def waypoint_to_segment(
     closest_seg_idx = min_seg_idx
 
     for idx in range(min_seg_idx, len(segments)):
-        # Benutze den Segment-Startpunkt als Referenz
+        # Benutze den segment-Startpunkt als Referenz
         seg_start = segments[idx].geometrie[0]
         dist = haversine_distance_m(wp_coord, seg_start)
         if dist < min_dist:

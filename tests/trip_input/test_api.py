@@ -334,7 +334,7 @@ async def test_create_trip_simulation_e2e_regression_departure_time_and_soc(
 ) -> None:
     """End-to-End-Regressionstest (formalisiert den manuellen CLI-Smoke-Test).
 
-    Pinnt zwei zuvor per manuellem End-to-End-Lauf gefundene Bugs, die vom generischen
+    Pinnt zwei zuvor per manuellem End-to-End-Lauf founde Bugs, die vom generischen
     "vollstaendiger_durchlauf"-Test NICHT erkannt wurden, weil `0 <= soc_pct <= 100` auch
     bei physikalisch falschem Verhalten (SoC-Crash auf 0%, Zeitstempel auf Unix-Epoch 1970)
     technisch gueltig waere:
@@ -1351,7 +1351,7 @@ async def test_create_trip_simulation_findet_station_ausserhalb_des_alten_2km_ra
     naechste Supercharger oft 10-25 km von der GraphHopper-Route entfernt.
     Mit dem alten 2-km-Radius fand der Optimierer fuer das komplette
     Segment ZWISCHEN Start und Ziel keinen einzigen Ladekandidaten und wies
-    die Reise faelschlich mit "Kein erreichbarer Zielknoten gefunden.
+    die Reise faelschlich mit "No reachable target node found found.
     Route nicht fahrbar." ab, obwohl ein Ladestopp mit realistischem
     Abstecher die Reise fahrbar macht. Mit `LocalFileChargingStationProvider`
     (statt `FakeChargingStationProvider`, die `search_radius_km` ignoriert)
@@ -3489,7 +3489,7 @@ def test_fastapi_endpoint_logs_valueerror_as_422_warning(
     """
 
     async def _fake_step_1_raises(*args: object, **kwargs: object) -> Route:
-        raise TripInfeasibleError("Kein erreichbarer Zielknoten gefunden")
+        raise TripInfeasibleError("No reachable target node found found")
 
     monkeypatch.setattr(trip_pipeline, "_step_1_route_calculate", _fake_step_1_raises)
 
@@ -3509,7 +3509,7 @@ def test_fastapi_endpoint_logs_valueerror_as_422_warning(
         app.dependency_overrides.pop(get_routing_provider, None)
 
     assert response.status_code == 422
-    assert "nicht durchführbar" in response.json()["detail"]
+    assert "not feasible" in response.json()["detail"]
 
     # Verify the warning was logged
     warnings = [
@@ -3520,7 +3520,7 @@ def test_fastapi_endpoint_logs_valueerror_as_422_warning(
         and "rejected (422)" in r.message
     ]
     assert len(warnings) == 1
-    assert "Kein erreichbarer Zielknoten" in warnings[0].message
+    assert "No reachable target node found" in warnings[0].message
 
 
 def test_fastapi_endpoint_logs_httpx_error_as_502_warning(

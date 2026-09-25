@@ -27,10 +27,10 @@ logger = logging.getLogger(__name__)
 def _neutral_weather_sample(query: WeatherQuery) -> WeatherSample:
     """Builds a conservative placeholder sample when every provider failed.
 
-    Used exclusively by `LoadBalancedWeatherProvider` as a last resort so a
+    Used exclusively by `LoadBalancedWeatherprovider` as a last resort so a
     total weather-provider outage degrades trip accuracy instead of
     blocking trip calculation. Values are a deliberately mild, generic
-    Northern-European estimate - distinct from `FakeWeatherProvider`'s
+    Northern-European estimate - distinct from `FakeWeatherprovider`'s
     defaults so degraded-mode production output is never mistaken for test
     fixture data.
 
@@ -56,7 +56,7 @@ def _neutral_weather_sample(query: WeatherQuery) -> WeatherSample:
 
 
 class WeatherProviderEntry(NamedTuple):
-    """One weather provider registered with `LoadBalancedWeatherProvider`."""
+    """One weather provider registered with `LoadBalancedWeatherprovider`."""
 
     name: str
     """Human-readable provider name, used in logs and cooldown tracking."""
@@ -71,7 +71,7 @@ class WeatherProviderEntry(NamedTuple):
 
 
 class LoadBalancedWeatherProvider:
-    """Composite `WeatherProvider` with country-aware load balancing and failover.
+    """Composite `Weatherprovider` with country-aware load balancing and failover.
 
     For each queried coordinate:
 
@@ -128,9 +128,9 @@ class LoadBalancedWeatherProvider:
             clock: Monotonic time source; overridable in tests.
             cache_ttl_seconds: TTL für den persistenten Cache in Sekunden
                 (Standard: 3600 = 1 Stunde).
-            cache_dir: Verzeichnis für die SQLite-Datenbank des persistenten
+            cache_dir: Verzeichnis für die SQLite-databank des persistenten
                 Caches. Wenn ``None``, wird der Standardpfad
-                ``<TRIPPLANNER_CACHE_DIR>/external_api_cache.sqlite`` verwendet.
+                ``<TRIPPLANNER_CACHE_DIR>/external_api_cache.sqlite`` uses.
 
         Raises:
             ValueError: If `entries` is empty.
@@ -217,7 +217,7 @@ class LoadBalancedWeatherProvider:
     ) -> list[WeatherSample]:
         """Re-fetches weather for `updated_queries`.
 
-        `original_queries` is accepted to satisfy the `WeatherProvider`
+        `original_queries` is accepted to satisfy the `Weatherprovider`
         protocol; the composite's own `(coordinate, timestamp)` cache
         (populated by any prior `fetch_weather`/`refetch_weather` call)
         already serves unchanged points, so no separate handling is needed.

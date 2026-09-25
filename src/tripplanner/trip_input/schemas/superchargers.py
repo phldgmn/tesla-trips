@@ -1,4 +1,4 @@
-"""API-Response-Modelle für die Supercharger-Endpunkte."""
+"""API response models for the supercharger endpoints."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from tripplanner.charging_infrastructure import ChargingPricingTier, ChargingSta
 
 
 class SuperchargerStationAPI(BaseModel):
-    """API-Response-Modell fuer eine Supercharger-Station."""
+    """API response-model fuer eine Supercharger-Station."""
 
     slug: str = Field(..., description="tesla_location_id (location_url_slug)")
     name: str = Field(..., description="Standortname")
@@ -27,7 +27,7 @@ class SuperchargerStationAPI(BaseModel):
 
 
 class SuperchargerStationDetailAPI(SuperchargerStationAPI):
-    """Detaillierte API-Response fuer eine Supercharger-Station."""
+    """Detaillierte API response fuer eine Supercharger-Station."""
 
     connector_types: list[str] = Field(default_factory=list)
     last_updated_utc: str = Field(..., description="Letzte Aktualisierung ISO-8601")
@@ -36,7 +36,7 @@ class SuperchargerStationDetailAPI(SuperchargerStationAPI):
 
 
 class SuperchargerPricingAPI(BaseModel):
-    """API-Response-Modell fuer gecachte Preisdaten einer Supercharger-Station."""
+    """API response-model fuer gecachte Preisdaten einer Supercharger-Station."""
 
     slug: str = Field(..., description="tesla_location_id (location_url_slug)")
     tiers: list[ChargingPricingTier] = Field(
@@ -53,7 +53,7 @@ class SuperchargerPricingAPI(BaseModel):
 
 
 def _station_to_api(station: ChargingStation) -> SuperchargerStationAPI:
-    """Wandelt ein ChargingStation-Modell in das API-Response-Modell um."""
+    """Wandelt ein ChargingStation-model in das API response-model um."""
     return SuperchargerStationAPI(
         slug=station.station_id,
         name=station.name.replace("Tesla Supercharger - ", ""),

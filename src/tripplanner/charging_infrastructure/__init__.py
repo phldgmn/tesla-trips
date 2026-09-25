@@ -1,11 +1,11 @@
 """Öffentliches API des `charging_infrastructure`-Moduls.
 
 Exports:
-- Datenmodelle: `ChargingStation`, `ChargingPricingTier`,
+- data models: `ChargingStation`, `ChargingPricingTier`,
   `ChargingStationWithPricing`, `StallType`, `ConnectorType`
-- Provider: `ChargingStationProvider`,
-  `LocalFileChargingStationProvider`, `FakeChargingStationProvider`,
-  `TeslaChargingStationProvider`
+- provider: `ChargingStationprovider`,
+  `LocalFileChargingStationprovider`, `FakeChargingStationprovider`,
+  `TeslaChargingStationprovider`
 - HTTP-Clients: `SuperchargeInfoClient`, `TeslaLocationsClient`
   (curl_cffi), `SafariTeslaClient` (echtes Safari via AppleScript, Default),
   `NodriverTeslaClient` (nodriver / Chromium via CDP, Legacy),
@@ -13,7 +13,7 @@ Exports:
   Fehlertyp aller Tesla-Transports)
 - Pricing: `parse_pricing_tiers`, `select_owner_rate_for_time`,
   `PricingParseError`, `CachedPricing`, `PricingQueueDrainResult`
-- Hilfsfunktionen: `provider_session` (kurzlebiger Provider fuer Skripte/CLI)
+- Hilfsfunktionen: `provider_session` (kurzlebiger provider fuer Skripte/CLI)
 """
 
 from .charging_infrastructure import provider_session

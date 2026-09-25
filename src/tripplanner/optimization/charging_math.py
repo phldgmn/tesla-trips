@@ -16,22 +16,22 @@ if TYPE_CHECKING:
     from tripplanner.trip_input.models import VehicleProfile
 
 
-# Konstanten für Kostenfunktion (identisch zu `optimizer.py`)
-COST_INF: float = 1e9  # Unendlich für unzulässige Kanten
+# constants for cost function (same as `optimizer.py`)
+COST_INF: float = 1e9  # Infinity for invalid edges
 MAX_SOC_PCT: float = 100.0
 
 
 def calc_soc_verbrauch_pct(energy_kwh: float, battery_capacity_kwh: float) -> float:
-    """Berechne SoC-consumption in Prozent für einen gegebenen Energiebedarf.
+    """Calculate SoC consumption in percentage for a given energy requirement.
 
     Args:
-        energy_kwh: Energiebedarf in kWh (consumption positiv, recuperation
-            negativ) - typischerweise über eine Teilstrecke aggregiert
+        energy_kwh: Energy requirement in kWh (consumption positive, recuperation
+            negative) - typically aggregated over a subsection
             (siehe `_add_drive_edge`).
-        battery_capacity_kwh: Batteriekapazität des Fahrzeugs.
+        battery_capacity_kwh: Batteriekapazitaet des Fahrzeugs.
 
     Returns:
-        SoC-consumption in Prozent.
+        SoC consumption in Prozent.
     """
     return (energy_kwh / battery_capacity_kwh) * MAX_SOC_PCT
 
@@ -43,23 +43,23 @@ def calc_ladezeit_s(
     battery_capacity_kwh: float,
     leistungsdeckel_kw: float | None = None,
 ) -> float:
-    """Berechne Ladezeit in Sekunden für den Ladevorgang `start_soc_pct` → `end_soc_pct`.
+    """Calculate charge_time in Sekunden für den charging_process `start_soc_pct` → `end_soc_pct`.
 
-    Die mittlere Ladeleistung MUSS über das TATSAECHLICHE Start-/End-
-    SoC-Fenster gemittelt werden (`mittlere_ladeleistung_kw(start_soc_pct,
-    end_soc_pct, ...)`) - eine frühere Fassung leitete das Fenster
-    stattdessen ausschließlich aus der SoC-Differenz ab (angenommenes
-    Fenster `[100-delta, 100]`, so als würde JEDER Ladevorgang bei 100%
-    enden). Das ergab für Teilladungen von niedrigem SoC (z. B. 20% → 80%,
-    real größtenteils im schnellen unteren Kurvenbereich) fälschlich die
-    LANGSAME Taper-Region nahe 100% als Referenz, wodurch Teilladungen
-    gegenüber einer Volladung auf 100% (dort stimmte das angenommene
-    Fenster zufällig, da `end_soc_pct` ohnehin 100% ist) systematisch zu
-    teuer geschätzt wurden. Der A*-Kostenoptimierer bevorzugte dadurch
+    Die average charging power MUST over the ACTUAL start/end-
+    SoC window averaged (`mittlere_ladeleistung_kw(start_soc_pct,
+    end_soc_pct, ...)`) - an earlier version derived the window
+    stattdessen ausschliesslich aus der SoC-Differenz ab (angenommenes
+    Fenster `[100-delta, 100]`, so als würde JEDER charging_process bei 100%
+    end). This resulted for partial charges from low SoC (z. B. 20% → 80%,
+    actually mostly in the fast lower curve region) falsely the
+    SLOW taper region near 100% as reference, causing partial charges
+    compared to a full charge to 100% (dort stimmte das angenommene
+    window happened to be 100% is) systematically to
+    teuer geestimates wurden. Der A*-Kostenoptimierer bevorzugte dadurch
     Volladungen auf 100% und vermied es, den SoC vor einem Ladehalt weit
     absinken zu lassen (siehe Nutzer-Report: Ladehalte mit ~20% Rest-SoC
     statt der eingestellten Sicherheitsreserve, sowie Volladungen auf
-    100% statt der gewünschten 60-80%).
+    100% instead of the desired 60-80%).
     """
     if end_soc_pct <= start_soc_pct:
         return 0.0
@@ -88,7 +88,7 @@ def mittlere_ladeleistung_kw(
     ladekurve: ChargingCurve,
     leistungsdeckel_kw: float | None = None,
 ) -> float:
-    """Berechne mittlere Ladeleistung über einen SoC-Bereich."""
+    """Calculate average charging_power over an SoC range."""
     if start_soc_pct >= end_soc_pct:
         return 0.0
 
@@ -140,8 +140,8 @@ def soc_nach_fester_ladezeit(
     # %-Punkte - weit unter der SoC-Bucket-Granularitaet (`soc_step_pct`,
     # Standard 1.0%, siehe `discretizer.soc_to_bucket`), auf die das
     # Ergebnis ohnehin gerundet wird. Frueher 40 Iterationen (Praezision
-    # ~9e-11 %-Punkte) - bei Routen mit vielen Ladestationen UND vielen
-    # zu kurzen Kandidaten (siehe `_kandidaten_mit_mindestladedauer`)
+    # ~9e-11 %-Punkte) - bei Routen mit vielen charging_stationen UND vielen
+    # zu kurzen Kandidaten (siehe `_candidates_with_min_charge_duration`)
     # dominierte diese ungenutzte Ueberpraezision (je Iteration ein
     # `_calc_ladezeit_s`-Aufruf mit 10 Stichproben, siehe
     # `_mittlere_ladeleistung_kw`) einen Grossteil der Optimierungszeit
@@ -162,7 +162,7 @@ def soc_nach_fester_ladezeit(
     return start_soc_pct + (lo + hi) / 2.0
 
 
-def lade_ziel_kandidaten(  # noqa: PLR0913, PLR0917 -- Kandidatenermittlung braucht den vollen Reichweiten-/Kurvenkontext
+def charging_target_candidates(  # noqa: PLR0913, PLR0917 -- Kandidatenermittlung braucht den vollen Reichweiten-/Kurvenkontext
     arrival_soc_pct: float,
     seg_idx: int,
     checkpoints: list[int],
@@ -175,17 +175,17 @@ def lade_ziel_kandidaten(  # noqa: PLR0913, PLR0917 -- Kandidatenermittlung brau
     ladekurve: ChargingCurve,
     target_soc_target: float,
 ) -> list[float]:
-    """Ermittelt informierte Ladeziel-SoC-Kandidaten (%) für einen Halt.
+    """Determines informed charging target SoC candidates (%) for a stop.
 
     Statt eines starren Satzes runder Prozentzahlen (fruehere Version:
     80/90/100) kombiniert dies zwei Kandidatenarten, die den A*-Suchraum
     gezielt um die tatsaechlich relevanten Ladeziele anreichern:
 
-    1. REICHWEITEN-Kandidaten (Lookahead ueber 2 Entscheidungspunkte):
+    1. REICHWEITEN-Kandidaten (Lookahead ueber 2 decisionspunkte):
        das MINIMALE Ladeziel, um den naechsten bzw. UEBERNAECHSTEN
-       Entscheidungspunkt (Ladestation, Zwischenstopp, Ferry oder Ziel)
+       decisionspunkt (charging_station, Zwischenstopp, Ferry oder Ziel)
        mit der jeweils dort geltenden Sicherheitsreserve zu erreichen
-       (`min_arrival_soc_pct` fuer eine weitere Ladestation,
+       (`min_arrival_soc_pct` fuer eine weitere charging_station,
        `target_soc_target` fuers Fahrtziel, sonst `min_soc_pct`). Der
        Uebernaechste-Kandidat modelliert explizit die Alternative "hier
        etwas more laden, um die naechste Station ganz zu ueberspringen" -
@@ -194,16 +194,16 @@ def lade_ziel_kandidaten(  # noqa: PLR0913, PLR0917 -- Kandidatenermittlung brau
        Kamen auf 80%, obwohl Holdorf ohnehin mit 24% erreicht wurde -
        der minimale Reichweiten-Kandidat fuer Holdorf haette exakt den
        tatsaechlich noetigen, viel kleineren Ladebetrag geliefert).
-    2. KURVEN-Kandidaten: die eigenen Stuetzstellen der Ladekurve
+    2. KURVEN-Kandidaten: die eigenen Stuetzstellen der charging_curve
        (`ladekurve.points`) oberhalb der Ankunfts-SoC - genau dort
-       aendert sich die Ladeleistung spuerbar (schnell im unteren
-       Bereich, tapering danach, siehe `LadekurveReferenz`), sie
+       aendert sich die charging_power spuerbar (schnell im unteren
+       Bereich, tapering danach, siehe `charging_curveReferenz`), sie
        markieren die natuerlichen "bis hier lohnt sich schnelles Laden
-       noch"-Grenzen JEDER Ladekurve (nicht nur der Tesla-Referenzkurven
+       noch"-Grenzen JEDER charging_curve (nicht nur der Tesla-Referenzkurven
        mit ihren 20/50/80/90/100%-Stuetzstellen).
 
-    Der A*-Kostenoptimierer (drive_time_s + echte kurvenbasierte Ladezeit
-    über `_calc_ladezeit_s`, siehe `_generate_graph`) waehlt aus diesen
+    Der A*-Kostenoptimierer (drive_time_s + echte kurvenbasierte charge_time
+    via `_calc_ladezeit_s`, see `_generate_graph`) selects from these
     Kandidaten anschliessend selbst die zeitoptimale Kombination UEBER
     ALLE Ladehalte hinweg - eine nachtraegliche "Backpropagation" auf
     einen bereits gewaehlten frueheren Ladehalt ist dafuer nicht noetig:
@@ -243,7 +243,7 @@ def lade_ziel_kandidaten(  # noqa: PLR0913, PLR0917 -- Kandidatenermittlung brau
     return sorted(v for v in kandidaten if arrival_soc_pct < v <= cap_soc_pct)
 
 
-def kandidaten_mit_mindestladedauer(  # noqa: PLR0913, PLR0917 -- Mindestdauer-Streckung braucht Ladekurve, Kapazität, Mindestdauer und Cap
+def candidates_with_min_charge_duration(  # noqa: PLR0913, PLR0917 -- Mindestdauer-Streckung braucht Ladekurve, Kapazitaet, Mindestdauer und Cap
     kandidaten: list[float],
     arrival_soc_pct: float,
     ladekurve: ChargingCurve,
@@ -251,22 +251,22 @@ def kandidaten_mit_mindestladedauer(  # noqa: PLR0913, PLR0917 -- Mindestdauer-S
     min_charging_time_s: float,
     max_charge_soc_pct: float = 100.0,
 ) -> list[float]:
-    """Hebt Kandidaten, deren Ladezeit unter `min_charging_time_s` läge, auf das SoC an.
+    """Raises candidates whose charge_time would be below min_charging_time_s to that SoC.
 
     Statt sie zu verwerfen, wird GENAU auf die Mindestdauer gestreckt.
 
     Eine echte Teilladung dauert danach entweder GAR NICHT (die parallele
-    "Station überspringen"-Fahrtkante in `_add_drive_edge` bleibt
-    unberührt) oder mindestens `min_charging_time_s`. Verhindert unnötig
+    "Station skip"-driving edge in `_add_drive_edge` remains
+    untouched) or at least `min_charging_time_s`. Prevents unnecessarily
     kurze Ladehalte (siehe Nutzer-Report: ein 1-Minuten-Stopp, gefolgt
     von einem weiteren Halt nach nur gut 10 Minuten Fahrt - beide Halte
-    zusammen kosten durch Ein-/Ausparken, Stecker anschließen etc. more
-    time als eine einzelne, etwas längere Ladung), ohne den Ladehalt an
+    zusammen kosten durch Ein-/Ausparken, Stecker anclose etc. more
+    time as a single, slightly longer charge), without the charging stop to
     sich zu erzwingen.
 
     Mehrere zu kurze Roh-Kandidaten können dabei auf DASSELBE gestreckte
     Ziel-SoC abgebildet werden - per `set` dedupliziert, damit nicht
-    mehrfach identische Ladekanten erzeugt werden.
+    mehrfach identische charging_edgen erzeugt werden.
     """
     if min_charging_time_s <= 0.0:
         return kandidaten

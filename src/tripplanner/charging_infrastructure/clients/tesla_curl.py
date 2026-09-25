@@ -25,15 +25,15 @@ from .common import (
 class TeslaLocationsClient(TeslaJsonEndpointsMixin):
     """HTTP-Client fuer die oeffentliche Tesla Locations-API via curl_cffi.
 
-    Nutzt ``curl_cffi.AsyncSession`` mit JA3/TLS-Fingerprint-Impersonation
+    Uses ``curl_cffi.AsyncSession`` mit JA3/TLS-Fingerprint-Impersonation
     (Chrome 150), um den Akamai WAF von tesla.com zu umgehen. Der
     ``impersonate``-Preset generiert automatisch die korrekten HTTP/2
     Header-Sequenz und den User-Agent — manuell gesetzte Header (wie die
     alten ``_CURL_HEADERS``) sind nicht more noetig, koennen aber zur
-    Ueberschreibung verwendet werden.
+    Ueberschreibung uses werden.
 
     Ein ``AsyncSession``-Objekt wird pro Client-Instanz erzeugt und
-    ueber alle Requests hinweg wiederverwendet, was Cookie-Jar-Tracking,
+    ueber alle Requests hinweg wiederuses, was Cookie-Jar-Tracking,
     TCP-Connection-Pooling und HTTP/2-Stream-Multiplexing aktiviert.
 
     Die drei oeffentlichen Endpunkte (fetch_locations, fetch_location_details,
@@ -96,11 +96,11 @@ class TeslaLocationsClient(TeslaJsonEndpointsMixin):
             self._owns_client = False
 
     async def _log_request(self, method: str, url: str) -> None:
-        """Loggt eine Anfrage fuer Debug-Zwecke."""
+        """Loggt eine request fuer Debug-Zwecke."""
         _debug_log(self._debug_log, f"{method} {url}", label="HTTP")
 
     async def _log_response(self, response: Any, body_preview: str, label: str = "HTTP") -> None:
-        """Loggt eine HTTP-Antwort fuer Debug-Zwecke."""
+        """Loggt eine HTTP-response fuer Debug-Zwecke."""
         _debug_log(
             self._debug_log,
             f"{label} {response.request.method} "
@@ -116,7 +116,7 @@ class TeslaLocationsClient(TeslaJsonEndpointsMixin):
         wiederholte Akamai-WAF-Bloecke auf demselben Fingerprint umgeht
         (siehe ``_fetch``-Retry-Logik). Wird uebersprungen, wenn die Session
         extern injiziert wurde (nicht ``_owns_client`` - z.B. in Tests oder
-        bei geteilten Sessions, deren Lebenszyklus der Aufrufer verwaltet).
+        bei geteilten Sessions, deren Lebenszyklus der caller verwaltet).
         """
         if not self._owns_client:
             return
@@ -130,7 +130,7 @@ class TeslaLocationsClient(TeslaJsonEndpointsMixin):
 
         Wiederholt bei Akamai-WAF-Bloecken (auch bei HTTP 200 - Tesla liefert
         die "Access Denied"-Blockseite nicht zuverlaessig mit 403/429) und bei
-        403/429/leeren Antworten bis zu ``WAF_RETRY_MAX_ATTEMPTS`` mal, mit
+        403/429/leeren responseen bis zu ``WAF_RETRY_MAX_ATTEMPTS`` mal, mit
         exponentiellem Backoff und einer frischen Session (neuer Fingerprint,
         keine Cookies) pro Versuch. Netzwerkfehler und andere HTTP-Fehler
         (404, 500, ...) sind nicht retry-faehig und werfen sofort.
@@ -143,7 +143,7 @@ class TeslaLocationsClient(TeslaJsonEndpointsMixin):
 
         Raises:
             CurlError: Bei anhaltenden WAF-Bloecken/Rate-Limits oder anderen
-                HTTP-Fehlern, leeren Antworten oder Netzwerkfehlern
+                HTTP-Fehlern, leeren responseen oder Netzwerkfehlern
         """
         last_error = self.CurlError("kein Versuch unternommen")
         for attempt in range(1, WAF_RETRY_MAX_ATTEMPTS + 1):

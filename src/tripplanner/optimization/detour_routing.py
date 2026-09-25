@@ -100,7 +100,7 @@ async def _route_leg_kosten(
 
     Reuses the exact same elevation -> gradient -> energy pipeline used for
     the main route (`_step_2_extract_elevation_profile` /
-    `ElevationProvider.calculate_segment_gradients` /
+    `Elevationprovider.calculate_segment_gradients` /
     `calculate_segment_consumption`), applied to the leg's own segments.
     """
     if not leg_route.segments:

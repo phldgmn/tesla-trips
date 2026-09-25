@@ -1,4 +1,4 @@
-"""Pricing-Queue-Mixin fuer TeslaChargingStationProvider."""
+"""Pricing-Queue-Mixin fuer TeslaChargingStationprovider."""
 
 from __future__ import annotations
 
@@ -44,11 +44,11 @@ PRICING_MAX_AGE_DAYS_DEFAULT: int = 14
 
 
 class PricingQueueMixin:
-    """Stellt die Pricing-Queue-Methoden fuer den TeslaChargingStationProvider bereit.
+    """Stellt die Pricing-Queue-Methoden fuer den TeslaChargingStationprovider bereit.
 
     Diese Methoden greifen ueber ``self._db``, ``self.PRICING_MAX_AGE``,
     ``self._SLUG_RESOLUTION_MAX_DISTANCE_M`` und ``self._debug_log`` auf
-    Attribute des Provider-Objekts zu (kein eigener Zustand), daher als
+    Attribute des provider-Objekts zu (kein eigener Zustand), daher als
     Mixin statt als eigene Klasse.
     """
 
@@ -137,7 +137,7 @@ class PricingQueueMixin:
         Ruft die oeffentliche Standort-Detailseite ab (siehe
         `TeslaClient.fetch_pricing_html` - NICHT die JSON-API, die
         keine Preisdaten liefert), parst die eingebetteten `chargerPricing`-
-        Daten (siehe `pricing.parse_pricing_tiers`) und ersetzt die
+        data (siehe `pricing.parse_pricing_tiers`) und ersetzt die
         gespeicherten Preise der Station. Entfernt die Station anschliessend
         aus der Scrape-Warteschlange (siehe `enqueue_stations_for_pricing_
         refresh`), unabhaengig davon, ob Preisdaten gefunden wurden (eine
@@ -153,7 +153,7 @@ class PricingQueueMixin:
         behandelt und ueber `_resolve_numeric_slug` gegen Teslas eigene
         Standortliste geprueft: eine numerische ID ist ein dokumentiertes
         Platzhalter-Risiko, daher ist selbst eine fehlerfreie, aber leere
-        Antwort nicht vertrauenswuerdig genug, um sie ungeprueft als "Station
+        response nicht vertrauenswuerdig genug, um sie ungeprueft als "Station
         hat keine veroeffentlichten Preise" zu akzeptieren (kann sonst eine
         generische Soft-404-Seite sein statt der echten Standortseite).
         Findet sich dabei ein abweichender echter Slug, wird die DB
@@ -172,7 +172,7 @@ class PricingQueueMixin:
             CurlError: Bei curl-Fehlern, WAF-Block, oder
                 wenn eine numerische ID nicht zu einem Tesla-Slug aufgeloest
                 werden konnte.
-            PricingParseError: Wenn die Antwort kein auswertbares
+            PricingParseError: Wenn die response kein auswertbares
                 `chargerPricing` enthaelt (siehe `parse_pricing_tiers`).
         """
         supercharge_info_id = self._resolve_supercharge_info_id(slug)
@@ -238,7 +238,7 @@ class PricingQueueMixin:
             self._db.upsert_pricing(supercharge_info_id, [t.model_dump() for t in tiers])
         finally:
             self._db.dequeue_pricing_refresh(supercharge_info_id)
-            # Eigenen Client (z. B. Chromium-Browser) deterministisch beenden.
+            # deterministically stop own client (e.g. Chromium browser).
             if created:
                 await tesla_client.close()
 
@@ -415,6 +415,6 @@ class PricingQueueMixin:
                 refreshed=refreshed, skipped_fresh=skipped_fresh, failed=failed
             )
         finally:
-            # Eigenen Client (z. B. Chromium-Browser) deterministisch beenden.
+            # deterministically stop own client (e.g. Chromium browser).
             if created:
                 await tesla_client.close()

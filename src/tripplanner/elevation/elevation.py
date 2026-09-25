@@ -1,7 +1,7 @@
 """Kernlogik für das elevation-Modul.
 
-Bietet ElevationProvider für Höhenprofil-Extraktion und
-Steigungsberechnung.
+Bietet Elevationprovider für elevation_profile-Extraktion und
+ascentsberechnung.
 """
 
 from tripplanner.elevation.models import ElevationPoint, SegmentGradient
@@ -10,13 +10,13 @@ from tripplanner.geo import Coordinate, haversine_distance_m
 
 
 def calculate_horizontal_distance(coord1: Coordinate, coord2: Coordinate) -> float:
-    """Berechnet horizontale distance zwischen zwei Koordinaten (WGS84).
+    """Calculatet horizontale distance zwischen zwei Koordinaten (WGS84).
 
-    Nutzt die haversine_distance_m aus tripplanner.geo für die
-    Großkreisdistanz. Für die meisten Anwendungsfälle (Routen mit
+    Uses die haversine_distance_m aus tripplanner.geo für die
+    Grosskreisdistanz. Für die meisten Anwendungsfaelle (Routen mit
     Sampling von 100m+) ist dies ausreichend genau. Für ultrahohe
-    Präzision (< 1cm) könnte geographiclib verwendet werden, aber
-    das wäre Overkill für diese Anwendung.
+    Praezision (< 1cm) könnte geographiclib uses werden, aber
+    das waere Overkill für diese Anwendung.
 
     Args:
         coord1: (latitude, longitude) Punkt 1
@@ -29,41 +29,41 @@ def calculate_horizontal_distance(coord1: Coordinate, coord2: Coordinate) -> flo
 
 
 class ElevationProvider:
-    """Hauptprovider-Klasse für Höhendaten.
+    """Hauptprovider-Klasse für elevation_data.
 
-    Extrahiert Höhenprofile entlang einer Route und berechnet
-    Steigungsprofile je Segment.
+    Extrahiert elevation_profilee entlang einer Route und berechnet
+    ascentsprofile je segment.
     """
 
     def __init__(self, data_source: DEMDataSourceProtocol) -> None:
-        """Initialisiere ElevationProvider.
+        """Initialisiere Elevationprovider.
 
         Args:
-            data_source: DEMDataSourceProtocol Implementierung für Höhen-Lookup
+            data_source: DEMDataSourceProtocol implementation für heightn-Lookup
         """
         self.data_source = data_source
 
     async def get_elevation_profile(
         self, route: object, sampling_distance_m: float = 100.0
     ) -> list[ElevationPoint]:
-        """Extrahiert Höhenprofile entlang der Route.
+        """Extrahiert elevation_profilee entlang der Route.
 
         Args:
             route: Die Route mit segments (aus routing.models)
             sampling_distance_m: Sampling-distance in Metern (Standard: 100 m)
 
         Returns:
-            Liste von ElevationPoint für jeden Sample-Punkt (inkl. Start/Ende jedes Segments)
+            Liste von ElevationPoint für jeden Sample-Punkt (inkl. Start/Ende jedes segments)
 
         Note:
-            Die Route wird zuerst an jedem Segmentende sample-dicht abgetastet.
+            Die Route wird zuerst an jedem segmentende sample-dicht abgetastet.
             Wenn sampling_distance_m < 100 m, wird feiner sample-dicht abgetastet.
         """
         if not hasattr(route, "segments") or not route.segments:
             return []
 
         # Erstelle Liste von Koordinatenpunkten
-        # Startpunkt jedes Segments (außer das erste, das wird nur einmal genommen)
+        # Startpunkt jedes segments (ausser das erste, das wird nur einmal genommen)
         coordinates: list[Coordinate] = []
 
         for i, segment in enumerate(route.segments):
@@ -72,16 +72,16 @@ class ElevationProvider:
                 segment_coords: list[Coordinate] = segment.geometrie
                 if segment_coords:
                     if i == 0:
-                        # Erstes Segment: Startpunkt hinzufügen
+                        # Erstes segment: Startpunkt hinzufügen
                         coordinates.append(segment_coords[0])
-                    # Endpunkt jedes Segments hinzufügen (außer beim letzten, der wird
-                    # nicht doppelt gezählt)
+                    # Endpunkt jedes segments hinzufügen (ausser beim letzten, der wird
+                    # nicht doppelt gezaehlt)
                     coordinates.append(segment_coords[-1])
 
         if not coordinates:
             return []
 
-        # Höhenwerte abfragen
+        # heightnwerte abfragen
         elevations = await self.data_source.get_elevations_batch(coordinates)
 
         return [
@@ -92,17 +92,17 @@ class ElevationProvider:
     def calculate_segment_gradients(
         self, elevation_points: list[ElevationPoint], route: object
     ) -> list[SegmentGradient]:
-        """Berechnet gradient/Gefälle je Segment aus Höhendifferenz und horizontaler distance.
+        """Calculatet gradient/descent je segment aus heightndifferenz und horizontaler distance.
 
         Args:
             elevation_points: ElevationPoints in Reihenfolge der Route (Start->Ziel)
-            route: Originale Route (für Segment-Geometrie)
+            route: Originale Route (für segment-Geometrie)
 
         Returns:
-            Liste von SegmentGradient (einer pro Segment)
+            Liste von segmentgradient (einer pro segment)
 
         Raises:
-            ValueError: Wenn elevation_points nicht genug Punkte für die Segmente enthält
+            ValueError: Wenn elevation_points nicht genug Punkte für die segmente enthaelt
         """
         if not hasattr(route, "segments") or not route.segments:
             return []
@@ -121,10 +121,10 @@ class ElevationProvider:
 
             end_point = elevation_points[seg_idx + 1]
 
-            # Höhendifferenz (Ende - Start; positiv = gradient, negativ = Gefälle)
+            # heightndifferenz (Ende - Start; positiv = gradient, negativ = descent)
             dh = end_point.hoehe_m - start_point.hoehe_m
 
-            # Horizontale distance berechnen (nicht Route-Länge!)
+            # Horizontale distance berechnen (nicht Route-Laenge!)
             horizontal_dist = calculate_horizontal_distance(
                 start_point.coordinate, end_point.coordinate
             )
