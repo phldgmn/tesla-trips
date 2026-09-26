@@ -43,14 +43,14 @@ def calc_ladezeit_s(
     battery_capacity_kwh: float,
     leistungsdeckel_kw: float | None = None,
 ) -> float:
-    """Calculate charge_time in seconds for the charging_process `start_soc_pct` → `end_soc_pct`.
+    """Calculate charge_time in seconds for the charging_process `start_soc_pct` -> `end_soc_pct`.
 
     Die average charging power MUST over the ACTUAL start/end-
     SoC window averaged (`mittlere_ladeleistung_kw(start_soc_pct,
     end_soc_pct, ...)`) - an earlier version derived the window
     stattdessen ausschliesslich aus der SoC-Differenz ab (angenommenes
-    Fenster `[100-delta, 100]`, so als würde JEDER charging_process bei 100%
-    end). This resulted for partial charges from low SoC (z. B. 20% → 80%,
+    Fenster ``[100-delta, 100]``, so als wuerde JEDER charging_process bei 100%
+    end). This resulted for partial charges from low SoC (e.g. 20% -> 80%,
     actually mostly in the fast lower curve region) falsely the
     SLOW taper region near 100% as reference, causing partial charges
     compared to a full charge to 100% (dort stimmte das angenommene

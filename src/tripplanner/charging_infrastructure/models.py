@@ -1,7 +1,7 @@
-"""data models für das `charging_infrastructure`-Modul.
+"""Data models for the `charging_infrastructure` module.
 
 Pydantic-modele zur modelierung von Tesla-Supercharger-Stationen,
-inklusive provider-Protocol für den abstrakten datazugriff.
+    inclusive provider-protocol for abstract data access.
 Alle Koordinaten folgen der Konvention: `Coordinate = tuple[float, float]`
 mit `(lat, lon)` in Dezimalgrad (WGS84).
 """
@@ -19,7 +19,7 @@ from tripplanner.geo import Coordinate
 
 
 class StallType(Enum):
-    """Bezeichnung für den Stall-Typ, based auf supercharge.info data."""
+    """Descriptor for the stall type, based on supercharge.info data."""
 
     V2 = "V2"
     """V2-Supercharger (typisch 150 kW pro Stall)."""
@@ -32,7 +32,7 @@ class StallType(Enum):
 
 
 class ConnectorType(Enum):
-    """Steckertypen, wie auf supercharge.info üblich."""
+    """Connector types, as per supercharge.info convention."""
 
     CCS1 = "CCS1"
     """Combined Charging System 1 (Type 1 AC + DC)."""
@@ -89,11 +89,11 @@ class ChargingStation(BaseModel):
     max_ladeleistung_kw: float = Field(
         ...,
         ge=0,
-        description="Maximale kombinierte DC-Leistung der Station (kW). Summiert über alle Stalls.",
+        description="Maximum combined DC output of the station (kW). Summed across all stalls.",
     )
     connector_types: list[ConnectorType] = Field(
         ...,
-        description="Verfügbare Steckertypen an der Station",
+        description="Available connector types at the station",
     )
     country: Literal["DE", "DK", "SE"] = Field(
         ...,
@@ -144,10 +144,10 @@ class ChargingStation(BaseModel):
         return sum(self.stalls.values())
 
     def max_parallel_usability(self) -> int:
-        """Schaetzung, wie viele Stalls gleichzeitig genutzt werden können.
+        """Estimate of how many stalls are in use simultaneously.
 
-        V2/V3 nutzen oft gemeinsame Kabinette (z. B. 4 Posts teilen 1 MW).
-        Vereinfachung: pro 4 Posts ein gemeinsamer Kabinetttakt.
+        V2/V3 often share cabinets (e.g. 4 posts share 1 MW).
+        Simplification: 4 posts per cabinet shared cycle.
         """
         v2 = self.stalls.get(StallType.V2, 0)
         v3 = self.stalls.get(StallType.V3, 0) + self.stalls.get(StallType.V3_ULTRA, 0)
@@ -169,9 +169,9 @@ class ChargingStation(BaseModel):
 
 @runtime_checkable
 class ChargingStationProvider(Protocol):
-    """Protocol für den Zugriff auf Supercharger-data.
+    """Protocol for accessing Supercharger data.
 
-    Ermöglicht Austausch der dataquelle (lokale Datei, Crawler, API).
+    Enables swapping the data source (local file, crawler, API).
     """
 
     async def get_stations_in_radius(
@@ -223,7 +223,7 @@ class ChargingPricingTier(BaseModel):
     time_label: str | None = Field(
         default=None,
         description=(
-            'Zeitfenster als Text, z.B. "4:00 PM - 8:00 PM". None = Flatrate (immer gültig)'
+        'Time window as text, e.g. "4:00 PM - 8:00 PM". None = Flatrate (always valid)'
         ),
     )
     currency: str = Field(
@@ -248,13 +248,13 @@ class ChargingPricingTier(BaseModel):
 
 
 class ChargingStationWithPricing(BaseModel):
-    """ChargingStation mit zugehörigen Preisdaten."""
+    """ChargingStation with associated pricing data."""
 
     station: ChargingStation = Field(
         ...,
-        description="Die zugehörige charging station",
+        description="The associated charging station",
     )
     pricing: list[ChargingPricingTier] = Field(
         default_factory=list,
-        description="Preisinformationen für diese Station",
+        description="Pricing information for this station",
     )

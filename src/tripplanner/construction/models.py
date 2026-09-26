@@ -105,7 +105,7 @@ class ConstructionProvider(Protocol):
         route: "tripplanner.routing.models.Route",
         laender: list[Land],
     ) -> list[ConstructionZone]:
-        """Query von construction zones entlang der Route für die angegebenen Laender."""
+        """Query for construction zones along the route for the specified countries."""
         raise NotImplementedError
 
 

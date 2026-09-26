@@ -51,7 +51,7 @@ _COUNTRY_MAP: dict[str, str] = {
 
 
 class SQLiteDatabase:
-    """Verwaltet eine lokale SQLite-databank für Supercharger-data.
+    """Manages a local SQLite database for Supercharger data.
 
     Threading model: every public method opens its own short-lived
     connection (`_connect`) and closes it before returning, so instances are
@@ -186,7 +186,7 @@ class SQLiteDatabase:
         """Laedt alle Stationen aus der databank.
 
         Args:
-            country_filter: Optionales Set von Laendercodes für Filterung.
+        country_filter: Optional set of country codes for filtering.
 
         Returns:
             Liste von Station-Dicts mit allen Spalten.
@@ -211,7 +211,7 @@ class SQLiteDatabase:
         """Laedt Preisdaten aus der databank.
 
         Args:
-            supercharge_info_ids: Optionales Set von Station-IDs für Filterung.
+        supercharge_info_ids: Optional set of station IDs for filtering.
 
         Returns:
             Dict mapping supercharge_info_id auf Liste von Pricing-Dicts.
@@ -240,13 +240,13 @@ class SQLiteDatabase:
     def replace_all_stations(self, stations: list[dict[str, Any]]) -> int:
         """Ersetzt alle Stationen durch neue data.
 
-        Führt alle Änderungen in einer Transaktion aus.
+        Executes all changes within a transaction.
 
         Args:
-            stations: Liste von Station-Dicts mit allen requireden Schlüsseln.
+            stations: List of station dicts with all required keys.
 
         Returns:
-            Anzahl der eingefügten Stationen.
+                        Number of stations inserted.
         """
         self._ensure_initialized()
         with self._connect() as conn, conn:
@@ -467,7 +467,7 @@ class SQLiteDatabase:
             return dict(row) if row else None
 
     def upsert_pricing(self, supercharge_info_id: int, tiers: list[dict[str, Any]]) -> None:
-        """Fügt oder ersetzt Preisdaten für eine Station.
+        """Inserts or replaces pricing data for a station.
 
         Args:
             supercharge_info_id: Die Station-ID.
@@ -644,7 +644,7 @@ class SQLiteDatabase:
         """Liest einen Meta-Wert aus der databank.
 
         Args:
-            key: Der Meta-Schlüssel.
+                    key: The metadata key.
 
         Returns:
             Der Meta-Wert oder None, wenn nicht gefunden.
@@ -659,7 +659,7 @@ class SQLiteDatabase:
         """Speichert einen Meta-Wert in der databank.
 
         Args:
-            key: Der Meta-Schlüssel.
+        key: The metadata key.
             value: Der Meta-Wert.
         """
         self._ensure_initialized()
@@ -674,7 +674,7 @@ class SQLiteDatabase:
 
     @property
     def station_count(self) -> int:
-        """Returns the number of stations in the database zurück."""
+        """Returns the number of stations in the database."""
         self._ensure_initialized()
         with self._connect() as conn:
             cur = conn.execute("SELECT COUNT(*) FROM charging_stations")
@@ -683,7 +683,7 @@ class SQLiteDatabase:
 
     @property
     def last_refresh_utc(self) -> datetime | None:
-        """Gibt das Datum der letzten vollstaendigen Aktualisierung zurück."""
+        """Returns the date of the last complete update."""
         value = self.get_meta("last_full_refresh_utc")
         if value is None:
             return None

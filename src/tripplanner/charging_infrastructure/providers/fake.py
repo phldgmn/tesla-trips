@@ -66,7 +66,7 @@ class FakeChargingStationProvider(ChargingStationProvider):
                 ),
                 ChargingStation(
                     station_id="test-malmo-1",
-                    name="Tesla Supercharger - Malmö Urban",
+                    name="Tesla Supercharger - Malmo Urban",
                     coordinate=(55.5941, 13.0039),
                     stalls={StallType.V3: 8},
                     max_ladeleistung_kw=2000.0,

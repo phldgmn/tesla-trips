@@ -42,7 +42,7 @@ def _debug_log(log_path: Path | None, msg: str, label: str = "DEBUG") -> None:
     Args:
         log_path: Optional additional file path to append the line to.
         msg: Die Nachricht
-        label: Label für die Zeile (z.B. "CURL", "HTTP", "JSON")
+        label: Label for the line (e.g. "CURL", "HTTP", "JSON")
     """
     _logger.debug("[%s] %s", label, msg)
     if log_path is None:
@@ -157,7 +157,7 @@ class TeslaJsonEndpointsMixin:
             Geparstes JSON-Dict
 
         Raises:
-            CurlError: Bei HTTP-Fehlern, leeren Antworten oder ungültigem JSON
+            CurlError: On HTTP errors, empty responses, or invalid JSON.
         """
         body = await self._fetch(url)
         try:

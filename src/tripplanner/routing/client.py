@@ -147,10 +147,10 @@ class GraphHopperClient:
         """Ruft die GraphHopper `/info`-Metadaten ab.
 
         Enthaelt u. a. `encoded_values`: die Path-Details/Encoded-Values, die
-        der verbundene Server tatsaechlich unterstützt (abhaengig von dessen
+        der verbundene Server tatsaechlich unterstuetzt (abhaengig von dessen
         `graph.encoded_values`-configuration, z. B. `average_slope` setzt
         eine aktivierte Elevation-source voraus). Wird von
-        `GraphHopperRoutingprovider` genutzt, um nur unterstützte Path-Details
+        `GraphHopperRoutingprovider` genutzt, um nur unterstuetzte Path-Details
         anzufragen statt mit HTTP 400 zu scheitern.
 
         Returns:
