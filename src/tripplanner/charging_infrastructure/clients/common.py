@@ -50,3 +50,43 @@ def _debug_log(log_path: Path | None, msg: str, label: str = "DEBUG") -> None:
             f.write(f"[{timestamp}] [{label}] {msg}\n")
     except OSError:
         pass
+
+_WAF_BLOCK_MARKERS: tuple[str, ...] = ("Access Denied", "errors.edgesuite.net")
+"""Substrings identifying an Akamai edge WAF block page.
+
+Tesla's WAF sometimes returns this block page with HTTP 200 (not 403/429) -
+e.g. for ``get-locations``, which is otherwise expected to return JSON. A
+bare status-code check therefore misses these blocks; callers must inspect
+the body via ``is_waf_block`` before treating a 200 response as success.
+"""
+
+WAF_RETRY_MAX_ATTEMPTS: int = 4
+"""Total number of attempts on WAF block/rate-limit before giving up
+(verified pattern: new browser/session fingerprint per attempt bypasses
+Akamai more reliably than a simple retry)."""
+
+WAF_RETRY_BASE_DELAY_S: float = 1.5
+"""Base delay (seconds) for exponential backoff between retry attempts
+(see ``waf_retry_delay_s``)."""
+
+def is_waf_block(body: str) -> bool:
+    """True if ``body`` looks like an Akamai WAF block page.
+
+    Args:
+        body: Response body (text)
+
+    Returns:
+        True if a known block marker is found in the body.
+    """
+    return any(marker in body for marker in _WAF_BLOCK_MARKERS)
+
+def waf_retry_delay_s(attempt: int) -> float:
+    """Exponential backoff delay before retry attempt ``attempt``.
+
+    Args:
+        attempt: 1-indexed number of the just-failed attempt.
+
+    Returns:
+        Delay in seconds before the next attempt.
+    """
+    return float(WAF_RETRY_BASE_DELAY_S * (2 ** (attempt - 1)))
