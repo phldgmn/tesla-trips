@@ -97,7 +97,7 @@ class GraphHopperRoutingProvider:
 
     async def berechne_route(self, anfrage: TripRequest) -> Route:
         """Calculates a route for a TripRequest (incl. intermediate stops)."""
-        # Umwandlung TripRequest → GraphHopper Parameter
+        # Convert TripRequest to GraphHopper parameters
         points = (
             [anfrage.start] + [wp.coordinate for wp in anfrage.waypoints] + [anfrage.destination]
         )
@@ -122,7 +122,7 @@ class GraphHopperRoutingProvider:
             custom_model=custom_model,
         )
 
-        # Mapping GraphHopperResponse → Route
+        # Convert GraphHopperResponse to Route
         return self._map_path_to_route(response.paths[0])
 
     def _build_custom_model(self, anfrage: TripRequest) -> dict[str, object] | None:

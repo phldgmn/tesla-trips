@@ -1,4 +1,4 @@
-"""Fake-Routing-Anbieter für Tests und lokalen Dev-Betrieb."""
+"""Fake routing provider for tests and local dev."""
 
 from __future__ import annotations
 
@@ -106,7 +106,7 @@ class FakeRoutingProvider:
         """Zerlegt eine Teilstrecke in mehrere kuerzere segmente (~SEGMENT_LAENGE_ZIEL_M).
 
         Identische Start-/Endkoordinaten (length_m 0) liefern eine leere Liste,
-        sodass der caller diese Teilstrecke automatisch überspringt.
+        so that the caller automatically skips this segment.
         """
         gesamtlaenge_m = haversine_distance_m(start, end)
         if gesamtlaenge_m <= 0:

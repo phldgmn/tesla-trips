@@ -25,7 +25,7 @@ from tripplanner.geo import Coordinate, bearing_deg, haversine_distance_m
 # Direction-aware matching constants.
 # The zone's own bearing (start->end of its geometry) is compared against
 # the matched route segment's `bearing_deg`; the raw absolute difference is
-# folded into the [0°, 180°] range (`angular_diff`), then a match is
+# folded into the [0, 180] degree range (`angular_diff`), then a match is
 # excluded if `angular_diff` exceeds this threshold — i.e. the zone's
 # direction is roughly reversed relative to the route's direction of travel
 # (opposite carriageway on a divided highway). 100° leaves headroom for
@@ -188,8 +188,8 @@ def filter_opposite_direction(
     For zones with LineString geometry, computes the zone's bearing from
     its first and last coordinates and compares it against each matched
     route segment's ``bearing_deg``.  segments whose bearing differs by
-    more than 100° (after folding the raw difference into the
-    [0°, 180°] range — i.e. roughly 180° apart, opposite direction on a
+    more than 100 degrees (after folding the raw difference into the
+    [0, 180] degree range — i.e. roughly 180° apart, opposite direction on a
     divided highway) are excluded.
 
     If ``zone.affected_direction_value`` is set to anything other than a
@@ -231,7 +231,7 @@ def filter_opposite_direction(
         if angular_diff > 180.0:
             angular_diff = 360.0 - angular_diff
 
-        # Exclude if bearings are roughly opposite (>100° apart).
+        # Exclude if bearings are roughly opposite (>100 degrees apart).
         if angular_diff > DIRECTION_OPPOSITE_LOW:
             continue
 
@@ -253,7 +253,7 @@ def match_zones_to_segment_ids(  # noqa: PLR0913, PLR0917
     Uses the pre-built STRtree for O(log n) candidate retrieval, then
     filters with precise distance measurement.  For zones with LineString
     geometry, additionally filters out segments on the opposite
-    carriageway (bearing diff greater than 100°, folded to the
+    carriageway (bearing diff greater than 100 degrees, folded to the
     [0°, 180°] range) unless the source explicitly states both directions.
 
     Args:

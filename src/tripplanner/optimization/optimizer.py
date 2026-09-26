@@ -165,7 +165,7 @@ class NetworkXOptimizer(OptimizerInterface):
             segment_index=0,
         )
 
-        # Mappe Zwischenstopps auf segmente (segment-Index → Waypoint).
+        # Map waypoints to segments (segment-Index → Waypoint).
         waypoint_segment_indices = self._map_waypoints_to_segments(
             waypoints=waypoints, segments=segments, route=route
         )

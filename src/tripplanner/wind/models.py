@@ -1,4 +1,4 @@
-"""data models für das wind-Modul.
+"""Data models for the wind module.
 
 Pydantic-modele zur Darstellung von Wind components entlang einer Route.
 """
@@ -13,8 +13,8 @@ class WindComponents(BaseModel):
 
     Attributes:
         segment_index: Nullbasierter Index des segments in der Route.
-        gegenwind_ms: headwind-/Rückenwind-Komponente in m/s.
-            Positiv = headwind (bremsend), negativ = Rückenwind (unterstützend).
+            gegenwind_ms: headwind/tailwind component in m/s.
+                Positive = headwind (braking), negative = tailwind (assisting).
         seitenwind_ms: crosswind-Komponente in m/s.
             Positiv = von rechts, negativ = von links.
     """
@@ -22,7 +22,7 @@ class WindComponents(BaseModel):
     segment_index: int = Field(..., description="Nullbasierter Index dieses Segments in der Route")
     gegenwind_ms: float = Field(
         ...,
-        description="headwind-/Rückenwind-Komponente in m/s (positiv=headwind, negativ=Rückenwind)",
+                description="headwind/tailwind component in m/s (positive=headwind, negative=tailwind)",
     )
     seitenwind_ms: float = Field(
         ..., description="crosswind-Komponente in m/s (positiv=von rechts, negativ=von links)"

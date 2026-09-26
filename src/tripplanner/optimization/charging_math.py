@@ -43,7 +43,7 @@ def calc_ladezeit_s(
     battery_capacity_kwh: float,
     leistungsdeckel_kw: float | None = None,
 ) -> float:
-    """Calculate charge_time in Sekunden für den charging_process `start_soc_pct` → `end_soc_pct`.
+    """Calculate charge_time in seconds for the charging_process `start_soc_pct` → `end_soc_pct`.
 
     Die average charging power MUST over the ACTUAL start/end-
     SoC window averaged (`mittlere_ladeleistung_kw(start_soc_pct,
@@ -95,7 +95,7 @@ def mittlere_ladeleistung_kw(
     # Stichproben entlang der Kurve - EIN Batch-Aufruf statt `sample_points`
     # einzelner `ladeleistung_bei_soc`-Aufrufe (siehe `ChargingCurve.
     # ladeleistung_bei_soc_batch`-Docstring: amortisiert den Pydantic-
-    # `PrivateAttr`-Zugriff über alle Stichproben statt pro Punkt - bei
+    # `PrivateAttr` access over all samples statt pro Punkt - bei
     # Millionen Aufrufen pro Optimierung der dominante Restanteil).
     sample_points = 10
     delta = end_soc_pct - start_soc_pct
@@ -264,7 +264,7 @@ def candidates_with_min_charge_duration(  # noqa: PLR0913, PLR0917 -- Mindestdau
     time as a single, slightly longer charge), without the charging stop to
     sich zu erzwingen.
 
-    Mehrere zu kurze Roh-Kandidaten können dabei auf DASSELBE gestreckte
+    Multiple too-short raw candidates can stretch to the SAME
     Ziel-SoC abgebildet werden - per `set` dedupliziert, damit nicht
     mehrfach identische charging_edgen erzeugt werden.
     """

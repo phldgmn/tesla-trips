@@ -17,7 +17,7 @@ from tripplanner.routing.models import RouteSegment
 from tripplanner.weather.models import WeatherSample
 from tripplanner.wind.models import WindComponents
 
-# Luftdichte (ISA-Standard bei 15°C, 1013 hPa)
+# Air density (ISA standard at 15C, 1013 hPa)
 LUFTDICHE_KGM3: float = 1.225
 
 # ISA reference values for air density calculation
@@ -73,11 +73,11 @@ def berechne_luftdichte(temperature_c: float, pressure_hpa: float) -> float:
     R_specific for dry air ≈ 287.058 J/(kg·K)
 
     Args:
-        temperature_c: temperature in °C
+        temperature_c: temperature in degrees C
         pressure_hpa: Luftdruck in hPa
 
     Returns:
-        Luftdichte in kg/m³
+        Air density in kg/m³
     """
     # temperature in Kelvin
     t_kelvin = temperature_c + 273.15
@@ -103,7 +103,7 @@ def f_strassenzustand(
         surface: road_surface (z. B. "asphalt", "gravel", None).
         precipitation_mm: precipitation in mm (Stundensumme).
         snowfall_cm: snowfall in cm (Wasserequivalent).
-        temperature_c: temperature in °C (for ice detection).
+        temperature_c: temperature in degrees C (for ice detection).
 
     Returns:
         Combined multiplier for the rolling resistance coefficient.
@@ -119,7 +119,7 @@ def f_strassenzustand(
         # Nasse Fahrbahn
         f_wetter = 1.2
     elif temperature_c < 0.0 and precipitation_mm > 0.0:
-        # ice/sleet (freezing rain below 0°C)
+        # ice/sleet (freezing rain below 0C)
         f_wetter = 2.5
     else:
         # Trocken
@@ -155,7 +155,7 @@ def calculate_segment_consumption(
         1. Determine effective speed (speed_limit_kmh or override, max 150 km/h).
         2. Calculate forces (rolling_resistance including road_surface_factor, air_drag,
            gradient, recuperation).
-        3. Convert forces → power → energy via drive_time_s.
+        3. Convert forces to power to energy via drive_time_s.
         4. Add auxiliary consumption (temperature-dependent).
         5. Subtrahiere recuperation (physikalisch begrenzt).
     """
@@ -234,7 +234,7 @@ def calculate_segment_consumption(
         P_klima_kw = fahrzeug_params.ac_max_kw * min(delta_T_max / 10.0, 1.0)
         P_next_to_kw += P_klima_kw
 
-    E_next_to_j = P_next_to_kw * 1000 * t_s  # kW → W, dann * s
+    E_next_to_j = P_next_to_kw * 1000 * t_s  # kW to W, then * s
 
     # 6. recuperation (only during deceleration)
     # Simplification: v_start = v_avg, v_end reduced by 10% of gradient (in m/s equivalent)

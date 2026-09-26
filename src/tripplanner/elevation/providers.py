@@ -95,7 +95,7 @@ class FakeDataSource:
 
         Args:
             baseline_elevation: Baseline elevation in meters
-            noise_range: Maximum deviation from the baseline elevation (±noise_range/2)
+            noise_range: Maximum deviation from the baseline elevation (plus-minus noise_range/2)
         """
         self.baseline = baseline_elevation
         self.noise_range = noise_range
@@ -275,7 +275,7 @@ class CopernicusDEMDataSource:
         )
 
     # ── Facade delegators for tests that inspect private state of
-    #    the original CopernicusDEMDataSource before the refactor. ──
+    #    the original CopernicusDEMDataSource before the refactor.─
 
     @property
     def _datasets(
@@ -420,7 +420,7 @@ class CopernicusDEMDataSource:
     async def get_elevations_batch(self, coordinates: list[tuple[float, float]]) -> list[float]:
         """Query elevation values for multiple coordinates (optimized batch lookup).
 
-        Groups coordinates by 1° DEM tile, reads each tile concurrently via
+        Groups coordinates by 1 degree DEM tile, reads each tile concurrently via
         ``asyncio.to_thread`` (GDAL/rasterio is blocking) - one bulk
         ``read(1)`` per tile, then indexes every pixel value with pure numpy
         array access, zero further I/O. `_read_tile_bulk` does the

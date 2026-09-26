@@ -132,7 +132,7 @@ class ConstructionProviderImpl(ConstructionProvider):
 
     async def fetch_construction_zones(
         self,
-        route: routing_models.Route,
+        route: routing_models.route,
         laender: list[Land],
     ) -> list[ConstructionZone]:
         """Fetch roadworks along the route for the given countries.
@@ -198,7 +198,7 @@ class ConstructionProviderImpl(ConstructionProvider):
         return all_zones
 
     @staticmethod
-    def _build_landscape_cache_key(land: Land, route: routing_models.Route) -> str:
+    def _build_landscape_cache_key(land: Land, route: routing_models.route) -> str:
         """Build a coarse-grained cache key for DK/SE DATEX II queries.
 
         Rounds bounding-box coordinates to 0.5 degree grid so nearby or
@@ -225,7 +225,7 @@ class ConstructionProviderImpl(ConstructionProvider):
 
     async def _fetch_landscape_zones(
         self,
-        route: routing_models.Route,
+        route: routing_models.route,
         land: Land,
         strtree: STRtree,
         segment_geoms: list[LineString],

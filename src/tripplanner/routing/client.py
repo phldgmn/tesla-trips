@@ -1,6 +1,6 @@
-"""HTTP-Client für GraphHopper API.
+"""HTTP client for GraphHopper API.
 
-Handles Authentifizierung, Request/Response Mapping für GraphHopper /route Endpoint.
+Handles authentication, request/response mapping for GraphHopper /route Endpoint.
 """
 
 from __future__ import annotations
@@ -18,13 +18,13 @@ Coordinate = tuple[float, float]
 
 logger = logging.getLogger(__name__)
 
-# Gateway-/Überlast-Status, die GraphHopper u. a. beim Warmlaufen liefert.
+# Gateway/overload status that GraphHopper u. a. beim Warmlaufen liefert.
 # 4xx werden nie wiederholt (fehlerhafte request bleibt fehlerhaft).
 _RETRYABLE_STATUS = frozenset({502, 503, 504})
 
 
 class GraphHopperClient:
-    """HTTP-Client für GraphHopper API. Handles Authentifizierung, Request/Response Mapping."""
+    """HTTP client for GraphHopper API. Handles authentication, request/response mapping."""
 
     def __init__(
         self,
@@ -38,7 +38,7 @@ class GraphHopperClient:
 
         Args:
             base_url: Base URL des GraphHopper Servers (inkl. port, z. B. "http://localhost:8989")
-            api_key: Optionaler API Key für Authentifizierung
+                    api_key: Optional API key for authentication
             max_attempts: Versuche bei 502/503/504 (inkl. des ersten)
             backoff_base_s: Basis des exponentiellen Backoffs (mit Jitter)
         """
@@ -48,7 +48,7 @@ class GraphHopperClient:
         self._backoff_base_s = backoff_base_s
         # retries=2 wiederholt nur connectionsfehler (connect/reset), keine
         # HTTP-Statuscodes. Lange Routen mit `ch.disable=True` brauchen ein
-        # grosszügiges Read-Timeout.
+        # Generous read timeout.
         self._client = AsyncClient(
             base_url=base_url,
             transport=AsyncHTTPTransport(retries=2),
@@ -88,24 +88,24 @@ class GraphHopperClient:
             points: Liste von (lat, lon) Koordinaten (mindestens 2)
             profile: GraphHopper Profilname (z. B. "car", "bike", "foot", oder benutzerdefiniert)
             elevation: Falls True, Elevation in Polyline einbeziehen
-            details: Liste von gewünschten Path Details
+                    details: List of requested path details
                 (z. B. ["road_class", "max_speed", "average_slope", "surface"])
-            custom_model: Optionaler custom_model JSON für individuelles vehicle_profile
+                    custom_model: Optional custom_model JSON for a vehicle profile
 
         Returns:
             GraphHopperResponse mit decoded Polyline und Details
 
         Raises:
-            ValueError: Wenn less als 2 Punkte übergeben werden
+                    ValueError: If less than 2 points are provided
             httpx.HTTPStatusError: Bei HTTP-Fehlern (4xx/5xx)
         """
         min_points = 2
         if len(points) < min_points:
             raise ValueError("Mindestens 2 Koordinaten (Start und Ziel) sind erforderlich")
 
-        # Umwandlung points: (lat, lon) → [lon, lat]
+        # Convert points: (lat, lon) to [lon, lat]
         gh_points = [[lon, lat] for lat, lon in points]
-        # GraphHopper erwartet im JSON-POST-Body den Schlüssel "points" (Plural,
+        # GraphHopper expects the key "points" (plural) in the JSON POST body,
         # GeoJSON-artiges Array), nicht "point" (das ist nur die Wiederholungs-
         # Query-Param-Syntax der GET-Variante: ?point=lat,lon&point=lat,lon).
         payload = {"points": gh_points, "profile": profile, "elevation": elevation}
@@ -131,7 +131,7 @@ class GraphHopperClient:
             # die Koordinaten ausserhalb des geladenen OSM-Extrakts liegen)
             # eine aussagekraeftige `message` im JSON-Body. httpx' generische
             # Fehlermeldung enthaelt diesen Text nicht - ohne ihn ist der
-            # Fehler für Nutzer (siehe API-Fehlermeldung in api.py) nicht
+            # Error for the user (see API error message in api.py) not
             # diagnostizierbar. Body-Detail anhaengen, falls vorhanden.
             detail = None
             with suppress(ValueError):
@@ -169,7 +169,7 @@ class GraphHopperClient:
         await self._client.aclose()
 
     async def __aenter__(self) -> GraphHopperClient:
-        """Betritt den async Context-Manager und gibt den Client zurück."""
+        """Enters the async context manager and returns the client."""
         return self
 
     async def __aexit__(self, *args: object) -> None:

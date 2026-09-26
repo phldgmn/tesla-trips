@@ -76,7 +76,7 @@ class OptimizationConstraints(BaseModel):
         ge=0.0,
         le=20.0,
         description=(
-            "Reserve auf dem Ziel-SoC (z. B. Ziel-SoC = 80%, Reserve = 5% → "
+            "Reserve at target SoC (e.g. target SoC = 80%, reserve = 5% → "
             "faktischer Ziel-SoC = 75%)"
         ),
     )

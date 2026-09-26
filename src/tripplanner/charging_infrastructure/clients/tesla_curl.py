@@ -28,7 +28,7 @@ class TeslaLocationsClient(TeslaJsonEndpointsMixin):
     Uses ``curl_cffi.AsyncSession`` mit JA3/TLS-Fingerprint-Impersonation
     (Chrome 150), um den Akamai WAF von tesla.com zu umgehen. Der
     ``impersonate``-Preset generiert automatisch die korrekten HTTP/2
-    Header-Sequenz und den User-Agent — manuell gesetzte Header (wie die
+    Header sequence and User-Agent — manuell gesetzte Header (wie die
     alten ``_CURL_HEADERS``) sind nicht more noetig, koennen aber zur
     Ueberschreibung uses werden.
 

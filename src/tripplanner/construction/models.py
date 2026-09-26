@@ -96,8 +96,8 @@ class ConstructionZone(BaseModel):
 class ConstructionProvider(Protocol):
     """Protocol for data providers of construction site information.
 
-    Alle implementierenden provider müssen die Methode `fetch_construction_zones` implementieren,
-    die eine Liste von ConstructionZone für eine gegebene Route zurückgibt.
+    All implementing providers must die Methode `fetch_construction_zones` implementieren,
+    which returns a list of ConstructionZone for a given route.
     """
 
     async def fetch_construction_zones(

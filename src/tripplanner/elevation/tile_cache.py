@@ -93,13 +93,13 @@ class TileCache:
             return {}
 
     def _tile_name(self, lat: float, lon: float) -> str:
-        """Calculate den Copernicus-DEM-Kachelnamen für die 1x1-Grad-Zelle einer Koordinate."""
+        """Calculate the Copernicus DEM tile name for the 1x1 degree cell of a coordinate."""
         from tripplanner.elevation.providers import copernicus_tile_name
 
         return copernicus_tile_name(lat, lon)
 
     def _tile_uri(self, lat: float, lon: float) -> str:
-        """Baue die GDAL-lesbare URI (vsicurl oder lokaler Pfad) für eine Kachel.
+        """Build the GDAL-readable URI (vsicurl or local path) for a tile.
 
         Fix 3 — when *cache_dir* is set and a local copy exists, returns the
         local path directly so no ``/vsicurl/`` network call is made.
@@ -282,7 +282,7 @@ class TileCache:
             try:
                 dataset = rasterio.open(uri)
             except (RasterioError, OSError):
-                logger.warning("DEM-Kachel %s konnte nicht geöffnet werden - Fallback 0.0m", uri)
+                logger.warning("DEM tile %s could not be opened - fallback to 0.0m", uri)
                 dataset = None
 
             self._datasets[uri] = dataset

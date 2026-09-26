@@ -63,14 +63,14 @@ class VehicleEnergyParameters(BaseModel):
         default=0.94,
         ge=0.85,
         le=0.99,
-        description="Wirkungsgrad des Elektromotors (±2% Toleranz). Typische Werte: 92-96 %.",
+        description="Efficiency of the electric motor (+/-2% tolerance). Typical values: 92-96%.",
     )
     wirkungsgrad_rekuperation: float = Field(
         default=0.75,
         ge=0.65,
         le=0.85,
         description="Overall efficiency for regenerative braking "
-        "(Kettenwirkungsgrad: Rad → Motor → Batterie ≈ 75 %).",
+        "(Chain drive efficiency: wheel to motor to battery ≈ 75 %).",
     )
 
     # Nebenconsumptioner
@@ -86,7 +86,7 @@ class VehicleEnergyParameters(BaseModel):
         ge=3.0,
         le=8.0,
         description="Maximale Leistungsaufnahme der Klimaanlage (A/C). "
-        "Full blast ≈ 5-7 kW, typischer Betrieb ≈ 1-4 kW.",
+        "Full blast ≈ 5-7 kW, typical operation ≈ 1-4 kW.",
     )
     heating_max_kw: float = Field(
         default=6.0,
@@ -100,14 +100,14 @@ class VehicleEnergyParameters(BaseModel):
         default=18.0,
         ge=10.0,
         le=22.0,
-        description="Untere Komforttemperaturgrenze (°C). "
+        description="Lower comfort temperature limit (degrees C). "
         "Unterhalb dieses Wertes steigt Heizungsleistung linear an.",
     )
     comfort_temperature_max_c: float = Field(
         default=24.0,
         ge=20.0,
         le=28.0,
-        description="Obere Komforttemperaturgrenze (°C). "
+        description="Upper comfort temperature limit (degrees C). "
         "AC power increases linearly above that.",
     )
 
@@ -146,7 +146,7 @@ class SegmentEnergyResult(BaseModel):
 
     segment_index: int
     energiebedarf_kwh: float  # Positive: consumption, negative: recuperation (excess energy)
-    rekuperation_kwh: float  # Betrag der regenerativ gewonnenen energy (immer ≥ 0)
+    rekuperation_kwh: float  # Amount of regenerative energy recovered (immer ≥ 0)
     energiebedarf_brutto_kwh: float  # Summe aller Verbraucher (ohne recuperation)
     speed_ms: float  # Mittlere speed im Segment (m/s)
     drive_time_s: float  # drive_time_s des Segments (s)

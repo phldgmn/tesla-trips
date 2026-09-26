@@ -56,14 +56,14 @@ class WeatherSample(BaseModel):
     timestamp: datetime
     """Timestamp of the weather data."""
 
-    temperature_c: float = Field(ge=-100.0, le=70.0, description="temperature in °C")
-    """temperature in °C."""
+    temperature_c: float = Field(ge=-100.0, le=70.0, description="temperature in degrees C")
+    """temperature in degrees C."""
 
     wind_speed_ms: float = Field(ge=0.0, description="wind_speed_ms in m/s")
     """wind_speed_ms in m/s."""
 
     wind_direction_deg: float = Field(
-        ge=0.0, le=360.0, description="wind_direction_deg in Grad (0° = N, 90° = O)"
+        ge=0.0, le=360.0, description="wind_direction_deg in degrees (0 = N, 90 = E)"
     )
     """wind_direction_deg in Grad (0° = N, 90° = O)."""
 

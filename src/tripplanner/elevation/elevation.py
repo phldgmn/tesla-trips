@@ -95,7 +95,7 @@ class ElevationProvider:
         """Calculatet gradient/descent je segment aus heightndifferenz und horizontaler distance.
 
         Args:
-            elevation_points: ElevationPoints in route order (start→destination)
+            elevation_points: ElevationPoints in route order (start to destination)
             route: Original route (for segment geometry)
 
         Returns:

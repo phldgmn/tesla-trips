@@ -1,6 +1,6 @@
-"""provider-Schicht für Routing-Anbieter.
+"""Provider layer for routing providers.
 
-Protokolle und implementationen für Routing-Anbieter (GraphHopper, Fake für Tests).
+Protocols and implementations for routing providers (GraphHopper, Fake for tests).
 """
 
 from tripplanner.routing.providers.custom_model import ferry_exclusion_to_geojson_feature

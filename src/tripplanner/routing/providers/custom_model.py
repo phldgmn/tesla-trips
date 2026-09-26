@@ -1,4 +1,4 @@
-"""Custom-Model-Bauwerkzeuge für GraphHopper-Routing."""
+"""Custom model utilities for GraphHopper routing."""
 
 from tripplanner.trip_input.models import FerryExclusion, TripRequest
 
@@ -29,7 +29,7 @@ def ferry_exclusion_to_geojson_feature(ausschluss: FerryExclusion) -> dict[str, 
 def build_custom_model(use_custom_model: bool, anfrage: TripRequest) -> dict[str, object] | None:
     """Baut das optionale GraphHopper `custom_model` aus Tempolimit-, Faehr- und Autobahnpraeferenz.
 
-    Gibt `None` zurück, wenn weder `use_custom_model` (Tempolimit-Profil) noch
+    Returns `None` if neither `use_custom_model` (speed limit profile) nor
     Faehrvermeidung (`anfrage.avoid_all_ferries`/`anfrage.avoided_ferries`)
     noch Autobahnpraeferenz (`anfrage.highway_preference`) angefordert wurde -
     identisch zum bisherigen Verhalten ohne benutzerdefiniertes model (kein

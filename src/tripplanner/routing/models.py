@@ -71,7 +71,7 @@ class RouteSegment(BaseModel):
         description=(
             "Road/highway reference from GraphHopper path detail `street_ref` "
             "(z. B. 'A 5', 'A 8', 'B 3', 'K 818'); None if unavailable oder leer. "
-            "Used by ``construction`` to extract Autobahn IDs (A\d+) per segment "
+            "Used by construction to extract Autobahn IDs (A\d+) per segment "
             "to extract and targeted roadwork queries to enable."
         ),
     )

@@ -2,7 +2,7 @@
 
 Dieses Modul berechnet aus den weatherdaten (wind_speed_ms und -richtung)
 und der heading (Bearing) eines Route-segments die effektiven Wind components:
-- headwind-/Rückenwind-Komponente (m/s, positiv = headwind, negativ = Rückenwind)
+- headwind/tailwind component (m/s, positive = headwind, negative = tailwind)
 - crosswind-Komponente (m/s, positiv = von rechts, negativ = von links)
 
 Das Modul ist reine calculationslogik ohne externe dataquellen.
