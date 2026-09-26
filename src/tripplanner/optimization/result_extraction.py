@@ -48,7 +48,7 @@ def extract_charging_stops(
             continue  # Fahrt-/ferry-/Wartekante, keine Ladekante
 
         # Station ueber die an der edge hinterlegte `station_id`
-        # auflösen - NICHT ueber eine erneute geografische Naechste-
+        # resolve - NOT via a new geographic nearest-
         # Station-Suche (`segment.geometrie`-Mittelpunkt): mehrere
         # charging_edgen koennen am selben segment fuer VERSCHIEDENE
         # Stationen existieren (z. B. wenn zwei Stationen auf denselben

@@ -1,7 +1,7 @@
-"""Optimierungs-Modul für Tesla-Reisen.
+"""Optimization module for Tesla trips.
 
-calculatet den optimalen Ladeplan entlang einer bereits von GraphHopper
-festgelegten Route. Löst ein diskretisiertes Zustandsraum-Suchproblem
+Calculates the optimal charging plan along an already established by GraphHopper
+established route. Solves a discretized state-space search problem
 mit NetworkX (Prototyp) oder OR-Tools (spaetere Ausbaustufe).
 """
 

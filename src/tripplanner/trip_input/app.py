@@ -123,7 +123,7 @@ def get_routing_provider(request: Request) -> RoutingProvider:
     """FastAPI dependency: provides the production routing provider for `/trips`.
 
     Uses den in `_lifespan` erzeugten, prozessweit wiederusesen
-    `GraphHopperClient` für echtes Strassenrouting über OSM-data. In Tests via
+    ``GraphHopperClient`` for real road routing via OSM data. In Tests via
     `app.dependency_overrides[get_routing_provider]` durch `FakeRoutingprovider`
     ersetzbar (siehe AGENTS.md: keine Live-Calls externer dataquellen in
     Unit-Tests).
@@ -199,7 +199,7 @@ def get_construction_provider(request: Request) -> ConstructionProvider:
     """FastAPI dependency: provides the production construction provider for `/trips`.
 
     Uses den in `_lifespan` erzeugten, prozessweit wiederusesen
-    `Constructionprovider` für Construction data. In Tests via
+    `ConstructionProvider` for construction data. In Tests via
     `app.dependency_overrides[get_construction_provider]` durch
     `FakeConstructionprovider` ersetzbar.
     """

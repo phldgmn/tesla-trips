@@ -107,7 +107,7 @@ def test_construction_zone_tempolimit_required_for_partial_closure() -> None:
             gueltig_bis="2024-03-21T03:00:00+00:00",
         )
 
-    assert "speed_limit_kmh muss gesetzt sein" in str(exc_info.value)
+    assert "speed_limit_kmh must be set" in str(exc_info.value)
 
 
 def test_construction_zone_tempolimit_required_for_lane_closed() -> None:
@@ -123,7 +123,7 @@ def test_construction_zone_tempolimit_required_for_lane_closed() -> None:
             gueltig_bis="2024-03-21T03:00:00+00:00",
         )
 
-    assert "speed_limit_kmh muss gesetzt sein" in str(exc_info.value)
+    assert "speed_limit_kmh must be set" in str(exc_info.value)
 
 
 def test_construction_zone_tempolimit_required_for_reduced_lanes() -> None:
@@ -139,7 +139,7 @@ def test_construction_zone_tempolimit_required_for_reduced_lanes() -> None:
             gueltig_bis="2024-03-21T03:00:00+00:00",
         )
 
-    assert "speed_limit_kmh muss gesetzt sein" in str(exc_info.value)
+    assert "speed_limit_kmh must be set" in str(exc_info.value)
 
 
 def test_construction_zone_tempolimit_not_required_for_full_closure() -> None:

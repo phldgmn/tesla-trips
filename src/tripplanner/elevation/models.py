@@ -1,6 +1,6 @@
-"""data models für das elevation-Modul.
+"""Data models for the elevation module.
 
-Alle Pydantic-modele für elevation_profilee und ascentsprofile.
+All Pydantic models for elevation profiles and ascent profiles.
 """
 
 from pydantic import BaseModel, Field, field_validator
@@ -27,7 +27,7 @@ class ElevationPoint(BaseModel):
     hoehe_m: float = Field(
         ge=HEIGHT_MIN,
         le=HEIGHT_MAX,
-        description="Höhe über NN in Metern (ungültige Werte: -9999 → nicht belegt)",
+        description="Elevation above sea level in meters (invalid values: -9999 → unassigned)",
     )
 
     @field_validator("coordinate")
@@ -60,7 +60,7 @@ class SegmentGradient(BaseModel):
         description="gradient in Prozent (positive = gradient, negativ = Gefaelle)"
     )
     hoehendifferenz_m: float = Field(
-        description="Höhendifferenz zwischen Start- und Endpunkt des Segments in Metern"
+        description="Elevation difference between start and end points of the segment in meters"
     )
     horizontale_distanz_m: float = Field(
         description=(
@@ -70,7 +70,7 @@ class SegmentGradient(BaseModel):
 
 
 class DEMTileKey(BaseModel):
-    """Schlüssel für DEM-Kachel (Koordinaten-BBox + CRS-Referenz).
+    """Key for a DEM tile (coordinate BBox + CRS reference).
 
     Args:
         min_lat: Minimale latitude
@@ -91,18 +91,18 @@ class DEMTile(BaseModel):
     """In-Memory-Representation einer DEM-Kachel mit Metadaten.
 
     Args:
-        key: DEMTileKey mit BBox und CRS
-        raster_data: Rohe GeoTIFF-data (nur für Caching, nicht exportieren)
-        transform: Affine transform matrix [a, b, c, d, e, f] für pixel->world
-        width: latitude des Rasters in Pixel
-        height: height des Rasters in Pixel
+        key: DEMTileKey with BBox and CRS
+        raster_data: Raw GeoTIFF data (only for caching, not for export)
+        transform: Affine transform matrix [a, b, c, d, e, f] for pixel→world
+        width: latitude of the raster in pixels
+        height: height of the raster in pixels
         nodata_value: Nodata-Wert (Standard: -9999)
     """
 
     key: DEMTileKey
     raster_data: bytes
     transform: list[float] = Field(
-        description="Affine Transform matrix [a, b, c, d, e, f] für pixel->world"
+        description="Affine transform matrix [a, b, c, d, e, f] for pixel→world"
     )
     width: int
     height: int

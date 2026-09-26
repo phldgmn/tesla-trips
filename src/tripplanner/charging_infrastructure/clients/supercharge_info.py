@@ -1,4 +1,4 @@
-"""HTTP-Client für die supercharge.info REST-API."""
+"""HTTP client for the supercharge.info REST API."""
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ from .common import _debug_log
 
 
 class SuperchargeInfoClient:
-    """HTTP-Client für die supercharge.info REST-API.
+    """HTTP client for the supercharge.info REST API.
 
-    Die API ist öffentlich, benötigt keinen API-Key und blockiert keine
+    Den API is public, requires no API key and does not block any
     einfachen HTTP-Clients (kein WAF). Dokumentierte Endpunkte:
     - /service/supercharge/allSites   -> vollstaendiger datasatz
     - /service/supercharge/databaseInfo -> Aenderungs-Timestamp

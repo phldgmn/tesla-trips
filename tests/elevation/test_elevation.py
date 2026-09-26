@@ -128,10 +128,10 @@ class TestElevationProvider:
     def test_calculate_segment_gradients_not_enough_points(
         self, elevation_provider: ElevationProvider
     ) -> None:
-        """Nicht genug Punkte raises ValueError."""
+        """Not enough points raises ValueError."""
         points = [ElevationPoint(coordinate=(47.0, 8.0), hoehe_m=100.0)]
         route = MockRoute(segments=[MockSegment([(47.0, 8.0), (47.0001, 8.0001)])])
-        with pytest.raises(ValueError, match="Nicht genug"):
+        with pytest.raises(ValueError, match="Not enough"):
             elevation_provider.calculate_segment_gradients(points, route)
 
 

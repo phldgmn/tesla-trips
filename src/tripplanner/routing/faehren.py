@@ -21,18 +21,18 @@ UNNAMED_FERRY = "Unbenannte Faehre"
 def erkenne_faehren(route: Route) -> list[FerrySegment]:
     """Gruppiert zusammenhaengende Faehrsegmente einer Route zu `Ferrysegment`-Eintraegen.
 
-    Laeuft einmal linear über `route.segments` und fasst aufeinanderfolgende
-    segmente mit `road_environment == "FERRY"` zu je einem `Ferrysegment`
-    zusammen (Name aus dem ersten vorhandenen `street_name` des Laufs, sonst
-    "Unbenannte Faehre"; Laenge als Summe der `length_m`; Bounding Box aus allen
+    Runs once linearly over ``route.segments`` and groups consecutive
+    segments with ``road_environment == "FERRY"`` into one ``FerrySegment`` each
+    together (name from the first available ``street_name`` of the run, otherwise
+    "Unnamed ferry"; length as the sum of ``length_m``; bounding box from all
     beteiligten `geometrie`-Koordinaten, gepuffert um `FAEHR_PUFFER_GRAD`).
 
     Args:
         route: Eine bereits berechnete Route (z. B. aus `Routingprovider.berechne_route()`).
 
     Returns:
-        Liste erkannter Faehrverbindungen in heading. Leer, wenn die Route
-        keine Faehrsegmente enthaelt oder `road_environment` nicht verfügbar war
+        List of detected ferry connections in chronological order. Empty if the route
+        has no ferry segments or ``road_environment`` was unavailable
         (z. B. `FakeRoutingprovider`-Routen).
     """
     ergebnis: list[FerrySegment] = []
@@ -69,8 +69,8 @@ def run_to_ferry_segment(run: list[RouteSegment]) -> FerrySegment:
         bbox_ne=(max(lats) + FAEHR_PUFFER_GRAD, max(lons) + FAEHR_PUFFER_GRAD),
         segment_index_start=run[0].segment_index,
         # Exklusiv (wie bei Python-Slices), damit `route.segments[start:end]`
-        # genau den Faehr-Lauf ergibt - vom `optimization`-Modul genutzt, um
-        # eine vom Nutzer vorgegebene Faehrüberfahrt in der Zustandsgraph-
-        # Suche in einem Sprung zu ueberspringen (siehe optimizer.py).
+        # exactly matches the ferry run — used by the ``optimization`` module to
+        # skip a user-specified ferry crossing in one jump in the state graph
+        # search (see optimizer.py).
         segment_index_end=run[-1].segment_index + 1,
     )

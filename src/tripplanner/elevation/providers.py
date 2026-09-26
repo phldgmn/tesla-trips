@@ -1,7 +1,7 @@
-"""provider-Protocol und implementationen für DEM-dataquellen.
+"""Provider protocol and implementations for DEM data sources.
 
-Das DEMDataSourceProtocol ermöglicht testbare heightn-dataquellen ohne
-feste Abhaengigkeit von rasterio.
+Das DEMDataSourceProtocol enables testable elevation data sources without
+hard dependency on rasterio.
 """
 
 import asyncio
@@ -24,41 +24,41 @@ logger = logging.getLogger(__name__)
 
 @runtime_checkable
 class DEMDataSourceProtocol(Protocol):
-    """Protocol für DEM-dataquellen (für Testbarkeit).
+    """Protocol for DEM data sources (for testability).
 
-    implementationen können echte GeoTIFF-Dateien einlesen oder
-    synthetische data für Tests bereitstellen.
+    implementations can read real GeoTIFF files or
+    provide synthetic data for testing.
     """
 
     def get_elevation(self, lat: float, lon: float) -> float:
-        """Heightnwert an einer Koordinate abfragen.
+        """Query elevation value at a coordinate.
 
         Args:
             lat: latitude (WGS84)
-            lon: Laengengrad (WGS84)
+            lon: longitude (WGS84)
 
         Returns:
-            heightnwert in Metern oder -9999 (nodata/unbelegt)
+            elevation value in meters or -9999 (nodata/unbelegt)
         """
         ...
 
     async def get_elevations_batch(self, coordinates: list[tuple[float, float]]) -> list[float]:
-        """Heightnwerte für mehrere Koordinaten (optimiert für Batch-Lookup).
+        """Elevation values for multiple coordinates (optimized for batch lookup).
 
         Args:
-            coordinates: Liste von (latitude, longitude) Tupeln
+            coordinates: List of (latitude, longitude) tuples
 
         Returns:
-            Liste von heightnwerten in Metern
+            List of elevation values in meters
         """
         ...
 
     def get_tile_at(self, lat: float, lon: float) -> DEMTile | None:
-        """Ermittle die DEM-Kachel für eine Koordinate.
+        """Determine the DEM tile for a coordinate.
 
         Args:
             lat: latitude
-            lon: Laengengrad
+            lon: longitude
 
         Returns:
             DEMTile oder None falls keine Kachel existiert
@@ -68,13 +68,13 @@ class DEMDataSourceProtocol(Protocol):
     def get_tiles_in_bbox(
         self, min_lat: float, max_lat: float, min_lon: float, max_lon: float
     ) -> list[DEMTile]:
-        """Ermittle alle DEM-Kacheln die eine BBox schneiden.
+        """Determine all DEM tiles that a BBox intersects.
 
         Args:
-            min_lat: Minimale latitude
-            max_lat: Maximale latitude
-            min_lon: Minimale Laenge
-            max_lon: Maximale Laenge
+            min_lat: Minimum latitude
+            max_lat: Maximum latitude
+            min_lon: Minimum longitude
+            max_lon: Maximum longitude
 
         Returns:
             Liste von DEMTiles
@@ -83,10 +83,10 @@ class DEMDataSourceProtocol(Protocol):
 
 
 class FakeDataSource:
-    """Synthetische DEM-data für Unit-Tests (kein echtes File I/O).
+    """Synthetic DEM data for unit tests (no real file I/O).
 
-    Generiert deterministische heightnwerte based auf den Koordinaten
-    mittels Hash-Funktion. So sind Tests reproduzierbar ohne externe
+    Generates deterministic elevation values based on the coordinates
+    using a hash function. This makes tests reproducible without external
     Abhaengigkeiten.
     """
 
@@ -94,20 +94,20 @@ class FakeDataSource:
         """Initialisiere FakeDataSource.
 
         Args:
-            baseline_elevation: Basishöhe in Metern
-            noise_range: Maximale Abweichung von der Basishöhe (±noise_range/2)
+            baseline_elevation: Baseline elevation in meters
+            noise_range: Maximum deviation from the baseline elevation (±noise_range/2)
         """
         self.baseline = baseline_elevation
         self.noise_range = noise_range
 
     def get_elevation(self, lat: float, lon: float) -> float:
-        """Heightnwert an einer Koordinate abfragen.
+        """Query elevation value at a coordinate.
 
         Deterministically based on coordinates (not random!).
 
         Args:
             lat: latitude (WGS84)
-            lon: Laengengrad (WGS84)
+            lon: longitude (WGS84)
 
         Returns:
             heightnwert im Bereich [baseline - noise_range/2, baseline + noise_range/2]
@@ -117,27 +117,27 @@ class FakeDataSource:
         return self.baseline + noise
 
     async def get_elevations_batch(self, coordinates: list[tuple[float, float]]) -> list[float]:
-        """Heightnwerte für mehrere Koordinaten (optimiert für Batch-Lookup).
+        """Elevation values for multiple coordinates (optimized for batch lookup).
 
         Args:
-            coordinates: Liste von (latitude, longitude) Tupeln
+            coordinates: List of (latitude, longitude) tuples
 
         Returns:
-            Liste von heightnwerten in Metern
+            List of elevation values in meters
         """
         return [self.get_elevation(lat, lon) for lat, lon in coordinates]
 
     def get_tile_at(self, lat: float, lon: float) -> DEMTile | None:
-        """Ermittle die DEM-Kachel für eine Koordinate.
+        """Determine the DEM tile for a coordinate.
 
-        FakeDataSource gibt eine synthetische Kachel zurück.
+        FakeDataSource returns a synthetic tile.
 
         Args:
             lat: latitude
-            lon: Laengengrad
+            lon: longitude
 
         Returns:
-            DEMTile mit synthetischen data oder None
+            DEMTile mit synthetic data oder None
         """
         tile_key = DEMTileKey(
             min_lat=round(lat, 5) - 0.00005,
@@ -157,7 +157,7 @@ class FakeDataSource:
         width = 5
         height = 5
         # Erstelle synthetic raster data (bytes)
-        # Linearer gradient: 100m bis 120m
+        # Linear gradient: 100m to 120m
         raster_data = b""
         for row in range(height):
             for col in range(width):
@@ -176,18 +176,18 @@ class FakeDataSource:
     def get_tiles_in_bbox(
         self, min_lat: float, max_lat: float, min_lon: float, max_lon: float
     ) -> list[DEMTile]:
-        """Ermittle alle DEM-Kacheln die eine BBox schneiden.
+        """Determine all DEM tiles that a BBox intersects.
 
-        FakeDataSource gibt eine synthetische Kachel zurück.
+        FakeDataSource returns a synthetic tile.
 
         Args:
-            min_lat: Minimale latitude
-            max_lat: Maximale latitude
-            min_lon: Minimale Laenge
-            max_lon: Maximale Laenge
+            min_lat: Minimum latitude
+            max_lat: Maximum latitude
+            min_lon: Minimum longitude
+            max_lon: Maximum longitude
 
         Returns:
-            Liste von DEMTiles (hier immer genau eine synthetische Kachel)
+            List of DEMTiles (here always exactly one synthetic tile)
         """
         tile = self.get_tile_at((min_lat + max_lat) / 2, (min_lon + max_lon) / 2)
         return [cast(DEMTile, tile)]
@@ -247,15 +247,15 @@ class CopernicusDEMDataSource:
         """Initialisiere CopernicusDEMDataSource.
 
         Args:
-            base_url: Override für die Bucket-Basis-URL. Werte, die mit
-                ``http://``/``https://`` beginnen, werden über GDALs
-                ``/vsicurl/``-file system gelesen (Range-Requests, kein
-                Download). Jeder andere Wert wird als lokaler Basispfad
-                behandelt (für Tests gegen eine lokale Test-Kachel). Default:
-                der öffentliche ``copernicus-dem-30m``-Bucket.
-            max_open_tiles: Maximale Anzahl offener rasterio-Datasets im
-                LRU-Cache (begrenzt Speicher-/Dateihandle-consumption bei
-                langlaufenden Prozessen, die viele Routen bedienen).
+            base_url: Override for the bucket base URL. Values starting with
+                ``http://``/``https://`` are read via GDAL's
+                ``/vsicurl/`` file system (range requests, no
+                download). Any other value is treated as a local base path
+                (for testing against a local test tile). Default:
+                the public ``copernicus-dem-30m`` bucket.
+            max_open_tiles: Maximum number of open rasterio datasets in the
+                LRU cache (limits memory/file-handle consumption in
+                long-running processes serving many routes).
             cache_dir: Optional path to a local disk cache directory for
                 downloaded DEM tiles.  When set and a tile exists locally,
                 the local file is opened directly (no ``/vsicurl/``).  On
@@ -360,7 +360,7 @@ class CopernicusDEMDataSource:
             # ValueError: dataset closed by a concurrent LRU eviction.
             except (RasterioError, OSError, ValueError):
                 logger.warning(
-                    "DEM-Tile %s konnte nicht gelesen werden - Fallback 0.0m",
+                    "DEM tile %s could not be read - Fallback 0.0m",
                     uri,
                 )
                 return results
@@ -409,7 +409,7 @@ class CopernicusDEMDataSource:
                 value = dataset.read(1, window=Window(col, row, 1, 1))[0, 0]
             except (RasterioError, OSError, IndexError, ValueError):
                 logger.warning(
-                    "DEM-Range-Request für (%s, %s) fehlgeschlagen - Fallback 0.0m", lat, lon
+                    "DEM range request for (%s, %s) failed - fallback 0.0 m", lat, lon
                 )
                 return 0.0
             value_f = float(value)
@@ -503,7 +503,7 @@ class CopernicusDEMDataSource:
                 data = dataset.read(1)
             except (RasterioError, OSError, ValueError):
                 logger.warning(
-                    "DEM-Kachel-Raster für (%s, %s) konnte nicht gelesen werden", lat, lon
+                    "DEM tile raster for (%s, %s) could not be read", lat, lon
                 )
                 return None
 
@@ -535,16 +535,16 @@ class CopernicusDEMDataSource:
     def get_tiles_in_bbox(
         self, min_lat: float, max_lat: float, min_lon: float, max_lon: float
     ) -> list[DEMTile]:
-        """Ermittle alle DEM-Kacheln die eine BBox schneiden.
+        """Determine all DEM tiles that a BBox intersects.
 
         Args:
-            min_lat: Minimale latitude
-            max_lat: Maximale latitude
-            min_lon: Minimale Laenge
-            max_lon: Maximale Laenge
+            min_lat: Minimum latitude
+            max_lat: Maximum latitude
+            min_lon: Minimum longitude
+            max_lon: Maximum longitude
 
         Returns:
-            Liste der verfügbaren DEMTiles (fehlende Kacheln werden übersprungen)
+            Liste der available DEMTiles (missing tiles are skipped)
         """
         tiles: list[DEMTile] = []
         seen: set[tuple[int, int]] = set()

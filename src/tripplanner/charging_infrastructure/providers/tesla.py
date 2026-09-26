@@ -88,7 +88,7 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
 
         Args:
             db_path: Pfad zur SQLite-DB. Default: data/tesla_superchargers.db
-            client: Optionaler HTTP-Client (für Tests mit Mock). Sonst auto.
+            client: Optional HTTP client (for tests with mock). Otherwise automatic.
             debug_log: Optionaler Dateipfad fuer Request/Response-Debug-Log.
         """
         if db_path is None:
@@ -102,7 +102,7 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
         # `_lat_bands_source` holds the identity of the station list from which
         # `_lat_bands` gebaut wurde - aendert sich `self._stations` (Reload
         # nach `refresh()`/`update_station()` o.ae., die den Cache auf `None`
-        # setting), recognizes `get_stations_in_radius()` das automatisch über
+        # setting), recognizes `get_stations_in_radius()` which automatically
         # the identity comparison and rebuilds the index, without each
         # cache invalidation point would have to reset the index separately.
         self._lat_bands: dict[int, list[ChargingStation]] | None = None
@@ -115,7 +115,7 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
         """Schliesst die zugrunde liegende SQLite-connection.
 
         caller (z. B. `trip_input.api._lifespan`), die den provider
-        prozessweit wiederverwenden, MÜSSEN dies beim Shutdown aufrufen, um
+        reused process-wide, MUST call this on shutdown to
         die databankverbindung sauber freizugeben.
         """
         self._db.close()
@@ -344,14 +344,14 @@ class TeslaChargingStationProvider(ChargingStationProvider, PricingQueueMixin):
         """Laedt Stationen aus der DB und wandelt sie in ChargingStation um.
 
         Filtert auf Laender, die vom aktuellen ChargingStation-model
-        unterstützt werden (DE, DK, SE), sowie auf tatsaechlich betriebsbereite
+        be supported (DE, DK, SE), as well as on actually operational
         Stationen (`status == "OPEN"`). Stationen mit Status `CONSTRUCTION`
         ("Coming Soon"), `PERMIT` oder `PLAN` existieren noch nicht physisch
         (z. B. "Torsvik, Sweden", "Quickborn, Germany") bzw. sind reine
-        delivery centers under construction (z. B. "Ringsted, Denmark") und dürfen daher
+        delivery centers under construction (e.g. "Ringsted, Denmark") and must therefore
         nicht als charging_stop-Kandidat in Routing/Scraping auftauchen - siehe
-        `db_record_to_charging_station`'s `status_map` für die Werte, die
-        `CONSTRUCTION`/`PERMIT`/`PLAN` annehmen können.
+        `db_record_to_charging_station`'s `status_map` for the values that
+        `CONSTRUCTION`/`PERMIT`/`PLAN` can take.
         """
         records = self._db.load_stations(
             country_filter=self._VALID_COUNTRIES  # type: ignore[arg-type]

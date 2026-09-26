@@ -1,7 +1,7 @@
-"""Zentrale Lade- und Entlade-Logik für das battery-Modul.
+"""Charge and discharge logic for the battery module.
 
-Die calculationen basieren auf physikalischen Gesetzen (energy = Leistung x time),
-angepasst an die stückweise lineare charging_curve und Fahrzeugparameter.
+Calculations based on physical laws (energy = power * time),
+adjusted to the piecewise linear charging curve and vehicle parameters.
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ def interpolate_charging_power(
     soc_pct: float,
     charging_curve: ChargingCurve,
 ) -> float:
-    """Calculatet die charging_power (kW) für einen gegebenen SoC mittels linearer Interpolation.
+    """Calculates the charging_power (kW) for a given SoC using linear interpolation.
 
-    Extrapolation ausserhalb des Bereichs mit dem Randwert.
+    Extrapolation beyond the range using the boundary value.
 
     Args:
         soc_pct: SoC in Prozent (0-100)
@@ -30,7 +30,7 @@ def interpolate_charging_power(
     return charging_curve.ladeleistung_bei_soc(soc_pct)
 
 
-def compute_charge_duration(  # noqa: PLR0913, PLR0917 -- alle 6 Parameter sind fachlich nötig (Start-/Ziel-SoC, Ladeleistung, Kurve, Fahrzeugparameter, optionales Zeitlimit), siehe docs/plans/05-battery-charging-infrastructure.md
+def compute_charge_duration(  # noqa: PLR0913, PLR0917 -- all 6 parameters are functionally necessary (start/target SoC, charging power, curve, vehicle parameters, optional time limit), see docs/plans/05-battery-charging-infrastructure.md
     start_soc_pct: float,
     target_soc_pct: float,
     charging_power_kw: float,
@@ -38,26 +38,26 @@ def compute_charge_duration(  # noqa: PLR0913, PLR0917 -- alle 6 Parameter sind 
     parameters: VehicleBatteryParameters,
     max_duration_seconds: float | None = None,
 ) -> float:
-    """Calculatet die charge_duration in Sekunden von `start_soc_pct` bis `target_soc_pct`.
+    """Calculates the charge_duration in seconds from `start_soc_pct` to `target_soc_pct`.
 
-    Bei konstanter charging_power `charging_power_kw`.
+    With constant charging_power `charging_power_kw`.
 
-    Die reale charge_duration wird durch die Kurve begrenzt: Die effektive charging_power
-    ist das Minimum aus `charging_power_kw` und der Kurvenleistung bei jedem SoC-Punkt.
+    The real charge_duration is limited by the curve: the effective charging power
+    it is the minimum of `charging_power_kw` and the curve power at each SoC point.
 
-    Algorithmus (numerische Integration über die stückweise lineare Kurve):
-    1. Begrenze die charging_power durch die Kurve:
-       eff_leistung(soc) = min(charging_power_kw, kurven_leistung(soc))
-    2. Integriere über den SoC-Bereich: ∫ dQ / eff_leistung(soc)
-    3. Multipliziere mit dem Wirkungsgrad der Ladeelektronik und Temperaturfaktor
+    Algorithm (numerical integration over the piecewise linear curve):
+    1. Limit charging power by the curve:
+       eff_power(soc) = min(charging_power_kw, curve_power(soc))
+    2. Integrate over the SoC range: ∫ dQ / eff_power(soc)
+    3. Multiply by charge electronics efficiency and temperature factor
 
-    Die Kurve selbst kann stückweise linear oder (Standard) als shape-preserving
-    cubic Hermite-Interpolation (PCHIP) vorliegen, siehe `ChargingCurve` in
-    models.py - für Letztere ist das Integral nicht more analytisch geschlossen
-    lösbar, daher wird durchgehend eine numerische Rechteckregel mit feiner
-    Diskretisierung uses. Diese funktioniert unveraendert für beide
-    Interpolationsarten, da sie nur `charging_curve.ladeleistung_bei_soc()`
-    punktweise auswertet.
+    The curve itself can be piecewise linear or (standard) as a shape-preserving
+    cubic Hermite interpolation (PCHIP), see `ChargingCurve` in
+    models.py - for the latter, the integral is not analytically closed
+    solvable, so a numerical rectangular rule with fine
+    discretization is used throughout. This works unchanged for both
+    interpolation methods, only evaluates `charging_curve.ladeleistung_bei_soc()`
+    pointwise.
 
     Args:
         start_soc_pct: Start-SoC in Prozent (0-100)
@@ -68,7 +68,7 @@ def compute_charge_duration(  # noqa: PLR0913, PLR0917 -- alle 6 Parameter sind 
         max_duration_seconds: Optional: Maximale duration, die erreicht werden darf
 
     Returns:
-        charge_duration in Sekunden (0 wenn start_soc_pct >= target_soc_pct)
+        charge_duration in seconds (0 when start_soc_pct >= target_soc_pct)
     """
     if start_soc_pct >= target_soc_pct:
         return 0.0
@@ -77,13 +77,13 @@ def compute_charge_duration(  # noqa: PLR0913, PLR0917 -- alle 6 Parameter sind 
     efficiency = parameters.effizienz_ladeelektronik
     temp_factor = parameters.temperatur_korrekturfaktor
 
-    # Begrenze die charging_power durch die Kurve
+    # Limit charging power by the curve
     def effective_power(soc_pct: float) -> float:
         curve_power = charging_curve.ladeleistung_bei_soc(soc_pct)
         return min(charging_power_kw, curve_power)
 
-    # Numerische Integration über den SoC-Bereich
-    # Feine Diskretisierung (0.1% Schritte) für ausreichende Genauigkeit
+    # Numerical integration over the SoC range
+    # Fine discretization (0.1% steps) for sufficient accuracy
     soc_range = target_soc_pct - start_soc_pct
     steps = int(soc_range * 10)
     steps = max(steps, 1)
@@ -95,20 +95,20 @@ def compute_charge_duration(  # noqa: PLR0913, PLR0917 -- alle 6 Parameter sind 
         soc = start_soc_pct + i * soc_delta
         power = effective_power(soc)
         if power <= 0:
-            continue  # Vermeide Division durch Null
+            continue  # Avoid division by zero
 
         # energy for this SoC step
         dQ_kwh = (soc_delta / 100.0) * capacity_kwh
-        # time = energy / Leistung (in Stunden), umrechnen in Sekunden
         dtime_h = dQ_kwh / power
+        # time = energy / power (in hours), convert to seconds
         dtime_s = dtime_h * 3600.0
         total_time_s += dtime_s
 
-    # Wirkungsgrad und temperature korrigieren
+    # Apply efficiency and temperature correction
     total_time_s /= efficiency
     total_time_s *= temp_factor
 
-    # Begrenze durch max_duration_seconds falls angegeben
+    # Limit by max_duration_seconds if specified
     if max_duration_seconds is not None and total_time_s > max_duration_seconds:
         return max_duration_seconds
 

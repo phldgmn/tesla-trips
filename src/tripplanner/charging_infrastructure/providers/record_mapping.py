@@ -19,13 +19,13 @@ _POWER_V3_ULTRA_MAX = 350
 
 
 def site_to_db_record(site: dict[str, Any]) -> dict[str, Any]:
-    """Wandelt ein supercharge.info-Site-Dict in ein DB-Record-Dict um.
+    """Wandelt ein supercharge.info-Site-Dict in ein DB record dict um.
 
     Args:
         site: Roh-Dict von der supercharge.info-API
 
     Returns:
-        DB-Record-Dict für replace_all_stations
+        DB record dict for replace_all_stations
     """
     from ..database import _COUNTRY_MAP
 
@@ -63,7 +63,7 @@ def tesla_location_to_db_record(
     loc: dict[str, Any],
     country: str,
 ) -> dict[str, Any]:
-    """Wandelt einen Tesla-Locations-Listeneintrag in ein DB-Record-Dict.
+    """Wandelt einen Tesla-Locations-Listeneintrag in ein DB record dict.
 
     Wird uses wenn keine Detaildaten verfuegbar sind.
 
@@ -72,7 +72,7 @@ def tesla_location_to_db_record(
         country: ISO-2 Laendercode
 
     Returns:
-        DB-Record-Dict mit verfuegbaren Feldern
+        DB record dict mit verfuegbaren Feldern
     """
     uuid_str: str = loc.get("_uuid", loc.get("uuid", "0"))
     supercharge_info_id = parse_int(uuid_str, 0)
@@ -134,14 +134,14 @@ def tesla_detail_to_db_record(
     detail: dict[str, Any],
     country: str,
 ) -> dict[str, Any]:
-    """Wandelt ein Tesla-API-Detail-Dict in ein DB-Record-Dict um.
+    """Wandelt ein Tesla-API-Detail-Dict in ein DB record dict um.
 
     Args:
         detail: Detail-Dict von fetch_location_details()
         country: ISO-2 Laendercode
 
     Returns:
-        DB-Record-Dict für replace_all_stations
+        DB record dict for replace_all_stations
     """
     sc = detail.get("supercharger_function", {})
     marketing = detail.get("marketing", {})
@@ -237,10 +237,10 @@ def tesla_detail_to_db_record(
 def db_record_to_charging_station(
     record: dict[str, Any],
 ) -> ChargingStation:
-    """Wandelt ein DB-Record-Dict in ein ChargingStation-model um.
+    """Wandelt ein DB record dict in ein ChargingStation-model um.
 
     Args:
-        record: DB-Record-Dict aus load_stations()
+        record: DB record dict aus load_stations()
 
     Returns:
         ChargingStation-model

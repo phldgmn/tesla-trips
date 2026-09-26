@@ -1,10 +1,10 @@
-"""Modul für construction_zones- und Sperrungsinformationen entlang der Route.
+"""Module for construction zones and closure information along the route.
 
 Exportiert:
-- ConstructionZone: Hauptdatenmodell für construction_zones
-- ClosureType: Aufzaehlung der ClosureTypes gemaeß DATEX II
-- Land: Aufzaehlung der unterstützten Laender (DE, DK, SE)
-- Constructionprovider: Interface für construction_zones-dataprovider
+- ConstructionZone: Main data model for construction zones
+- ClosureType: Enumeration of closure types per DATEX II
+- Land: Enumeration of supported countries (DE, DK, SE)
+- ConstructionProvider: Interface for construction zone data providers
 """
 
 from tripplanner.construction.models import (

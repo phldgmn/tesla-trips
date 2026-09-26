@@ -78,8 +78,8 @@ class StateGraphBuilder:
             soc_step_pct: step size for SoC discretization in percentage.
             time_step_min: step size for time discretization in minutes.
             base_time: Base timestamp for the time bucket calculation.
-            avg_consumption_kwh_pro_m: Durchschnittlicher consumption der Route
-                (kWh/m), base for the detour cost heuristic.
+            avg_consumption_kwh_per_m: Average route consumption (kWh/m),
+                te consumption (kWh/m), used as base for the detour cost heuristic.
         """
         self.soc_step_pct = soc_step_pct
         self.time_step_min = time_step_min
@@ -603,25 +603,25 @@ class StateGraphBuilder:
         target_soc_target: float,
         detour_kosten: dict[str, DetourKosten] | None = None,
     ) -> None:
-        """Füge charging_edgen zu allen Stationen in diesem segment hinzu.
+        """Add charging edges to all stations in this segment.
 
         `stations` enthaelt je Station auch deren Luftlinien-Abstand (Meter)
         zum naechstgelegenen Routenpunkt (siehe `map_stations_to_segments`).
         Stationen, die nicht direkt AUF der Route liegen (der Regelfall - der
         Suchradius `search_radius_km` in `trip_input/api.py` allowed bewusst
         Kandidaten mehrere Kilometer abseits der Route), erfordern einen
-        Hin- und return-Abstecher. Dessen time-/Energiekosten werden über
+        forward-and-return detour. Its time/energy costs are applied via
         `detour_kosten` geestimates und der charging_edge aufgeschlagen - ohne
-        das würde die Optimierung eine weit abseits liegende, aber
+        this, the optimization would treat a station far off the route but
         geografisch zufaellig dem "billigsten" segment zugeordnete Station als
-        KOSTENLOS erreichbar behandeln und z. B. einen 90-minütigen Abstecher
-        nur fürs Laden waehlen, obwohl eine naehere Station denselben SoC-
-        Bedarf gedeckt haette (siehe Nutzer-Report: Jönköping -> Ödeshög und
-        zurück statt direkt in Jönköping/Mariestad zu laden).
+        FREE to reach and e.g. choose a 90-minute detour
+        only for charging, although a closer station would provide the same SoC-
+        need met (see user report: Jönköping -> Ödeshög and
+        back instead of charging directly in Jönköping/Mariestad).
 
-        Für Stationen mit einer vom Nutzer vorgegebenen festen charge_duration
-        (`charging_duration_specifications`, Schlüssel = `station_id`) wird EXACTLY ONE edge
-        mit dieser duration erzeugt (resultierender SoC per Bisektion über die
+        For stations with a user-specified fixed charge_duration
+        (`charging_duration_specifications`, key = `station_id`) is EXACTLY ONE edge
+        with this duration created (resulting SoC via bisection of the
         charging_curve ermittelt, siehe `soc_nach_fester_ladezeit`) statt der
         sonstigen SoC target iteration - die Vorgabe ist eine explizite
         Nutzer-decision und daher auch nicht durch
@@ -781,9 +781,9 @@ class StateGraphBuilder:
         max_time_buckets: int,
         heap: list[tuple[float, int, tuple[int, int, int]]],
     ) -> None:
-        """Fügt eine charging_edge hinzu (Knoten-/edges-/Kosten-Buchhaltung).
+        """Adds a charging edge (node/edge/cost accounting).
 
-        Erzeugt (falls günstiger als ein bestehender Pfad) eine charging_edge von
+        Creates (if cheaper than an existing path) a charging edge from
         `current` zu einem Knoten, der wieder AUF der Route liegt (derselbe
         `seg_idx`) - dazwischen liegen outbound-Abstecher (`hinweg_zeit_s`, der
         SoC consumption dafuer steckt bereits in `arrival_soc_pct`, siehe
@@ -801,9 +801,9 @@ class StateGraphBuilder:
         real ist. `arrival_soc_pct`/`target_soc_pct` (Zustand AN der Station)
         werden zusaetzlich als edges-Attribute hinterlegt, damit
         `extract_charging_stops` den tatsaechlichen Lade-Ablauf (nicht den um
-        die Abstecher-Fahrt verfaelschten route SoC) berichten kann -
-        gemeinsame Buchhaltung für sowohl die automatische SoC target iteration
-        als auch eine vom Nutzer vorgegebene feste charge_duration (siehe
+        the detour-trip distorted route SoC) can report -
+        shared accounting for both the automatic SoC target iteration
+        as well as a user-specified fixed charge_duration (see
         `add_charging_edges`).
         """
         route_soc_pct = target_soc_pct - rueckweg_soc_pct
@@ -819,7 +819,7 @@ class StateGraphBuilder:
         if new_time_bucket > max_time_buckets:
             return  # Time limit exceeded
 
-        # Kosten: charge_time PLUS Hin-/return-drive_time_s des Abstechers (0 für
+        # Cost: charge_time PLUS forward/return drive_time_s of the detour (0 for
         # Stationen direkt auf der Route) PLUS verschwindend kleiner
         # Tie-Breaker zugunsten des sparsameren Ladeziels (siehe
         # `LADE_TIEBREAK_S_PRO_PROZENTPUNKT`).

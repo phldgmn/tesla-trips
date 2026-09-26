@@ -126,9 +126,9 @@ class LoadBalancedWeatherProvider:
                 unbounded number of simultaneous connections to any single
                 provider.
             clock: Monotonic time source; overridable in tests.
-            cache_ttl_seconds: TTL für den persistenten Cache in Sekunden
-                (Standard: 3600 = 1 Stunde).
-            cache_dir: Verzeichnis für die SQLite-databank des persistenten
+            cache_ttl_seconds: TTL for the persistent cache in seconds
+                (default: 3600 = 1 hour).
+            cache_dir: Directory for the persistent cache's SQLite database
                 Caches. Wenn ``None``, wird der Standardpfad
                 ``<TRIPPLANNER_CACHE_DIR>/external_api_cache.sqlite`` uses.
 

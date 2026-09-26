@@ -1,7 +1,7 @@
 """Discretization functions for SoC and time.
 
 Hilfsfunktionen zur Umrechnung zwischen kontinuierlichen Werten und
-diskreten Buckets für A*/Dijkstra-Suche im Zustandsraum.
+discrete buckets for A*/Dijkstra search in the state space.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ def soc_to_bucket(soc_pct: float, soc_step_pct: float = SOC_STEP_PCT_DEFAULT) ->
 
     Args:
         soc_pct: SoC-Wert in Prozent (0.0-100.0).
-        soc_step_pct: Schrittweite für Diskretisierung in Prozent.
+        soc_step_pct: Step size for discretization in percent.
 
     Returns:
         Bucket-Index (0 = 0%, 100 = 100% bei 1%-Schritten).
@@ -46,7 +46,7 @@ def bucket_to_soc(bucket: int, soc_step_pct: float = SOC_STEP_PCT_DEFAULT) -> fl
 
     Args:
         bucket: Bucket-Index.
-        soc_step_pct: Schrittweite für Diskretisierung in Prozent.
+        soc_step_pct: Step size for discretization in percent.
 
     Returns:
         Mittlerer SoC-Wert des Buckets in Prozent.
@@ -145,7 +145,7 @@ def create_state_node(
         segment_index: Index des Route-segments.
         soc_pct: SoC-Wert in Prozent.
         timestamp: timestamp als datetime.
-        soc_step_pct: Schrittweite für SoC-Diskretisierung.
+        soc_step_pct: Step size for SoC discretization.
 
     Returns:
         Tuple (segment_index, soc_bucket, time_bucket).
@@ -159,7 +159,7 @@ def get_all_soc_buckets(soc_step_pct: float = SOC_STEP_PCT_DEFAULT) -> list[int]
     """Create list of all possible SoC buckets (0 to 100).
 
     Args:
-        soc_step_pct: Schrittweite für Diskretisierung in Prozent.
+        soc_step_pct: Step size for discretization in percent.
 
     Returns:
         Liste aller Bucket-Indizes.

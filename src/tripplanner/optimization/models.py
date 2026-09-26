@@ -108,9 +108,10 @@ class OptimizationConstraints(BaseModel):
             "Minimale duration eines einzelnen Ladevorgangs, WENN geladen wird. "
             "A candidate charging target whose charging time would be below this is raised to "
             "genau diese Mindestdauer gestreckt statt verworfen - verhindert "
-            "unnecessarily short charging stops (e.g. 1 minute), without moving the charging stop to "
-            "sich zu erzwingen (die parallele 'Station überspringen'-Option "
-            "bleibt unveraendert verfügbar, siehe `_add_drive_edge`)."
+            "unnecessarily short charging stops (e.g. 1 minute), "
+            "without moving the charging stop to "
+            "to force itself (the parallel 'skip station' option"
+            "remains available unchanged, see `_add_drive_edge`)."
         ),
     )
     max_charge_soc_pct: float = Field(
@@ -132,7 +133,7 @@ class OptimizationConstraints(BaseModel):
         if self.min_charging_time_s > self.max_ladezeit_s:
             raise PydanticCustomError(
                 "mindest_ladezeit_zu_hoch",
-                "min_charging_time_s ({mindest}) darf max_ladezeit_s ({max}) nicht überschreiten",
+                "min_charging_time_s ({mindest}) must not exceed max_charging_time_s ({max})",
                 {"mindest": self.min_charging_time_s, "max": self.max_ladezeit_s},
             )
         return self
@@ -228,7 +229,7 @@ class ChargingPlan(BaseModel):
     gesamtreisezeit_s: int = Field(ge=0, description="Gesamtreisezeit in Sekunden")
     min_zwischenstopp_ankunftszeit: dict[int, datetime] = Field(
         default_factory=dict,
-        description="Mindestankunftszeit für Zwischenstopps (wenn nicht geladen wird)",
+        description="Minimum arrival time for waypoints (when not charging)",
     )
     zwischenstopp_aufenthalte: list[WaypointDwell] = Field(
         default_factory=list,
@@ -270,12 +271,12 @@ class OptimizerInterface(Protocol):
         """Optimierungsmethode, die von beiden Backend-implementationen bereitgestellt wird.
 
         `charging_duration_specifications` (optionale, vom Nutzer vorgegebene feste Ladedauern in
-        Sekunden je Stations-ID) überschreibt die automatische SoC-basierte
-        charge_duration-calculation für die betroffene Station. `ferry_time_windows`
+        seconds per station ID) overrides the automatic SoC-based
+        charge duration calculation for the affected station. ``ferry_time_windows``
         (optionale, vom Nutzer vorgegebene Faehrfahrplaene, als
         `segment_index_start -> (segment_index_end, departure, arrival)`, siehe
         `tripplanner.routing.models.Ferrysegment`) laesst segmente in diesem
-        Bereich als fixe Faehrüberfahrt statt als normale Fahrtkanten modellieren.
+        range as fixed ferry crossings instead of normal travel edges.
         `detour_kosten` (optional, real routed detour costs per station, see
         `optimization.detour_routing.precompute_detour_costs`) is looked up
         before falling back to the straight-line heuristic when computing

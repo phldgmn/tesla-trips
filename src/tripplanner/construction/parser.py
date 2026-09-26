@@ -1,7 +1,7 @@
-"""DATEX II XML Parser für Baustelleninformationen.
+"""DATEX II XML parser for construction site information.
 
-Uses xmlschema (v3.3) für Validierung und Parsing. Falls xmlschema nicht verfügbar,
-faellt auf xml.etree.ElementTree zurück (für Unit-Tests ohne externe Abhaengigkeiten).
+Uses ``xmlschema`` (v3.3) for validation and parsing. If ``xmlschema`` is unavailable,
+falls back to ``xml.etree.ElementTree`` (for unit tests without external dependencies).
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 class DATEXIIConstructionZoneInternal(NamedTuple):
-    """Internes model für DATEX II Parse-Ergebnis (nicht exportiert)."""
+    """Internal model for DATEX II parse result (not exported)."""
 
     closure_type: str
     gueltig_von: datetime
@@ -38,7 +38,7 @@ def parse_datexii_xml(xml_content: str, land: Land) -> list[DATEXIIConstructionZ
 
     Args:
         xml_content: Raw XML string von DATEX II Feed.
-        land: Land (für spezifische Mapping-Logik).
+        land: Country (for country-specific mapping logic).
 
     Returns:
         Liste von DATEXIIConstructionZoneInternal (internal).
@@ -50,7 +50,7 @@ def _parse_with_elementtree(
     xml_content: str,
     land: Land,
 ) -> list[DATEXIIConstructionZoneInternal]:
-    """Parse DATEX II XML mit xml.etree.ElementTree (für Unit-Tests)."""
+    """Parse DATEX II XML with xml.etree.ElementTree (for unit tests)."""
     root = ET.fromstring(xml_content)
     zones: list[DATEXIIConstructionZoneInternal] = []
 
@@ -260,7 +260,7 @@ def _parse_datetime(dt_str: str | None) -> datetime:
 
 
 def _delay_band_to_speed(delay_band: str | None) -> int | None:
-    """Mappe delayBand auf speed_limit_kmh (configuration für feine Anpassung)."""
+    """Maps delayBand to speed_limit_kmh (configuration for fine adjustment)."""
     if not delay_band:
         return None
 

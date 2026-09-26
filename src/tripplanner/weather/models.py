@@ -1,10 +1,10 @@
-"""weather-data models für das Tesla-Tripplaner-Projekt.
+"""weather-data models for the Tesla Tripplanner project.
 
-Diese Module definieren die offiziellen Typen aus dem Register:
-- `WeatherQuery`: query für einen einzelnen weatherereignis
-- `WeatherSample`: weatherdaten für einen timestamp an einer Koordinate
-- `OpenMeteoResponse`: Raw-Response von Open-Meteo Forecast API (intern)
-- `WeatherDetailLevel`: Steuerungsgrad der weatherauflösung ("off" | "low" | "medium" | "high")
+This module defines the official types from the registry:
+- `WeatherQuery`: query for a single weather event
+- `WeatherSample`: weather data for a timestamp at a coordinate
+- `OpenMeteoResponse`: Raw response from the Open-Meteo Forecast API (internal)
+- `WeatherDetailLevel`: granularity of the weather resolution ("off" | "low" | "medium" | "high")
 """
 
 from datetime import datetime
@@ -38,23 +38,23 @@ pre-stop conditions across the whole stationary period.
 
 
 class WeatherQuery(BaseModel):
-    """query für ein einzelnes weatherereignis."""
+    """Query for a single weather event."""
 
     coordinate: Coordinate
     """WGS84 (lat, lon)."""
 
     timestamp: datetime
-    """timestamp der weatherabfrage."""
+    """Timestamp of the weather query."""
 
 
 class WeatherSample(BaseModel):
-    """weatherdaten für einen timestamp an einer Koordinate."""
+    """Weather data for a timestamp at a coordinate."""
 
     coordinate: Coordinate
     """WGS84 (lat, lon)."""
 
     timestamp: datetime
-    """timestamp der weatherdaten."""
+    """Timestamp of the weather data."""
 
     temperature_c: float = Field(ge=-100.0, le=70.0, description="temperature in °C")
     """temperature in °C."""
@@ -74,7 +74,7 @@ class WeatherSample(BaseModel):
     """snowfall in cm (Wasserequivalent)."""
 
     pressure_hpa: float = Field(ge=870.0, le=1084.0, description="Luftdruck in hPa (MSL)")
-    """Luftdruck in hPa (MSL)."""
+    """Air pressure in hPa (MSL)."""
 
     humidity_pct: float = Field(ge=0.0, le=100.0, description="Relative Luftfeuchtigkeit in %")
     """Relative Luftfeuchtigkeit in %."""
@@ -82,30 +82,30 @@ class WeatherSample(BaseModel):
     solar_radiation_wm2: float = Field(ge=0.0, description="Globalstrahlung in W/m² (Stundensumme)")
     """Globalstrahlung in W/m² (Stundensumme)."""
 
-    cloudiness_pct: float = Field(ge=0.0, le=100.0, description="Bewölkung in %")
+    cloudiness_pct: float = Field(ge=0.0, le=100.0, description="cloud cover in %")
     """cloud cover in %."""
 
 
 class OpenMeteoResponse(BaseModel):
-    """Raw-Response von Open-Meteo Forecast API (nur für interne Verarbeitung)."""
+    """Raw response from the Open-Meteo Forecast API (only for internal processing)."""
 
     latitude: float
     """latitude."""
 
     longitude: float
-    """Laengengrad."""
+    """Longitude."""
 
     timezone: str
     """Zeitzone (IANA-Name)."""
 
     timezone_abbreviation: str
-    """Zeitzonen-Kürzel."""
+    """Time zone abbreviation."""
 
     elevation: float
-    """height über NN in Metern."""
+    """Elevation above sea level in meters."""
 
     hourly: dict[str, list[float | int | str | None]]
-    """Hourly-data als Dictionary mit Parameternamen als Keys."""
+    """Hourly data as a dictionary with parameter names as keys."""
 
     hourly_units: dict[str, str]
-    """Einheiten für die hourly-data."""
+    """Units for the hourly data."""

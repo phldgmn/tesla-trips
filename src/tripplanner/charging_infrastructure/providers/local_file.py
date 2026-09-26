@@ -22,7 +22,7 @@ from .spatial import _build_lat_bands, _stations_in_radius
 class LocalFileChargingStationProvider(ChargingStationProvider):
     """implementation, die Ladedaten aus einer lokalen JSON-Datei liest.
 
-    Für Tests und Produktion (solange kein Crawler implementiert ist).
+    For tests and production (as long as no crawler is implemented).
     """
 
     def __init__(self, data_path: Path) -> None:
@@ -34,7 +34,7 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
         self.data_path = data_path
         self._stations: list[ChargingStation] | None = None
         # Spatial index over `self._stations`, siehe
-        # `TeslaChargingStationprovider._lat_bands` für die Begründung.
+        # ``TeslaChargingStationProvider._lat_bands`` for the rationale.
         self._lat_bands: dict[int, list[ChargingStation]] | None = None
         self._lat_bands_source: list[ChargingStation] | None = None
 
@@ -103,7 +103,7 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
     ) -> list[ChargingStation]:
         """Liefert alle Supercharger innerhalb des gegebenen Radius um die Koordinate.
 
-        Uses `haversine_distance_m` von `tripplanner.geo` für die Distanzberechnung.
+        Uses ``haversine_distance_m`` from ``tripplanner.geo`` for distance calculation.
 
         Args:
             coordinate: (lat, lon) als Tuple (WGS84)
@@ -134,7 +134,7 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
     ) -> dict[int, list[ChargingStation]]:
         """Sucht Supercharger entlang der Route.
 
-        Für jedes segment wird der Mittelpunkt berechnet und in einem Radius von
+        For each segment the midpoint is calculated and within a radius of
         `search_radius_km` gesucht.
 
         Args:

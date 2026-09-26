@@ -1,6 +1,6 @@
-"""data models für das simulation-Modul.
+"""Data models for the simulation module.
 
-Pydantic-modele zur Darstellung von simulationsframes und Ergebnissen.
+Pydantic models for representing simulation frames and results.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, model_validator
 from tripplanner.construction.models import ConstructionZone
 from tripplanner.routing.models import Coordinate
 
-# Konstanten für speedsschwellen
+# Constants for speed thresholds
 _MAX_LADE_GESCHWINDIGKIT_KMH = 0.5
 _MAX_PAUSE_GESCHWINDIGKIT_KMH = 5.0
 

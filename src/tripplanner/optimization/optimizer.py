@@ -112,7 +112,8 @@ class NetworkXOptimizer(OptimizerInterface):
             start_soc_pct: Vehicle start SoC in percentage.
             departure_time: Geplante departure_time.
             iteration: Iteration number for later weather iteration.
-            charging_duration_specifications: Optional fixed charge durations (seconds) per station ID.
+            charging_duration_specifications: Optional fixed charge durations (s)
+                per station ID.
             ferry_time_windows: Optional fixed ferry schedules per
                 `segment_index_start -> (segment_index_end, departure, arrival)`.
             detour_kosten: Optionale real routed detour costs per station, see
@@ -540,7 +541,10 @@ class NetworkXOptimizer(OptimizerInterface):
             wait_time_buffer_min += max(kandidaten_min, 0.0)
 
         return (
-            int((total_time_min + charge_time_buffer_min + wait_time_buffer_min) / self.time_step_min)
+            int(
+                (total_time_min + charge_time_buffer_min + wait_time_buffer_min)
+                / self.time_step_min
+            )
             + 5
         )
 
@@ -569,7 +573,7 @@ class NetworkXOptimizer(OptimizerInterface):
         battery_capacity_kwh: float,
         leistungsdeckel_kw: float | None = None,
     ) -> float:
-        """Calculate charge_time in seconds for the charging process `start_soc_pct` → `end_soc_pct`.
+        """Calculate charge time in seconds for SoC `start_soc_pct` to `end_soc_pct`.
 
         Die average charging power MUST over the ACTUAL start/end-
         SoC window averaged (`_mittlere_ladeleistung_kw(start_soc_pct,
@@ -753,7 +757,7 @@ def create_ortools_optimizer(
     time_step_min: int = TIME_STEP_MIN_DEFAULT,
     use_cp_sat: bool = True,
 ) -> OptimizerInterface:
-    """Factory-Funktion für the OR-Tools-based optimizer (future version).
+    """Factory function for the OR-Tools-based optimizer (future version).
 
     Args:
         soc_step_pct: step size for SoC discretization in percentage.

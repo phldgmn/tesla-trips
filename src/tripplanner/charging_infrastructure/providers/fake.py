@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 
 class FakeChargingStationProvider(ChargingStationProvider):
-    """Fake-provider für Unit-Tests ohne Dateizugriff.
+    """Fake provider for unit tests without file access.
 
     Liefert feste Testdaten based auf dem Suchparameter.
     """
@@ -126,7 +126,7 @@ class FakeChargingStationProvider(ChargingStationProvider):
         if not stations or not route.segments:
             return result
 
-        # Für jede Station das naechste segment anhand der Midpoint-distance finden
+        # For each station find the nearest segment by midpoint distance
         for station in stations:
             best_seg_idx = 0
             best_dist = float("inf")

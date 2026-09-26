@@ -1,4 +1,4 @@
-"""provider-implementationen für den `charging_infrastructure`-Zugriff.
+"""provider implementations for `charging_infrastructure` access.
 
 Dieses Modul ist ein re-export shim. Alle Symbole wurden in das
 ``providers/``-Paket ausgelagert:

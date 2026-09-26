@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class FakeConstructionProvider(ConstructionProvider):
-    """Fake-provider für Tests ohne externe API-Aufrufe."""
+    """Fake provider for tests without external API calls."""
 
     def __init__(self, test_zones: list[ConstructionZone] | None = None) -> None:
         """Initialisiert den Fake-provider mit optionalen Test-Zonen."""

@@ -32,16 +32,16 @@ _KMH_TO_MPS = 1000.0 / 3600.0
 
 
 class OpenMeteoClient:
-    """HTTP-Client für Open-Meteo Forecast API."""
+    """HTTP client for the Open-Meteo Forecast API."""
 
     BASE_URL = "https://api.open-meteo.com/v1/forecast"
     TIMEOUT_S = 15.0
 
     def __init__(self, client: httpx.AsyncClient | None = None) -> None:
-        """Initialisiert den Client.
+        """Initialize the client.
 
         Args:
-            client: Optionaler httpx.AsyncClient. Wenn None, wird ein neuer Client erstellt.
+            client: Optional httpx.AsyncClient. If None, a new client is created.
         """
         self._client = client or httpx.AsyncClient(timeout=self.TIMEOUT_S)
 
@@ -49,19 +49,19 @@ class OpenMeteoClient:
         self,
         queries: Sequence[WeatherQuery],
     ) -> list[OpenMeteoResponse]:
-        """Abruf von weatherdaten für mehrere Standorte + Zeitpunkte.
+        """Fetch weather data for multiple locations + timestamps.
 
         Args:
-            queries: Liste von weatherabfragen (Koordinate + timestamp).
+            queries: List of weather queries (coordinate + timestamp).
 
         Returns:
-            Liste von OpenMeteoResponse, in gleicher Reihenfolge wie queries.
-            Bei fehlenden data für einen Punkt wird None zurückgegeben.
+            List of OpenMeteoResponse, in the same order as queries.
+            Returns None for any point where data is unavailable.
         """
         if not queries:
             return []
 
-        # Gruppieren nach Koordinate (doppelte Standorte sparen API-Calls)
+        # Group by coordinate (duplicate locations save API calls)
         coords: dict[tuple[float, float], list[tuple[int, WeatherQuery]]] = {}
         for idx, q in enumerate(queries):
             key = (round(q.coordinate[0], 1), round(q.coordinate[1], 1))
@@ -70,7 +70,7 @@ class OpenMeteoClient:
         results: list[OpenMeteoResponse | None] = [None] * len(queries)
 
         for (lat, lon), entries in coords.items():
-            # Zeitbereich: earliest bis latest timestamp für diesen Standort
+            # Time range: earliest to latest timestamp for this location
             times = [q.timestamp.isoformat() for _, q in entries]
             time_min = min(times)
             time_max = max(times)
@@ -87,7 +87,7 @@ class OpenMeteoClient:
             resp.raise_for_status()
             data = OpenMeteoResponse(**resp.json())
 
-            # Zeitindex lookup für jeden Query-Punkt
+            # Time index lookup for each query point
             time_to_idx = {t: i for i, t in enumerate(data.hourly["time"])}
             for idx, q in entries:
                 # Snap to the hour — Open-Meteo returns hourly data (:00 only)
@@ -100,17 +100,17 @@ class OpenMeteoClient:
         return [r for r in results if r is not None]
 
     async def close(self) -> None:
-        """Schliesst den HTTP-Client."""
+        """Close the HTTP client."""
         await self._client.aclose()
 
 
 class OpenMeteoProvider:
-    """weather-provider über Open-Meteo Forecast API.
+    """Weather provider using the Open-Meteo Forecast API.
 
-    Uses intern ``OpenMeteoClient`` für HTTP-Calls und implementiert
-    zweistufiges Caching: ein in-memory ``dict`` für schnelle Wiederholungen
-    innerhalb eines Prozesses sowie einen persistenten ``TTLCache`` (SQLite),
-    der auch über Prozessgrenzen hinweg wirksam ist.
+    Uses ``OpenMeteoClient`` internally for HTTP calls and implements
+    two-level caching: an in-memory ``dict`` for fast repetition
+    within a single process and a persistent ``TTLCache`` (SQLite),
+    that remains effective across process boundaries.
     """
 
     def __init__(
@@ -120,16 +120,16 @@ class OpenMeteoProvider:
         cache_ttl_seconds: float = 3600.0,
         cache_dir: Path | str | None = None,
     ) -> None:
-        """Initialisiert den provider.
+        """Initialize the provider.
 
         Args:
-            client: Optionaler OpenMeteoClient. Wenn None, wird ein neuer Client erstellt.
-            cache_ttl_seconds: TTL für den persistenten Cache in Sekunden
-                (Standard: 3600 = 1 Stunde, entsprechend dem stündlichen
-                Aktualisierungsrhythmus von Open-Meteo).
-            cache_dir: Verzeichnis für die SQLite-databank des persistenten
-                Caches. Wenn ``None``, wird der Standardpfad
-                ``<TRIPPLANNER_CACHE_DIR>/external_api_cache.sqlite`` uses.
+            client: Optional OpenMeteoClient. If None, a new client is created.
+            cache_ttl_seconds: TTL for the persistent cache in seconds
+                (default: 3600 = 1 hour, matching the hourly
+                update frequency of Open-Meteo).
+            cache_dir: Directory for the persistent cache's SQLite database
+                cache. If ``None``, the default path
+                ``<TRIPPLANNER_CACHE_DIR>/external_api_cache.sqlite`` is used.
         """
         self._client = client or OpenMeteoClient()
         self._cache: dict[tuple[Coordinate, datetime], WeatherSample] = {}
@@ -147,7 +147,7 @@ class OpenMeteoProvider:
         self,
         queries: Sequence[WeatherQuery],
     ) -> list[WeatherSample]:
-        """Abruf von weatherdaten für mehrere querypunkte.
+        """Fetch weather data for multiple query points.
 
         Uses grid-rounded + hour-snapped cache keys so that near-duplicate
         coordinates within 0.1° and timestamps in the same clock hour
@@ -222,7 +222,7 @@ class OpenMeteoProvider:
         loop's re-runs hit cache for queries at the same rounded coordinate
         and within the same clock hour as the original query.
         """
-        # Prüfen, ob die neuen Queries im Cache liegen (grid-rounded + hour-snapped)
+        # Check if new queries in cache (grid-rounded + hour-snapped)
         results: list[WeatherSample | None] = [None] * len(updated_queries)
 
         for idx, query in enumerate(updated_queries):
@@ -240,7 +240,7 @@ class OpenMeteoProvider:
                     update={"coordinate": query.coordinate, "timestamp": query.timestamp}
                 )
 
-        # Für nicht-gecachte Queries new abfragen
+        # Fetch new data for non-cached queries
         uncached = [q for q in updated_queries if results[updated_queries.index(q)] is None]
 
         if uncached:
@@ -268,15 +268,15 @@ def _extract_sample_from_response(
     timestamp: datetime,
     query_koordinate: tuple[float, float] | None = None,
 ) -> WeatherSample | None:
-    """Extrahiert ein WeatherSample aus einer OpenMeteoResponse.
+    """Extract a WeatherSample from an OpenMeteoResponse.
 
     Args:
-        response: OpenMeteoResponse mit hourly-data.
-        timestamp: Gewünschter timestamp.
-        query_koordinate: Original-Koordinatenpunkt der query.
+        response: OpenMeteoResponse with hourly data.
+        timestamp: Desired timestamp.
+        query_koordinate: Original coordinate of the query.
 
     Returns:
-        WeatherSample oder None, wenn der timestamp nicht gefunden wird.
+        WeatherSample or None if the timestamp is not found.
     """
     time_to_idx = {t: i for i, t in enumerate(response.hourly["time"])}
     # Open-Meteo returns hourly data on the hour (:00). Snap query time to
@@ -293,7 +293,7 @@ def _extract_sample_from_response(
     hourly = response.hourly
 
     def get_value(key: str, default: float = 0.0) -> float:
-        """Hilfsfunktion zum Extrahieren eines Werts mit Typkonvertierung."""
+        """Helper function to extract a value with type conversion."""
         value = hourly.get(key, [default] * len(response.hourly.get("time", [])))[time_idx]
         if value is None:
             return default

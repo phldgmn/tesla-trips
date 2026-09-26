@@ -15,21 +15,21 @@ from tripplanner.wind.models import WindComponents
 
 
 def _degrees_to_radians(deg: float) -> float:
-    """Konvertiert Grad in Bogenmaß."""
+    """Converts degrees to radians."""
     return deg * math.pi / 180.0
 
 
 def compute_wind_components(weather: WeatherSample, segment: RouteSegment) -> WindComponents:
-    """Calculatet Wind components für ein einzelnes segment.
+    """Calculates wind components for a single segment.
 
-    Die Wind components werden mittels Vektorprojektion berechnet:
+    The wind components are calculated using vector projection:
       The wind vector is shifted by 180° (wind_direction_deg = direction the wind comes from).
-    - Die Projektion auf die Bearing-Richtung ergibt den headwind/Rückenwind.
-    - Die Projektion auf die senkrechte Richtung ergibt den crosswind.
+    - The projection onto the bearing direction yields the headwind/tailwind.
+    - The projection onto the perpendicular direction yields the crosswind.
 
     Args:
-        weather: weatherdaten für den timestamp des segments.
-        segment: Route-segment mit Bearing (heading am segmentanfang).
+        weather: weather data for the segment timestamp.
+        segment: Route segment with bearing (heading at segment start).
 
     Returns:
         WindComponents mit segment_index, gegenwind_ms und seitenwind_ms.
@@ -60,10 +60,10 @@ def compute_wind_components_for_route(
     weather_samples: Sequence[WeatherSample],
     segments: Sequence[RouteSegment],
 ) -> list[WindComponents]:
-    """Calculatet Wind components für alle segmente entlang der Route.
+    """Calculates wind components for all segments along the route.
 
     Args:
-        weather_samples: weatherdaten je weatherabfragepunkt. Muss gleiche Laenge
+        weather_samples: weather data per query point. Must be the same length
             wie segments haben.
         segments: Route-segmente (muss gleiche Laenge wie weather_samples haben).
 

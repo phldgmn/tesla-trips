@@ -438,7 +438,7 @@ def _step_9_update_eta(
     # `segment_eta_list` wird in `_step_4_estimate_initial_eta()` durch
     # Iteration over `route.segments` IN THE SAME ORDER constructed (one
     # Tupel pro Segment, keine Filterung/Umsortierung) - der Listenindex
-    # already exactly corresponds to the segment index. `.index()` würde
+    # already exactly corresponds to the segment index. `.index()` would
     # stattdessen for EACH segment a LINEAR search with deep Pydantic-
     # object equality across ALL segments (O(n²) with expensive
     # Vergleich statt O(n)) - bei feingranularen Routen (tausende Segmente,

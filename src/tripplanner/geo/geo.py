@@ -1,7 +1,7 @@
 """Geografische Grundberechnungen: Vorwaertsazimut und Grosskreisdistanz.
 
-Reine, abhaengigkeitsfreie Funktionen ohne Zustand — siehe Modul-Docstring in
-`tripplanner.geo.__init__` für die projektweite Koordinatenkonvention.
+Pure, dependency-free functions without state — see the module docstring in
+`tripplanner.geo.__init__` for the project-wide coordinate convention.
 """
 
 import math

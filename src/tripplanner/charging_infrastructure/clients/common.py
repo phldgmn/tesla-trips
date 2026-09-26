@@ -40,6 +40,7 @@ def _debug_log(log_path: Path | None, msg: str, label: str = "DEBUG") -> None:
         log_path: Optional additional file path to append the line to.
         msg: The message
         label: Label for the line (e.g. "CURL", "HTTP", "JSON")
+
     """
     _logger.debug("[%s] %s", label, msg)
     if log_path is None:
@@ -90,4 +91,5 @@ def waf_retry_delay_s(attempt: int) -> float:
         Delay in seconds before the next attempt.
     """
     return float(WAF_RETRY_BASE_DELAY_S * (2 ** (attempt - 1)))
+
 

@@ -19,7 +19,7 @@ from tripplanner.geo import Coordinate
 
 
 class StallType(Enum):
-    """Bezeichnung für den Stall-Typ, based auf supercharge.info-data."""
+    """Bezeichnung für den Stall-Typ, based auf supercharge.info data."""
 
     V2 = "V2"
     """V2-Supercharger (typisch 150 kW pro Stall)."""

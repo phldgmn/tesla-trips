@@ -149,16 +149,16 @@ class ChargingCurve(BaseModel):
     points: list[ChargingCurvePoint] = Field(
         ...,
         min_length=4,
-        description="Mindestens 4 Punkte für sinnvolle Approximation",
+        description="At least 4 points for a meaningful approximation",
     )
     interpolation: InterpolationMethod = Field(
         default=InterpolationMethod.HERMITE,
-        description="Interpolationsmethode für Punktezwischenraeume",
+        description="Interpolation method for spacing between points",
     )
 
-    # Reines Python-Objekt (kein Pydantic-`PrivateAttr`) mit allen für die
-    # Hot-Path-Auswertung (`ladeleistung_bei_soc`) vorberechneten Werten -
-    # siehe `_ChargingCurveFastPath`-Docstring für das "warum" (EIN
+    # Pure Python object (no Pydantic PrivateAttr) with all values pre-computed for
+    # hot-path evaluation (ladeleistung_bei_soc) -
+    # see _ChargingCurveFastPath docstring for the "why" (ONE
     # `PrivateAttr`-Zugriff statt vier pro Aufruf).
     _fast: _ChargingCurveFastPath = PrivateAttr()
 
@@ -170,7 +170,7 @@ class ChargingCurve(BaseModel):
     ) -> list[ChargingCurvePoint]:
         """Validiert Mindestpunktzahl, SoC-Bereich und eindeutige SoC-Werte."""
         if len(v) < _MIN_KURVENPUNKTE:
-            raise ValueError(f"Ladekurve benötigt mindestens {_MIN_KURVENPUNKTE} Punkte")
+            raise ValueError(f"L charging curve needs at least {_MIN_KURVENPUNKTE} Punkte")
 
         sorted_points = sorted(v, key=lambda p: p.soc_pct)
 
@@ -181,14 +181,14 @@ class ChargingCurve(BaseModel):
             if i > 0 and p.soc_pct == sorted_points[i - 1].soc_pct:
                 raise ValueError(
                     f"Punkt {i}: doppelter soc_pct-Wert ({p.soc_pct}) - "
-                    "für die PCHIP-Interpolation sind eindeutige "
-                    "SoC-Stützstellen nötig"
+                    "unique "
+                    "support points are required for PCHIP interpolation"
                 )
 
         return sorted_points
 
     def model_post_init(self, __context: object) -> None:
-        """Calculatet Interpolations-Koeffizienten und baut das Hot-Path-Bündel."""
+        """Computes interpolation coefficients and builds the hot-path bundle."""
         soc = tuple(p.soc_pct for p in self.points)
         power = tuple(p.charging_power_kw for p in self.points)
 
@@ -211,9 +211,9 @@ class ChargingCurve(BaseModel):
             pchip = PchipInterpolator(soc, power, extrapolate=False)
             # `pchip.c` ist ein (4, n-1)-Array: je segment i die Koeffizienten
             # [a, b, c, d] eines kubischen Polynoms in POTENZBASIS relativ zum
-            # linken Stützpunkt `pchip.x[i]`, d. h.
+            # left support point pchip.x[i], i.e.
             # power(soc) = a*s^3 + b*s^2 + c*s + d mit s = soc - pchip.x[i]
-            # (scipy-Konvention für `PPoly`/`CubicHermiteSpline`, siehe
+            # (scipy convention for PPoly/CubicHermiteSpline, see
             # scipy.interpolate._interpolate.PPoly). Einmalig hier extrahiert
             # und als reine Python-Tupel gecacht, damit `_ladeleistung_hermite`
             # jeden Punkt per Horner-Schema auswerten kann, statt bei jedem
@@ -241,12 +241,12 @@ class ChargingCurve(BaseModel):
         )
 
     def ladeleistung_bei_soc(self, soc_pct: float) -> float:
-        """Calculatet die charging_power (kW) für einen gegebenen SoC.
+        """Computes charging_power (kW) for a given SoC.
 
-        SoC-Werte ausserhalb [0,100] werden zunaechst auf [0,100] geklemmt.
-        Falls die Stützpunkte nicht exakt bei 0 bzw. 100 % beginnen/enden,
-        wird für diese Bereiche die Leistung des jeweiligen aeussersten
-        Stützpunkts uses.
+        SoC values outside [0,100] are first clamped to [0,100].
+        If the support points do not start/end exactly at 0 or 100%,
+        the power at the respective outermost
+        support point is used.
 
         Args:
             soc_pct: SoC in Prozent.
@@ -259,12 +259,12 @@ class ChargingCurve(BaseModel):
         return _evaluate_fast_path(self._fast, soc_clamped)
 
     def ladeleistung_bei_soc_batch(self, soc_values: Sequence[float]) -> list[float]:
-        """Wie `ladeleistung_bei_soc`, aber für mehrere SoC-Werte in EINEM Aufruf.
+        """Like ladeleistung_bei_soc, but for multiple SoC values in a single call.
 
-        Holt `self._fast` NUR EINMAL statt einmal pro SoC-Wert - für caller,
+        Fetches self._fast ONCE instead of once per SoC value - for callers,
         which evaluates the curve over multiple points (e.g. numerical
         Integration in `optimization.optimizer._mittlere_ladeleistung_kw`,
-        Größenordnung 10^5-10^6 Punktauswertungen pro `optimize_charging_
+        order of magnitude 10^5-10^6 point evaluations per optimize_charging_
         plan`-Lauf). Ergebnis identisch zu
         `[self.ladeleistung_bei_soc(s) for s in soc_values]`.
         """
@@ -275,8 +275,8 @@ class ChargingCurve(BaseModel):
 class VehicleBatteryParameters(BaseModel):
     """Vehicle-specific battery properties.
 
-    Vorrangig für spaetere Kalibrierung mit Fahrdaten vorgesehen.
-    Default-Werte based auf typischem Model 3 LR Verhalten.
+    Intended primarily for later calibration with vehicle data.
+    Default values based on typical Model 3 LR behavior.
     """
 
     battery_capacity_kwh: float = Field(

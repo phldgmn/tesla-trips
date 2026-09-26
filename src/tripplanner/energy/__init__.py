@@ -1,6 +1,6 @@
 """Energy-Modul (Phase 3): Physikalisches Energieconsumptionsmodell.
 
-This module calculates energy consumption für Elektrofahrzeuge physikalisch fundiert
+This module calculates energy consumption for electric vehicles based on physics
 considering:
 - rolling_resistance (inkl. road_surface_factor)
 - air_drag (inkl. Wind components)

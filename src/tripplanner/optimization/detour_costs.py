@@ -1,4 +1,4 @@
-"""Reine Kostenfunktionen für Abstecher zu charging_stationen (ohne Optimizer-Zustand).
+"""Pure cost functions for detours to charging stations (without optimizer state).
 
 Extrahiert aus `optimizer.py` (Task 2.1) als freie, testbare Funktionen.
 """
@@ -18,7 +18,7 @@ DETOUR_ROUTENFAKTOR: float = 1.6
 """Multiplikator, um aus der Luftlinien-distance Station<->Route eine
 realistische Strassendistanz zu estimate (echte Strassen sind selten
 geradlinig - kalibriert an den 1.2x-2x, die `_step_route_charging_detours`
-live gegen GraphHopper für Abstecher zu charging_stationen beobachtet, siehe
+live against GraphHopper for detours to charging stations observed, see
 `find_bracket_points`-Docstring in `tripplanner.routing.detour_geometry`)."""
 
 DETOUR_GESCHWINDIGKEIT_KMH: float = 70.0

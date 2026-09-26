@@ -1,4 +1,4 @@
-"""simulation-Modul für Tesla-Reisen.
+"""Simulation module for Tesla trips.
 
 Das Modul erzeugt aus Route, ChargingPlan, segmentEnergyResult und WeatherSample
 eine diskrete Zeitreihe (TripsimulationResult) mit Zustaenden (FAHREN/LADEN/PAUSE),

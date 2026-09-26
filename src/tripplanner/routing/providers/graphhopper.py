@@ -24,15 +24,15 @@ VIA_POINT_REACHED_SIGN = 5
 
 
 class RoutingProvider(Protocol):
-    """Interface für Routing-Anbieter. Ermöglicht Fake-implementationen für Tests."""
+    """Interface for routing providers. Enables fake implementations for tests."""
 
     async def berechne_route(self, anfrage: TripRequest) -> Route:
-        """Calculatet eine Route für die gegebene TripRequest."""
+        """Calculates a route for the given TripRequest."""
         ...
 
 
 class GraphHopperRoutingProvider:
-    """Konkrete implementation über GraphHopper HTTP API."""
+    """Concrete implementation via GraphHopper HTTP API."""
 
     # Alle Path-Details, die `Routesegment` optional konsumiert (siehe models.py).
     _ALLE_PATH_DETAILS: tuple[str, ...] = (
@@ -45,7 +45,7 @@ class GraphHopperRoutingProvider:
     # `street_name` liest OSM-Namen direkt (z. B. ferry_linen-Relationen wie
     # "Rødby (DK) - Puttgarden (D)") und ist - anders als road_class/surface/
     # etc. - KEIN `graph.encoded_values`-Eintrag: taucht nie in `/info` auf
-    # und würde von `_ermittele_verfuegbare_path_details()`s Verfügbarkeits-
+    # and would be from `_determine_available_path_details()`s Availability-
     # filter faelschlich verworfen. Wird deshalb unabhaengig vom Filter immer
     # angefragt (live gegen den Projekt-GraphHopper-Server verifiziert:
     # Detail wird korrekt geliefert, siehe graphhopper_response_with_ferry.json).
@@ -55,7 +55,7 @@ class GraphHopperRoutingProvider:
         """Initialisiert den GraphHopper Routing provider.
 
         Args:
-            client: GraphHopperClient für HTTP Kommunikation
+            client: GraphHopperClient for HTTP communication
             use_custom_model: Falls True, benutzerdefiniertes vehicle_profile verwenden
         """
         self.client = client
@@ -63,15 +63,15 @@ class GraphHopperRoutingProvider:
         self._verfuegbare_details: list[str] | None = None
 
     async def _ermittele_verfuegbare_path_details(self) -> list[str]:
-        """Ermittelt, welche Path-Details der verbundene Server unterstützt.
+        """Determines which path details the connected server supports.
 
         Nicht jeder GraphHopper-Server hat `average_slope`/`surface` als
         `graph.encoded_values` konfiguriert (z. B. `average_slope` setzt eine
         aktivierte Elevation-source voraus, siehe README.md). Werden nicht
-        unterstützte Details angefragt, lehnt GraphHopper die *gesamte*
+        supported details requested, GraphHopper rejects the *entire*
         `/route`-request mit HTTP 400 ab. Da alle affected
         `Routesegment`-Felder ohnehin optional sind (siehe models.py, `None`
-        wenn nicht verfügbar), wird hier defensiv nur das angefragt, was der
+        if not available), here we defensively only request what the
         Server laut `/info` tatsaechlich liefert - Ergebnis wird pro
         provider-Instanz gecacht, da sich die Server-configuration waehrend
         eines Prozesslaufs nicht aendert.
@@ -84,7 +84,7 @@ class GraphHopperRoutingProvider:
                     set(encoded_values_raw) if isinstance(encoded_values_raw, dict) else set()
                 )
             except httpx.HTTPError:
-                # /info nicht erreichbar/nicht unterstützt (z. B. aeltere
+                # /info not reachable/not supported (e.g. older
                 # GraphHopper-Version) - im Zweifel alle Details anfragen wie
                 # bisher; ein tatsaechlicher connectionsfehler tritt dann beim
                 # folgenden `route()`-Aufruf ohnehin erneut auf.
@@ -96,7 +96,7 @@ class GraphHopperRoutingProvider:
         return self._verfuegbare_details
 
     async def berechne_route(self, anfrage: TripRequest) -> Route:
-        """Calculatet eine Route für eine TripRequest (inkl. Zwischenstopps)."""
+        """Calculates a route for a TripRequest (incl. intermediate stops)."""
         # Umwandlung TripRequest → GraphHopper Parameter
         points = (
             [anfrage.start] + [wp.coordinate for wp in anfrage.waypoints] + [anfrage.destination]
@@ -112,8 +112,8 @@ class GraphHopperRoutingProvider:
         response = await self.client.route(
             points=points,
             profile="car",
-            # elevation=False: der `polyline`-Decoder unterstützt nur 2D
-            # (lat, lon) - eine 3D-kodierte Polyline (mit Elevation) würde
+            # elevation=False: the `polyline` decoder only supports 2D
+            # (lat, lon) - a 3D-encoded polyline (with elevation) would
             # `polyline.decode()` falsch ausrichten und zum Absturz bringen.
             # `Routesegment.geometrie` ist ohnehin nur (lat, lon); gradient
             # wird separat vom `elevation`-Modul aus DEM-Kacheln berechnet.
@@ -138,8 +138,8 @@ class GraphHopperRoutingProvider:
         total_distance = 0.0
         full_geometrie = coordinates
 
-        # Extrahiere Details für jedes segment. GraphHopper liefert je Detail
-        # eine Liste von (start_punkt_idx, end_punkt_idx, wert)-Intervallen,
+        # Extract details for each segment. GraphHopper provides per detail
+        # a list of (start_point_idx, end_point_idx, value)-intervals,
         # die zusammenhaengende Geometrie-Abschnitte mit gleichem Wert
         # zusammenfassen - kein flacher Wert pro edge (siehe models.py).
         road_classes = path.details.get("road_class", [])
@@ -182,7 +182,7 @@ class GraphHopperRoutingProvider:
             oberflaeche_raw = self._wert_fuer_edge(surfaces, i)
             surface = str(oberflaeche_raw) if oberflaeche_raw is not None else None
 
-            # calculate Bearing für das segment
+            # calculate bearing for the segment
             bearing = bearing_deg(start_coord, end_coord)
 
             segment = RouteSegment(
@@ -232,7 +232,7 @@ class GraphHopperRoutingProvider:
     def _normalize_max_speed(self, value: str | float | None) -> int | None:
         """Normalisiert GraphHopper max_speed Werte.
 
-        - None → None (nicht verfügbar)
+        - None → None (not available)
         - 0 → None (kein Schild, z. B. playstreets)
         - -1 → None (nicht bekannt)
         - positive Werte → int (km/h)
@@ -246,25 +246,25 @@ class GraphHopperRoutingProvider:
 
     @staticmethod
     def _wert_fuer_edge(
-        intervalle: list[tuple[int, int, str | float | None]], edge_index: int
+        intervals: list[tuple[int, int, str | float | None]], edge_index: int
     ) -> str | float | None:
-        """Liefert den Detail-Wert für edge `edge_index` aus GraphHopper-Intervallen.
+        """Returns the detail value for edge `edge_index` from GraphHopper intervals.
 
-        GraphHopper liefert Path-Details als sortierte, lückenlose Liste von
+        GraphHopper provides path details as a sorted, gapless list of
         `(start_punkt_idx, end_punkt_idx, wert)`-Intervallen statt eines
         flachen Werts pro edge - mehrere aufeinanderfolgende edges mit
         gleichem Wert werden zu einem interval zusammengefasst.
 
         Args:
-            intervalle: Liste von (start, end, wert)-Tripeln für ein Detail.
+            intervals: List of (start, end, value) tuples for a detail.
             edge_index: Index der edge (zwischen Punkt `edge_index` und
                 `edge_index + 1`).
 
         Returns:
-            Der Wert des Intervalls, das `edge_index` enthaelt, oder `None`
+            The value of the interval containing `edge_index`, or `None`
             wenn kein passendes interval existiert.
         """
-        for start, end, wert in intervalle:
+        for start, end, value in intervals:
             if start <= edge_index < end:
-                return wert
+                return value
         return None

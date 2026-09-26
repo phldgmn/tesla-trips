@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 class VehicleEnergyParameters(BaseModel):
     """Physical vehicle parameters for energy calculation.
 
-    Alle Default-Werte basieren auf öffentlich verifizierten Spezifikationen
+    All default values are based on publicly verified specifications
     des Tesla Model 3 (2024/2025).
     """
 
@@ -69,7 +69,7 @@ class VehicleEnergyParameters(BaseModel):
         default=0.75,
         ge=0.65,
         le=0.85,
-        description="Gesamtwirkungsgrad für regenerative Bremsung "
+        description="Overall efficiency for regenerative braking "
         "(Kettenwirkungsgrad: Rad → Motor → Batterie ≈ 75 %).",
     )
 
@@ -108,7 +108,7 @@ class VehicleEnergyParameters(BaseModel):
         ge=20.0,
         le=28.0,
         description="Obere Komforttemperaturgrenze (°C). "
-        "Darüber steigt Klimaanlagenleistung linear an.",
+        "AC power increases linearly above that.",
     )
 
     # Reifentyp & Dachbox
@@ -118,14 +118,14 @@ class VehicleEnergyParameters(BaseModel):
     )
     roof_box: bool = Field(
         default=False,
-        description="Vorhandensein einer Dachbox (erhöht drag_coefficient um ~0.03-0.05).",
+        description="Presence of roof box (increases drag_coefficient by ~0.03-0.05).",
     )
 
     @field_validator("drag_coefficient")
     @classmethod
     def adjust_cw_for_dachbox(cls, v: float) -> float:
         """Passive Anpassung des cw-Werts bei Dachbox."""
-        return v  # Wird in Berechnungsmethode berücksichtigt
+        return v  # Considered in the calculation method
 
     @model_validator(mode="after")
     def adjust_cr_for_tire_type(self) -> VehicleEnergyParameters:
@@ -145,7 +145,7 @@ class SegmentEnergyResult(BaseModel):
     """Result of energy calculation for a route segment."""
 
     segment_index: int
-    energiebedarf_kwh: float  # Positiv: consumption, Negativ: recuperation (überschüssige energy)
+    energiebedarf_kwh: float  # Positive: consumption, negative: recuperation (excess energy)
     rekuperation_kwh: float  # Betrag der regenerativ gewonnenen energy (immer ≥ 0)
     energiebedarf_brutto_kwh: float  # Summe aller Verbraucher (ohne recuperation)
     speed_ms: float  # Mittlere speed im Segment (m/s)

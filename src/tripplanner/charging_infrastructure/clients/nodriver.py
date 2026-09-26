@@ -282,7 +282,7 @@ class NodriverBrowserFetcher:
         ``terminate()`` (SIGTERM) reicht nicht aus, wenn der Prozess
         nicht auf das Signal reagiert - dann wird eskaliert. Ein
         haengenbleibender Chromium-Prozess haelt die CDP-connection offen,
-        wodurch ``aclose()`` beim ``wait_closed()`` haengen könnte.
+        which could cause ``aclose()`` to hang during ``wait_closed()``.
         """
         if process is None or getattr(process, "returncode", None) is not None:
             return

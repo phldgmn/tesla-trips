@@ -1,4 +1,4 @@
-"""HTTP-Client für die supercharge.info REST-API und die Tesla Locations-API.
+"""HTTP client for the supercharge.info REST API and the Tesla Locations API.
 
 Dieses Modul ist ein re-export shim. Alle Symbole wurden in das
 ``clients/``-Paket ausgelagert:

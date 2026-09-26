@@ -16,7 +16,7 @@ Coordinate = tuple[float, float]
 
 
 class RouteSegment(BaseModel):
-    """Ein segment der Route mit allen für nachgelagerte Module relevanten Attributen."""
+    """A segment of the route with all attributes relevant to downstream modules."""
 
     segment_index: int = Field(..., description="Nullbasierter Index dieses Segments in der Route")
     geometrie: list[Coordinate] = Field(
@@ -30,15 +30,15 @@ class RouteSegment(BaseModel):
         default=None,
         description=(
             "Road surface from GraphHopper path detail `surface` (z. B. asphalt, gravel, "
-            "dirt), None wenn nicht verfügbar. Wird von `energy` für den Rollwiderstands-"
+            "dirt), None if unavailable. Used by \`energy\` for the rolling resistance-"
             "Faktor konsumiert (siehe docs/plans/06-energy.md, Abschnitt 5.1.1)."
         ),
     )
     speed_limit_kmh: int | None = Field(
-        default=None, ge=0, description="speed_limit_kmh in km/h (None wenn nicht verfügbar)"
+        default=None, ge=0, description="speed_limit_kmh in km/h (None if unavailable)"
     )
     steigung_rohdaten: float | None = Field(
-        default=None, ge=-100, le=100, description="gradient in Prozent (None wenn nicht verfügbar)"
+        default=None, ge=-100, le=100, description="gradient in Prozent (None if unavailable)"
     )
     bearing_deg: float = Field(
         ...,
@@ -54,7 +54,7 @@ class RouteSegment(BaseModel):
         description=(
             "Umgebungstyp aus GraphHopper Path-Detail `road_environment` (ROAD, "
             "FERRY, BRIDGE, TUNNEL, FORD, OTHER), normalisiert auf Grossbuchstaben; "
-            "None wenn nicht verfügbar. Wird von `routing.ferries.detect_ferries()` "
+            "None if unavailable. Wird von `routing.ferries.detect_ferries()` "
             "genutzt, um Faehrabschnitte der Route zu erkennen."
         ),
     )
@@ -62,17 +62,17 @@ class RouteSegment(BaseModel):
         default=None,
         description=(
             "Road/ferry line name from GraphHopper path detail `street_name` "
-            "(z. B. 'Rødby (DK) - Puttgarden (D)' für eine Faehre); None wenn "
-            "nicht verfügbar oder leer."
+            "(e.g. 'Rødby (DK) - Puttgarden (D)' for a ferry); None if "
+            "unavailable or empty."
         ),
     )
     street_ref: str | None = Field(
         default=None,
         description=(
             "Road/highway reference from GraphHopper path detail `street_ref` "
-            "(z. B. 'A 5', 'A 8', 'B 3', 'K 818'); None wenn nicht verfügbar oder leer. "
-            "Wird von `construction` genutzt, um Autobahn-IDs (A\d+) pro Segment "
-            "zu extrahieren und gezielte Roadworks-Queries zu ermöglichen."
+            "(z. B. 'A 5', 'A 8', 'B 3', 'K 818'); None if unavailable oder leer. "
+            "Used by ``construction`` to extract Autobahn IDs (A\d+) per segment "
+            "to extract and targeted roadwork queries to enable."
         ),
     )
 

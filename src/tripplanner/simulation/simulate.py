@@ -25,7 +25,7 @@ from tripplanner.simulation.models import (
 from tripplanner.trip_input.models import TripInfeasibleError
 from tripplanner.weather.models import WeatherSample
 
-# Konstanten fuer maximale Werte
+# Constants for maximum values
 _MAX_SOC_PCT = 100.0
 _MIN_SOC_PCT = 0.0
 
@@ -66,10 +66,10 @@ def _find_segment_for_time(
     time_s: float,
     route: Route,
 ) -> tuple[int, float]:
-    """Finde das segment und den Fortschritt fuer eine gegebene, skalierte drive_time_s.
+    """Find the segment and progress for a given, scaled drive_time_s.
 
     Sucht ueber die kumulierte segment-drive_time_s (`cumulative_times`, aus
-    `segmentEnergyResult.drive_time_s`) statt ueber die kumulierte distance -
+    ``segmentEnergyResult.drive_time_s``) instead of via the cumulative distance -
     damit Position, segment-Index und
     SoC-Baseline der ACTUALN, je segment unterschiedlichen
     speed folgen statt einer einzigen Durchschnittsgeschwindigkeit
@@ -266,23 +266,23 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         charging_plan: Optimierter Ladeplan aus optimization.Modul
         segment_energy: Energiebedarf je segment
         start_soc_pct: Start-SoC in %
-        output_resolution_seconds: Zeitauflösung der Ausgabe (default: 60s)
-        departure_time: departure_time der Reise (timezone-aware datetime)
-        battery_capacity_kwh: Nutzbare Batteriekapazitaet in kWh (default: 62.5 kWh)
-        charging_stop_detours: Optionales, ueber GraphHopper geroutetes Detour-Ergebnis
-            je Ladehalt (Schluessel: `id()` des `ChargingStop`-Objekts aus
-            `charging_plan.ladehalte`), fuer eine strassengetreue Kartendarstellung
-            des Abstechers zur charging_station (siehe
-            `tripplanner.trip_input.api._step_route_charging_detours`). Fehlt ein
-            Eintrag, bleibt `ChargingStopSummary.detour_geometrie` leer.
-        construction_zones: construction_zones entlang der Route (optional), fuer die
-            Kartendarstellung unveraendert in `TripsimulationResult.construction_zones`
-            durchgereicht.
-        weather_samples: Eine `WeatherSample` je Route-segment (gleiche
-            Reihenfolge wie `route.segments`, siehe
-            `tripplanner.trip_input.pipeline._step_5_fetch_weather`), fuer die
-            Routen-Hover-Anzeige im Frontend (`simulationFrame.temperature_c`
-            etc.). `None` (Standard, oder wenn weather bei der calculation nicht
+        output_resolution_seconds: Output resolution (default: 60s)
+        departure_time: Trip departure time (timezone-aware datetime)
+        battery_capacity_kwh: Usable battery capacity in kWh (default: 62.5 kWh)
+        charging_stop_detours: Optional, GraphHopper-routed detour result
+            per charging stop (key: ``id()`` of the ``ChargingStop`` object from
+            ``charging_plan.charging_stops``), for a street-accurate map display
+            of the detour to the charging station (see
+            ``tripplanner.trip_input.api._step_route_charging_detours``. If missing
+            entry, ``ChargingStopSummary.detour_geometrie`` remains empty.
+        construction_zones: construction zones along the route (optional), for the
+            map display passed unchanged to ``TripSimulationResult.construction_zones``
+            passed through.
+        weather_samples: One ``WeatherSample`` per route segment (same
+            order as ``route.segments``, see
+            ``tripplanner.trip_input.pipeline._step_5_fetch_weather``), for the
+            route hover display in the frontend (``simulationFrame.temperature_c``
+            etc.). ``None`` (default, or when weather was not used in the calculation
             beruecksichtigt wurde, siehe `WeatherDetailLevel` 'off') laesst
             diese Felder auf jedem Frame leer statt irrefuehrende Platzhalter-
             werte anzuzeigen.
@@ -309,9 +309,9 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         if seg_idx not in energy_map:
             raise ValueError(f"Kein Energy-Ergebnis fuer Segment {seg_idx}")
 
-    # weatherdaten je segment fuer die Routen-Hover-Anzeige im Frontend
-    # (`simulationFrame.temperature_c` etc., siehe `buildRouteHoverText` in
-    # `popups.ts`) - unabhaengig vom vehicle-Zustand (FAHREN/LADEN/PAUSE)
+# Weather data per segment for the route hover display in the frontend
+    # (``simulationFrame.temperature_c`` etc., see ``buildRouteHoverText`` in
+    # ``popups.ts``) - independent of the vehicle state (DRIVE/CHARGE/PAUSE)
     # zugeordnet, da sie nur die Position beschreiben, nicht die Fahrt.
     weather_by_segment: dict[int, WeatherSample] = (
         dict(enumerate(weather_samples)) if weather_samples else {}
@@ -323,9 +323,9 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
         total_distance_m += segment.length_m
         cumulative_distances.append(total_distance_m)
 
-    # Praefix-Summe der segment-energy fuer O(1) "energy seit segment X"
-    # Lookups statt O(n) Neuaufsummierung pro Frame (`energy_prefix[i]` =
-    # kumulierter Energiebedarf der segmente [0, i)).
+    # Prefix sum of the segment energy for O(1) "energy since segment X"
+    # lookups instead of O(n) recalculation per frame (``energy_prefix[i]`` =
+    # cumulative energy demand of the segments [0, i)).
     energy_prefix: list[float] = [0.0] * (len(route.segments) + 1)
     for i in range(len(route.segments)):
         energy_prefix[i + 1] = energy_prefix[i] + energy_map[i].energiebedarf_kwh
@@ -410,11 +410,11 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
     )
 
     # Kumulierte, je segment aus der tatsaechlichen speed
-    # berechnete drive_time_s (`segmentEnergyResult.drive_time_s`) statt einer
-    # einzigen Durchschnittsgeschwindigkeit ueber die gesamte Reise (siehe
-    # `_find_segment_for_time`) - auf `total_driving_time_s` skaliert, damit
-    # Start (t=0 -> distance 0) und Ende (t=total_driving_time_s -> distance
-    # total_distance_m) trotz eventueller kleiner Abweichungen zwischen der
+    # computed drive_time_s (``segmentEnergyResult.drive_time_s``) instead of a
+    # single average speed over the entire trip (see
+    # ``_find_segment_for_time``) - scaled to ``total_driving_time_s`` so that
+    # start (t=0 → distance 0) and end (t=total_driving_time_s → distance
+    # total_distance_m) despite potentially small deviations between the
     # Summe der segment-Fahrzeiten und der vom Optimierer gelieferten
     # Gesamtreisezeit exakt erhalten bleiben.
     raw_cumulative_times: list[float] = []
@@ -428,11 +428,11 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
 
     while current_time_s <= end_time_s + 1e-6:
         # Aktuellen Ladehalt/Zwischenstopp-Aufenthalt bestimmen und zugleich
-        # die bereits waehrend Halten/Aufenthalten verstrichene time bis zum
-        # aktuellen timestamp aufsummieren (fuer bereits abgeschlossene
-        # vollstaendig, fuer den laufenden anteilig). Ein Ladehalt und ein
-        # Zwischenstopp-Aufenthalt ueberlappen sich nie zeitlich (dieselbe
-        # Fahrt kann nicht an zwei Orten gleichzeitig stehen).
+    # the elapsed time during stops/stays up to the
+    # current timestamp (for already completed
+    # completely, for the ongoing proportionally). A charging stop and a
+    # waypoint stay never overlap in time (the same
+    # trip cannot be in two places at the same time.
         aktueller_ladehalt = None
         aktueller_aufenthalt = None
         stationaer_elapsed_before_now_s = 0.0
@@ -452,9 +452,9 @@ def simulate_trip(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915
                 aktueller_aufenthalt = aufenthalt
                 rel_ankunftszeit_s = rel_ankunft
 
-        # Zurueckgelegte distance/segment-Index anhand der bereits verstrichenen
-        # reinen drive_time_s, aufgeloest ueber die ACTUAL, je segment
-        # unterschiedliche speed (siehe `_find_segment_for_time`) -
+    # Distance traveled/segment index based on the already elapsed
+    # pure drive_time_s, resolved via the ACTUAL per-segment
+    # different speed (see ``_find_segment_for_time``) -
         # nicht ueber eine einzige Durchschnittsgeschwindigkeit der gesamten
         # Reise, sonst "hinkt" die Positions-/SoC-Schaetzung nach einem
         # Ladehalt der tatsaechlichen segment-Grenze hinterher (Ladehalt-time

@@ -1,7 +1,7 @@
-"""Kernlogik für das elevation-Modul.
+"""Core logic for the elevation module.
 
-Bietet Elevationprovider für elevation_profile-Extraktion und
-ascentsberechnung.
+Provides elevation providers for elevation profile extraction and
+ascent calculation.
 """
 
 from tripplanner.elevation.models import ElevationPoint, SegmentGradient
@@ -12,11 +12,11 @@ from tripplanner.geo import Coordinate, haversine_distance_m
 def calculate_horizontal_distance(coord1: Coordinate, coord2: Coordinate) -> float:
     """Calculatet horizontale distance zwischen zwei Koordinaten (WGS84).
 
-    Uses die haversine_distance_m aus tripplanner.geo für die
-    Grosskreisdistanz. Für die meisten Anwendungsfaelle (Routen mit
-    Sampling von 100m+) ist dies ausreichend genau. Für ultrahohe
-    Praezision (< 1cm) könnte geographiclib uses werden, aber
-    das waere Overkill für diese Anwendung.
+    Uses ``haversine_distance_m`` from ``tripplanner.geo`` for the
+    great-circle distance. For most use cases (routes with
+    100m+ sampling) this is sufficiently accurate. For ultra-high
+    precision (< 1cm) ``geographiclib`` could be used, but
+    that would be overkill for this application.
 
     Args:
         coord1: (latitude, longitude) Punkt 1
@@ -29,17 +29,17 @@ def calculate_horizontal_distance(coord1: Coordinate, coord2: Coordinate) -> flo
 
 
 class ElevationProvider:
-    """Hauptprovider-Klasse für elevation_data.
+    """Main provider class for elevation data.
 
-    Extrahiert elevation_profilee entlang einer Route und berechnet
-    ascentsprofile je segment.
+    Extracts elevation profiles along a route and calculates
+    ascent profiles per segment.
     """
 
     def __init__(self, data_source: DEMDataSourceProtocol) -> None:
         """Initialisiere Elevationprovider.
 
         Args:
-            data_source: DEMDataSourceProtocol implementation für heightn-Lookup
+            data_source: DEMDataSourceProtocol implementation for height lookup
         """
         self.data_source = data_source
 
@@ -53,10 +53,10 @@ class ElevationProvider:
             sampling_distance_m: Sampling-distance in Metern (Standard: 100 m)
 
         Returns:
-            Liste von ElevationPoint für jeden Sample-Punkt (inkl. Start/Ende jedes segments)
+            List of ElevationPoint for each sample point (including start/end of each segment)
 
         Note:
-            Die Route wird zuerst an jedem segmentende sample-dicht abgetastet.
+            The route is first sampled densely at every segment end.
             Wenn sampling_distance_m < 100 m, wird feiner sample-dicht abgetastet.
         """
         if not hasattr(route, "segments") or not route.segments:
@@ -72,10 +72,10 @@ class ElevationProvider:
                 segment_coords: list[Coordinate] = segment.geometrie
                 if segment_coords:
                     if i == 0:
-                        # Erstes segment: Startpunkt hinzufügen
+                        # First segment: add start point
                         coordinates.append(segment_coords[0])
-                    # Endpunkt jedes segments hinzufügen (ausser beim letzten, der wird
-                    # nicht doppelt gezaehlt)
+                    # Add end point of each segment (except the last one, which would
+                    # be counted twice)
                     coordinates.append(segment_coords[-1])
 
         if not coordinates:
@@ -95,22 +95,22 @@ class ElevationProvider:
         """Calculatet gradient/descent je segment aus heightndifferenz und horizontaler distance.
 
         Args:
-            elevation_points: ElevationPoints in Reihenfolge der Route (Start->Ziel)
-            route: Originale Route (für segment-Geometrie)
+            elevation_points: ElevationPoints in route order (start→destination)
+            route: Original route (for segment geometry)
 
         Returns:
-            Liste von segmentgradient (einer pro segment)
+            List of segment gradients (one per segment)
 
         Raises:
-            ValueError: Wenn elevation_points nicht genug Punkte für die segmente enthaelt
+            ValueError: If elevation_points does not have enough points for the segments
         """
         if not hasattr(route, "segments") or not route.segments:
             return []
 
         if len(elevation_points) < len(route.segments) + 1:
             raise ValueError(
-                f"Nicht genug ElevationPoints für {len(route.segments)} Segmente. "
-                f"Benötigt: {len(route.segments) + 1}, erhalten: {len(elevation_points)}"
+                f"Not enough ElevationPoints for {len(route.segments)} segments. "
+                f"Required: {len(route.segments) + 1}, got: {len(elevation_points)}"
             )
 
         gradients: list[SegmentGradient] = []

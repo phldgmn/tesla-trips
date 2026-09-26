@@ -197,9 +197,9 @@ def calculate_segment_consumption(
         cw_eff += 0.04  # Conservative estimate for roof box
 
     # relative speed zum Luftmassenstrom
-    # headwind erhöht den Widerstand (addieren), Rückenwind verringert ihn (subtrahieren)
+    # headwind increases resistance (add), tailwind reduces it (subtract)
     v_relativ = v_mittel_ms + wind.gegenwind_ms
-    # Bei starkem Rückenwind: Mindestens 50 % der speed annehmen
+    # With strong tailwind: assume at least 50% of speed
     v_relativ = max(v_relativ, 0.5 * v_mittel_ms)
 
     F_luft = (
@@ -213,7 +213,7 @@ def calculate_segment_consumption(
     # 3.3 gradient (elevation_energy)
     F_steigung = fahrzeug_params.mass_kg * ERDBESCHLEUNIGUNG_MS2 * math.sin(alpha_rad)
 
-    # 4. energy für Bewegung
+    # 4. energy for motion
     # Nur positive gradient consumptiont energy (bei descentn gibt der Motor keine energy auf)
     F_bewegung = F_roll + F_luft + max(0.0, F_steigung)
     E_bewegung_j = F_bewegung * s_m
@@ -226,26 +226,26 @@ def calculate_segment_consumption(
     delta_T_max = T_c - fahrzeug_params.comfort_temperature_max_c
 
     if delta_T_min > 0:
-        # Heizung nötig
+        # heating needed
         P_heiz_kw = fahrzeug_params.heating_max_kw * min(delta_T_min / 10.0, 1.0)
         P_next_to_kw += P_heiz_kw
     elif delta_T_max > 0:
-        # Klima nötig
+        # climate control needed
         P_klima_kw = fahrzeug_params.ac_max_kw * min(delta_T_max / 10.0, 1.0)
         P_next_to_kw += P_klima_kw
 
     E_next_to_j = P_next_to_kw * 1000 * t_s  # kW → W, dann * s
 
-    # 6. recuperation (nur bei Verzögerung)
-    # Vereinfachung: v_anfang = v_mittel, v_ende reduziert um 10 % der gradient (in m/s Äquivalent)
+    # 6. recuperation (only during deceleration)
+    # Simplification: v_start = v_avg, v_end reduced by 10% of gradient (in m/s equivalent)
     v_anfang_ms = v_mittel_ms
-    # Verzögerung bei gradient, Beschleunigung bei descent
+    # deceleration on uphill, acceleration on downhill
     aenderung_ms = 0.1 * abs(gradient.steigung_prozent)
     v_end_ms = max(v_anfang_ms - aenderung_ms, 0) if gradient.steigung_prozent > 0 else v_anfang_ms
 
     E_rekup_j = 0.0
     if v_end_ms < v_anfang_ms:
-        # recuperation nur bei Verzögerung
+        # recuperation only during deceleration
         E_kin_j = 0.5 * fahrzeug_params.mass_kg * (v_anfang_ms**2 - v_end_ms**2)
         E_rekup_j = min(
             E_kin_j * fahrzeug_params.wirkungsgrad_rekuperation,
@@ -285,26 +285,26 @@ def calculate_total_consumption(
     fahrzeug_params: VehicleEnergyParameters,
     construction_zones: Sequence[ConstructionZone] | None = None,
 ) -> list[SegmentEnergyResult]:
-    """Calculatet den energy_consumption für eine gesamte Route (segment-für-segment).
+    """Calculates the energy consumption for an entire route (segment-by-segment).
 
     Wrapper function for parallel or sequential processing of multiple segments.
-    weather- und Wind data müssen der Reihenfolge der Route segmente entsprechen.
+    weather and wind data must match the order of route segments.
 
     Args:
         route_segments: Liste aller Route-segmente in heading.
-        gradients: List of segment gradient for each segment (must be same length).
-        wetter_samples: Liste der WeatherSample für jedes segment (muss gleiche Laenge haben).
-        wind_components: Liste der WindComponents für jedes segment (muss gleiche Laenge haben).
-        fahrzeug_params: Fahrzeugparameter für alle segmente.
+        gradients: List of segment gradient for each segment (must be the same length).
+        wetter_samples: List of WeatherSample for each segment (must be the same length).
+        wind_components: List of WindComponents for each segment (must be the same length).
+        fahrzeug_params: Vehicle energy parameters for all segments.
         construction_zones: optional list of construction zones (overrides speed_limit_kmh).
 
     Returns:
-        Liste von segmentEnergyResult für jedes segment.
+        List of segmentEnergyResult for each segment.
     """
     if not route_segments:
         return []
 
-    # Prüfen, dass alle Listen gleiche Laenge haben
+    # Check that all lists have the same length
     n = len(route_segments)
     if len(gradients) != n:
         raise ValueError(f"gradients hat {len(gradients)} Eintraege, erwartet {n}")

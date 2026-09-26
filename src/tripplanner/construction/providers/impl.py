@@ -55,10 +55,10 @@ class ConstructionProviderImpl(ConstructionProvider):
     """implementation des Constructionprovider: DE (delegiert), DATEX II (DK, SE).
 
     DE-Construction data werden an einen injizierbaren `Constructionprovider`
-    delegiert (`de_provider`), standardmaeßig
+    delegated (`de_provider`), by default
     `providers_de_datexii.DatexIIGermanyConstructionprovider` (NRW
     Mobilitaetsdaten DATEX II Export). `providers_de_autobahn.
-    AutobahnConstructionprovider` bleibt für ein Revert verfügbar.
+    AutobahnConstructionProvider` remains available for a revert.
     """
 
     _config: ConstructionProviderConfig
@@ -230,7 +230,7 @@ class ConstructionProviderImpl(ConstructionProvider):
         strtree: STRtree,
         segment_geoms: list[LineString],
     ) -> list[ConstructionZone]:
-        """Query und Parsing für ein DATEX-II-Land (DK, SE).
+        """Query and parsing for a DATEX-II country (DK, SE).
 
         Cached per country + coarse bounding-box so nearby/similar routes
         hit the same cache entry.
@@ -370,7 +370,7 @@ class ConstructionProviderImpl(ConstructionProvider):
         return access_token
 
     def _build_dk_params(self, route: routing_models.Route) -> dict[str, str]:
-        """Parameter für Dataudveksleren (Denmark) DATEX II API."""
+        """Parameters for Dataudveksleren (Denmark) DATEX II API."""
         coords = self._route_to_bounding_box(route)
         return {
             "coords": coords,
@@ -403,7 +403,7 @@ class ConstructionProviderImpl(ConstructionProvider):
         )
 
     def _route_to_bounding_box(self, route: routing_models.Route) -> str:
-        """Konvertiert Route zu Bounding Box für API-query."""
+        """Converts route to bounding box for API query."""
         coords: list[tuple[float, float]] = []
         for segment in route.segments:
             for lat, lon in segment.geometrie:

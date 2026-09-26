@@ -1,7 +1,7 @@
 """Public weather query functions.
 
-Implementiert:
-- ``fetch_weather_for_route``: Abruf von weatherdaten entlang einer Route mit Batching
+Implements:
+- ``fetch_weather_for_route``: Fetch weather data along a route with batching
 - ``fetch_weather_by_detail``: Detail-level-aware weather fetching with nearest-neighbor fan-out
 """
 
@@ -442,15 +442,15 @@ async def fetch_weather_for_route(
     route_queries: Sequence[WeatherQuery],
     batch_size: int = 20,
 ) -> list[WeatherSample]:
-    """Abruf von weatherdaten entlang einer Route mit automatischem Batching.
+    """Fetch weather data along a route with automatic batching.
 
     Args:
-        provider: Der zu verwendende weatherprovider (in Tests: Fake).
-        route_queries: Liste von queryn (Koordinate + ETA).
-        batch_size: Maximale Anzahl queryn pro API-Call (Open-Meteo empfiehlt <=50).
+        provider: The weather provider to use (in tests: Fake).
+        route_queries: List of queries (coordinate + ETA).
+        batch_size: Maximum number of queries per API call (Open-Meteo recommends ≤50).
 
     Returns:
-        Liste von WeatherSample in gleicher Reihenfolge wie route_queries.
+        List of WeatherSample in the same order as route_queries.
     """
     if not route_queries:
         return []

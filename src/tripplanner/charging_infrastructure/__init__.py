@@ -1,4 +1,4 @@
-"""Öffentliches API des `charging_infrastructure`-Moduls.
+"""Public API of the `charging_infrastructure` module.
 
 Exports:
 - data models: `ChargingStation`, `ChargingPricingTier`,

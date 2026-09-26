@@ -1,18 +1,18 @@
-"""Routenberechnung über GraphHopper.
+"""Route calculation via GraphHopper.
 
-Das routing-Modul berechnet road routes zwischen Start, Ziel und Zwischenstopps.
-Es kennt **nicht** die Energieconsumptionsdaten, charging planning oder weatherbedingungen -
-diese werden erst in nachgelagerten Modulen (`energy`, `optimization`) bearbeitet.
+The routing module calculates road routes between start, destination, and intermediate stops.
+It does **not** know the energy consumption data, charging planning, or weather conditions -
+these are processed only in downstream modules (``energy``, ``optimization``).
 
-Exportiert:
-- Route, Routesegment: Pydantic-modele für Routen und segmente
-- Coordinate: Typ-Alias für (lat, lon) Koordinaten
-- GraphHopperResponse, GraphHopperPath: Internes Response-Mapping
-- Routingprovider: Interface für Routing-Anbieter
-- GraphHopperRoutingprovider: implementation über GraphHopper HTTP API
-- GraphHopperClient: HTTP-Client für GraphHopper API
-- Ferrysegment: Erkannte, zusammenhaengende Faehrverbindung in einer Route
-- detect_ferries: Gruppiert FERRY-segmente einer Route zu Ferrysegment-Eintraegen
+Exports:
+- ``Route``, ``RouteSegment``: Pydantic models for routes and segments
+- ``Coordinate``: Type alias for (lat, lon) coordinates
+- ``GraphHopperResponse``, ``GraphHopperPath``: Internal response mapping
+- ``RoutingProvider``: Interface for routing providers
+- ``GraphHopperRoutingProvider``: implementation via GraphHopper HTTP API
+- ``GraphHopperClient``: HTTP client for the GraphHopper API
+- ``FerrySegment``: Detected, contiguous ferry connection in a route
+- ``detect_ferries``: Groups FERRY segments of a route into FerrySegment entries
 """
 
 from tripplanner.routing.client import GraphHopperClient

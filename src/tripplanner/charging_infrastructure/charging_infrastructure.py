@@ -4,6 +4,7 @@ The FastAPI app obtains its provider via dependency injection
 (`trip_input.app._lifespan`). For scripts/CLI, `provider_session`
 provides a short-lived provider that closes on exit.
 
+
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""data models für das construction-Modul: construction_zones, closure_types, provider-Protocol.
+"""data models for the construction module: construction zones, closure types, provider protocol.
 
 Alle Koordinaten im Projekt folgen der Konvention: (lat, lon) in Dezimalgrad (WGS84).
 """
@@ -14,7 +14,7 @@ DEFAULT_ROADWORKS_SPEED_LIMIT_KMH = 80
 
 
 class ClosureType(StrEnum):
-    """closure_type gemaeß DATEX II RoadOrCarriagewayManagementType."""
+    """closure type per DATEX II RoadOrCarriagewayManagementType."""
 
     FULLY_CLOSED = "fullyClosed"
     PARTIALLY_CLOSED = "partiallyClosed"
@@ -25,7 +25,7 @@ class ClosureType(StrEnum):
 
 
 class Land(StrEnum):
-    """Laendercodes für construction zones (DE=Deutschland, DK=Daenemark, SE=Sweden)."""
+    """Country codes for construction zones (DE=Germany, DK=Denmark, SE=Sweden)."""
 
     DE = "DE"
     DK = "DK"
@@ -88,13 +88,13 @@ class ConstructionZone(BaseModel):
             and self.speed_limit_kmh is None
         ):
             raise ValueError(
-                f"speed_limit_kmh muss gesetzt sein für closure_type {self.closure_type}."
+                f"speed_limit_kmh must be set for closure_type {self.closure_type}."
             )
         return self
 
 
 class ConstructionProvider(Protocol):
-    """Protocol für dataprovider von Baustelleninformationen.
+    """Protocol for data providers of construction site information.
 
     Alle implementierenden provider müssen die Methode `fetch_construction_zones` implementieren,
     die eine Liste von ConstructionZone für eine gegebene Route zurückgibt.

@@ -1,8 +1,8 @@
-"""SQLite-databank-Manager für Tesla Supercharger-data.
+"""SQLite database manager for Tesla Supercharger data.
 
-Verwaltet die lokale SQLite-databank für Supercharger-data aus der
+Manages the local SQLite database for Supercharger data from der
 supercharge.info-API. Enthaelt Schema-Definitionen, CRUD-Zugriff und
-Transaktionslogik für Stations- und Pricing-data.
+transaction logic for station and pricing data.
 """
 
 from __future__ import annotations
@@ -674,7 +674,7 @@ class SQLiteDatabase:
 
     @property
     def station_count(self) -> int:
-        """Gibt die Anzahl der Stationen in der databank zurück."""
+        """Returns the number of stations in the database zurück."""
         self._ensure_initialized()
         with self._connect() as conn:
             cur = conn.execute("SELECT COUNT(*) FROM charging_stations")
