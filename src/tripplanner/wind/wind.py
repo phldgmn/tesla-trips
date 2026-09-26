@@ -34,7 +34,7 @@ def compute_wind_components(weather: WeatherSample, segment: RouteSegment) -> Wi
     Returns:
         WindComponents mit segment_index, gegenwind_ms und seitenwind_ms.
     """
-    # wind_direction_deg als Vektorrichtung (180° versetzt, da wind_direction_deg
+    # wind_direction_deg as vector direction (180° shifted, since wind_direction_deg
     # in der Meteorologie die Richtung angibt, aus der der Wind kommt)
     wind_dir_vector = (weather.wind_direction_deg + 180.0) % 360.0
 
