@@ -1,8 +1,8 @@
-"""Hilfsfunktionen für den `charging_infrastructure`-Zugriff außerhalb der API.
+"""Utility functions for `charging_infrastructure` access outside the API.
 
-Die FastAPI-App bezieht ihren Provider über Dependency Injection
-(`trip_input.app._lifespan`). Für Skripte/CLI stellt `provider_session`
-einen kurzlebigen Provider bereit, der beim Verlassen geschlossen wird.
+The FastAPI app obtains its provider via dependency injection
+(`trip_input.app._lifespan`). For scripts/CLI, `provider_session`
+provides a short-lived provider that closes on exit.
 """
 
 from __future__ import annotations
@@ -22,21 +22,20 @@ _DEFAULT_SNAPSHOT_PATH = (
     Path(__file__).resolve().parent.parent.parent.parent / "data" / "supercharger_snapshot.json"
 )
 
-
 @contextmanager
 def provider_session(
     data_path: Path | None = None,
     provider_type: Literal["local_file", "tesla_db"] = "tesla_db",
 ) -> Iterator[ChargingStationProvider]:
-    """Erzeugt einen Provider und gibt dessen Ressourcen beim Verlassen frei.
+    """Creates a provider and releases its resources on exit.
 
     Args:
-        data_path: Pfad zur Datenquelle.
-            - Bei provider_type='local_file': Pfad zur JSON-Datei
-            - Bei provider_type='tesla_db': Pfad zur SQLite-DB
-        provider_type: Art des Providers.
-            - 'local_file': Lokaler JSON-basierter Provider
-            - 'tesla_db': SQLite-DB mit supercharge.info-API-Refresh
+        data_path: Path to the data source.
+            - When provider_type='local_file': path to JSON file
+            - When provider_type='tesla_db': path to SQLite DB
+        provider_type: Type of provider.
+            - 'local_file': Local JSON-based provider
+            - 'tesla_db': SQLite DB with supercharge.info API refresh
     """
     provider: ChargingStationProvider
     if provider_type == "tesla_db":
