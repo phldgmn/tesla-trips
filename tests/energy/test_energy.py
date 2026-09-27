@@ -443,7 +443,7 @@ class TestEnergyCalculationAdditional:
         assert results[0].segment_index == 0
         assert results[1].segment_index == 1
 
-    async def test_baustellen_tempolimit_nur_betroffene_segmente(
+    async def test_baustellen_tempolimit_nur_affected_segments(
         self,
         gradient_eben: SegmentGradient,
         wetter_sample_ref: WeatherSample,
@@ -454,7 +454,7 @@ class TestEnergyCalculationAdditional:
 
         Eine construction_zone mit speed_limit_kmh=80, die nur Segment 0 betrifft,
         darf drive_time_s / speed_ms von Segment 5 (das nicht in
-        betroffene_segmente steht) NICHT ändern — Segment 5 sollte mit dem
+        affected_segments steht) NICHT ändern — Segment 5 sollte mit dem
         vollen speed_limit_kmh (120 km/h) rechnen.
 
         Dies deckt den Bug ab, bei dem _step_7_calculate_segment_energy den
@@ -500,11 +500,11 @@ class TestEnergyCalculationAdditional:
         # construction_zone mit niedrigem speed_limit_kmh, die NUR Segment 0 betrifft
         construction_zones = [
             ConstructionZone(
-                betroffene_segmente=[0],
+                affected_segments=[0],
                 speed_limit_kmh=80,
                 closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
                 land=Land.DE,
-                gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
+                valid_from=datetime(2026, 1, 1, tzinfo=UTC),
             ),
         ]
 

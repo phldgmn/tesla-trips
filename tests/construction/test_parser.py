@@ -41,16 +41,16 @@ def test_parse_datexii_germany(germany_xml: str) -> None:
     zone = zones[0]
 
     assert "Roadworks" in zone.closure_type or "MaintenanceWorks" in zone.closure_type
-    assert zone.gueltig_von.year == 2024
-    assert zone.gueltig_von.month == 3
-    assert zone.gueltig_von.day == 20
+    assert zone.valid_from.year == 2024
+    assert zone.valid_from.month == 3
+    assert zone.valid_from.day == 20
 
-    assert zone.gueltig_bis is not None
-    assert zone.gueltig_bis.year == 2024
-    assert zone.gueltig_bis.month == 3
-    assert zone.gueltig_bis.day == 21
+    assert zone.valid_until is not None
+    assert zone.valid_until.year == 2024
+    assert zone.valid_until.month == 3
+    assert zone.valid_until.day == 21
 
-    assert len(zone.koordinaten) >= 2
+    assert len(zone.coordinates) >= 2
     assert zone.speed_limit_kmh == 80
 
 
@@ -69,18 +69,18 @@ def test_parse_datexii_nrw_arbeitsstellen(nrw_arbeitsstellen_xml: str) -> None:
     assert len(zones) == 2
 
     maintenance_zone = next(z for z in zones if z.closure_type == "MaintenanceWorks")
-    assert maintenance_zone.koordinaten == [
+    assert maintenance_zone.coordinates == [
         (51.210673, 14.553138),
         (51.210674, 14.553149),
         (51.21149, 14.56774),
     ]
-    assert maintenance_zone.gueltig_von.isoformat() == "2024-11-18T07:00:00+00:00"
-    assert maintenance_zone.gueltig_bis is not None
-    assert maintenance_zone.gueltig_bis.isoformat() == "2024-11-26T15:00:00+00:00"
+    assert maintenance_zone.valid_from.isoformat() == "2024-11-18T07:00:00+00:00"
+    assert maintenance_zone.valid_until is not None
+    assert maintenance_zone.valid_until.isoformat() == "2024-11-26T15:00:00+00:00"
     assert maintenance_zone.speed_limit_kmh is None
 
     construction_zone = next(z for z in zones if z.closure_type == "ConstructionWorks")
-    assert len(construction_zone.koordinaten) == 2
+    assert len(construction_zone.coordinates) == 2
 
 
 def test_parse_datexii_denmark(denmark_xml: str) -> None:
@@ -91,16 +91,16 @@ def test_parse_datexii_denmark(denmark_xml: str) -> None:
     zone = zones[0]
 
     assert "Lane" in zone.closure_type or "Roadworks" in zone.closure_type
-    assert zone.gueltig_von.year == 2024
-    assert zone.gueltig_von.month == 3
-    assert zone.gueltig_von.day == 17
+    assert zone.valid_from.year == 2024
+    assert zone.valid_from.month == 3
+    assert zone.valid_from.day == 17
 
-    assert zone.gueltig_bis is not None
-    assert zone.gueltig_bis.year == 2024
-    assert zone.gueltig_bis.month == 3
-    assert zone.gueltig_bis.day == 17
+    assert zone.valid_until is not None
+    assert zone.valid_until.year == 2024
+    assert zone.valid_until.month == 3
+    assert zone.valid_until.day == 17
 
-    assert len(zone.koordinaten) >= 3
+    assert len(zone.coordinates) >= 3
     assert zone.speed_limit_kmh == 100
 
 

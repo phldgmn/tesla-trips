@@ -213,7 +213,7 @@ async def _step_7_calculate_segment_energy(  # noqa: PLR0913, PLR0917
     # construction_zones-Tempolimits pro Segment zuordnen
     segment_to_tempolimit: dict[int, int | None] = {}
     for zone in construction_zones:
-        for segment_idx in zone.betroffene_segmente:
+        for segment_idx in zone.affected_segments:
             if zone.speed_limit_kmh is not None:
                 segment_to_tempolimit[segment_idx] = zone.speed_limit_kmh
 

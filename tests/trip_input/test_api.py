@@ -1740,18 +1740,18 @@ def test_fastapi_endpoint_baustellen_beruecksichtigen_default_true_calls_constru
 def test_fastapi_endpoint_construction_zone_with_segments_has_position(
     client: TestClient, valid_trip_request: dict
 ) -> None:
-    """Eine Baustellenzone mit gültigen `betroffene_segmente` erscheint im
+    """Eine Baustellenzone mit gültigen `affected_segments` erscheint im
     `/trips`-Response mit korrekt aufgelöster `position` (aus dem ersten
     betroffenen Route-Segment).
     """
     zone = ConstructionZone(
-        betroffene_segmente=[0],
+        affected_segments=[0],
         speed_limit_kmh=60,
         closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
-        umleitungshinweis="Umleitung über B96",
+        detour_info="Umleitung über B96",
         land=Land.DE,
-        gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
-        gueltig_bis=None,
+        valid_from=datetime(2026, 1, 1, tzinfo=UTC),
+        valid_until=None,
     )
     app.dependency_overrides[get_construction_provider] = lambda: FakeConstructionProvider(
         test_zones=[zone]
@@ -1787,18 +1787,18 @@ def test_fastapi_endpoint_construction_zone_with_segments_has_position(
 def test_fastapi_endpoint_construction_zone_without_segments_is_skipped(
     client: TestClient, valid_trip_request: dict
 ) -> None:
-    """Eine Baustellenzone mit leerer `betroffene_segmente`-Liste (keine
+    """Eine Baustellenzone mit leerer `affected_segments`-Liste (keine
     Positionsauflösung möglich) wird nicht in den Response übernommen, statt
     mit einer unsinnigen/leeren `position` aufzutauchen.
     """
     zone = ConstructionZone(
-        betroffene_segmente=[],
+        affected_segments=[],
         speed_limit_kmh=None,
         closure_type=ClosureType.FULLY_CLOSED,
-        umleitungshinweis=None,
+        detour_info=None,
         land=Land.DE,
-        gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
-        gueltig_bis=None,
+        valid_from=datetime(2026, 1, 1, tzinfo=UTC),
+        valid_until=None,
     )
     app.dependency_overrides[get_construction_provider] = lambda: FakeConstructionProvider(
         test_zones=[zone]
@@ -3714,31 +3714,31 @@ def test_build_construction_zones_api_groups_nearby_zones() -> None:
     ]
 
     zone_near_1 = ConstructionZone(
-        betroffene_segmente=[0],
+        affected_segments=[0],
         speed_limit_kmh=60,
         closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
-        umleitungshinweis="Spur 1 gesperrt",
+        detour_info="Spur 1 gesperrt",
         land=Land.DE,
-        gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
-        gueltig_bis=None,
+        valid_from=datetime(2026, 1, 1, tzinfo=UTC),
+        valid_until=None,
     )
     zone_near_2 = ConstructionZone(
-        betroffene_segmente=[1],
+        affected_segments=[1],
         speed_limit_kmh=80,
         closure_type=ClosureType.LANE_CLOSED,
-        umleitungshinweis="Spur 2 gesperrt",
+        detour_info="Spur 2 gesperrt",
         land=Land.DE,
-        gueltig_von=datetime(2026, 2, 1, tzinfo=UTC),
-        gueltig_bis=datetime(2026, 3, 1, tzinfo=UTC),
+        valid_from=datetime(2026, 2, 1, tzinfo=UTC),
+        valid_until=datetime(2026, 3, 1, tzinfo=UTC),
     )
     zone_far = ConstructionZone(
-        betroffene_segmente=[2],
+        affected_segments=[2],
         speed_limit_kmh=100,
         closure_type=ClosureType.FULLY_CLOSED,
-        umleitungshinweis="Vollsperrung",
+        detour_info="Vollsperrung",
         land=Land.DE,
-        gueltig_von=datetime(2026, 4, 1, tzinfo=UTC),
-        gueltig_bis=None,
+        valid_from=datetime(2026, 4, 1, tzinfo=UTC),
+        valid_until=None,
     )
 
     result = _build_construction_zones_api([zone_near_1, zone_near_2, zone_far], route_segments)
@@ -3796,31 +3796,31 @@ def test_build_construction_zones_api_all_separate_when_far_apart() -> None:
 
     zones = [
         ConstructionZone(
-            betroffene_segmente=[0],
+            affected_segments=[0],
             speed_limit_kmh=60,
             closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
-            umleitungshinweis="A",
+            detour_info="A",
             land=Land.DE,
-            gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
-            gueltig_bis=None,
+            valid_from=datetime(2026, 1, 1, tzinfo=UTC),
+            valid_until=None,
         ),
         ConstructionZone(
-            betroffene_segmente=[1],
+            affected_segments=[1],
             speed_limit_kmh=80,
             closure_type=ClosureType.LANE_CLOSED,
-            umleitungshinweis="B",
+            detour_info="B",
             land=Land.DE,
-            gueltig_von=datetime(2026, 2, 1, tzinfo=UTC),
-            gueltig_bis=None,
+            valid_from=datetime(2026, 2, 1, tzinfo=UTC),
+            valid_until=None,
         ),
         ConstructionZone(
-            betroffene_segmente=[2],
+            affected_segments=[2],
             speed_limit_kmh=100,
             closure_type=ClosureType.FULLY_CLOSED,
-            umleitungshinweis="C",
+            detour_info="C",
             land=Land.DE,
-            gueltig_von=datetime(2026, 3, 1, tzinfo=UTC),
-            gueltig_bis=None,
+            valid_from=datetime(2026, 3, 1, tzinfo=UTC),
+            valid_until=None,
         ),
     ]
 
@@ -3838,7 +3838,7 @@ def test_build_construction_zones_api_all_separate_when_far_apart() -> None:
 
 
 def test_build_construction_zones_api_skips_empty_segmentes() -> None:
-    """Zonen mit leerer `betroffene_segmente` werden ignoriert."""
+    """Zonen mit leerer `affected_segments` werden ignoriert."""
     route_segments = [
         RouteSegment(
             segment_index=0,
@@ -3854,22 +3854,22 @@ def test_build_construction_zones_api_skips_empty_segmentes() -> None:
 
     zones = [
         ConstructionZone(
-            betroffene_segmente=[],
+            affected_segments=[],
             speed_limit_kmh=60,
             closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
-            umleitungshinweis="X",
+            detour_info="X",
             land=Land.DE,
-            gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
-            gueltig_bis=None,
+            valid_from=datetime(2026, 1, 1, tzinfo=UTC),
+            valid_until=None,
         ),
         ConstructionZone(
-            betroffene_segmente=[0],
+            affected_segments=[0],
             speed_limit_kmh=60,
             closure_type=ClosureType.LANE_CLOSED,
-            umleitungshinweis="Y",
+            detour_info="Y",
             land=Land.DE,
-            gueltig_von=datetime(2026, 2, 1, tzinfo=UTC),
-            gueltig_bis=None,
+            valid_from=datetime(2026, 2, 1, tzinfo=UTC),
+            valid_until=None,
         ),
     ]
 
@@ -3926,31 +3926,31 @@ def test_build_construction_zones_api_three_consecutive_merge() -> None:
 
     zones = [
         ConstructionZone(
-            betroffene_segmente=[0],
+            affected_segments=[0],
             speed_limit_kmh=60,
             closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
-            umleitungshinweis="A",
+            detour_info="A",
             land=Land.DE,
-            gueltig_von=datetime(2026, 1, 1, tzinfo=UTC),
-            gueltig_bis=None,
+            valid_from=datetime(2026, 1, 1, tzinfo=UTC),
+            valid_until=None,
         ),
         ConstructionZone(
-            betroffene_segmente=[1],
+            affected_segments=[1],
             speed_limit_kmh=80,
             closure_type=ClosureType.LANE_CLOSED,
-            umleitungshinweis="B",
+            detour_info="B",
             land=Land.DE,
-            gueltig_von=datetime(2026, 2, 1, tzinfo=UTC),
-            gueltig_bis=None,
+            valid_from=datetime(2026, 2, 1, tzinfo=UTC),
+            valid_until=None,
         ),
         ConstructionZone(
-            betroffene_segmente=[2],
+            affected_segments=[2],
             speed_limit_kmh=100,
             closure_type=ClosureType.FULLY_CLOSED,
-            umleitungshinweis="C",
+            detour_info="C",
             land=Land.DE,
-            gueltig_von=datetime(2026, 3, 1, tzinfo=UTC),
-            gueltig_bis=None,
+            valid_from=datetime(2026, 3, 1, tzinfo=UTC),
+            valid_until=None,
         ),
     ]
 

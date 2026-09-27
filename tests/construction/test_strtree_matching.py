@@ -84,15 +84,15 @@ def _make_n_segments(num: int, spacing_deg: float = 0.001) -> Route:
 
 
 def _make_linezone(
-    koordinaten: list[tuple[float, float]],
+    coordinates: list[tuple[float, float]],
     ClosureType: str = "partiallyClosed",
 ) -> DATEXIIConstructionZoneInternal:
     return DATEXIIConstructionZoneInternal(
         closure_type=ClosureType,
-        gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
-        gueltig_bis=None,
-        koordinaten=koordinaten,
-        umleitungshinweis=None,
+        valid_from=datetime(2024, 3, 20, tzinfo=UTC),
+        valid_until=None,
+        coordinates=coordinates,
+        detour_info=None,
         speed_limit_kmh=80,
     )
 

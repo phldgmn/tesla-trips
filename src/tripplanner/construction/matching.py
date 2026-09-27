@@ -145,7 +145,7 @@ def zone_to_geometry(zone: DATEXIIConstructionZoneInternal) -> BaseGeometry:
     """Convert DATEX II coordinates to a Shapely geometry.
 
     DATEX II coordinates are in ``(lat, lon)`` order (as stored in
-    ``zone.koordinaten``); this method converts to ``(lon, lat)`` for
+    ``zone.coordinates``); this method converts to ``(lon, lat)`` for
     Shapely.
 
     Args:
@@ -154,7 +154,7 @@ def zone_to_geometry(zone: DATEXIIConstructionZoneInternal) -> BaseGeometry:
     Returns:
         A Shapely geometry in ``(lon, lat)`` order.
     """
-    coords = [(pt[1], pt[0]) for pt in zone.koordinaten]
+    coords = [(pt[1], pt[0]) for pt in zone.coordinates]
     if len(coords) == 1:
         return Point(coords[0])
     return LineString(coords)
@@ -207,7 +207,7 @@ def filter_opposite_direction(
     Returns:
         filterd list of segment indices, excluding opposite-direction matches.
     """
-    zone_coords = zone.koordinaten
+    zone_coords = zone.coordinates
     zone_start, zone_end = zone_coords[0], zone_coords[-1]
     zone_bearing = bearing_deg(zone_start, zone_end)
 
@@ -274,7 +274,7 @@ def match_zones_to_segment_ids(  # noqa: PLR0913, PLR0917
     indices = match_geometry_to_segments(zone_geom, strtree, segment_geoms, max_distance_m)
 
     # Direction-aware filtering for zones with LineString geometry.
-    if len(zone.koordinaten) >= 2 and route_segments is not None and indices:
+    if len(zone.coordinates) >= 2 and route_segments is not None and indices:
         indices = filter_opposite_direction(
             zone,
             indices,

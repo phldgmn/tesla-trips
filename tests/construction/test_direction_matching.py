@@ -67,15 +67,15 @@ def _make_route(bearing: float) -> Route:
 
 
 def _make_zone(
-    koordinaten: list[tuple[float, float]],
+    coordinates: list[tuple[float, float]],
     affected_direction_value: str | None = None,
 ) -> DATEXIIConstructionZoneInternal:
     return DATEXIIConstructionZoneInternal(
         closure_type="partiallyClosed",
-        gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
-        gueltig_bis=None,
-        koordinaten=koordinaten,
-        umleitungshinweis=None,
+        valid_from=datetime(2024, 3, 20, tzinfo=UTC),
+        valid_until=None,
+        coordinates=coordinates,
+        detour_info=None,
         speed_limit_kmh=80,
         affected_direction_value=affected_direction_value,
     )

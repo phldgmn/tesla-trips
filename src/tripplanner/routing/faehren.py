@@ -58,9 +58,9 @@ def run_to_ferry_segment(run: list[RouteSegment]) -> FerrySegment:
     name = next((s.street_name for s in run if s.street_name), None) or UNNAMED_FERRY
     length_m = sum(s.length_m for s in run)
 
-    koordinaten: list[Coordinate] = [koord for s in run for koord in s.geometrie]
-    lats = [k[0] for k in koordinaten]
-    lons = [k[1] for k in koordinaten]
+    coordinates: list[Coordinate] = [koord for s in run for koord in s.geometrie]
+    lats = [k[0] for k in coordinates]
+    lons = [k[1] for k in coordinates]
 
     return FerrySegment(
         name=name,

@@ -241,12 +241,12 @@ class TestParseAutobahnRoadwork:
 
         assert zone is not None
         assert zone.land == Land.DE
-        assert zone.betroffene_segmente == [0]
+        assert zone.affected_segments == [0]
         assert zone.closure_type == ClosureType.TEMPORARY_SPEED_LIMIT
         assert zone.speed_limit_kmh == 80
-        assert zone.gueltig_von == datetime.fromisoformat("2024-06-01T08:00:00+02:00")
-        assert zone.gueltig_bis is None
-        assert zone.umleitungshinweis is None
+        assert zone.valid_from == datetime.fromisoformat("2024-06-01T08:00:00+02:00")
+        assert zone.valid_until is None
+        assert zone.detour_info is None
 
     def test_closed_symbol_maps_to_partially_closed(self) -> None:
         """impact.symbols mit 'CLOSED' mappt auf PARTIALLY_CLOSED."""
@@ -260,7 +260,7 @@ class TestParseAutobahnRoadwork:
         assert zone.speed_limit_kmh == 80
 
     def test_missing_start_timestamp_falls_back_to_now(self) -> None:
-        """Ohne startTimestamp wird die aktuelle time (UTC) als gueltig_von genutzt."""
+        """Without startTimestamp the current time (UTC) is used as valid_from."""
         route = _make_motorway_route()
         entry = _sample_autobahn_entry()
         del entry["startTimestamp"]
@@ -270,7 +270,7 @@ class TestParseAutobahnRoadwork:
         after = datetime.now(UTC)
 
         assert zone is not None
-        assert before <= zone.gueltig_von <= after
+        assert before <= zone.valid_from <= after
 
     def test_entry_far_from_route_is_discarded(self) -> None:
         """Ein Entry weit weg von jedem Route-Segment liefert None."""
@@ -295,7 +295,7 @@ class TestParseAutobahnRoadwork:
         zone = _parse_autobahn_roadwork(entry, route)
 
         assert zone is not None
-        assert zone.betroffene_segmente == [0]
+        assert zone.affected_segments == [0]
 
     def test_roadwork_beyond_threshold_returns_none(self) -> None:
         """DE roadwork beyond the shared distance threshold returns None."""
@@ -600,7 +600,7 @@ class TestDeDirectionLimitation:
         zone = _parse_autobahn_roadwork(entry, route)
 
         assert zone is not None
-        assert zone.betroffene_segmente == [0]
+        assert zone.affected_segments == [0]
 
 
 class TestDeLaengeM:

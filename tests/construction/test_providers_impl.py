@@ -202,10 +202,10 @@ class TestZoneToGeometry:
         _make_provider()
         zone = DATEXIIConstructionZoneInternal(
             closure_type="partiallyClosed",
-            gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
-            gueltig_bis=None,
-            koordinaten=[(52.52, 13.405), (52.522, 13.407)],
-            umleitungshinweis=None,
+            valid_from=datetime(2024, 3, 20, tzinfo=UTC),
+            valid_until=None,
+            coordinates=[(52.52, 13.405), (52.522, 13.407)],
+            detour_info=None,
             speed_limit_kmh=80,
         )
 
@@ -219,10 +219,10 @@ class TestZoneToGeometry:
         _make_provider()
         zone = DATEXIIConstructionZoneInternal(
             closure_type="partiallyClosed",
-            gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
-            gueltig_bis=None,
-            koordinaten=[(52.52, 13.405)],
-            umleitungshinweis=None,
+            valid_from=datetime(2024, 3, 20, tzinfo=UTC),
+            valid_until=None,
+            coordinates=[(52.52, 13.405)],
+            detour_info=None,
             speed_limit_kmh=80,
         )
 
@@ -235,10 +235,10 @@ class TestZoneToGeometry:
         _make_provider()
         zone = DATEXIIConstructionZoneInternal(
             closure_type="partiallyClosed",
-            gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
-            gueltig_bis=None,
-            koordinaten=[],
-            umleitungshinweis=None,
+            valid_from=datetime(2024, 3, 20, tzinfo=UTC),
+            valid_until=None,
+            coordinates=[],
+            detour_info=None,
             speed_limit_kmh=80,
         )
 
@@ -259,10 +259,10 @@ class TestMatchZonesToSegmentIds:
 
         zone = DATEXIIConstructionZoneInternal(
             closure_type="partiallyClosed",
-            gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
-            gueltig_bis=None,
-            koordinaten=[(52.52, 13.405), (52.522, 13.407)],
-            umleitungshinweis=None,
+            valid_from=datetime(2024, 3, 20, tzinfo=UTC),
+            valid_until=None,
+            coordinates=[(52.52, 13.405), (52.522, 13.407)],
+            detour_info=None,
             speed_limit_kmh=80,
         )
 
@@ -278,10 +278,10 @@ class TestMatchZonesToSegmentIds:
 
         zone = DATEXIIConstructionZoneInternal(
             closure_type="partiallyClosed",
-            gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
-            gueltig_bis=None,
-            koordinaten=[(9.0, 53.0), (9.1, 53.1)],  # Hamburg, nicht Berlin
-            umleitungshinweis=None,
+            valid_from=datetime(2024, 3, 20, tzinfo=UTC),
+            valid_until=None,
+            coordinates=[(9.0, 53.0), (9.1, 53.1)],  # Hamburg, nicht Berlin
+            detour_info=None,
             speed_limit_kmh=80,
         )
 
@@ -297,10 +297,10 @@ class TestMatchZonesToSegmentIds:
 
         zone = DATEXIIConstructionZoneInternal(
             closure_type="partiallyClosed",
-            gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
-            gueltig_bis=None,
-            koordinaten=[(52.52, 13.405)],  # on segment endpoint
-            umleitungshinweis=None,
+            valid_from=datetime(2024, 3, 20, tzinfo=UTC),
+            valid_until=None,
+            coordinates=[(52.52, 13.405)],  # on segment endpoint
+            detour_info=None,
             speed_limit_kmh=80,
         )
 
@@ -316,10 +316,10 @@ class TestMatchZonesToSegmentIds:
 
         zone = DATEXIIConstructionZoneInternal(
             closure_type="partiallyClosed",
-            gueltig_von=datetime(2024, 3, 20, tzinfo=UTC),
-            gueltig_bis=None,
-            koordinaten=[(9.0, 53.0)],  # Hamburg
-            umleitungshinweis=None,
+            valid_from=datetime(2024, 3, 20, tzinfo=UTC),
+            valid_until=None,
+            coordinates=[(9.0, 53.0)],  # Hamburg
+            detour_info=None,
             speed_limit_kmh=80,
         )
 
@@ -777,13 +777,13 @@ class TestFetchConstructionZones:
     async def test_fetches_from_all_countries(self) -> None:
         """Alle drei Länder (DE, DK, SE) werden parallel abgerufen."""
         de_zone = ConstructionZone(
-            betroffene_segmente=[0],
+            affected_segments=[0],
             speed_limit_kmh=80,
             closure_type=ClosureType.PARTIALLY_CLOSED,
-            umleitungshinweis=None,
+            detour_info=None,
             land=Land.DE,
-            gueltig_von=datetime.now(UTC),
-            gueltig_bis=None,
+            valid_from=datetime.now(UTC),
+            valid_until=None,
         )
         de_provider = FakeConstructionProvider([de_zone])
         provider = _make_provider()
@@ -874,13 +874,13 @@ class TestFakeConstructionProvider:
     async def test_returns_test_zones(self) -> None:
         """Ein Fake-Provider mit Test-Zonen liefert diese zurück."""
         zone = ConstructionZone(
-            betroffene_segmente=[0],
+            affected_segments=[0],
             speed_limit_kmh=80,
             closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
-            umleitungshinweis=None,
+            detour_info=None,
             land=Land.DE,
-            gueltig_von=datetime.now(UTC),
-            gueltig_bis=None,
+            valid_from=datetime.now(UTC),
+            valid_until=None,
         )
         provider = FakeConstructionProvider(test_zones=[zone])
         route = _make_route()
@@ -894,22 +894,22 @@ class TestFakeConstructionProvider:
     async def test_filters_by_country(self) -> None:
         """Bei Angabe von Ländern werden nur Zonen dieses Landes zurückgegeben."""
         de_zone = ConstructionZone(
-            betroffene_segmente=[0],
+            affected_segments=[0],
             speed_limit_kmh=80,
             closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
-            umleitungshinweis=None,
+            detour_info=None,
             land=Land.DE,
-            gueltig_von=datetime.now(UTC),
-            gueltig_bis=None,
+            valid_from=datetime.now(UTC),
+            valid_until=None,
         )
         dk_zone = ConstructionZone(
-            betroffene_segmente=[1],
+            affected_segments=[1],
             speed_limit_kmh=80,
             closure_type=ClosureType.PARTIALLY_CLOSED,
-            umleitungshinweis=None,
+            detour_info=None,
             land=Land.DK,
-            gueltig_von=datetime.now(UTC),
-            gueltig_bis=None,
+            valid_from=datetime.now(UTC),
+            valid_until=None,
         )
         provider = FakeConstructionProvider(test_zones=[de_zone, dk_zone])
         route = _make_route()
@@ -936,13 +936,13 @@ class TestFakeConstructionProvider:
     async def test_copy_not_reference(self) -> None:
         """Die zurückgegebene Liste ist eine Kopie, keine Referenz."""
         zone = ConstructionZone(
-            betroffene_segmente=[0],
+            affected_segments=[0],
             speed_limit_kmh=80,
             closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
-            umleitungshinweis=None,
+            detour_info=None,
             land=Land.DE,
-            gueltig_von=datetime.now(UTC),
-            gueltig_bis=None,
+            valid_from=datetime.now(UTC),
+            valid_until=None,
         )
         provider = FakeConstructionProvider(test_zones=[zone])
         route = _make_route()
@@ -1137,13 +1137,13 @@ class TestCachePickle:
         )
 
         zone = ConstructionZone(
-            betroffene_segmente=[0, 1],
+            affected_segments=[0, 1],
             speed_limit_kmh=80,
             closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
-            umleitungshinweis="Test umleitung",
+            detour_info="Test umleitung",
             land=Land.DK,
-            gueltig_von=datetime(2024, 6, 1, 8, 0, 0, tzinfo=UTC),
-            gueltig_bis=datetime(2024, 12, 31, tzinfo=UTC),
+            valid_from=datetime(2024, 6, 1, 8, 0, 0, tzinfo=UTC),
+            valid_until=datetime(2024, 12, 31, tzinfo=UTC),
         )
 
         cache.set("zone:1", [zone.model_dump(mode="json")])
@@ -1151,13 +1151,13 @@ class TestCachePickle:
 
         assert loaded is not None
         restored = ConstructionZone.model_validate(loaded[0])
-        assert restored.betroffene_segmente == [0, 1]
+        assert restored.affected_segments == [0, 1]
         assert restored.speed_limit_kmh == 80
         assert restored.closure_type == ClosureType.TEMPORARY_SPEED_LIMIT
-        assert restored.umleitungshinweis == "Test umleitung"
+        assert restored.detour_info == "Test umleitung"
         assert restored.land == Land.DK
-        assert restored.gueltig_von == datetime(2024, 6, 1, 8, 0, 0, tzinfo=UTC)
-        assert restored.gueltig_bis == datetime(2024, 12, 31, tzinfo=UTC)
+        assert restored.valid_from == datetime(2024, 6, 1, 8, 0, 0, tzinfo=UTC)
+        assert restored.valid_until == datetime(2024, 12, 31, tzinfo=UTC)
 
     @pytest.mark.asyncio
     async def test_construction_zone_empty_result_round_trip(self, tmp_path: Path) -> None:

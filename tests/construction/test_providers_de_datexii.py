@@ -114,11 +114,11 @@ class TestFetchConstructionZones:
         assert len(zones) == 1
         zone = zones[0]
         assert zone.land == Land.DE
-        assert zone.betroffene_segmente == [0]
+        assert zone.affected_segments == [0]
         assert zone.closure_type == ClosureType.PARTIALLY_CLOSED  # MaintenanceWorks
         assert zone.speed_limit_kmh == 80  # no delayBand in feed -> default
-        assert zone.gueltig_von.isoformat() == "2024-11-18T07:00:00+00:00"
-        assert zone.gueltig_bis is not None
+        assert zone.valid_from.isoformat() == "2024-11-18T07:00:00+00:00"
+        assert zone.valid_until is not None
         assert provider._client.get.call_count == 2
 
     @pytest.mark.asyncio

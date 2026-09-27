@@ -105,7 +105,7 @@ class FakeRoutingProvider:
     ) -> list[tuple[Coordinate, Coordinate, float]]:
         """Zerlegt eine Teilstrecke in mehrere kuerzere segmente (~SEGMENT_LAENGE_ZIEL_M).
 
-        Identische Start-/Endkoordinaten (length_m 0) liefern eine leere Liste,
+        Identical start/end coordinates (length_m 0) liefern eine leere Liste,
         so that the caller automatically skips this segment.
         """
         gesamtlaenge_m = haversine_distance_m(start, end)

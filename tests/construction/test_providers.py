@@ -34,22 +34,22 @@ def fake_provider() -> FakeConstructionProvider:
     """Erstelle FakeProvider mit Test-construction_zones."""
     zones = [
         ConstructionZone(
-            betroffene_segmente=[0],
+            affected_segments=[0],
             speed_limit_kmh=80,
             closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
-            umleitungshinweis="construction_zone, Vorsicht!",
+            detour_info="construction_zone, Vorsicht!",
             land=Land.DE,
-            gueltig_von="2024-03-20T21:01:00+00:00",
-            gueltig_bis="2024-03-21T03:00:00+00:00",
+            valid_from="2024-03-20T21:01:00+00:00",
+            valid_until="2024-03-21T03:00:00+00:00",
         ),
         ConstructionZone(
-            betroffene_segmente=[],
+            affected_segments=[],
             speed_limit_kmh=60,
             closure_type=ClosureType.LANE_CLOSED,
-            umleitungshinweis=None,
+            detour_info=None,
             land=Land.DK,
-            gueltig_von="2024-03-17T06:00:00+00:00",
-            gueltig_bis=None,
+            valid_from="2024-03-17T06:00:00+00:00",
+            valid_until=None,
         ),
     ]
     return FakeConstructionProvider(zones)
@@ -98,13 +98,13 @@ def test_construction_zone_tempolimit_required_for_partial_closure() -> None:
     """Validierung: speed_limit_kmh required für PARTIALLY_CLOSED."""
     with pytest.raises(ValidationError) as exc_info:
         ConstructionZone(
-            betroffene_segmente=[0],
+            affected_segments=[0],
             speed_limit_kmh=None,
             closure_type=ClosureType.PARTIALLY_CLOSED,
-            umleitungshinweis="Test",
+            detour_info="Test",
             land=Land.DE,
-            gueltig_von="2024-03-20T21:01:00+00:00",
-            gueltig_bis="2024-03-21T03:00:00+00:00",
+            valid_from="2024-03-20T21:01:00+00:00",
+            valid_until="2024-03-21T03:00:00+00:00",
         )
 
     assert "speed_limit_kmh must be set" in str(exc_info.value)
@@ -114,13 +114,13 @@ def test_construction_zone_tempolimit_required_for_lane_closed() -> None:
     """Validierung: speed_limit_kmh required für LANE_CLOSED."""
     with pytest.raises(ValidationError) as exc_info:
         ConstructionZone(
-            betroffene_segmente=[0],
+            affected_segments=[0],
             speed_limit_kmh=None,
             closure_type=ClosureType.LANE_CLOSED,
-            umleitungshinweis="Test",
+            detour_info="Test",
             land=Land.DE,
-            gueltig_von="2024-03-20T21:01:00+00:00",
-            gueltig_bis="2024-03-21T03:00:00+00:00",
+            valid_from="2024-03-20T21:01:00+00:00",
+            valid_until="2024-03-21T03:00:00+00:00",
         )
 
     assert "speed_limit_kmh must be set" in str(exc_info.value)
@@ -130,13 +130,13 @@ def test_construction_zone_tempolimit_required_for_reduced_lanes() -> None:
     """Validierung: speed_limit_kmh required für REDUCED_LANES."""
     with pytest.raises(ValidationError) as exc_info:
         ConstructionZone(
-            betroffene_segmente=[0],
+            affected_segments=[0],
             speed_limit_kmh=None,
             closure_type=ClosureType.REDUCED_LANES,
-            umleitungshinweis="Test",
+            detour_info="Test",
             land=Land.DE,
-            gueltig_von="2024-03-20T21:01:00+00:00",
-            gueltig_bis="2024-03-21T03:00:00+00:00",
+            valid_from="2024-03-20T21:01:00+00:00",
+            valid_until="2024-03-21T03:00:00+00:00",
         )
 
     assert "speed_limit_kmh must be set" in str(exc_info.value)
@@ -145,13 +145,13 @@ def test_construction_zone_tempolimit_required_for_reduced_lanes() -> None:
 def test_construction_zone_tempolimit_not_required_for_full_closure() -> None:
     """Validierung: speed_limit_kmh nicht required für FULLY_CLOSED."""
     zone = ConstructionZone(
-        betroffene_segmente=[0],
+        affected_segments=[0],
         speed_limit_kmh=None,
         closure_type=ClosureType.FULLY_CLOSED,
-        umleitungshinweis="Test",
+        detour_info="Test",
         land=Land.DE,
-        gueltig_von="2024-03-20T21:01:00+00:00",
-        gueltig_bis="2024-03-21T03:00:00+00:00",
+        valid_from="2024-03-20T21:01:00+00:00",
+        valid_until="2024-03-21T03:00:00+00:00",
     )
     assert zone.closure_type == ClosureType.FULLY_CLOSED
     assert zone.speed_limit_kmh is None
@@ -160,13 +160,13 @@ def test_construction_zone_tempolimit_not_required_for_full_closure() -> None:
 def test_construction_zone_tempolimit_not_required_for_temp_speed_limit_with_value() -> None:
     """Validierung: speed_limit_kmh required für TEMPORARY_SPEED_LIMIT (mit Wert)."""
     zone = ConstructionZone(
-        betroffene_segmente=[0],
+        affected_segments=[0],
         speed_limit_kmh=80,
         closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
-        umleitungshinweis="Test",
+        detour_info="Test",
         land=Land.DE,
-        gueltig_von="2024-03-20T21:01:00+00:00",
-        gueltig_bis="2024-03-21T03:00:00+00:00",
+        valid_from="2024-03-20T21:01:00+00:00",
+        valid_until="2024-03-21T03:00:00+00:00",
     )
     assert zone.closure_type == ClosureType.TEMPORARY_SPEED_LIMIT
     assert zone.speed_limit_kmh == 80
@@ -176,13 +176,13 @@ def test_construction_zone_validation_max_tempolimit() -> None:
     """Validierung: speed_limit_kmh darf nicht > 200 sein."""
     with pytest.raises(ValidationError) as exc_info:
         ConstructionZone(
-            betroffene_segmente=[0],
+            affected_segments=[0],
             speed_limit_kmh=201,
             closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
-            umleitungshinweis="Test",
+            detour_info="Test",
             land=Land.DE,
-            gueltig_von="2024-03-20T21:01:00+00:00",
-            gueltig_bis="2024-03-21T03:00:00+00:00",
+            valid_from="2024-03-20T21:01:00+00:00",
+            valid_until="2024-03-21T03:00:00+00:00",
         )
 
     assert "201" in str(exc_info.value)
@@ -192,13 +192,13 @@ def test_construction_zone_validation_min_tempolimit() -> None:
     """Validierung: speed_limit_kmh darf nicht < 0 sein."""
     with pytest.raises(ValidationError) as exc_info:
         ConstructionZone(
-            betroffene_segmente=[0],
+            affected_segments=[0],
             speed_limit_kmh=-1,
             closure_type=ClosureType.TEMPORARY_SPEED_LIMIT,
-            umleitungshinweis="Test",
+            detour_info="Test",
             land=Land.DE,
-            gueltig_von="2024-03-20T21:01:00+00:00",
-            gueltig_bis="2024-03-21T03:00:00+00:00",
+            valid_from="2024-03-20T21:01:00+00:00",
+            valid_until="2024-03-21T03:00:00+00:00",
         )
 
     assert "-1" in str(exc_info.value)
