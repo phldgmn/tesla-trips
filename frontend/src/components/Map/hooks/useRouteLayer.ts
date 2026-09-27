@@ -10,6 +10,8 @@ import {
   projectDistanceAlongLineM,
   findNearestRouteSample,
   type RouteSample,
+  type ChargingDetourInput,
+  type FrameSampleInput,
 } from "../../../utils/route-line";
 import type { TripSimulationResult } from "../../../types";
 import { buildSocGradientExpression } from "../soc-gradient";
@@ -50,7 +52,7 @@ export function useRouteLayer(
     const splicedRoute = buildSplicedRoute(
       simulationResult.routeGeometry,
       [
-        ...simulationResult.chargingStops.map((stop) => ({
+        ...simulationResult.chargingStops.map((stop): ChargingDetourInput => ({
           position: stop.position,
           distanceM: stop.distanceM,
           detourGeometrie: stop.detourGeometry,
@@ -59,10 +61,10 @@ export function useRouteLayer(
           routeIndexNach: stop.routeIndexAfter,
           arrivalSocPct: stop.arrivalSocPct,
           targetSocPct: stop.targetSocPct,
-          ankunftszeit: stop.arrivalTime,
-          departure_time: stop.departureTime,
+          arrivalTime: stop.arrivalTime,
+          departureTime: stop.departureTime,
         })),
-        ...simulationResult.waypointStops.map((stop) => ({
+        ...simulationResult.waypointStops.map((stop): ChargingDetourInput => ({
           position: stop.position,
           distanceM: stop.distanceM,
           detourGeometrie: [],
@@ -71,24 +73,24 @@ export function useRouteLayer(
           routeIndexNach: null,
           arrivalSocPct: stop.arrivalSocPct,
           targetSocPct: stop.targetSocPct,
-          ankunftszeit: stop.arrivalTime,
-          departure_time: stop.departureTime,
+          arrivalTime: stop.arrivalTime,
+          departureTime: stop.departureTime,
         })),
       ],
       // Driving frames only, for the gradient inside each leg - the
       // arrival/departure jumps come from the detours passed above.
       simulationResult.frames
         .filter((f) => f.state === "FAHREN")
-        .map((f) => ({
+        .map((f): FrameSampleInput => ({
           distanceM: f.distanceM,
           socPct: f.socPct,
-          zeitpunkt: f.timestamp,
-          geschwindigkeitKmh: f.speedKmh,
-          temperaturC: f.temperatureC ?? undefined,
-          windgeschwindigkeitKmh:
+          timestamp: f.timestamp,
+          speedKmh: f.speedKmh,
+          temperatureC: f.temperatureC ?? undefined,
+          windSpeedKmh:
             f.windSpeedMs !== null ? f.windSpeedMs * 3.6 : undefined,
-          windrichtungDeg: f.windDirectionDeg ?? undefined,
-          niederschlagMm: f.precipitationMm ?? undefined,
+          windDirectionDeg: f.windDirectionDeg ?? undefined,
+          precipitationMm: f.precipitationMm ?? undefined,
         })),
     );
     const routeCoordinates = splicedRoute.coordinates;
