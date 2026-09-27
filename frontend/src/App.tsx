@@ -11,16 +11,16 @@ import type { TripSimulationResult } from "./types";
 import type { Stop, TripRequestPayload } from "./types/trip-request";
 
 /**
- * Zwei Start-Stopps: Berlin Hauptbahnhof → Berlin-Köpenick.
- * Der standardmäßig geladene GraphHopper-Datensatz deckt inzwischen ganz
- * Deutschland, Dänemark und Schweden ab (siehe README.md,
- * `scripts/prepare_osm_extract.sh`, `docker-compose.yml`) - ein
- * Default-Ziel außerhalb dieser drei Länder würde GraphHopper weiterhin
- * mit HTTP 400 ("Point out of bounds") ablehnen.
- * Beide Stopps haben eine aufgelöste Koordinate und Adresse, damit die
- * Karte sofort etwas anzeigt. Die Rolle (Start/Zwischenstopp/Ziel) ergibt
- * sich rein aus der Position im Array – `stops[0]` = Abfahrt,
- * `stops[-1]` = Ziel. Stopps dazwischen = Zwischenstopps.
+ * Two default stops: Berlin Hauptbahnhof → Berlin-Köpenick.
+ * The default GraphHopper dataset now covers all of
+ * Germany, Denmark and Sweden (see README.md,
+ * `scripts/prepare_osm_extract.sh`, `docker-compose.yml`) - a
+ * default destination outside these three countries would still be rejected
+ * by GraphHopper with HTTP 400 ("Point out of bounds").
+ * Both stops have a resolved coordinate and address so the
+ * map immediately shows something. The role (start/waypoint/destination) is
+ * determined purely by position in the array – `stops[0]` = departure,
+ * `stops[-1]` = destination. Stops in between = waypoint stops.
  */
 const INITIAL_STOPS: Stop[] = [
   {
@@ -35,15 +35,15 @@ const INITIAL_STOPS: Stop[] = [
   },
 ] as const;
 
-/** Haupt-App-Komponente: koordiniert Planungsformular, Karte und Ergebnisanzeige.
+/** Main app component: coordinates the planning form, map and result display.
  *
- * Zustand:
- * - `stops`: dynamische, geordnete Liste von Stop-Objekten (mind. 2 Stops).
- *   Der erste Eintrag ist die Abfahrt, der letzte das Ziel. Zwischenstopps
- *   können beliebig hinzugefügt/entfernt/umsortiert werden.
- * - `pickingStopId`: welcher Stopp gerade per Kartenklick platziert wird.
- * - `simulationResult`/`isSubmitting`/`submitError`: Ergebnis des letzten
- *   `POST /trips`-Aufrufs.
+ * State:
+ * - `stops`: dynamic, ordered list of stop objects (at least 2 stops).
+ *   The first entry is the departure, the last is the destination. Waypoints
+ *   can be added/removed/reordered freely.
+ * - `pickingStopId`: which stop is being placed by map click.
+ * - `simulationResult`/`isSubmitting`/`submitError`: result of the last
+ *   `POST /trips` call.
  */
 export function App() {
   const [stops, setStops] = usePersistentState<Stop[]>("stops", INITIAL_STOPS);
@@ -58,7 +58,7 @@ export function App() {
     false,
   );
 
-  /** Aktualisiert die Position eines einzelnen Stopps in der Stops-Liste. */
+  /** Update the position of a single stop in the stops list without leaving the current selection mode. */
   const applyStopPositionUpdate = useCallback(
     (stopId: string, position: [number, number]) => {
       setStops((prev) =>
@@ -68,8 +68,8 @@ export function App() {
     [setStops],
   );
 
-  /** Einmaliger Kartenklick im Auswahlmodus: Koordinate speichern,
-   *  dann den Auswahlmodus verlassen. */
+  /** Single map click in pick mode: save coordinate,
+   *  then exit pick mode. */
   const handlePickPosition = useCallback(
     (stopId: string, position: [number, number]) => {
       applyStopPositionUpdate(stopId, position);
@@ -78,8 +78,8 @@ export function App() {
     [applyStopPositionUpdate],
   );
 
-  /** Drag-and-Drop auf der Karte: Stopp-Position aktualisieren, aber den
-   *  Auswahlmodus NICHT verlassen (unabhängige Interaktion). */
+  /** Drag-and-drop on the map: update stop position but do NOT
+   *  leave the current selection mode (independent interaction). */
   const handleStopMove = useCallback(
     (stopId: string, position: [number, number]) => {
       applyStopPositionUpdate(stopId, position);
@@ -87,7 +87,7 @@ export function App() {
     [applyStopPositionUpdate],
   );
 
-  /** Reise berechnen lassen. */
+  /** Calculate the trip. */
   const handleSubmit = useCallback((payload: TripRequestPayload) => {
     setIsSubmitting(true);
     setSubmitError(null);
