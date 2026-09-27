@@ -1,11 +1,7 @@
 import { Crosshair, BatteryCharging, Battery, X } from "lucide-react";
 import type { Stop } from "../../../types/trip-request";
 import type { RouteEntry } from "../../../utils/route-entries";
-import {
-  splitIsoToDateTime,
-  formatDayMonth,
-  isDayChange,
-} from "../../../utils/datetime-utils";
+import { splitIsoToDateTime, isDayChange } from "../../../utils/datetime-utils";
 import { ChargingStationPicker } from "../../ChargingStationPicker";
 import {
   getStopRole,
@@ -79,15 +75,6 @@ export function StopCard({
 
   const { Icon, background } = getStopTimelineIcon(stops, idx);
 
-  // Day change WITHIN this entry (arrival and departure on different days,
-  // e.g. a waypoint over midnight): the departure badge then also shows the
-  // date (see `DaySeparatorEntry` in `route-entries.ts`).
-  const departureDateShort =
-    entry.timing.departure !== null &&
-    isDayChange(entry.timing.arrival, entry.timing.departure)
-      ? formatDayMonth(entry.timing.departure)
-      : undefined;
-
   return (
     <TimelineRow key={stop.id} icon={Icon} background={background}>
       <div
@@ -115,7 +102,10 @@ export function StopCard({
               edge="unten"
               iso={entry.timing.departure}
               socPct={entry.timing.departureSocPct ?? undefined}
-              shortDate={departureDateShort}
+              showDate={isDayChange(
+                entry.timing.arrival,
+                entry.timing.departure,
+              )}
             />
           )}
         {/* Header: Role Badge + Move/Remove */}

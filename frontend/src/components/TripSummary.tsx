@@ -7,7 +7,7 @@
  * das über einen Button geöffnet wird (siehe `Modal`).
  */
 
-import { useEffect, useState } from "react";
+import { forwardRef, useImperativeHandle, useEffect, useState } from "react";
 
 import {
   estimateWaypointTimings,
@@ -19,9 +19,16 @@ import { formatShortDate, formatTime } from "../utils/datetime-utils";
 import { formatCost, formatCostOrDash } from "../utils/currency-utils";
 import { Modal } from "./Modal";
 import { convertAllToEUR } from "../utils/currency-conversion";
-import { Popover } from "./Popover";
 import type { ChargingCostByCurrency, TripSimulationResult } from "../types";
 import type { Stop } from "../types/trip-request";
+import {
+  TripSummaryItemCard,
+  TripSummaryItemType,
+} from "./TripSummaryItemCard";
+
+export type TripSummaryRef = {
+  openSchedule: () => void;
+};
 
 export interface TripSummaryProps {
   result: TripSimulationResult;
@@ -233,295 +240,231 @@ export function buildTimePlan(
   return sorted;
 }
 
-function TripSummary({ result, stops, onExport }: TripSummaryProps) {
-  const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
-  const [eurTotal, setEurTotal] = useState<number | null>(null);
-  const [eurBreakdown, setEurBreakdown] = useState<
-    Array<{ currency: string; originalAmount: number; eurAmount: number }>
-  >([]);
-  const schedule = buildTimePlan(result, stops);
+const TripSummary = forwardRef<TripSummaryRef, TripSummaryProps>(
+  ({ result, stops, onExport }, ref) => {
+    const [scheduleOpen, setScheduleOpen] = useState(false);
+    const [exporting, setExporting] = useState(false);
+    const [exportError, setExportError] = useState<string | null>(null);
+    const [eurTotal, setEurTotal] = useState<number | null>(null);
+    const [eurBreakdown, setEurBreakdown] = useState<
+      Array<{ currency: string; originalAmount: number; eurAmount: number }>
+    >([]);
 
-  useEffect(() => {
-    let cancelled = false;
-    if (result.totalChargingCost.length > 0) {
-      convertAllToEUR(result.totalChargingCost).then(
-        ({ totalEUR, breakdown }) => {
+    useImperativeHandle(ref, () => ({
+      openSchedule: () => setScheduleOpen(true),
+    }));
+
+    const schedule = buildTimePlan(result, stops);
+
+    useEffect(() => {
+      let cancelled = false;
+      if (result.totalChargingCost.length > 0) {
+        convertAllToEUR(result.totalChargingCost).then(
+          ({ totalEUR, breakdown }) => {
+            if (cancelled) return;
+            setEurTotal(totalEUR);
+            setEurBreakdown(breakdown);
+          },
+        );
+      } else {
+        Promise.resolve().then(() => {
           if (cancelled) return;
-          setEurTotal(totalEUR);
-          setEurBreakdown(breakdown);
-        },
-      );
-    } else {
-      Promise.resolve().then(() => {
-        if (cancelled) return;
-        setEurTotal(null);
-        setEurBreakdown([]);
-      });
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [result.totalChargingCost]);
+          setEurTotal(null);
+          setEurBreakdown([]);
+        });
+      }
+      return () => {
+        cancelled = true;
+      };
+    }, [result.totalChargingCost]);
 
-  return (
-    <div
-      style={{
-        padding: "1rem",
-        fontFamily: "system-ui, -apple-system, sans-serif",
-      }}
-    >
-      <table
+    return (
+      <div
         style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          marginBottom: "1rem",
+          padding: "1rem",
+          fontFamily: "system-ui, -apple-system, sans-serif",
         }}
       >
-        <tbody>
-          <tr>
-            <td style={labelCellStyle}>Distanz</td>
-            <td style={valueCellStyle}>{formatKm(result.totalDistanceKm)}</td>
-          </tr>
-          <tr>
-            <td style={labelCellStyle}>Fahrzeit</td>
-            <td style={valueCellStyle}>
-              {formatMinutes(result.totalDrivingTimeMin)}
-            </td>
-          </tr>
-          <tr>
-            <td style={labelCellStyle}>Ladezeit</td>
-            <td style={valueCellStyle}>
-              {formatMinutes(result.totalChargingTimeMin)}
-            </td>
-          </tr>
-          <tr>
-            <td style={labelCellStyle}>Reisezeit</td>
-            <td style={valueCellStyle}>
-              {formatMinutes(
-                result.totalDrivingTimeMin + result.totalChargingTimeMin,
-              )}
-            </td>
-          </tr>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(7rem, 1fr))",
+            rowGap: "0.25rem",
+            columnGap: "1rem",
+            paddingBottom: "1rem",
+          }}
+        >
+          <TripSummaryItemCard
+            type={TripSummaryItemType.Distance}
+            value={result.totalDistanceKm}
+          />
+          <TripSummaryItemCard
+            type={TripSummaryItemType.DrivingTime}
+            value={result.totalDrivingTimeMin}
+          />
+          <TripSummaryItemCard
+            type={TripSummaryItemType.ChargingTime}
+            value={result.totalChargingTimeMin}
+          />
+          <TripSummaryItemCard
+            type={TripSummaryItemType.TravelTime}
+            value={result.totalDrivingTimeMin + result.totalChargingTimeMin}
+          />
           {result.totalWaitingTimeMin > 0 && (
-            <tr>
-              <td style={labelCellStyle}>Wartezeit</td>
-              <td style={valueCellStyle}>
-                {formatMinutes(result.totalWaitingTimeMin)}
-              </td>
-            </tr>
+            <TripSummaryItemCard
+              type={TripSummaryItemType.WaitingTime}
+              value={result.totalWaitingTimeMin}
+            />
           )}
-          <tr>
-            <td style={labelCellStyle}>Start-SoC</td>
-            <td style={valueCellStyle}>{formatSoc(result.startSocPct)}</td>
-          </tr>
-          <tr>
-            <td style={labelCellStyle}>Ziel-SoC</td>
-            <td style={valueCellStyle}>{formatSoc(result.targetSocPct)}</td>
-          </tr>
           {result.detectedFerries.length > 0 && (
-            <tr>
-              <td style={labelCellStyle}>Fähren</td>
-              <td style={valueCellStyle}>
-                {result.detectedFerries.map((f) => f.name).join(", ")}
-              </td>
-            </tr>
+            <TripSummaryItemCard
+              type={TripSummaryItemType.Ferries}
+              value={result.detectedFerries}
+            />
           )}
           {result.chargingStops.length > 0 && (
-            <tr>
-              <td style={labelCellStyle}>Ladekosten</td>
-              <td style={valueCellStyle}>
-                {eurTotal !== null ? (
-                  <Popover
-                    content={
-                      <>
-                        <div
-                          style={{ fontWeight: 600, marginBottom: "0.25rem" }}
-                        >
-                          Summe: {formatCost(eurTotal, "EUR")}
-                        </div>
-                        {eurBreakdown.map((b) => (
-                          <div
-                            key={b.currency}
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              gap: "1rem",
-                            }}
-                          >
-                            <span>
-                              {formatCost(b.originalAmount, b.currency)}
-                            </span>
-                            <span>= {formatCost(b.eurAmount, "EUR")}</span>
-                          </div>
-                        ))}
-                        {result.chargingStopsMissingPricing > 0 && (
-                          <div
-                            style={{
-                              marginTop: "0.25rem",
-                              fontSize: "0.75rem",
-                              opacity: 0.7,
-                            }}
-                          >
-                            ({result.chargingStopsMissingPricing} Halt
-                            {result.chargingStopsMissingPricing === 1
-                              ? ""
-                              : "e"}{" "}
-                            ohne Preisdaten)
-                          </div>
-                        )}
-                      </>
-                    }
-                  >
-                    <span
-                      style={{
-                        cursor: "help",
-                        textDecoration: "underline dotted",
-                      }}
-                    >
-                      {formatCost(eurTotal, "EUR")}
-                    </span>
-                  </Popover>
-                ) : (
-                  formatChargingCosts(
-                    result.totalChargingCost,
-                    result.chargingStopsMissingPricing,
-                  )
-                )}
-              </td>
-            </tr>
+            <TripSummaryItemCard
+              type={TripSummaryItemType.Cost}
+              value={{
+                eurTotal,
+                breakdown: eurBreakdown,
+                countMissingPricing: result.chargingStopsMissingPricing,
+                stops: result.chargingStops,
+              }}
+            />
           )}
-        </tbody>
-      </table>
+        </div>
 
-      <button
-        type="button"
-        onClick={() => setScheduleOpen(true)}
-        style={{
-          width: "100%",
-          padding: "0.5rem",
-          background: "#f3f4f6",
-          border: "1px solid #d1d5db",
-          borderRadius: "4px",
-          cursor: "pointer",
-          fontSize: "0.85rem",
-          fontWeight: 600,
-        }}
-      >
-        Zeitplan öffnen ({schedule.length} Einträge)
-      </button>
-
-      {onExport && (
-        <>
-          <button
-            type="button"
-            disabled={exporting}
-            onClick={() => {
-              setExporting(true);
-              setExportError(null);
-              onExport()
-                .catch((e: unknown) =>
-                  setExportError(e instanceof Error ? e.message : String(e)),
-                )
-                .finally(() => setExporting(false));
-            }}
-            style={{
-              width: "100%",
-              marginTop: "0.5rem",
-              padding: "0.5rem",
-              background: "#f3f4f6",
-              border: "1px solid #d1d5db",
-              borderRadius: "4px",
-              cursor: exporting ? "wait" : "pointer",
-              fontSize: "0.85rem",
-              fontWeight: 600,
-            }}
-          >
-            {exporting
-              ? "Export wird erstellt…"
-              : "Interaktiven Export herunterladen"}
-          </button>
-          {exportError && (
-            <div
+        {onExport && (
+          <>
+            <button
+              type="button"
+              onClick={() => setScheduleOpen(true)}
               style={{
-                color: "#ef4444",
-                fontSize: "0.75rem",
-                marginTop: "0.25rem",
+                width: "100%",
+                padding: "0.5rem",
+                background: "#f3f4f6",
+                border: "1px solid #d1d5db",
+                borderRadius: "4px",
+                cursor: "pointer",
+                fontSize: "0.85rem",
+                fontWeight: 600,
               }}
             >
-              Export fehlgeschlagen: {exportError}
-            </div>
-          )}
-        </>
-      )}
+              Zeitplan öffnen ({schedule.length} Einträge)
+            </button>
+            <button
+              type="button"
+              disabled={exporting}
+              onClick={() => {
+                setExporting(true);
+                setExportError(null);
+                onExport()
+                  .catch((e: unknown) =>
+                    setExportError(e instanceof Error ? e.message : String(e)),
+                  )
+                  .finally(() => setExporting(false));
+              }}
+              style={{
+                width: "100%",
+                marginTop: "0.5rem",
+                padding: "0.5rem",
+                background: "#f3f4f6",
+                border: "1px solid #d1d5db",
+                borderRadius: "4px",
+                cursor: exporting ? "wait" : "pointer",
+                fontSize: "0.85rem",
+                fontWeight: 600,
+              }}
+            >
+              {exporting
+                ? "Export wird erstellt…"
+                : "Interaktiven Export herunterladen"}
+            </button>
+            {exportError && (
+              <div
+                style={{
+                  color: "#ef4444",
+                  fontSize: "0.75rem",
+                  marginTop: "0.25rem",
+                }}
+              >
+                Export fehlgeschlagen: {exportError}
+              </div>
+            )}
+          </>
+        )}
 
-      <Modal
-        open={scheduleOpen}
-        onClose={() => setScheduleOpen(false)}
-        title="Zeitplan"
-        size="fullscreen"
-      >
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              <th style={headerCellStyle}>Ort</th>
-              <th style={headerCellStyle} colSpan={2}>
-                Ankunft
-              </th>
-              <th style={headerCellStyle}>SoC</th>
-              <th style={headerCellStyle} colSpan={2}>
-                Abfahrt
-              </th>
-              <th style={headerCellStyle}>SoC</th>
-              <th style={headerCellStyle}>Strecke</th>
-              <th style={headerCellStyle}>Dauer</th>
-              <th style={headerCellStyle}>Energie</th>
-              <th style={headerCellStyle}>Preis</th>
-            </tr>
-          </thead>
-          <tbody>
-            {schedule.map((entry) => (
-              <tr key={entry.key}>
-                <td style={cellStyle}>
-                  {entry.label.replace("Tesla Supercharger - ", "")}
-                </td>
-                <td style={cellStyle}>{formatShortDate(entry.arrival)}</td>
-                <td style={rightCellStyle}>{formatTime(entry.arrival)}</td>
-                <td style={rightCellStyle}>
-                  {formatSocOrDash(entry.arrivalSocPct)}
-                </td>
-                <td style={cellStyle}>{formatShortDate(entry.departure)}</td>
-                <td style={rightCellStyle}>{formatTime(entry.departure)}</td>
-                <td style={rightCellStyle}>
-                  {formatSocOrDash(entry.departureSocPct)}
-                </td>
-                <td style={rightCellStyle}>
-                  {formatKmOrDash(entry.distanceSinceLastKm)}
-                </td>
-                <td style={rightCellStyle}>
-                  {formatMinutesOrDash(entry.durationSinceLastMin)}
-                </td>
-                <td style={rightCellStyle}>
-                  {formatKwhOrDash(entry.energyChargedKwh)}
-                </td>
-                <td style={rightCellStyle}>
-                  {entry.art === "Ladehalt"
-                    ? formatCostOrDash(entry.estimatedCost, entry.costCurrency)
-                    : "–"}
-                </td>
+        <Modal
+          open={scheduleOpen}
+          onClose={() => setScheduleOpen(false)}
+          title="Zeitplan"
+          size="fullscreen"
+        >
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={headerCellStyle}>Ort</th>
+                <th style={headerCellStyle} colSpan={2}>
+                  Ankunft
+                </th>
+                <th style={headerCellStyle}>SoC</th>
+                <th style={headerCellStyle} colSpan={2}>
+                  Abfahrt
+                </th>
+                <th style={headerCellStyle}>SoC</th>
+                <th style={headerCellStyle}>Strecke</th>
+                <th style={headerCellStyle}>Dauer</th>
+                <th style={headerCellStyle}>Energie</th>
+                <th style={headerCellStyle}>Preis</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </Modal>
-    </div>
-  );
-}
+            </thead>
+            <tbody>
+              {schedule.map((entry) => (
+                <tr key={entry.key}>
+                  <td style={cellStyle}>
+                    {entry.label.replace("Tesla Supercharger - ", "")}
+                  </td>
+                  <td style={cellStyle}>{formatShortDate(entry.arrival)}</td>
+                  <td style={rightCellStyle}>{formatTime(entry.arrival)}</td>
+                  <td style={rightCellStyle}>
+                    {formatSocOrDash(entry.arrivalSocPct)}
+                  </td>
+                  <td style={cellStyle}>{formatShortDate(entry.departure)}</td>
+                  <td style={rightCellStyle}>{formatTime(entry.departure)}</td>
+                  <td style={rightCellStyle}>
+                    {formatSocOrDash(entry.departureSocPct)}
+                  </td>
+                  <td style={rightCellStyle}>
+                    {formatKmOrDash(entry.distanceSinceLastKm)}
+                  </td>
+                  <td style={rightCellStyle}>
+                    {formatMinutesOrDash(entry.durationSinceLastMin)}
+                  </td>
+                  <td style={rightCellStyle}>
+                    {formatKwhOrDash(entry.energyChargedKwh)}
+                  </td>
+                  <td style={rightCellStyle}>
+                    {entry.art === "Ladehalt"
+                      ? formatCostOrDash(
+                          entry.estimatedCost,
+                          entry.costCurrency,
+                        )
+                      : "–"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Modal>
+      </div>
+    );
+  },
+);
 
 /** Formatiert eine Distanz in km mit deutscher Locale (Komma statt Punkt),
  *  fest auf eine Nachkommastelle gerundet. */
-function formatKm(km: number): string {
+export function formatKm(km: number): string {
   return `${km.toLocaleString("de-DE", {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
@@ -533,7 +476,7 @@ function formatSoc(pct: number): string {
   return `${Math.round(pct).toLocaleString("de-DE")} %`;
 }
 
-function formatMinutes(min: number): string {
+export function formatMinutes(min: number): string {
   const h = Math.floor(min / 60);
   const m = Math.round(min % 60);
   if (h > 0) return `${h} h ${m} min`;
@@ -565,7 +508,7 @@ function formatKwhOrDash(kwh: number | null): string {
  *  Hängt einen Hinweis an, falls für einzelne Ladehalte keine Preisdaten
  *  vorliegen (`charging_stops_missing_pricing`). Ohne jegliche Preisdaten
  *  wird ein entsprechender Platzhaltertext zurückgegeben. */
-function formatChargingCosts(
+export function formatChargingCosts(
   totals: ChargingCostByCurrency[],
   missingPricingCount: number,
 ): string {
@@ -581,18 +524,6 @@ function formatChargingCosts(
     .join(" + ");
   return `${costsLabel}${missingSuffix}`;
 }
-
-const labelCellStyle: React.CSSProperties = {
-  padding: "0.25rem 0.5rem",
-  fontWeight: 600,
-  borderBottom: "1px solid #ddd",
-};
-
-const valueCellStyle: React.CSSProperties = {
-  padding: "0.25rem 0.5rem",
-  textAlign: "right",
-  borderBottom: "1px solid #ddd",
-};
 
 const headerCellStyle: React.CSSProperties = {
   padding: "0.25rem 0.5rem",
@@ -610,6 +541,8 @@ const rightCellStyle: React.CSSProperties = {
   ...cellStyle,
   textAlign: "right",
 };
+
+TripSummary.displayName = "TripSummary";
 
 export default TripSummary;
 export { TripSummary };

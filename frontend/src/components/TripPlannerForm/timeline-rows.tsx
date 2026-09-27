@@ -4,7 +4,11 @@ import {
   formatDrivingSegmentDistance,
   formatDrivingSegmentDuration,
 } from "./form-helpers";
-import { formatShortDate, formatTime } from "@/utils/datetime-utils";
+import {
+  formatShortDate,
+  formatTime,
+  formatDateTime,
+} from "@/utils/datetime-utils";
 
 /** Timeline row sub-components for the route timeline display.
  *  These are pure presentational components used by TripPlannerForm.
@@ -67,17 +71,29 @@ export function TimeBadge({
   edge: kante,
   iso,
   socPct,
-  shortDate: datumKurz,
+  showDate = false,
+  showTime = true,
 }: {
   edge: "oben" | "unten";
   iso: string;
   socPct?: number;
-  shortDate?: string;
+  showDate?: boolean;
+  showTime?: boolean;
 }) {
   const edgeStyle =
     kante === "oben"
       ? { top: 0, left: "0.75rem", transform: "translateY(-50%)" }
       : { bottom: 0, right: "0.75rem", transform: "translateY(50%)" };
+  let _iso = undefined;
+  if (iso) {
+    if (showDate && showTime) {
+      _iso = formatDateTime(iso);
+    } else if (showDate) {
+      _iso = formatShortDate(iso);
+    } else if (showTime) {
+      _iso = formatTime(iso);
+    }
+  }
   return (
     <span
       style={{
@@ -94,9 +110,8 @@ export function TimeBadge({
         zIndex: 1,
       }}
     >
-      {formatTime(iso)}
+      {_iso}
       {socPct !== undefined ? ` · ${Math.round(socPct)}%` : ""}
-      {datumKurz !== undefined ? ` · ${datumKurz}` : ""}
     </span>
   );
 }

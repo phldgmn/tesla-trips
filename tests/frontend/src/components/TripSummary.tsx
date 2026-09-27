@@ -309,14 +309,6 @@ function TripSummary({ result, stops }: TripSummaryProps) {
               </td>
             </tr>
           )}
-          <tr>
-            <td style={labelCellStyle}>Start-SoC</td>
-            <td style={valueCellStyle}>{formatSoc(result.start_soc_pct)}</td>
-          </tr>
-          <tr>
-            <td style={labelCellStyle}>Ziel-SoC</td>
-            <td style={valueCellStyle}>{formatSoc(result.target_soc_pct)}</td>
-          </tr>
           {result.detected_ferries.length > 0 && (
             <tr>
               <td style={labelCellStyle}>Fähren</td>

@@ -30,7 +30,7 @@ export interface TripExportData {
   version: typeof TRIP_EXPORT_VERSION;
   /** ISO-8601 timestamp of the export. */
   exportedAt: string;
-  /** Display title, e.g. "Reise Berlin → Hamburg". */
+  /** Display title, e.g. "Berlin → Hamburg". */
   title: string;
   stops: Stop[];
   result: TripSimulationResult;
@@ -68,7 +68,7 @@ export function buildTripExportData(
   return {
     version: TRIP_EXPORT_VERSION,
     exportedAt: now.toISOString(),
-    title: `Reise ${stopLabel(stops[0], "Start")} → ${stopLabel(
+    title: `${stopLabel(stops[0], "Start")} → ${stopLabel(
       stops[stops.length - 1],
       "Ziel",
     )}`,

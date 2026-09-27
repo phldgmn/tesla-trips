@@ -62,6 +62,13 @@ export function formatTime(iso: string | null): string {
   }
 }
 
+export function formatDateTime(iso: string | null): string {
+  if (iso === null) return "–";
+  const _date = formatShortDate(iso);
+  const _time = formatTime(iso);
+  return `${_date} · ${_time}`;
+}
+
 /** Formatiert einen ISO-Zeitstempel als knappes Datum mit Wochentag (z. B.
  *  "So., 16.08.") - für den Tageswechsel-Trenner in der Route-Timeline, der
  *  bewusst klein gehalten wird (siehe `istTageswechsel`). */
@@ -120,9 +127,15 @@ export function isoDateKey(iso: string): string {
  *  ergibt nie einen Tageswechsel, damit unbekannte Zeiten keine
  *  Trenner-Flut auslösen. */
 export function isDayChange(
-  previousIso: string | null,
-  currentIso: string | null,
+  previousIso: string | null | undefined,
+  currentIso: string | null | undefined,
 ): boolean {
-  if (previousIso === null || currentIso === null) return false;
+  if (
+    previousIso === null ||
+    previousIso === undefined ||
+    currentIso === null ||
+    currentIso === undefined
+  )
+    return false;
   return isoDateKey(previousIso) !== isoDateKey(currentIso);
 }

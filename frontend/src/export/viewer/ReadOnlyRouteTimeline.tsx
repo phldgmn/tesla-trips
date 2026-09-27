@@ -14,7 +14,7 @@ import { Ship, Zap } from "lucide-react";
 import type { TripSimulationResult } from "../../types";
 import type { Stop } from "../../types/trip-request";
 import { buildRouteEntries } from "../../utils/route-entries";
-import { formatDayMonth, isDayChange } from "../../utils/datetime-utils";
+import { isDayChange } from "../../utils/datetime-utils";
 import { formatCostOrDash } from "../../utils/currency-utils";
 import {
   differsAsTime,
@@ -29,6 +29,7 @@ import {
   TimelineRow,
 } from "../../components/TripPlannerForm/timeline-rows";
 import { findWaypointStopAt } from "../../components/Map/popups";
+import { PositionTiming } from "@/utils/timing-utils";
 
 /** Card container style, copied from the planning cards
  *  (`ChargingStopCard.tsx`). */
@@ -46,6 +47,45 @@ const CARD_STYLE = {
 interface ReadOnlyRouteTimelineProps {
   result: TripSimulationResult;
   stops: Stop[];
+}
+
+function getBottomBadge(timing: PositionTiming): JSX.Element | null {
+  if (
+    timing.departure == null ||
+    !differsAsTime(timing.arrival, timing.departure)
+  )
+    return null;
+
+  return (
+    <TimeBadge
+      edge="unten"
+      iso={timing.departure}
+      showDate={isDayChange(timing.arrival, timing.departure)}
+    />
+  );
+}
+
+function getTopBadge(timing: PositionTiming, idx: number): JSX.Element | null {
+  if (timing.arrival) {
+    return (
+      <TimeBadge
+        edge="oben"
+        iso={timing.arrival}
+        socPct={timing.arrivalSocPct ?? undefined}
+      />
+    );
+  } else if (idx === 0 && timing.departure) {
+    return (
+      <TimeBadge
+        edge="oben"
+        iso={timing.departure}
+        showDate={true}
+        showTime={false}
+      />
+    );
+  } else {
+    return null;
+  }
 }
 
 /** The chronological route timeline (stops, charging stops, ferries and the
@@ -80,36 +120,14 @@ export function ReadOnlyRouteTimeline({
           case "Stopp": {
             const { stop, stopIndex: idx } = entry;
             const { Icon, background } = getStopTimelineIcon(stops, idx);
-            const departureDateShort =
-              entry.timing.departure !== null &&
-              isDayChange(entry.timing.arrival, entry.timing.departure)
-                ? formatDayMonth(entry.timing.departure)
-                : undefined;
             const waypointStop = stop.position
               ? findWaypointStopAt(result.waypointStops, stop.position)
               : null;
             return (
               <TimelineRow key={stop.id} icon={Icon} background={background}>
                 <div style={CARD_STYLE}>
-                  {entry.timing.arrival !== null && (
-                    <TimeBadge
-                      edge="oben"
-                      iso={entry.timing.arrival}
-                      socPct={entry.timing.arrivalSocPct ?? undefined}
-                    />
-                  )}
-                  {entry.timing.departure !== null &&
-                    differsAsTime(
-                      entry.timing.arrival,
-                      entry.timing.departure,
-                    ) && (
-                      <TimeBadge
-                        edge="unten"
-                        iso={entry.timing.departure}
-                        socPct={entry.timing.departureSocPct ?? undefined}
-                        shortDate={departureDateShort}
-                      />
-                    )}
+                  {getTopBadge(entry.timing, entryIdx)}
+                  {getBottomBadge(entry.timing)}
                   <span
                     style={{
                       fontSize: "0.65rem",
@@ -138,26 +156,11 @@ export function ReadOnlyRouteTimeline({
           }
           case "Ladehalt": {
             const stop = entry.chargingStop;
-            const departureDateShort = isDayChange(
-              stop.arrivalTime,
-              stop.departureTime,
-            )
-              ? formatDayMonth(stop.departureTime)
-              : undefined;
             return (
               <TimelineRow key={stop.stationId} icon={Zap} background="#dcfce7">
                 <div style={CARD_STYLE}>
-                  <TimeBadge
-                    edge="oben"
-                    iso={stop.arrivalTime}
-                    socPct={stop.arrivalSocPct}
-                  />
-                  <TimeBadge
-                    edge="unten"
-                    iso={stop.departureTime}
-                    socPct={stop.targetSocPct}
-                    shortDate={departureDateShort}
-                  />
+                  {getTopBadge(entry.timing, entryIdx)}
+                  {getBottomBadge(entry.timing)}
                   <strong>{formatChargingStationName(stop.name)}</strong>
                   <span style={{ color: "#374151" }}>
                     {Math.round(stop.chargingDurationS / 60)} min ·{" "}
@@ -170,11 +173,6 @@ export function ReadOnlyRouteTimeline({
           }
           case "Fähre": {
             const ferry = entry.ferry;
-            const departureDateShort =
-              entry.timing.departure !== null &&
-              isDayChange(entry.timing.arrival, entry.timing.departure)
-                ? formatDayMonth(entry.timing.departure)
-                : undefined;
             return (
               <TimelineRow
                 key={`ferry-${ferry.name}-${entryIdx}`}
@@ -182,20 +180,9 @@ export function ReadOnlyRouteTimeline({
                 background="#dbeafe"
               >
                 <div style={CARD_STYLE}>
-                  {entry.timing.arrival !== null && (
-                    <TimeBadge edge="oben" iso={entry.timing.arrival} />
-                  )}
-                  {entry.timing.departure !== null &&
-                    differsAsTime(
-                      entry.timing.arrival,
-                      entry.timing.departure,
-                    ) && (
-                      <TimeBadge
-                        edge="unten"
-                        iso={entry.timing.departure}
-                        shortDate={departureDateShort}
-                      />
-                    )}
+                  {getTopBadge(entry.timing, entryIdx)}
+                  {getBottomBadge(entry.timing)}
+
                   <strong>{ferry.name}</strong>
                   <span style={{ color: "#374151" }}>
                     {(ferry.lengthM / 1000).toFixed(1)} km Fähre
