@@ -10,8 +10,8 @@ export interface ChargingStationPickerProps {
 }
 
 /**
- * Filtert Supercharger-Stationen case-insensitiv gegen `name` ODER `country`.
- * Leerer/Whitespace-Query gibt alle Stationen unverändert zurück.
+ * Filter supercharger stations case-insensitively against `name` OR `country`.
+ * Empty/whitespace query returns all stations unchanged.
  */
 export function filterStations(
   stations: SuperchargerStation[],
@@ -26,8 +26,8 @@ export function filterStations(
 }
 
 /**
- * Kleines Inline-Picker-Panel zum Auswählen einer Ladestation.
- * Kein Modal/Portal – wird vom Eltern-Element bedingt gerendert.
+ * Small inline picker panel for selecting a charging station.
+ * No modal/portal – conditionally rendered by the parent element.
  */
 export function ChargingStationPicker({
   onSelect,
