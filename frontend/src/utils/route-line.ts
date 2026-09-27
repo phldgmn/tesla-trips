@@ -17,7 +17,7 @@ export interface RouteSample {
    *  Optional, da nicht jeder Aufrufer (z. B. reine SoC-Gradient-Tests) ihn
    *  benoetigt. */
   timestamp?: string;
-  /** Ladehalt-Ankunft/-Abfahrt: wird beim Downsampling nie uebersprungen, damit
+  /** Charging stop arrival/departure: never skipped during downsampling, so that
    *  der SoC-Sprung an der Ladestation sichtbar bleibt. */
   critical?: boolean;
   /** Geschwindigkeit in km/h an diesem Stuetzpunkt - fuer den Routen-Hover-
@@ -35,7 +35,7 @@ export interface RouteSample {
   precipitationMm?: number;
 }
 
-/** Meter pro Breitengrad - konstant genug fuer die kurzen Segmentabstaende
+/** Meters per degree of latitude - constant enough for the short segment distances
  *  einer dichten GraphHopper-Polyline (siehe `projectDistanceAlongLineM`). */
 const METERS_PER_DEGREE_LAT = 111_320;
 
@@ -91,12 +91,12 @@ export function projectDistanceAlongLineM(
     // Naeherung fuer JEDES Segment (auch weit entfernte) akkumuliert wurde,
     // driftete bei einer ~1500 km-Reise um mehrere Kilometer ab -
     // Ursache eines gemeldeten Bugs, bei dem der Routen-Hover-Tooltip nach
-    // manchen Ladehalten weiterhin die Vor-Lade-Werte zeigte.
+    // some charging stops would still show pre-charge values.
     const segLen = haversineDistanceM([a[1], a[0]], [b[1], b[0]]);
 
     // Lokale ebene Projektion NUR zur Bestimmung des naechstgelegenen
     // Segments und der Position `t` darauf - verankert an Segmentpunkt `a`
-    // (nicht am Abfragepunkt), daher fuer diesen kurzen Abstand ausreichend
+    // (not at the query point), therefore sufficient for this short distance
     // genau, unabhaengig davon, wie weit `point` selbst entfernt liegt.
     const cosLat = Math.cos((((a[1] + b[1]) / 2) * Math.PI) / 180);
     const toLocal = (p: [number, number]): [number, number] => [

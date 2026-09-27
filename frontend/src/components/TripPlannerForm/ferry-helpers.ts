@@ -8,7 +8,7 @@ import { sameFerryExclusion as sameFerryExclusionF } from "./form-helpers";
 
 export { sameFerryExclusionF as sameFerryExclusion };
 
-/** Ergänzt oder entfernt eine Fährverbindung aus der Ausschlussliste. */
+/** Add or remove a ferry connection from the exclusion list. */
 export function toggleFerryExclusion(
   list: FerryExclusion[],
   ferry: FerryExclusion,
@@ -21,8 +21,8 @@ export function toggleFerryExclusion(
   return list.filter((f) => !sameFerryExclusionF(f, ferry));
 }
 
-/** Setzt oder entfernt das Zeitfenster für eine Fährverbindung. `zeitfenster`
- *  wird entfernt, wenn `departure`/`arrival` beide leer sind. */
+/** Set or remove the time window for a ferry connection. The window
+ *  is removed when both `departure`/`arrival` are empty. */
 export function setFerryTimeWindowFor(
   list: FerryTimeWindow[],
   entry: FerryExclusion,
@@ -34,8 +34,8 @@ export function setFerryTimeWindowFor(
   return [...rest, { ...entry, departure, arrival }];
 }
 
-/** Setzt oder entfernt die Ladedauer-Vorgabe für eine Station. Die Vorgabe
- *  wird entfernt, wenn `chargingDurationMin` nicht positiv ist. */
+/** Set or remove the charging duration preset for a station. The preset
+ *  is removed when `chargingDurationMin` is not positive. */
 export function setChargingDurationPresetFor(
   list: ChargingDurationSpecification[],
   stationId: string,
@@ -52,8 +52,8 @@ export function setChargingDurationPresetFor(
   ];
 }
 
-/** Stabiler Identitäts-Schlüssel für eine Fährverbindung (Name + Bounding Box),
- *  zur Indizierung von React-State und -Listen abseits von Array-Index. */
+/** Stable identity key for a ferry connection (name + bounding box),
+ *  for indexing React state and lists outside of array index. */
 export function ferryKey(entry: FerryExclusion): string {
   return `${entry.name}|${entry.bboxSw.join(",")}|${entry.bboxNe.join(",")}`;
 }

@@ -12,7 +12,7 @@ export interface RouteLeg {
   samples: RouteSample[];
 }
 
-/** Zerlegt eine gesplicete Route an jedem Ladehalt in einzelne, unabhaengig
+/** Split a spliced route at each charging stop into individual, independently
  * gerenderte Teilabschnitte ("Legs").
  *
  * MapLibre backt `line-gradient` (siehe `buildSocGradientExpression`) in
@@ -47,11 +47,11 @@ export function splitRouteIntoLegs(spliced: SplicedRoute): RouteLeg[] {
       coordStart,
       coordEndInclusive + 1,
     );
-    // Der Ankunfts-Stuetzpunkt eines Ladehalts liegt distanceM-genau AUF der
+    // The arrival reference point of a charging stop lies exactly on the
     // Leg-Grenze (Ende von Leg N). Ohne den `isFirstLeg`-Sonderfall (untere
     // Schranke inklusive nur beim allerersten Leg) wuerde er per `>=` auch
-    // in Leg N+1 auftauchen (dort bei distanceM=0 dupliziert) - der 0.5 m
-    // spaeter liegende Abfahrts-Stuetzpunkt bleibt davon unberuehrt.
+    // appear in Leg N+1 (duplicated there at distanceM=0) - the 0.5 m
+    // later departure reference point remains unaffected.
     const samples = spliced.samples
       .filter((s) =>
         isFirstLeg ? s.distanceM >= distStart : s.distanceM > distStart,

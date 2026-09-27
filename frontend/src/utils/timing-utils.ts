@@ -1,4 +1,4 @@
-/** Hilfsfunktionen zur Berechnung von Ankunfts-/Abfahrtszeiten aus Simulationsframes.
+/** Helper functions for calculating arrival/departure times from simulation frames.
  *
  * Das Backend akzeptiert nur eine feste Abfahrtszeit am Start plus optionale
  * Mindestaufenthaltsdauern pro Zwischenstopp – keine frei wählbaren
@@ -15,18 +15,18 @@ import type { SimulationFrame } from "../types";
 import type { Stop } from "../types/trip-request";
 import { haversineDistanceM } from "./geo-utils";
 
-/** Zeit- und Ladestand-Informationen für eine Position (Ankunfts-/Abfahrts-
+/** Time and charge level information for a position (arrival/departure-
  *  Cluster). SoC wird direkt aus dem jeweiligen Grenz-Frame übernommen (kein
  *  eigenständiger Wert), damit Anzeige-Zeitpunkt und -SoC immer konsistent
  *  zum selben Simulationsframe gehören. */
 export interface PositionTiming {
-  /** ISO-Zeitstempel der Ankunft, oder null falls nicht ermittelbar. */
+  /** ISO timestamp of the arrival, or null if not determinable. */
   arrival: string | null;
-  /** ISO-Zeitstempel der Abfahrt, oder null falls nicht ermittelbar. */
+  /** ISO timestamp of the departure, or null if not determinable. */
   departure: string | null;
-  /** Ladestand in % bei Ankunft, oder null falls nicht ermittelbar. */
+  /** Charge level in % at arrival, or null if not determinable. */
   arrivalSocPct: number | null;
-  /** Ladestand in % bei Abfahrt, oder null falls nicht ermittelbar. */
+  /** Charge level in % at departure, or null if not determinable. */
   departureSocPct: number | null;
 }
 
@@ -40,7 +40,7 @@ export interface WaypointTiming extends PositionTiming {
  *  gewertet wird. */
 const CLUSTER_RADIUS_M = 2000;
 
-/** Ermittelt für jeden Stopp die Ankunfts- und Abfahrtszeit anhand
+/** Determine the arrival and departure time for each stop based on
  *  der Simulationsframes.
  *
  * @param frames  Zeitlich geordnete Liste von Simulationsframes.
@@ -63,7 +63,7 @@ export function estimateWaypointTimings(
   }
 
   return stops.map((stop, idx) => {
-    // Start (Index 0): Ankunft null, Abfahrt = erster Frame
+    // Start (index 0): arrival null, departure = first frame
     if (idx === 0) {
       return {
         stopId: stop.id,
@@ -74,7 +74,7 @@ export function estimateWaypointTimings(
       };
     }
 
-    // Ziel (letzter Index): Ankunft = letzter Frame, Abfahrt null
+    // Destination (last index): arrival = last frame, departure null
     if (idx === stops.length - 1) {
       const lastFrame = frames[frames.length - 1];
       return {
@@ -86,7 +86,7 @@ export function estimateWaypointTimings(
       };
     }
 
-    // Zwischenstopp: Falls keine Position aufgelöst, null / null zurück
+    // Waypoint: If no position resolved, return null / null
     if (stop.position === null) {
       return {
         stopId: stop.id,

@@ -38,13 +38,13 @@ function sameFerryExclusion(a: FerryExclusion, b: FerryExclusion): boolean {
   );
 }
 
-/** Mindestdauer (Minuten), ab der ein Fahrsegment eingefügt wird - unterhalb
+/** Minimum duration (minutes) above which a driving segment is inserted - below
  *  davon liegen zwei Einträge praktisch am selben Ort/Zeitpunkt (z. B. eine
  *  Ladestation direkt an einem Zwischenstopp), ein "0 min · 0,0 km"-Eintrag
  *  wäre nur Rauschen in der Timeline. */
 const MIN_DRIVING_SEGMENT_DURATION_MIN = 1;
 
-/** Route-Eintrag mit Zeitpunkt-Bezug (Stopp, Ladehalt oder Fähre) - alles
+/** Route entry with time reference (stop, charging stop, or ferry) - all
  *  außer den verbindenden `Fahrsegment`-Einträgen. */
 export type PointEntry =
   | {
@@ -158,7 +158,7 @@ export function buildRouteEntries(args: {
     }));
   }
 
-  // Stops: sortKey = Ankunftszeit (falls vorhanden, sonst Abfahrt)
+  // Stops: sortKey = arrival time (if available, otherwise departure)
   const waypointTimings = estimateWaypointTimings(frames, stops);
   const stopEntries: PointEntry[] = stops.map((stop, idx) => {
     const { arrival, departure, arrivalSocPct, departureSocPct } =
@@ -173,7 +173,7 @@ export function buildRouteEntries(args: {
     };
   });
 
-  // Ladehalte: sortKey = ankunftszeit
+  // Charging stops: sortKey = arrival time
   const chargingStopEntries: PointEntry[] = (chargingStops ?? []).map(
     (chargingStop) => ({
       art: "Ladehalt" as const,
@@ -188,7 +188,7 @@ export function buildRouteEntries(args: {
     }),
   );
 
-  // Fähren (nur nicht-vermiedene): sortKey = Ankunftszeit (BBox-Mitte)
+  // Ferries (only non-avoided): sortKey = arrival time (BBox center)
   const recognizedFerriesWithoutAvoided = detectedFerries?.filter(
     (ferry) =>
       !avoidedFerries.some((avoidedFerry) =>
@@ -235,7 +235,7 @@ export function buildRouteEntries(args: {
     return a.sortKey.localeCompare(b.sortKey);
   });
 
-  // Fahrsegmente zwischen je zwei aufeinanderfolgenden Einträgen einfügen
+  // Insert driving segments between each pair of consecutive entries
   // (gefahrene Strecke/Zeit dazwischen) - siehe `connectionTime`/
   // `berechneFahrsegment`. `cumulativeKm` einmalig für die gesamte Route
   // gebildet statt pro Segment neu (siehe `berechneFahrsegment`-Docstring).

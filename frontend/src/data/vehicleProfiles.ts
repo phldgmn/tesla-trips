@@ -1,4 +1,4 @@
-/** Fahrzeugprofil-Presets für die Reiseplanung.
+/** Vehicle profile presets for trip planning.
  *
  * ANNAHME (dokumentiert gemäß `AGENTS.md`, "Bei Unsicherheit"): Es gibt
  * (noch) keinen Backend-Endpunkt, der Fahrzeugprofile aus einer Konfiguration

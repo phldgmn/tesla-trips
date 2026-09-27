@@ -1,4 +1,4 @@
-/** Baut die auf der Karte gezeichnete Routenlinie aus der vollen Streckengeometrie
+/** Build the route line drawn on the map from the full route geometry
  * plus echten, geroutete Abstechern zu Ladestationen (siehe `ChargingStop.detour_geometrie`,
  * `tripplanner.trip_input.api._step_lade_detours_routen`).
  *
@@ -19,7 +19,7 @@
 import { toLngLat, haversineDistanceM } from "./geo-utils";
 import type { RouteSample } from "./route-line";
 
-/** Minimaler Distanz-Abstand (m) zwischen dem Ankunfts- und dem
+/** Minimum distance (m) between the arrival and the
  * Abfahrts-Stuetzpunkt an einer Ladestation. Das Laden selbst dauert in der
  * Kartendarstellung "keine" Fahrstrecke - der SoC-Sprung soll direkt an der
  * Station sichtbar sein statt ueber die gesamte Rueckfahrt der Detour-Schleife
@@ -36,7 +36,7 @@ export interface ChargingDetourInput {
    *  falls `detourGeometrie` leer ist; auch fuer den SoC-Ankunfts-/Abfahrts-
    *  Split innerhalb einer echten Detour-Geometrie genutzt) */
   position: [number, number];
-  /** Kumulierte Distanz entlang der Hauptroute, an der abgebogen wird -
+  /** Cumulative distance along the main route where the turn occurs -
    *  bestimmt nur die REIHENFOLGE der Ladehalte, nicht die Spleiss-Position
    *  (dafuer werden `routeIndexVor`/`routeIndexNach` genutzt) */
   distanceM: number;
@@ -58,7 +58,7 @@ export interface ChargingDetourInput {
   routeIndexNach: number | null;
   arrivalSocPct: number;
   targetSocPct: number;
-  /** Zeitpunkt (ISO), an dem der Ladehalt tatsaechlich erreicht/verlassen wird -
+  /** Time (ISO) at which the charging stop is actually reached/left -
    *  fuer den Routen-Hover-Tooltip (siehe `findNearestRouteSample` in
    *  `Map.tsx`), damit der Sprung von Ankunfts- zu Abfahrtszeit exakt am
    *  Ladehalt liegt statt am naechstgelegenen (raeumlich verwechselbaren)
@@ -71,10 +71,10 @@ export interface ChargingDetourInput {
 export interface SplicedRoute {
   /** Fertige Koordinatenliste fuer die GeoJSON-LineString, in [lng, lat] */
   coordinates: [number, number][];
-  /** Gesamtlaenge der gespliceten Linie in Metern (Hauptroute + alle Abstecher) */
+  /** Total length of the spliced line in meters (main route + all detours) */
   totalDistanceM: number;
   samples: RouteSample[];
-  /** Ein Eintrag pro Ladehalt, an der Stelle (Koordinaten-Index + kumulierte
+  /** One entry per charging stop, at the position (coordinate index + cumulative
    *  Distanz), an der die Ladestation tatsaechlich erreicht wird - Grundlage
    *  fuer `splitRouteIntoLegs()`. Sortiert nach `distanceM`. */
   legBoundaries: { coordinateIndex: number; distanceM: number }[];
@@ -124,7 +124,7 @@ interface ResolvedDetour {
    *  zurueckzufallen (siehe `buildSplicedRoute`) */
   stationIndex: number | null;
   stationPosition: [number, number];
-  /** Kumulierte Distanz entlang der (ungespliceten) Hauptroute, an der
+  /** Cumulative distance along the (unspliced) main route where the
    *  tatsaechlich abgebogen/geladen wird (`ChargingDetourInput.distanceM`) -
    *  NICHT identisch mit `startIdx`/`endIdx`, die per `margin_m`-Puffer
    *  (siehe `_finde_klammerpunkte`) bis zu 3 km VOR/NACH diesem Punkt
@@ -170,7 +170,7 @@ function resolveDetours(
       startIdx: idx,
       endIdx: idx,
       detour: [routeGeometry[idx], stop.position, routeGeometry[idx]],
-      // Der mittlere Punkt IST die Station - hier bekannt, keine Suche noetig.
+      // The middle point IS the station - known here, no search needed.
       stationIndex: 1,
       stationPosition: stop.position,
       chargeDistanceM: stop.distanceM,
@@ -238,7 +238,7 @@ export function buildSplicedRoute(
 
   while (i < routeGeometry.length) {
     // Ueberlappende/bereits ueberholte Detours (sollte bei realistischem
-    // Ladehalt-Abstand nicht vorkommen) sicherheitshalber ueberspringen,
+    // charging stop distance does not occur) safely skip,
     // statt die Kartendarstellung zu verlieren.
     while (detourIdx < detours.length && detours[detourIdx].startIdx < i) {
       detourIdx++;
@@ -253,7 +253,7 @@ export function buildSplicedRoute(
 
       // Index innerhalb der Detour-Geometrie, an dem die Ladestation
       // tatsaechlich erreicht wird - dort erfolgt der SoC-Farbsprung
-      // (Ankunft -> Ziel). Bevorzugt der vom Backend exakt gelieferte Index
+      // (arrival -> destination). Prefers the index exactly provided by the backend
       // (siehe `ResolvedDetour.stationIndex`/`_step_lade_detours_routen`);
       // eine Naechster-Punkt-Suche waere bei Autobahnkreuzen mit nah
       // beieinander liegenden Rampen unzuverlaessig (findet ggf. eine andere,

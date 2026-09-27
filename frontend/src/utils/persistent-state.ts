@@ -17,7 +17,7 @@ function readPersistedState<T>(key: string): T | undefined {
     return JSON.parse(raw) as T;
   } catch {
     // Beschädigter/fremder Wert (z. B. nach manueller Bearbeitung der
-    // DevTools oder einem inkompatiblen Schema-Wechsel) - ignorieren und
+    // DevTools or an incompatible schema change) - ignore and
     // stattdessen den Default verwenden, statt die App zu blockieren.
     return undefined;
   }
@@ -39,7 +39,7 @@ export function usePersistentState<T>(
     return initialValue instanceof Function ? initialValue() : initialValue;
   });
 
-  // Verhindert, dass der allererste Schreibvorgang (identisch mit dem
+  // Prevents the very first write (identical to the
   // gerade gelesenen/initialen Wert) unnötig `localStorage` anfasst.
   const isFirstRender = useRef(true);
 
@@ -53,7 +53,7 @@ export function usePersistentState<T>(
     } catch {
       // z. B. Speicherkontingent überschritten oder Storage deaktiviert -
       // Persistenz ist ein Komfortfeature, ein Fehlschlag darf die
-      // eigentliche Interaktion nicht stören.
+      // actual interaction from being disrupted.
     }
   }, [key, state]);
 

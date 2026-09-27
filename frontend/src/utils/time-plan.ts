@@ -1,4 +1,4 @@
-/** Reiner Zeitplan-Builder: baut aus einem Simulationsergebnis und den
+/** Pure time plan builder: builds from a simulation result and the
  *  Nutzer-Stopps den vereinheitlichten, chronologischen Zeitplan.
  *
  *  Bewusst frei von React/JSX: die Logik ist eine reine, testbare Funktion
@@ -21,8 +21,8 @@ function shortAddress(address: string): string {
   return comma > 0 ? address.slice(0, comma) : address;
 }
 
-/** Gibt eine kurze Anzeigeadresse eines Stopps zurück: Kurzform der Adresse,
- *  sonst gerundete Koordinaten, sonst "(unbekannt)". */
+/** Return a short display address for a stop: short form of the address,
+ *  otherwise rounded coordinates, otherwise "(unknown)". */
 function stopLabel(stop: Stop): string {
   if (stop.address) return shortAddress(stop.address);
   if (stop.position) {
@@ -39,33 +39,33 @@ export interface TimePlanEntry {
   label: string;
   arrival: string | null;
   departure: string | null;
-  /** Gefahrene Strecke seit dem vorherigen Eintrag in km, oder null, wenn der
+  /** Distance driven since the previous entry in km, or null if the
    *  Zeitpunkt dieses oder des vorherigen Eintrags nicht ermittelbar war
    *  (insbesondere der erste Eintrag der Route). */
   distanceSinceLastKm: number | null;
-  /** Fahrzeit seit dem vorherigen Eintrag in Minuten, gleiche
+  /** Driving time since the previous entry in minutes, same
    *  Verfügbarkeitsbedingung wie `distanceSinceLastKm`. */
   durationSinceLastMin: number | null;
-  /** SoC bei Ankunft in %, oder null (z. B. am Start, der keine Ankunft hat). */
+  /** SoC at arrival in %, or null (e.g. at the start which has no arrival). */
   arrivalSocPct: number | null;
-  /** SoC bei Abfahrt in %, oder null (z. B. am Ziel, das keine Abfahrt hat). */
+  /** SoC at departure in %, or null (e.g. at the destination which has no departure). */
   departureSocPct: number | null;
-  /** Während eines Ladehalts geladene Energie in kWh, sonst null. */
+  /** Energy charged in kWh during a charging stop, or null. */
   energyChargedKwh: number | null;
-  /** Geschätzte Kosten dieses Ladehalts, oder null (kein Ladehalt oder keine
+  /** Estimated cost of this charging stop, or null (no charging stop or no
    *  gecachten Preisdaten für die Station vorhanden). */
   estimatedCost: number | null;
   /** ISO-4217-Währung von `estimatedCost`, oder null (siehe `estimatedCost`). */
   costCurrency: string | null;
 }
 
-/** Baut den vereinheitlichten, chronologischen Zeitplan aus Stopps, Ladehalten
- *  und erkannten Fähren, sortiert nach Ankunft (Stopps ohne Ankunft, z. B.
- *  der Start, werden nach ihrer Abfahrt einsortiert). Fähren ohne vom Nutzer
- *  vorgegebene Zeit erhalten eine geschätzte Ankunfts-/Abfahrtszeit anhand
- *  ihrer Bounding-Box-Mitte (siehe `estimatePositionTiming`), damit auch sie
- *  chronologisch einsortiert werden können (gleiches Vorgehen wie in
- *  `route-entries.ts` für die Routen-Hoverkarte).
+/** Build the unified, chronological time plan from stops, charging stops
+ *  and detected ferries, sorted by arrival (stops without arrival, e.g.
+ *  the start, are sorted by their departure). Ferries without a user-specified
+ *  time get an estimated arrival/departure time based on
+ *  their bounding box center (see `estimatePositionTiming`), so they can also
+ *  be sorted chronologically (same approach as in
+ *  `route-entries.ts` for the route hover card).
  *
  * Ergänzt für jeden Eintrag (soweit ermittelbar) die seit dem vorherigen
  * Eintrag gefahrene Strecke/Zeit sowie den SoC bei Ankunft/Abfahrt, indem der

@@ -15,9 +15,9 @@ import {
  */
 const ROW_GAP = "0.85rem";
 
-/** Ein Eintrag der vertikalen Routen-Timeline: Icon-Marker links (auf der
- *  durchgehenden Linie, analog gängiger "Tracking-Timeline"-Komponenten) +
- *  beliebiger Inhalt (Stopp-/Ladehalt-/Fähren-Karte) rechts. */
+/** An entry in the vertical route timeline: icon marker on the left (on the
+ *  continuous line, analogous to common "tracking timeline" components) +
+ *  arbitrary content (stop/charging stop/ferry card) on the right. */
 export function TimelineRow({
   icon: Icon,
   background,
@@ -58,17 +58,17 @@ export function TimelineRow({
   );
 }
 
-/** Kleines, auf dem oberen bzw. unteren Kartenrahmen "überhängendes" Badge mit
- *  Uhrzeit (und optional SoC, für Ladehalte) - überlagert die Rahmenlinie
- *  statt zusätzlichen vertikalen Platz im Karten-Layout zu beanspruchen
- *  (`position: absolute`, kein Einfluss auf die Kartenhöhe). Der umgebende
- *  Karten-Container braucht dafür `position: relative`. Wird nur gerendert,
- *  wenn eine Zeit bekannt ist ("wo anwendbar", siehe Aufrufer). `datumKurz`
- *  ergänzt bei Bedarf das Datum (z. B. wenn Ankunft und Abfahrt DESSELBEN
- *  Eintrags auf unterschiedliche Kalendertage fallen, siehe
- *  `istTageswechsel`-Aufrufe in den Aufrufern). */
+/** Small badge "hanging" on the top or bottom map frame with
+ *  time (and optional SoC, for charging stops) - overlays the frame line
+ *  instead of claiming additional vertical space in the map layout
+ *  (`position: absolute`, no effect on map height). The surrounding
+ *  map container needs `position: relative` for this. Only rendered
+ *  when a time is known ("where applicable", see caller). `dateShort`
+ *  adds the date if needed (e.g. when arrival and departure of THE SAME
+ *  entry fall on different calendar days, see
+ *  `isDayChange` calls in callers). */
 export function TimeBadge({
-  edge: kante,
+  edge,
   iso,
   socPct,
   showDate = false,
@@ -81,7 +81,7 @@ export function TimeBadge({
   showTime?: boolean;
 }) {
   const edgeStyle =
-    kante === "oben"
+    edge === "oben"
       ? { top: 0, left: "0.75rem", transform: "translateY(-50%)" }
       : { bottom: 0, right: "0.75rem", transform: "translateY(50%)" };
   let _iso = undefined;
@@ -116,19 +116,19 @@ export function TimeBadge({
   );
 }
 
-/** Kompakter Tageswechsel-Trenner in der Routen-Timeline: dünne Linie mit
- *  den beiden angrenzenden Kalendertagen (vorheriger Tag oben, neuer Tag
- *  unten) in kleiner Schrift - bewusst knapp gehalten, um in der Liste kaum
- *  zusätzlichen vertikalen Platz zu beanspruchen (siehe `istTageswechsel`).
- *  Trägt wie `TimelineRow` einen eigenen Icon-Marker auf der Timeline-Linie,
- *  damit der Tageswechsel dort selbst sofort erkennbar ist statt nur an der
- *  kleinen Schrift. Wird nur zwischen zwei Einträgen OHNE Fahrsegment
- *  dazwischen gerendert (siehe `TagestrennerEintrag`-Docstring in
- *  `route-entries.ts` - mit Fahrsegment wird der Tageswechsel stattdessen
- *  in dessen Zeile kombiniert, siehe `FahrsegmentZeile`). */
+/** Compact day-change separator in the route timeline: thin line with
+ *  the two adjacent calendar days (previous day on top, new day
+ *  on bottom) in small font - deliberately kept brief to use barely any
+ *  additional vertical space in the list (see `isDayChange`).
+ *  Carries its own icon marker on the timeline line like `TimelineRow`,
+ *  so the day change is immediately recognizable there instead of only in
+ *  the small font. Only rendered between two entries WITHOUT a driving segment
+ *  in between (see `DayChangeEntry` docstring in
+ *  `route-entries.ts` - with a driving segment the day change is instead
+ *  combined in its row, see `DrivingSegmentRow`). */
 export function DaySeparator({
-  previousIso: vorherigeIso,
-  currentIso: aktuelleIso,
+  previousIso,
+  currentIso,
 }: {
   previousIso: string;
   currentIso: string;
@@ -171,11 +171,11 @@ export function DaySeparator({
         }}
       >
         <span style={{ fontSize: "0.65rem", lineHeight: 1, color: "#9ca3af" }}>
-          {formatShortDate(vorherigeIso)}
+          {formatShortDate(previousIso)}
         </span>
         <div style={{ width: "100%", height: "1px", background: "#e5e7eb" }} />
         <span style={{ fontSize: "0.65rem", lineHeight: 1, color: "#9ca3af" }}>
-          {formatShortDate(aktuelleIso)}
+          {formatShortDate(currentIso)}
         </span>
       </div>
     </li>
@@ -189,17 +189,17 @@ export function DaySeparator({
  *  (nur das blasse Icon direkt auf der Timeline-Linie), einzeilig statt
  *  mehrzeilig - repräsentiert schließlich nur die Verbindung dazwischen,
  *  nicht einen eigenen Stopp. Überspannt das Fahrsegment einen Tageswechsel
- *  (`tageswechsel` gesetzt), werden Strecke, Zeit UND beide Kalendertage in
+ *  (`dayChange` gesetzt), werden Strecke, Zeit UND beide Kalendertage in
  *  dieser einen Zeile kombiniert, statt zusätzlich einen separaten
  *  `Tagestrenner` zu rendern. */
 export function DriveSegmentRow({
   distanceKm: distanceKm,
   durationMin: durationMin,
-  dayChange: tageswechsel,
+  dayChange,
 }: {
   distanceKm: number;
   durationMin: number;
-  dayChange?: { vonIso: string; bisIso: string };
+  dayChange?: { fromIso: string; toIso: string };
 }) {
   return (
     <li
@@ -228,11 +228,11 @@ export function DriveSegmentRow({
         <span style={{ fontSize: "0.7rem", color: "#9ca3af" }}>
           {formatDrivingSegmentDistance(distanceKm)} ·{" "}
           {formatDrivingSegmentDuration(durationMin)}
-          {tageswechsel && (
+          {dayChange && (
             <>
               {" · "}
-              {formatShortDate(tageswechsel.vonIso)} →{" "}
-              {formatShortDate(tageswechsel.bisIso)}
+              {formatShortDate(dayChange.fromIso)} →{" "}
+              {formatShortDate(dayChange.toIso)}
             </>
           )}
         </span>

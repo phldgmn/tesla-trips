@@ -21,10 +21,9 @@ export function createEmptyStop(): Stop {
   return { id: crypto.randomUUID(), address: "", position: null };
 }
 
-/** Baut den vollständigen `TripRequestPayload` aus der Stopp-Liste und den
- *  übrigen Formularwerten. Wirft `TripRequestBuildError`, wenn Start/Ziel
- *  keine aufgelöste Position haben (sollte durch `validateStops()` im UI
- *  bereits verhindert sein). */
+/** Build the complete `TripRequestPayload` from the stop list and other
+ *  form values. Throws `TripRequestBuildError` when start/destination
+ *  have no resolved position (should already be prevented by `validateStops()` in the UI). */
 export function buildTripRequestPayload(args: {
   stops: Stop[];
   vehicleProfile: VehicleProfileInput;
@@ -96,10 +95,10 @@ export function buildTripRequestPayload(args: {
   };
 }
 
-/** Validiert die Stopp-Liste und gibt eine Liste von Fehlermeldungen zurück
- *  (leer = keine Fehler). Für Formular-Validierung VOR dem Absenden – die
- *  eigentliche Payload-Erzeugung (`buildTripRequestPayload`) prüft dieselben
- *  Invarianten nochmals defensiv. */
+/** Validate the stop list and return a list of error messages
+ *  (empty = no errors). For form validation BEFORE submission – the
+ *  actual payload generation (`buildTripRequestPayload`) checks the same
+ *  invariants again defensively. */
 export function validateStops(stops: Stop[]): string[] {
   const errors: string[] = [];
   if (stops.length < 2) {

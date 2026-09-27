@@ -40,7 +40,7 @@ export function haversineDistanceM(
   return R * c;
 }
 
-/** Berechnet das Bearing (Vorwärtsazimut) von Punkt a zu Punkt b. */
+/** Calculate the bearing (forward azimuth) from point a to point b. */
 export function bearingDeg(a: [number, number], b: [number, number]): number {
   const [lat1, lon1] = a;
   const [lat2, lon2] = b;
@@ -57,7 +57,7 @@ export function bearingDeg(a: [number, number], b: [number, number]): number {
   return ((θ * 180) / Math.PI + 360) % 360;
 }
 
-/** Interpoliert eine Position entlang einer Linie.
+/** Interpolate a position along a line.
  *
  * @param points Array von Punkten als [lat, lon]
  * @param progress Wert zwischen 0 und 1 (0 = Start, 1 = Ende)

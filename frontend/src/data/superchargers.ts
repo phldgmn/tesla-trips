@@ -1,12 +1,12 @@
 /**
- * Vendorte Supercharger-Stationliste – ausschließlich für den UI-Ladestopp-Picker.
+ * Vendored supercharger station list — exclusively for the UI charging stop picker.
  *
- * Datenquelle: `data/supercharger_snapshot.json` (manuell nachgetippt, kein
- * Build-Schritt, kein fs-Lesen zur Laufzeit). Es handelt sich um eine kleine
- * statische Schnappschuss-Liste, die dem Benutzer nur das Eingeben plausibler
- * Wegepunkte erleichtern soll. Das Backend löst die tatsächchen Ladestopps
- * unabhängig über den `ChargingStationProvider` auf – diese Liste ist daher
- * NICHT autoritativ, sondern eine reine UX-Abkürzung.
+ * Data source: `data/supercharger_snapshot.json` (manually re-typed, no
+ * build step, no fs read at runtime). This is a small
+ * static snapshot list that only lets the user enter plausible
+ * waypoints to be easier. The backend resolves the actual charging stops
+ * independently via the `ChargingStationProvider` – this list is therefore
+ * NOT authoritative, but a pure UX shortcut.
  */
 
 export interface SuperchargerStation {
