@@ -1,70 +1,70 @@
-/** TypeScript-Interfaces für das Visualization-Frontend.
+/** TypeScript interfaces for the frontend visualization.
  *
- * Manuell geschrieben, passend zu den Python-Pydantic-Modellen
- * in tripplanner.simulation.models und tripplanner.optimization.models.
+ * Hand-written to match the Python Pydantic models
+ * in tripplanner.simulation.models and tripplanner.optimization.models.
  *
- * WICHTIG: Koordinaten im Backend sind (lat, lon), für MapLibre müssen
- * sie in [lng, lat] konvertiert werden (siehe geo-utils.ts::toLngLat()).
+ * IMPORTANT: Coordinates in the backend are (lat, lon), MapLibre requires
+ * them converted to [lng, lat] (see geo-utils.ts::toLngLat()).
  */
 
-/** Zustand des Fahrzeugs zu einem Zeitpunkt in der Simulation. */
+/** Vehicle state at a point in the simulation. */
 export type TripState = "FAHREN" | "LADEN" | "PAUSE";
 
-/** Ein einzelner Zeitpunkt in der Reisesimulation. */
+/** A single timepoint in the trip simulation. */
 export interface SimulationFrame {
-  /** Zeitpunkt als ISO-8601 String */
+  /** Timepoint as ISO-8601 string */
   timestamp: string;
-  /** Position als [lat, lon] Tuple in WGS84 */
+  /** Position as [lat, lon] tuple in WGS84 */
   position: [number, number];
-  /** Kumulierte Distanz vom Reisebeginn entlang der Route in Metern */
+  /** Cumulative distance from trip start along the route in meters */
   distanceM: number;
-  /** Ladestand in Prozent */
+  /** Charge level in percent */
   socPct: number;
-  /** Zustand des Fahrzeugs */
+  /** Vehicle state */
   state: TripState;
-  /** Geschwindigkeit in km/h */
+  /** Speed in km/h */
   speedKmh: number;
-  /** Fuer diesen Streckenpunkt angenommene Temperatur in Grad Celsius,
-   *  `null` wenn Wetter bei der Berechnung nicht beruecksichtigt wurde
-   *  (siehe `WeatherDetailLevel` "off"). */
+  /** Assumed temperature in degrees Celsius for this route point,
+   *  `null` if weather was not considered in the calculation
+   *  (see `WeatherDetailLevel` "off"). */
   temperatureC: number | null;
-  /** Fuer diesen Streckenpunkt angenommene Windgeschwindigkeit in m/s,
-   *  `null` wie `temperatur_c`. */
+  /** Assumed wind speed in m/s for this route point,
+   *  `null` like `temperatureC`. */
   windSpeedMs: number | null;
-  /** Fuer diesen Streckenpunkt angenommene Windrichtung in Grad
-   *  (0° = N, 90° = O), `null` wie `temperatur_c`. */
+  /** Assumed wind direction in degrees
+   *  (0° = N, 90° = E), `null` like `temperatureC`. */
   windDirectionDeg: number | null;
-  /** Fuer diesen Streckenpunkt angenommener Niederschlag in mm/h,
-   *  `null` wie `temperatur_c`. */
+  /** Assumed precipitation in mm/h for this route point,
+   *  `null` like `temperatureC`. */
   precipitationMm: number | null;
 }
 
-/** Vollständige Zeitreihe einer Reise. */
+/** Complete trip time series. */
 export interface TripSimulationResult {
-  /** Liste der Simulationsframes */
+  /** List of simulation frames */
   frames: SimulationFrame[];
-  /** Gesamtdistanz in km */
+  /** Total distance in km */
   totalDistanceKm: number;
-  /** Gesamtfahrzeit in Minuten */
+  /** Total driving time in minutes */
   totalDrivingTimeMin: number;
-  /** Gesamtladezeit in Minuten */
+  /** Total charging time in minutes */
   totalChargingTimeMin: number;
-  /** Erzwungene Wartezeit an Zwischenstopps OHNE Ladung, in Minuten (nicht in
-   *  gesamt_fahrzeit_min/gesamt_ladezeit_min enthalten) */
+  /** Forced wait time at waypoints without charging, in minutes (not in
+   *  total_driving_time_min/total_charging_time_min) */
   totalWaitingTimeMin: number;
-  /** Start-SoC in % */
+  /** Starting SoC in % */
   startSocPct: number;
-  /** Ziel-SoC in % */
+  /** Target SoC in % */
   targetSocPct: number;
-  /** Ladehalte (ein Eintrag pro tatsächlichem Halt, nicht pro Frame) */
+  /** Charging stops (one entry per actual stop, not per frame) */
   chargingStops: ChargingStop[];
-  /** Zwischenstopp-Aufenthalte (ein Eintrag pro Aufenthalt, nicht pro Frame) */
+  /** Waypoint stay durations (one entry per stay, not per frame) */
   waypointStops: WaypointStop[];
-  /** Vollstaendige Streckengeometrie der Route als Liste von [lat, lon]-Punkten
-   *  (dichte GraphHopper-Polyline, nicht auf `frames` reduziert - fuer eine
-   *  winkeltreue Kartendarstellung, siehe route-line.ts::buildSplicedRoute()) */
+  /** Full route geometry as a list of [lat, lon] points
+   *  (dense GraphHopper polyline, not reduced to `frames` - for a
+   *  angle-accurate map display, see route-line.ts::buildSplicedRoute()) */
   routeGeometry: [number, number][];
-  /** In der berechneten Route erkannte Fährverbindungen */
+  /** Ferry connections detected in the computed route */
   detectedFerries: FerrySegment[];
   /** Sum of estimated charging costs across all charging stops, grouped by
    *  currency (empty if no stop has cached pricing data; multiple entries if
@@ -73,35 +73,35 @@ export interface TripSimulationResult {
   /** Number of charging stops excluded from `total_charging_cost` because no
    *  pricing data is cached yet for their station */
   chargingStopsMissingPricing: number;
-  /** Baustellen/Sperrungen entlang der Route fuer die Kartendarstellung (leer, falls keine) */
+  /** Construction zones/road closures along the route for map display (empty if none) */
   constructionZones: ConstructionZone[];
 }
 
-/** Ein einzelnes Baustellen-Ereignis, das zu einer ConstructionZone gemergt wurde. */
+/** A single construction zone event merged into a ConstructionZone. */
 export interface ConstructionZoneEvent {
-  /** Art der Sperrung: "fullyClosed" | "partiallyClosed" | "laneClosed" |
+  /** Type of closure: "fullyClosed" | "partiallyClosed" | "laneClosed" |
    *  "temporarySpeedLimit" | "reducedLanes" | "detrourRequired" */
   closureType: string;
-  /** Reduziertes Tempolimit in km/h (null wenn keine Beschraenkung) */
+  /** Reduced speed limit in km/h (null if no restriction) */
   speedLimitKmh: number | null;
-  /** Freitext-Information zur Umleitung (optional) */
+  /** Free-text detour information (optional) */
   detourNotice: string | null;
-  /** Land, in dem die Baustelle liegt: "DE" | "DK" | "SE" */
+  /** Country where the construction zone is located: "DE" | "DK" | "SE" */
   country: string;
-  /** ISO-8601 Startzeitpunkt der Baustelle */
+  /** ISO-8601 start time of the construction zone */
   validFrom: string;
-  /** ISO-8601 Endzeitpunkt der Baustelle (null wenn unbestimmt) */
+  /** ISO-8601 end time of the construction zone (null if indefinite) */
   validTo: string | null;
 }
 
-/** Eine Baustelle/Sperrung entlang der Route (`ConstructionZoneAPI`).
- *  Kann mehrere naeheinanderliegende Ereignisse zusammenfassen. */
+/** A construction zone/road closure along the route (`ConstructionZoneAPI`).
+ *  Can merge multiple adjacent events. */
 export interface ConstructionZone {
-  /** Repraesentative Position der Baustelle als [lat, lon] */
+  /** Representative position of the construction zone as [lat, lon] */
   position: [number, number];
-  /** Liste aller Baustellen-Ereignisse, die zu dieser Marker-Position gemergt wurden */
+  /** List of all construction zone events merged into this marker position */
   events: ConstructionZoneEvent[];
-  /** Laenge der Baustelle in Metern (null wenn nicht bekannt) */
+  /** Length of the construction zone in meters (null if unknown) */
   lengthM: number | null;
 }
 
@@ -114,40 +114,40 @@ export interface ChargingCostByCurrency {
   amount: number;
 }
 
-/** Ein Ladehalt (ChargingStop) aus dem Simulationsergebnis (`/trips`-Response). */
+/** A charging stop (ChargingStop) from the simulation result (`/trips` response). */
 export interface ChargingStop {
-  /** Name der Ladestation */
+  /** Name of the charging station */
   name: string;
-  /** Eindeutige ID der Ladestation (fuer Ladedauer-Vorgaben) */
+  /** Unique ID of the charging station (for charging duration presets) */
   stationId: string;
-  /** Position der Ladestation als [lat, lon] */
+  /** Position of the charging station as [lat, lon] */
   position: [number, number];
-  /** Kumulierte Distanz entlang der Route, an der zur Ladestation abgebogen wird */
+  /** Cumulative distance along the route where the turn to the charging station occurs */
   distanceM: number;
-  /** Echte, ueber GraphHopper geroutete Geometrie von der Route zur Ladestation
-   *  und zurueck als Liste von [lat, lon]-Punkten (leer, falls nicht ermittelbar
-   *  - siehe route-line.ts::buildSplicedRoute()) */
+  /** Real, routed geometry via GraphHopper from the route to the charging station
+   *  and back as a list of [lat, lon] points (empty if not determinable
+   *  - see route-line.ts::buildSplicedRoute()) */
   detourGeometry: [number, number][];
-  /** Index in `route_geometrie`, ab dem `detour_geometrie` die Hauptroute ersetzt
-   *  (null, falls `detour_geometrie` leer ist) */
+  /** Index in `route_geometrie` from which `detour_geometrie` replaces the main route
+   *  (null, if `detour_geometrie` is empty) */
   routeIndexBefore: number | null;
-  /** Index in `route_geometrie`, bis zu dem (inklusive) `detour_geometrie` die
-   *  Hauptroute ersetzt (null, falls `detour_geometrie` leer ist) */
+  /** Index in `route_geometrie` up to which (inclusive) `detour_geometrie` replaces the
+   *  main route (null, if `detour_geometrie` is empty) */
   routeIndexAfter: number | null;
-  /** Index in `detour_geometrie`, an dem die Ladestation tatsaechlich erreicht
-   *  wird (null, falls `detour_geometrie` leer ist) */
+  /** Index in `detour_geometrie` where the charging station is actually reached
+   *  (null, if `detour_geometrie` is empty) */
   detourStationIndex: number | null;
-  /** Ankunfts-SoC in % */
+  /** Arrival SoC in % */
   arrivalSocPct: number;
-  /** Ziel-SoC in % */
+  /** Target SoC in % */
   targetSocPct: number;
-  /** Ladedauer in Sekunden */
+  /** Charging duration in seconds */
   chargingDurationS: number;
-  /** Waehrend des Ladehalts geladene Energiemenge in kWh */
+  /** Energy amount charged in kWh during the charging stop */
   energyChargedKwh: number;
-  /** ISO-8601 Ankunftszeitpunkt an der Station */
+  /** ISO-8601 arrival time at the station */
   arrivalTime: string;
-  /** ISO-8601 Abfahrtszeitpunkt von der Station */
+  /** ISO-8601 departure time from the station */
   departureTime: string;
   /** Applicable Tesla-owner rate per kWh at arrival time, from cached pricing
    *  data (null if no pricing data is cached yet for this station) */
@@ -162,44 +162,44 @@ export interface ChargingStop {
   pricingUpdatedUtc: string | null;
 }
 
-/** Ein Zwischenstopp-Aufenthalt (WaypointStop) aus dem Simulationsergebnis
- *  (`/trips`-Response) - erzwungene Wartezeit an einem Zwischenstopp, optional
- *  mit Ladung ueber eine vor Ort verfuegbare Ladeleistung. */
+/** A waypoint stay (WaypointStop) from the simulation result
+ *  (`/trips` response) - forced wait time at a waypoint, optionally
+ *  with charging via available on-site charging power. */
 export interface WaypointStop {
-  /** Position des Zwischenstopps als [lat, lon] */
+  /** Position of the waypoint stop as [lat, lon] */
   position: [number, number];
-  /** Kumulierte Distanz entlang der Route bei diesem Zwischenstopp */
+  /** Cumulative distance along the route at this waypoint stop */
   distanceM: number;
-  /** ISO-8601 Ankunftszeitpunkt am Zwischenstopp */
+  /** ISO-8601 arrival time at the waypoint stop */
   arrivalTime: string;
-  /** ISO-8601 Zeitpunkt der (erzwungenen) Abfahrt */
+  /** ISO-8601 time of the (forced) departure */
   departureTime: string;
-  /** Genutzte Ladeleistung in kW, null falls nicht geladen wurde */
+  /** Charging power used in kW, null if no charging occurred */
   chargingPowerKw: number | null;
-  /** SoC bei Ankunft in % */
+  /** SoC at arrival in % */
   arrivalSocPct: number;
-  /** SoC bei Abfahrt in % */
+  /** SoC at departure in % */
   targetSocPct: number;
-  /** Waehrend des Aufenthalts geladene Energiemenge in kWh */
+  /** Energy amount charged in kWh during the stay */
   energyChargedKwh: number;
 }
 
-/** Ein Zwischenstopp (Waypoint) mit optionaler Aufenthaltsdauer. */
+/** A waypoint with optional stay duration. */
 export interface Waypoint {
-  /** Position des Zwischenstopps als [lat, lon] */
+  /** Position of the waypoint as [lat, lon] */
   position: [number, number];
-  /** Aufenthaltsdauer in Sekunden (null = kein Zwischenstopp) */
+  /** Stay duration in seconds (null = no waypoint) */
   dwell_time_s: number | null;
 }
 
-/** Eine in der berechneten Route erkannte Fährverbindung (`FerrySegmentAPI`). */
+/** A ferry connection detected in the computed route (`FerrySegmentAPI`). */
 export interface FerrySegment {
   name: string;
   lengthM: number;
   bboxSw: [number, number];
   bboxNe: [number, number];
-  /** Vom Nutzer vorgegebene Abfahrtszeit (ISO-8601), oder null falls ungeplant. */
+  /** Departure time specified by the user (ISO-8601), or null if unplanned. */
   departure: string | null;
-  /** Vom Nutzer vorgegebene Ankunftszeit (ISO-8601), oder null falls ungeplant. */
+  /** Arrival time specified by the user (ISO-8601), or null if unplanned. */
   arrival: string | null;
 }
