@@ -1,4 +1,4 @@
-"""implementation des ChargingStationprovider mit SQLite-DB + supercharge.info-API."""
+"""Implementation of the ChargingStationProvider with SQLite DB + supercharge.info API."""
 
 from __future__ import annotations
 

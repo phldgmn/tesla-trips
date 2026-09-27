@@ -1,4 +1,4 @@
-"""Lokaler Datei-basierter ChargingStationprovider."""
+"""Local file-based ChargingStationProvider."""
 
 from __future__ import annotations
 
@@ -20,16 +20,16 @@ from .spatial import _build_lat_bands, _stations_in_radius
 
 
 class LocalFileChargingStationProvider(ChargingStationProvider):
-    """implementation, die Ladedaten aus einer lokalen JSON-Datei liest.
+    """Implementation that reads charging data from a local JSON file.
 
     For tests and production (as long as no crawler is implemented).
     """
 
     def __init__(self, data_path: Path) -> None:
-        """Initialisiere den provider mit dem Pfad zur JSON-Datei.
+        """Initialize the provider with the path to the JSON file.
 
         Args:
-            data_path: Pfad zur JSON-Datei (z. B. data/supercharger_snapshot.json)
+            data_path: Path to the JSON file (e.g. data/supercharger_snapshot.json)
         """
         self.data_path = data_path
         self._stations: list[ChargingStation] | None = None
@@ -39,7 +39,7 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
         self._lat_bands_source: list[ChargingStation] | None = None
 
     def _load_stations(self) -> list[ChargingStation]:
-        """Laedt und parst die JSON-Datei (lazy)."""
+        """Loads and parses the JSON file (lazy)."""
         if self._stations is not None:
             return self._stations
 
@@ -111,7 +111,7 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
             country_filter: Optionaler Laenderfilter (DE/DK/SE)
 
         Returns:
-            Liste von ChargingStation, sortiert nach distance (aufsteigend)
+            List of ChargingStation, sorted by distance (ascending)
         """
         stations = self._load_stations()
         if self._lat_bands is None or self._lat_bands_source is not stations:
@@ -142,9 +142,9 @@ class LocalFileChargingStationProvider(ChargingStationProvider):
             search_radius_km: Radius um jeden segment-Mittelpunkt
 
         Returns:
-            Dict mapping segment_index -> liste von ChargingStation
+            Dict mapping segment_index -> list of ChargingStation
         """
-        # Importiere route nur hier um Zyklus zu vermeiden
+        # Import route only here to avoid cycle
         result: dict[int, list[ChargingStation]] = {}
         for i, segment in enumerate(route.segments):
             # segment-Mittelpunkt als geo-mittlerer Punkt

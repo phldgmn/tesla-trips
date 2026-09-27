@@ -1,4 +1,4 @@
-"""Gemeinsame Grundlagen: Debug-Log, CurlError, TeslaClient-Protokoll."""
+"""Common foundations: debug logging, CurlError, TeslaClient protocol."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ def _debug_log(log_path: Path | None, msg: str, label: str = "DEBUG") -> None:
 
     Args:
         log_path: Optional additional file path to append the line to.
-        msg: Die Nachricht
+        msg: The message
         label: Label for the line (e.g. "CURL", "HTTP", "JSON")
     """
     _logger.debug("[%s] %s", label, msg)
@@ -65,53 +65,52 @@ the body via ``is_waf_block`` before treating a 200 response as success.
 """
 
 WAF_RETRY_MAX_ATTEMPTS: int = 4
-"""Anzahl Gesamtversuche bei WAF-Block/Rate-Limit, bevor endgueltig
-aufgegeben wird (verifiziertes Muster: neuer Browser-/Session-Fingerprint
-pro Versuch umgeht Akamai zuverlaessiger als ein blosser Retry)."""
+"""Total attempts for WAF block/rate-limit before giving up.
+    A new browser/session fingerprint per attempt bypasses Akamai better than a simple retry."""
 
 WAF_RETRY_BASE_DELAY_S: float = 1.5
-"""Basis-Verzoegerung (Sekunden) fuer den exponentiellen Backoff zwischen
-Retry-Versuchen (siehe ``waf_retry_delay_s``)."""
+"""Base delay (seconds) for exponential backoff between
+retry attempts (see ``waf_retry_delay_s`')."""
 
 
 def is_waf_block(body: str) -> bool:
-    """True, wenn ``body`` wie eine Akamai-WAF-Blockseite aussieht.
+    """True if ``body`` looks like an Akamai WAF block page.
 
     Args:
         body: Response-Body (Text)
 
     Returns:
-        True, wenn ein bekannter Block-Marker im Body vorkommt.
+        True if a known block marker is present in the body.
     """
     return any(marker in body for marker in _WAF_BLOCK_MARKERS)
 
 
 def waf_retry_delay_s(attempt: int) -> float:
-    """Exponentielle Backoff-Verzoegerung vor Retry-Versuch ``attempt``.
+    """Exponential backoff delay before retry attempt ``attempt``.
 
     Args:
         attempt: 1-indizierte Nummer des soeben fehlgeschlagenen Versuchs.
 
     Returns:
-        Verzoegerung in Sekunden vor dem naechsten Versuch.
+        Delay in seconds before the next attempt.
     """
     return float(WAF_RETRY_BASE_DELAY_S * (2 ** (attempt - 1)))
 
 
 class CurlError(Exception):
-    """HTTP-Request fehlgeschlagen (WAF-Block, Rate-Limit, Netzwerkfehler).
+    """HTTP request failed (WAF block, rate limit, network error).
 
-    Gemeinsamer Fehlertyp fuer alle Tesla-Clients (curl_cffi und Safari),
-    damit Aufrufer unabhaengig vom gewaehlten Transport-Mechanismus denselben
-    Exception-Typ abfangen koennen.
+    Common error type for all Tesla clients (curl_cffi and Safari),
+    so callers can catch the same exception type regardless of
+    which transport mechanism was chosen.
     """
 
 
 class TeslaJsonEndpointsMixin:
-    """Fetch-/Parse-Logik fuer die drei oeffentlichen Tesla-Endpunkte.
+    """Fetch/parse logic for the three public Tesla endpoints.
 
-    Transport-unabhaengiger Teil der Tesla-Clients: baut die Request-URLs,
-    parst die JSON-Antworten und orchestriert die Detail-Requests mit
+    Transport-independent part of the Tesla clients: builds the request URLs,
+    parses the JSON responses and orchestrates the detail requests with
     Rate-Limiting. Setzt voraus, dass die Subklasse ``_fetch`` (Roh-Text
     einer URL abrufen), ``_delay`` (Sekunden zwischen Detail-Requests),
     ``CurlError`` (Exception-Typ) und optional ``_debug_log`` bereitstellt.
@@ -119,7 +118,7 @@ class TeslaJsonEndpointsMixin:
     Geteilt von ``TeslaLocationsClient`` (curl_cffi-Transport) und
     ``SafariTeslaClient`` (Safari-Transport via AppleScript), da beide
     dieselben Tesla-Endpunkte ansprechen und sich nur im Transport
-    unterscheiden.
+    distinguish.
     """
 
     BASE_URL: str = "https://www.tesla.com/api/findus"

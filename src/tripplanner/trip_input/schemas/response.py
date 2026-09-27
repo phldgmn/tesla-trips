@@ -54,13 +54,13 @@ def _build_construction_zones_api(
         List of ConstructionZoneAPI markers, each potentially merging nearby
         events.
     """
-    valid_zones: list[ConstructionZone] = [z for z in zones if z.betroffene_segmente]
-    valid_zones.sort(key=lambda z: z.betroffene_segmente[0] if z.betroffene_segmente else 0)
+    valid_zones: list[ConstructionZone] = [z for z in zones if z.affected_segments]
+    valid_zones.sort(key=lambda z: z.affected_segments[0] if z.affected_segments else 0)
 
     construction_zones_api: list[ConstructionZoneAPI] = []
     last_position: Coordinate | None = None
     for zone in valid_zones:
-        first_idx = zone.betroffene_segmente[0]
+        first_idx = zone.affected_segments[0]
         if first_idx < 0 or first_idx >= len(route_segments):
             continue
 
@@ -75,10 +75,10 @@ def _build_construction_zones_api(
                 ConstructionZoneEventAPI(
                     closure_type=zone.closure_type.value,
                     speed_limit_kmh=zone.speed_limit_kmh,
-                    detour_notice=zone.umleitungshinweis,
+                    detour_notice=zone.detour_info,
                     country=zone.land.value,
-                    valid_from=zone.gueltig_von,
-                    valid_to=zone.gueltig_bis,
+                    valid_from=zone.valid_from,
+                    valid_to=zone.valid_until,
                 )
             )
             last_position = zone_position
@@ -92,10 +92,10 @@ def _build_construction_zones_api(
                     ConstructionZoneEventAPI(
                         closure_type=zone.closure_type.value,
                         speed_limit_kmh=zone.speed_limit_kmh,
-                        detour_notice=zone.umleitungshinweis,
+                        detour_notice=zone.detour_info,
                         country=zone.land.value,
-                        valid_from=zone.gueltig_von,
-                        valid_to=zone.gueltig_bis,
+                        valid_from=zone.valid_from,
+                        valid_to=zone.valid_until,
                     )
                 ],
                 length_m=zone.length_m,

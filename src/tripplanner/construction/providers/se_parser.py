@@ -53,28 +53,26 @@ def _parse_trafikverket_situations(
                     else None
                 )
 
-                koordinaten: list[tuple[float, float]] = []
+                coordinates: list[tuple[float, float]] = []
                 if line_wkt:
                     parsed = _parse_wkt_line(line_wkt)
                     if parsed:
-                        koordinaten = parsed
-                if not koordinaten and point_wkt:
+                        coordinates = parsed
+                if not coordinates and point_wkt:
                     pt = _parse_wkt_point(point_wkt)
                     if pt:
-                        koordinaten = [pt]
+                        coordinates = [pt]
 
-                gueltig_von = (
-                    datetime.fromisoformat(start_time) if start_time else datetime.now(UTC)
-                )
-                gueltig_bis = datetime.fromisoformat(end_time) if end_time else None
+                valid_from = datetime.fromisoformat(start_time) if start_time else datetime.now(UTC)
+                valid_until = datetime.fromisoformat(end_time) if end_time else None
 
                 zones.append(
                     DATEXIIConstructionZoneInternal(
                         closure_type=msg_type_value,
-                        gueltig_von=gueltig_von,
-                        gueltig_bis=gueltig_bis,
-                        koordinaten=koordinaten,
-                        umleitungshinweis=message or None,
+                        valid_from=valid_from,
+                        valid_until=valid_until,
+                        coordinates=coordinates,
+                        detour_info=message or None,
                         speed_limit_kmh=None,
                         affected_direction_value=deviation.get("AffectedDirectionValue"),
                     )

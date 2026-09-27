@@ -297,8 +297,8 @@ class ConstructionProviderImpl(ConstructionProvider):
                 route.segments,
                 _SE_BOTH_DIRECTIONS_VALUES,
             )
-            if len(zone.koordinaten) >= 2:
-                length_m: float | None = geodesic_length_m(zone.koordinaten)
+            if len(zone.coordinates) >= 2:
+                length_m: float | None = geodesic_length_m(zone.coordinates)
             elif segment_ids:
                 length_m = sum(
                     route.segments[i].length_m for i in segment_ids if 0 <= i < len(route.segments)
@@ -307,17 +307,17 @@ class ConstructionProviderImpl(ConstructionProvider):
                 length_m = None
             result.append(
                 ConstructionZone(
-                    betroffene_segmente=segment_ids,
+                    affected_segments=segment_ids,
                     speed_limit_kmh=(
                         zone.speed_limit_kmh
                         if zone.speed_limit_kmh is not None
                         else _DK_SE_ROADWORKS_DEFAULT_SPEED_LIMIT_KMH
                     ),
                     closure_type=matching.map_closure_type(zone.closure_type),
-                    umleitungshinweis=zone.umleitungshinweis,
+                    detour_info=zone.detour_info,
                     land=land,
-                    gueltig_von=zone.gueltig_von,
-                    gueltig_bis=zone.gueltig_bis,
+                    valid_from=zone.valid_from,
+                    valid_until=zone.valid_until,
                     length_m=length_m,
                 )
             )

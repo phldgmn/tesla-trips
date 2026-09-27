@@ -1,4 +1,4 @@
-"""HTTP-Client fuer die oeffentliche Tesla Locations-API via nodriver."""
+"""HTTP client for the public Tesla Locations API via nodriver."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ class NodriverBrowserFetcher:
     _NAVIGATION_TIMEOUT_S: float = 15.0
 
     def _thread_main(self) -> None:
-        """Laesst die eigene Event-Loop des Daemon-Threads laufen."""
+        """Runs the daemon thread's own event loop."""
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
         try:
@@ -80,7 +80,7 @@ class NodriverBrowserFetcher:
         self._closed = False
 
     def _ensure_started(self) -> asyncio.AbstractEventLoop:
-        """Startet den Daemon-Thread (idempotent) und liefert dessen Loop."""
+        """Starts the daemon thread (idempotent) and returns its loop."""
         if self._thread is None or not self._thread.is_alive():
             self._loop = None  # type: ignore[assignment]
             self._thread = threading.Thread(

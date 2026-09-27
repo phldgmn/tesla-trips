@@ -165,7 +165,7 @@ class GraphHopperClient:
         return result
 
     async def close(self) -> None:
-        """Schliesst den HTTP Client."""
+        """Closes the HTTP client."""
         await self._client.aclose()
 
     async def __aenter__(self) -> GraphHopperClient:
@@ -173,5 +173,5 @@ class GraphHopperClient:
         return self
 
     async def __aexit__(self, *args: object) -> None:
-        """Verlaesst den async Context-Manager und schliesst den HTTP-Client."""
+        """Exits the async context manager and closes the HTTP client."""
         await self.close()

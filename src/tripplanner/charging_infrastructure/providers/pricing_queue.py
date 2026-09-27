@@ -1,4 +1,4 @@
-"""Pricing-Queue-Mixin fuer TeslaChargingStationprovider."""
+"""Pricing queue mixin for TeslaChargingStationProvider."""
 
 from __future__ import annotations
 
@@ -17,24 +17,24 @@ from ..pricing import PricingParseError, parse_pricing_tiers
 
 
 class CachedPricing(NamedTuple):
-    """Gespeicherte Preisdaten einer Station."""
+    """Stored pricing data for a station."""
 
     tiers: list[ChargingPricingTier]
-    """Preistiers, leer wenn nie gescraped oder Station ohne veroeffentlichte Preise."""
+    """Pricing tiers, empty if never scraped or station has no published prices."""
     updated_utc: datetime | None
-    """timestamp der juengsten gespeicherten Preiszeile, None wenn nie gescraped."""
+    """timestamp of the most recently saved price line, None if never scraped."""
 
 
 class PricingQueueDrainResult(NamedTuple):
-    """Ergebnis eines Warteschlangen-Laufs."""
+    """Result of a queue run."""
 
     refreshed: list[str]
-    """Slugs, deren Preisdaten erfolgreich aktualisiert wurden."""
+    """Slugs whose pricing data was successfully updated."""
     skipped_fresh: list[str]
-    """Slugs, die bereits aktuell waren (defensiv erneut geprueft, siehe
+    """Slugs that were already up-to-date (defensively re-checked, see
     `drain_pricing_queue`) und daher nicht erneut abgerufen wurden."""
     failed: list[tuple[str, str]]
-    """(Slug, Fehlermeldung)-Paare fehlgeschlagener Scrape-Versuche."""
+    """(Slug, error message) pairs of failed scrape attempts."""
 
 
 # Maximales Alter gespeicherter Preisdaten, bevor eine Station fuer ein
@@ -49,7 +49,7 @@ class PricingQueueMixin:
     Diese Methoden greifen ueber ``self._db``, ``self.PRICING_MAX_AGE``,
     ``self._SLUG_RESOLUTION_MAX_DISTANCE_M`` und ``self._debug_log`` auf
     Attribute des provider-Objekts zu (kein eigener Zustand), daher als
-    Mixin statt als eigene Klasse.
+    mixin rather than a standalone class.
     """
 
     _db: SQLiteDatabase  # vom Provider gesetzt
@@ -70,7 +70,7 @@ class PricingQueueMixin:
                 Fallback).
 
         Returns:
-            Die interne `supercharge_info_id`, oder None wenn unbekannt.
+            The internal `supercharge_info_id`, or None if unknown.
         """
         record = self._db.find_station_by_slug(station_id)
         if record is None and station_id.isdigit():
@@ -100,7 +100,7 @@ class PricingQueueMixin:
 
         Returns:
             Der aufgeloeste `location_url_slug`, oder `None` wenn kein
-            Standort innerhalb von `_SLUG_RESOLUTION_MAX_DISTANCE_M` liegt.
+            location within `_SLUG_RESOLUTION_MAX_DISTANCE_M` is located.
         """
         country = record.get("country_code", "")
         if not country:
@@ -173,7 +173,7 @@ class PricingQueueMixin:
                 wenn eine numerische ID nicht zu einem Tesla-Slug aufgeloest
                 werden konnte.
             PricingParseError: Wenn die response kein auswertbares
-                `chargerPricing` enthaelt (siehe `parse_pricing_tiers`).
+                `chargerPricing` contains (see `parse_pricing_tiers`).
         """
         supercharge_info_id = self._resolve_supercharge_info_id(slug)
         if supercharge_info_id is None:

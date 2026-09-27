@@ -1,4 +1,4 @@
-"""HTTP-Client fuer die oeffentliche Tesla Locations-API via curl_cffi."""
+"""HTTP client for the public Tesla Locations API via curl_cffi."""
 
 from __future__ import annotations
 
@@ -23,21 +23,21 @@ from .common import (
 
 
 class TeslaLocationsClient(TeslaJsonEndpointsMixin):
-    """HTTP-Client fuer die oeffentliche Tesla Locations-API via curl_cffi.
+    """HTTP client for the public Tesla Locations API via curl_cffi.
 
-    Uses ``curl_cffi.AsyncSession`` mit JA3/TLS-Fingerprint-Impersonation
-    (Chrome 150), um den Akamai WAF von tesla.com zu umgehen. Der
-    ``impersonate``-Preset generiert automatisch die korrekten HTTP/2
-    Header sequence and User-Agent — manuell gesetzte Header (wie die
-    alten ``_CURL_HEADERS``) sind nicht more noetig, koennen aber zur
-    Ueberschreibung uses werden.
+    Uses ``curl_cffi.AsyncSession`` with JA3/TLS-Fingerprint-impersonation
+    (Chrome 150) to bypass the Akamai WAF on tesla.com. The
+    ``impersonate`` preset automatically generates the correct HTTP/2
+    header sequence and User-Agent — manually set headers (like the
+    old ``_CURL_HEADERS``) are no longer needed, but can be used for
+    overriding.
 
-    Ein ``AsyncSession``-Objekt wird pro Client-Instanz erzeugt und
-    ueber alle Requests hinweg wiederuses, was Cookie-Jar-Tracking,
-    TCP-Connection-Pooling und HTTP/2-Stream-Multiplexing aktiviert.
+    An ``AsyncSession`` object is created per client instance and
+    reused across all requests, which enables cookie-jar tracking,
+    TCP connection pooling and HTTP/2 stream multiplexing.
 
-    Die drei oeffentlichen Endpunkte (fetch_locations, fetch_location_details,
-    fetch_pricing_html) sowie deren Orchestrierung (fetch_all_supercharger_details)
+    The three public endpoints (fetch_locations, fetch_location_details,
+    fetch_pricing_html) and their orchestration (fetch_all_supercharger_details)
     sind in ``TeslaJsonEndpointsMixin`` geteilt; diese Klasse liefert nur den
     curl_cffi-Transport (``_fetch``).
 
@@ -48,7 +48,7 @@ class TeslaLocationsClient(TeslaJsonEndpointsMixin):
     """
 
     _IMPERSONATE: str = "chrome150"
-    """curl_cffi Browser-Fingerprint-Preset, das dem macOS-System-curl mit
+    """curl_cffi browser fingerprint preset that matches macOS system curl with
     SecureTransport entspricht (TLS JA3/HTTP2 Fingerabdruck)."""
 
     _BASE_HEADERS: ClassVar[dict[str, str]] = {
@@ -63,13 +63,13 @@ class TeslaLocationsClient(TeslaJsonEndpointsMixin):
         #            "6.759859256346627%2C-151.9303457125"
         #        ),
     }
-    """Zusaetzliche Header, die der Chrome 150-Preset nicht setzt, aber die
+    """Additional headers that the Chrome 150 preset does not set, but the
     Tesla API erwartet (z.B. ``accept`` und ``accept-language``). Der
     ``sec-ch-ua-*``, ``user-agent`` und ``priority`` Header werden vom
     Impersonation-Preset automatisch injiziert."""
 
     CurlError = CurlError
-    """Alias auf den modulweiten ``CurlError`` (siehe oben)."""
+    """Alias to the module-level ``CurlError`` (see above)."""
 
     def __init__(
         self,
@@ -96,11 +96,11 @@ class TeslaLocationsClient(TeslaJsonEndpointsMixin):
             self._owns_client = False
 
     async def _log_request(self, method: str, url: str) -> None:
-        """Loggt eine request fuer Debug-Zwecke."""
+        """Logs a request for debugging purposes."""
         _debug_log(self._debug_log, f"{method} {url}", label="HTTP")
 
     async def _log_response(self, response: Any, body_preview: str, label: str = "HTTP") -> None:
-        """Loggt eine HTTP-response fuer Debug-Zwecke."""
+        """Logs an HTTP response for debugging purposes."""
         _debug_log(
             self._debug_log,
             f"{label} {response.request.method} "

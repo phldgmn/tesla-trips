@@ -55,22 +55,22 @@ _TYPING_DELAY_RANGE_S = (0.05, 0.15)
 _PRE_SELECT_DELAY_RANGE_S = (0.4, 1.0)
 
 _HUMAN_FLOW_MAX_ATTEMPTS = 2
-"""Retries innerhalb des (teuren) Human-Flows selbst, bevor - im Fall von
+"""Retries within the (expensive) human flow itself, before - in the case of
 ``fetch_location_details`` - auf den direkten JSON-API-GET der Basisklasse
 zurueckgefallen wird (der wiederum eigene ``WAF_RETRY_MAX_ATTEMPTS`` Versuche
 unternimmt). Niedriger als ``WAF_RETRY_MAX_ATTEMPTS``, weil ein Human-Flow-
 Versuch (Navigation + Tippen + zweite Navigation) deutlich teurer ist als ein
-einzelner JSON-GET."""
+single JSON GET."""
 
 
 def _locale_path(locale: str) -> str:
-    """Wandelt eine Locale (``de_DE``/``de-DE``) in Teslas URL-Pfadsegment.
+    """Converts a locale (``de_DE``/``de-DE``) to Tesla's URL path segment.
 
     Args:
-        locale: Locale-String, z.B. ``de_DE`` oder ``de-DE``.
+        locale: Locale string, e.g. ``de_DE`` or ``de-DE``.
 
     Returns:
-        Kleingeschriebenes Pfadsegment mit Unterstrich, z.B. ``de_de``.
+        Lowercase path segment with underscore, e.g. ``de_de``.
     """
     return locale.replace("-", "_").lower()
 
@@ -82,10 +82,10 @@ async def _collect_responses(
     timeout_s: float,
     debug_log: Any = None,
 ) -> dict[str, str]:
-    """Faengt CDP-Netzwerk-responseen passend zu ``url_markers`` ab.
+    """Captures CDP network responses matching ``url_markers``.
 
-    Registriert CDP-Response-/Ladeende-Handler, fuehrt ``action`` aus und
-    liest den Response-Body jedes passenden Requests bei ``Network.
+    Registers CDP response/load-end handlers, executes ``action`` and
+    reads the response body of each matching request at ``Network.
     loadingFinished`` aus. ``Network.enable`` wird mit
     ``enable_durable_messages=True`` aufgerufen: unser ``action`` loest bei
     ``_run_location_and_charger_details`` typischerweise eine Navigation
@@ -108,7 +108,7 @@ async def _collect_responses(
     Returns:
         Mapping Name -> Response-Body fuer jede erfolgreich gelesene
         response; fehlende Eintraege bei Timeout oder nicht more
-        abrufbarem Body ausgelassen.
+        body that cannot be retrieved is omitted.
     """
     from nodriver import cdp
 
@@ -118,7 +118,7 @@ async def _collect_responses(
     fetch_tasks: list[asyncio.Task[None]] = []
 
     async def capture_body(request_id: Any, name: str) -> None:
-        """Liest den Body sofort aus und traegt ihn bei Erfolg in ``bodies`` ein."""
+        """Reads the body immediately and records it in ``bodies`` on success."""
         try:
             body = await _response_body(tab, request_id)
         except CurlError as e:
@@ -129,7 +129,7 @@ async def _collect_responses(
         bodies[name] = body
 
     def on_response(event: Any) -> None:
-        """Merkt Requests vor, deren URL zu ``url_markers`` passt (bis ``on_finished`` feuert)."""
+        """Memos requests whose URL matches ``url_markers`` (until ``on_finished`` fires)."""
         try:
             resp = getattr(event, "response", None)
             if resp is None:
@@ -146,7 +146,7 @@ async def _collect_responses(
             _logger.debug("requestWillBeSent handler failed", exc_info=True)
 
     def on_finished(event: Any) -> None:
-        """Startet den Body-Abruf, sobald ein vorgemerkter Request fertig geladen ist."""
+        """Starts body retrieval as soon as a memod request has finished loading."""
         try:
             req_id = getattr(event, "request_id", None)
             name = staged.pop(req_id, None)
@@ -270,10 +270,10 @@ async def _run_search(browser: Any, base_url: str, query: str, locale: str, debu
 
 @dataclass(frozen=True)
 class _LocationLookup:
-    """Such-/Auswahlparameter fuer einen Standort-Detail-Human-Flow.
+    """Search/selection parameters for a location detail human flow.
 
-    Buendelt die Argumente fuer ``_run_location_and_charger_details``, um
-    die Argumentanzahl der Funktion small zu halten.
+    Bundles the arguments for ``_run_location_and_charger_details`` to keep
+    the function's argument count small.
     """
 
     location_slug: str
@@ -288,10 +288,10 @@ async def _run_location_and_charger_details(
     lookup: _LocationLookup,
     debug_log: Any,
 ) -> dict[str, str]:
-    """Navigiert Kartenseite -> Suche -> Ergebnisauswahl fuer einen Standort.
+    """Navigates map page -> search -> result selection for a location.
 
-    Liefert die dabei abgefangenen Roh-Bodies von ``get-location-details``
-    und ``get-charger-details``.
+    Returns the raw bodies of ``get-location-details``
+    and ``get-charger-details`` captured during the process.
 
     Args:
         browser: Gestartetes ``nodriver``-``Browser``-Objekt.

@@ -166,7 +166,7 @@ class TestChargingStation:
                 connector_types=[ConnectorType.CCS2],
                 country="DE",
             )
-        assert "max_ladeleistung_kw muss positiv sein" in str(exc_info.value)
+        assert "max_ladeleistung_kw must be positive" in str(exc_info.value)
 
     def test_invalid_max_ladeleistung_too_high(self) -> None:
         """Testet, dass max_ladeleistung_kw > 5000 fehlschlägt."""
@@ -180,7 +180,7 @@ class TestChargingStation:
                 connector_types=[ConnectorType.CCS2],
                 country="DE",
             )
-        assert "unrealistisch high" in str(exc_info.value)
+        assert "unrealistically high" in str(exc_info.value)
 
     def test_invalid_country(self) -> None:
         """Testet, dass ungültiger Ländercode fehlschlägt."""

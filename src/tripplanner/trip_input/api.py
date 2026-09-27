@@ -164,8 +164,8 @@ async def refresh_supercharger(
     Tesla-API liefert keine Access-Control-Allow-Origin-Header, wodurch der
     Browser das Lesen der response unabhaengig vom WAF-Status verweigert.
 
-    Nur ein Scrape laeuft gleichzeitig (`scrape_slot`); wurde die Station
-    vor less als `REFRESH_COOLDOWN` aktualisiert, wird der gespeicherte
+    Only one scrape runs at a time (`scrape_slot`); if the station
+    was updated less than `REFRESH_COOLDOWN` ago, the stored
     Stand ohne Scrape geliefert (Header `X-Cache: HIT`).
 
     Args:
@@ -192,9 +192,9 @@ async def refresh_supercharger(
         try:
             station = await provider.refresh_single_station(slug)
         except TeslaLocationsClient.CurlError as e:
-            raise _opaque_http_error(502, "Tesla API nicht erreichbar", e) from e
+            raise _opaque_http_error(502, "Tesla API unreachable", e) from e
         except ValidationError as e:
-            raise _opaque_http_error(502, "Tesla-Antwort konnte nicht verarbeitet werden", e) from e
+            raise _opaque_http_error(502, "Tesla response could not be processed", e) from e
     if station is None:
         raise HTTPException(
             status_code=404,
@@ -273,9 +273,9 @@ async def refresh_supercharger_pricing(
         except ValueError as e:
             raise HTTPException(status_code=404, detail="Station nicht gefunden") from e
         except TeslaLocationsClient.CurlError as e:
-            raise _opaque_http_error(502, "Tesla API nicht erreichbar", e) from e
+            raise _opaque_http_error(502, "Tesla API unreachable", e) from e
         except PricingParseError as e:
-            raise _opaque_http_error(502, "Preisdaten konnten nicht verarbeitet werden", e) from e
+            raise _opaque_http_error(502, "Pricing data could not be processed", e) from e
     return _cached_pricing_to_api(slug, cached)
 
 
@@ -477,7 +477,7 @@ async def create_trip_endpoint(  # noqa: PLR0913, PLR0917
         # originates from the routing (GraphHopper) call.
         logger.warning("Routing provider (GraphHopper) request failed (502): %s", e)
         raise _opaque_http_error(
-            502, "Routing-Server (GraphHopper) nicht erreichbar oder lieferte einen Fehler", e
+            502, "Routing server (GraphHopper) unreachable or returned an error", e
         ) from e
     except Exception as e:
-        raise _opaque_http_error(500, "Simulation fehlgeschlagen", e) from e
+        raise _opaque_http_error(500, "Simulation failed", e) from e

@@ -41,18 +41,18 @@ from .common import (
 )
 
 _FIND_DOC_TIMEOUT_S: float = 5.0
-"""Max. Wartezeit, bis der new erzeugte Tab unter seiner Ziel-URL in
+"""Max wait time until the newly created tab appears under its target URL in
 ``documents`` auffindbar ist (die URL des Dokuments aktualisiert sich nicht
-synchron mit ``make new document``)."""
+synchronously with ``make new document``)."""
 
 _LOAD_TIMEOUT_S: float = 20.0
-"""Max. Wartezeit auf ``document.readyState == "complete"`` im neuen Tab."""
+"""Max wait time for ``document.readyState == "complete"`` in the new tab."""
 
 _POLL_INTERVAL_S: float = 0.25
-"""interval zwischen den Polling-Versuchen (Tab-Suche und charge_state)."""
+"""interval between polling attempts (tab search and charge state)."""
 
 _OSASCRIPT_TIMEOUT_S: float = 45.0
-"""Hartes Timeout fuer den gesamten ``osascript``-Subprozess (Sicherheitsnetz
+"""Hard timeout for the entire ``osascript`` subprocess (safety net
 falls Safari/AppleScript haengen bleibt)."""
 
 _CLEANUP_TIMEOUT_S: float = 10.0
@@ -63,7 +63,7 @@ bleiben soll."""
 
 
 def _escape_applescript_string(value: str) -> str:
-    """Escaped ``value`` fuer die Einbettung in ein AppleScript-String-Literal."""
+    """Escapes ``value`` for embedding in an AppleScript string literal."""
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
@@ -167,10 +167,10 @@ end tell
 
 
 class SafariTeslaClient(TeslaJsonEndpointsMixin):
-    """HTTP-Client fuer die oeffentliche Tesla Locations-API via echtem Safari.
+    """HTTP client for the public Tesla Locations API via real Safari.
 
-    Uses die bereits laufende, per Nutzer authentifizierte Safari-Instanz
-    (AppleScript/``osascript``), um URLs in einem Hintergrund-Tab zu laden.
+    Uses the already-running, user-authenticated Safari instance
+    (AppleScript/``osascript``) to load URLs in a background tab.
     Kein eigener Browser-Prozess, kein Fokus-Diebstahl, keine Container-
     Netzwerk-Isolation - siehe Modul-Docstring fuer Details.
 

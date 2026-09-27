@@ -1,4 +1,4 @@
-"""Raeumliche Index-Hilfsfunktionen fuer den Ladedraht-provider."""
+"""Spatial index helper functions for the charging station provider."""
 
 from __future__ import annotations
 
@@ -11,17 +11,17 @@ from ..models import ChargingStation
 _LAT_BAND_KM = 5.0
 """Latitude of the latitude bands for the spatial station index (see
 `_build_lat_bands`/`_stations_in_radius`). small genug, um bei den in der
-Praxis usesen Suchradien (1-15 km, siehe `get_stations_along_route`)
+practical search radii (1-15 km, see `get_stations_along_route`)
 the number of candidates to check per query significantly - regardless
 vom tatsaechlichen `radius_km` einer konkreten query korrekt, da
-`_stations_in_radius` die Anzahl der zu scannenden Baender passend zu
+`_stations_in_radius` the number of bands to scan to match
 `radius_km` berechnet."""
 
 _KM_PER_LAT_DEG = 111.0
-"""Naeherung: 1 latitude ≈ 111 km (global nahezu konstant - anders als 1
-Laengengrad, der mit `cos(lat)` schrumpft). Deshalb Bucketing NUR nach
+"""Approximation: 1 latitude ≈ 111 km (nearly constant globally - unlike 1
+longitude, which shrinks with `cos(lat)`. Hence bucketing ONLY by
 latitude, nicht 2D nach Breiten-/Laengengrad - single und ohne
-breitengradabhaengiges Verzerrungsrisiko."""
+latitude-dependent distortion risk."""
 
 
 def _build_lat_bands(
@@ -30,9 +30,9 @@ def _build_lat_bands(
     """Buckets stations by latitude band for fast radius searches.
 
     Replaces the linear full-scan over ALL stations in
-    `get_stations_in_radius()`: `get_stations_along_route()` ruft diese pro
-    Roh-segment auf (bei feingranularen Routen, z. B. ein segment pro
-    GraphHopper-Polyline-Punktpaar, oft tausende Aufrufe) - ohne Index ein
+    `get_stations_in_radius()`: `get_stations_along_route()` calls this per
+    raw segment (for fine-granular routes, e.g. one segment per
+    GraphHopper polyline point pair, often thousands of calls) - without index a
     O(segmente x Stationen)-Kostenfaktor (siehe docs/plans/07-optimization.md).
     """
     band_deg = band_km / _KM_PER_LAT_DEG

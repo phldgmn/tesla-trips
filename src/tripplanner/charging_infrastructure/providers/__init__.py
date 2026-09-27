@@ -2,12 +2,12 @@
 
 Dieses Paket gruppiert die provider nach Verantwortlichkeit:
 
-- ``spatial``:      Raeumlicher Stations-Index (latitude-Baender).
-- ``record_mapping``: Umwandlung zwischen Tesla-API-data und DB-Records.
+- ``spatial``:      Spatial station index (latitude bands).
+- ``record_mapping``: Conversion between Tesla API data and DB records.
 - ``local_file``:   ``LocalFileChargingStationprovider`` (lokale JSON-Datei).
 - ``fake``:         ``FakeChargingStationprovider`` (Tests).
 - ``pricing_queue``: ``PricingQueueMixin`` fuer den Pricing-Scrape-Queue.
-- ``tesla``:        ``TeslaChargingStationprovider`` (SQLite-DB + API).
+- ``tesla``:        ``TeslaChargingStationProvider`` (SQLite-DB + API).
 """
 
 from .fake import FakeChargingStationProvider

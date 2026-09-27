@@ -8,7 +8,7 @@ all the state that the graph construction needs (`soc_step_pct`,
 in its `__init__` and ports the eight previous private methods of
 `NetworkXOptimizer` (`_generate_graph`, `_schedule`, `_required_departure`,
 `_add_drive_edge`, `_add_ferry_edge`, `_add_charging_edges`,
-`_fuege_ladekante_hinzu`, `_add_waypoint_wait_edge`) as its own
+`_add_charging_edges`, `_add_waypoint_wait_edge`) as its own
 builder methods.
 
 `StateGraphBuilder` is a private implementation detail of

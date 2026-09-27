@@ -1,4 +1,4 @@
-"""Mapping-Funktionen fuer die Umwandlung zwischen Tesla-API-data und DB-Records."""
+"""Mapping functions for conversion between Tesla API data and DB records."""
 
 from __future__ import annotations
 
@@ -19,10 +19,10 @@ _POWER_V3_ULTRA_MAX = 350
 
 
 def site_to_db_record(site: dict[str, Any]) -> dict[str, Any]:
-    """Wandelt ein supercharge.info-Site-Dict in ein DB record dict um.
+    """Converts a supercharge.info site dict to a DB record dict.
 
     Args:
-        site: Roh-Dict von der supercharge.info-API
+        site: Raw dict from the supercharge.info API
 
     Returns:
         DB record dict for replace_all_stations
@@ -65,14 +65,14 @@ def tesla_location_to_db_record(
 ) -> dict[str, Any]:
     """Wandelt einen Tesla-Locations-Listeneintrag in ein DB record dict.
 
-    Wird uses wenn keine Detaildaten verfuegbar sind.
+    Is used when no detail data is available.
 
     Args:
         loc: Dict aus fetch_locations() (mit _slug und _uuid als Fallback)
         country: ISO-2 Laendercode
 
     Returns:
-        DB record dict mit verfuegbaren Feldern
+        DB record dict with available fields
     """
     uuid_str: str = loc.get("_uuid", loc.get("uuid", "0"))
     supercharge_info_id = parse_int(uuid_str, 0)
@@ -103,7 +103,7 @@ def tesla_location_to_db_record(
 
 
 def parse_int(value: Any, default: int = 0) -> int:
-    """Versucht einen Wert als int zu parsen, Fallback auf default."""
+    """Attempts to parse a value as int, fallback to default."""
     try:
         return int(value)
     except (ValueError, TypeError):
@@ -114,10 +114,10 @@ def tesla_coords(
     sc: dict[str, Any],
     key_data: dict[str, Any],
 ) -> tuple[float, float]:
-    """Extrahiert Koordinaten aus Tesla-API-Detail.
+    """Extracts coordinates from Tesla API detail.
 
-    Bevorzugt actual_latitude/actual_longitude aus supercharger_function,
-    fallback auf geo_point aus key_data.
+    Prefers actual_latitude/actual_longitude from supercharger_function,
+    falls back to geo_point from key_data.
     """
     lat_str: str = sc.get("actual_latitude", "")
     lon_str: str = sc.get("actual_longitude", "")
@@ -134,7 +134,7 @@ def tesla_detail_to_db_record(
     detail: dict[str, Any],
     country: str,
 ) -> dict[str, Any]:
-    """Wandelt ein Tesla-API-Detail-Dict in ein DB record dict um.
+    """Converts a Tesla API detail dict to a DB record dict.
 
     Args:
         detail: Detail-Dict von fetch_location_details()
@@ -237,7 +237,7 @@ def tesla_detail_to_db_record(
 def db_record_to_charging_station(
     record: dict[str, Any],
 ) -> ChargingStation:
-    """Wandelt ein DB record dict in ein ChargingStation-model um.
+    """Converts a DB record dict to a ChargingStation model.
 
     Args:
         record: DB record dict aus load_stations()

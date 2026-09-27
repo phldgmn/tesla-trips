@@ -1,6 +1,6 @@
 """data models for the construction module: construction zones, closure types, provider protocol.
 
-Alle Koordinaten im Projekt folgen der Konvention: (lat, lon) in Dezimalgrad (WGS84).
+All coordinates in the project follow the convention: (lat, lon) in decimal degrees (WGS84).
 """
 
 import contextlib
@@ -33,40 +33,40 @@ class Land(StrEnum):
 
 
 class ConstructionZone(BaseModel):
-    """Ein construction_zones-Abschnitt mit speed_limit_kmh, closure_type und Umleitungshinweis.
+    """A construction zone section with speed_limit_kmh, closure_type and detour information.
 
     Args:
-        betroffene_segmente: Liste von Routesegment-IDs (0-basiert), die von der
-            construction_zone betroffen sind.
-        speed_limit_kmh: Reduziertes speed_limit_kmh in km/h (None wenn keine
-            Beschraenkung).
-        closure_type: Art der Sperrung/construction_zone.
-        umleitungshinweis: Freitext-Information zur Umleitung (optional).
-        land: Land, in dem die construction_zone liegt.
-        gueltig_von: Startzeitpunkt der construction_zone (ISO 8601).
-        gueltig_bis: Endzeitpunkt der construction_zone (ISO 8601), None wenn
+        affected_segments: List of route segment IDs (0-based) affected by the
+            construction zone.
+        speed_limit_kmh: Reduced speed limit in km/h (None if no
+            restriction).
+        closure_type: Type of closure/construction zone.
+        detour_info: Free-text information about the detour (optional).
+        land: Country in which the construction zone is located.
+        valid_from: Start time of the construction zone (ISO 8601).
+        valid_until: Endzeitpunkt der construction_zone (ISO 8601), None wenn
             unbestimmt.
         length_m: estimated length of the affected road section in meters
             (None wenn nicht berechenbar).
     """
 
-    betroffene_segmente: list[int] = Field(
+    affected_segments: list[int] = Field(
         description="List of RouteSegment IDs (0-based) affected by the construction_zone."
     )
     speed_limit_kmh: Annotated[int | None, Field(ge=0, le=200, default=None)] = Field(
-        description="Reduziertes speed_limit_kmh in km/h (None wenn keine Beschraenkung)."
+        description="Reduced speed limit in km/h (None if no restriction)."
     )
     closure_type: ClosureType = Field(description="Type of closure/construction_zone.")
-    umleitungshinweis: Annotated[str | None, Field(max_length=500, default=None)] = Field(
+    detour_info: Annotated[str | None, Field(max_length=500, default=None)] = Field(
         description="Free-text information about the detour (optional)."
     )
     land: Land = Field(description="Country in which the construction_zone is located.")
-    gueltig_von: datetime = Field(description="Start time of the construction_zone (ISO 8601).")
-    gueltig_bis: Annotated[datetime | None, Field(default=None)] = Field(
-        description="Endzeitpunkt der construction_zone (ISO 8601), None wenn unbestimmt."
+    valid_from: datetime = Field(description="Start time of the construction_zone (ISO 8601).")
+    valid_until: Annotated[datetime | None, Field(default=None)] = Field(
+        description="End time of the construction zone (ISO 8601), None if indefinite."
     )
     length_m: Annotated[float | None, Field(ge=0, default=None)] = Field(
-        description="Geschaetzte length der betroffenen Strassenstrecke in Metern."
+        description="Estimated length of the affected road section in meters."
     )
 
     @model_validator(mode="after")
@@ -87,9 +87,7 @@ class ConstructionZone(BaseModel):
             )
             and self.speed_limit_kmh is None
         ):
-            raise ValueError(
-                f"speed_limit_kmh must be set for closure_type {self.closure_type}."
-            )
+            raise ValueError(f"speed_limit_kmh must be set for closure_type {self.closure_type}.")
         return self
 
 

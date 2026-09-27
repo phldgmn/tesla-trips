@@ -135,7 +135,7 @@ def _parse_autobahn_roadwork(
     )
 
     start_timestamp = entry.get("startTimestamp")
-    gueltig_von = (
+    valid_from = (
         _parse_autobahn_timestamp(start_timestamp) if start_timestamp else datetime.now(UTC)
     )
 
@@ -149,13 +149,13 @@ def _parse_autobahn_roadwork(
     )
 
     return ConstructionZone(
-        betroffene_segmente=[segment_index],
+        affected_segments=[segment_index],
         speed_limit_kmh=_DE_ROADWORKS_DEFAULT_SPEED_LIMIT_KMH,
         closure_type=sperrungstyp,
-        umleitungshinweis=None,
+        detour_info=None,
         land=Land.DE,
-        gueltig_von=gueltig_von,
-        gueltig_bis=None,
+        valid_from=valid_from,
+        valid_until=None,
         length_m=segment_length,
     )
 

@@ -1,9 +1,9 @@
 """Data models for the `charging_infrastructure` module.
 
-Pydantic-modele zur modelierung von Tesla-Supercharger-Stationen,
-    inclusive provider-protocol for abstract data access.
-Alle Koordinaten folgen der Konvention: `Coordinate = tuple[float, float]`
-mit `(lat, lon)` in Dezimalgrad (WGS84).
+Pydantic models for modeling Tesla Supercharger stations,
+    including a provider protocol for abstract data access.
+All coordinates follow the convention: `Coordinate = tuple[float, float]`
+with `(lat, lon)` in decimal degrees (WGS84).
 """
 
 from __future__ import annotations
@@ -22,13 +22,13 @@ class StallType(Enum):
     """Descriptor for the stall type, based on supercharge.info data."""
 
     V2 = "V2"
-    """V2-Supercharger (typisch 150 kW pro Stall)."""
+    """V2 Supercharger (typically 150 kW per stall)."""
     V3 = "V3"
-    """V3-Supercharger (typisch 250 kW pro Stall)."""
+    """V3 Supercharger (typically 250 kW per stall)."""
     V3_ULTRA = "V3Ultra"
-    """V3 Ultra (250 kW pro Stall, teilweise als V3+ bezeichnet)."""
+    """V3 Ultra (250 kW per stall, sometimes referred to as V3+)."""
     V4 = "V4"
-    """V4-Supercharger (bis zu 325 kW pro Post, aktuelle Installationen)."""
+    """V4 Supercharger (up to 325 kW per stall, current installations)."""
 
 
 class ConnectorType(Enum):
@@ -39,7 +39,7 @@ class ConnectorType(Enum):
     CCS2 = "CCS2"
     """Combined Charging System 2 (Type 2 AC + DC)."""
     TYPE2 = "Type2"
-    """Type 2 AC nur (Mennekes)."""
+    """Type 2 AC only (Mennekes)."""
     TFC = "TFC"
     """Tesla Family Charging (Type 2 AC + DC)."""
     CBCC = "CBCC"
@@ -47,25 +47,25 @@ class ConnectorType(Enum):
     TESLA = "Tesla"
     """Tesla Roadster Plug (Nema 14-50)."""
     CHADEMO = "chademo"
-    """CHAdeMO (Japanisch)."""
+    """CHAdeMO (Japanese)."""
     GBDC = "GBDC"
-    """GB/T (Chinesisch)."""
+    """GB/T (Chinese)."""
     GB_T = "GB/T"
-    """GB/T (Chinesisch, alternative Schreibweise)."""
+    """GB/T (Chinese, alternative spelling)."""
     NACS = "NACS"
     """North American Charging Standard (Tesla)."""
 
 
 class ChargingStation(BaseModel):
-    """model einer Tesla Supercharger-Station.
+    """Model of a Tesla Supercharger station.
 
-    Basierend auf supercharge.info JSON-Struktur und OpenChargeMap-Referenzdaten.
-    Koordinaten nach WGS84 (GPS).
+    Based on supercharge.info JSON structure and OpenChargeMap reference data.
+    Coordinates in WGS84 (GPS).
     """
 
     station_id: str = Field(
         ...,
-        description="Eindeutige ID der Station (supercharge.info-GUID oder interner Code)",
+        description="Unique ID of the station (supercharge.info GUID or internal code)",
         min_length=1,
     )
     name: str = Field(
@@ -115,7 +115,7 @@ class ChargingStation(BaseModel):
     @field_validator("coordinate")
     @classmethod
     def validate_coordinate(cls, v: Coordinate) -> Coordinate:
-        """Validiert die Koordinaten (lat: -90..90, lon: -180..180)."""
+        """Validates coordinates (lat: -90..90, lon: -180..180)."""
         lat, lon = v
         MIN_LAT, MAX_LAT = -90.0, 90.0
         MIN_LON, MAX_LON = -180.0, 180.0
@@ -130,17 +130,17 @@ class ChargingStation(BaseModel):
     @field_validator("max_ladeleistung_kw")
     @classmethod
     def validate_max_ladeleistung_kw(cls, v: float) -> float:
-        """Validiert die maximale charging_power (muss positiv und realistisch sein)."""
+        """Validates maximum charging power (must be positive and realistic)."""
         if v <= 0:
-            raise ValueError("max_ladeleistung_kw muss positiv sein")
+            raise ValueError("max_ladeleistung_kw must be positive")
         # Realistischer Maximalwert: V4-Supercharger ~325 kW pro Post * 8 Posts = 2600 kW
         MAX_REALISTIC_KW = 5000.0
         if v > MAX_REALISTIC_KW:
-            raise ValueError("max_ladeleistung_kw scheint unrealistisch high")
+            raise ValueError("max_ladeleistung_kw seems unrealistically high")
         return v
 
     def anzahl_verfuegbare_stalls(self) -> int:
-        """Gesamtanzahl der Stalls unabhaengig vom Typ."""
+        """Total number of stalls regardless of type."""
         return sum(self.stalls.values())
 
     def max_parallel_usability(self) -> int:
@@ -223,7 +223,7 @@ class ChargingPricingTier(BaseModel):
     time_label: str | None = Field(
         default=None,
         description=(
-        'Time window as text, e.g. "4:00 PM - 8:00 PM". None = Flatrate (always valid)'
+            'Time window as text, e.g. "4:00 PM - 8:00 PM". None = Flatrate (always valid)'
         ),
     )
     currency: str = Field(
@@ -235,7 +235,7 @@ class ChargingPricingTier(BaseModel):
     amount: float = Field(
         ...,
         gt=0,
-        description="Preis pro Einheit (z.B. 0.39 EUR/kWh)",
+        description="Price per unit (e.g. 0.39 EUR/kWh)",
     )
     unit: Literal["kWh", "min"] = Field(
         ...,

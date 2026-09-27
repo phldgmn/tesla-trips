@@ -18,10 +18,10 @@ class DATEXIIConstructionZoneInternal(NamedTuple):
     """Internal model for DATEX II parse result (not exported)."""
 
     closure_type: str
-    gueltig_von: datetime
-    gueltig_bis: datetime | None
-    koordinaten: list[tuple[float, float]]
-    umleitungshinweis: str | None
+    valid_from: datetime
+    valid_until: datetime | None
+    coordinates: list[tuple[float, float]]
+    detour_info: str | None
     speed_limit_kmh: int | None
     affected_direction_value: str | None = None
 
@@ -34,14 +34,14 @@ NAMESPACES = {
 
 
 def parse_datexii_xml(xml_content: str, land: Land) -> list[DATEXIIConstructionZoneInternal]:
-    """Parse DATEX II XML und extrahiert Baustelleninformationen.
+    """Parse DATEX II XML and extract construction zone information.
 
     Args:
         xml_content: Raw XML string von DATEX II Feed.
         land: Country (for country-specific mapping logic).
 
     Returns:
-        Liste von DATEXIIConstructionZoneInternal (internal).
+        List of DATEXIIConstructionZoneInternal (internal).
     """
     return _parse_with_elementtree(xml_content, land)
 
@@ -137,19 +137,19 @@ def _parse_situation_record(sr: ET.Element, land: Land) -> DATEXIIConstructionZo
     )
 
     validity_elem = _find_element(sr, ".//validity")
-    gueltig_von = creation_time
-    gueltig_bis: datetime | None = None
+    valid_from = creation_time
+    valid_until: datetime | None = None
 
     if validity_elem is not None:
         time_spec = _find_element(validity_elem, ".//validityTimeSpecification")
         if time_spec is not None:
             start_elem = _find_element(time_spec, ".//overallStartTime")
             if start_elem is not None and start_elem.text:
-                gueltig_von = _parse_datetime(start_elem.text)
+                valid_from = _parse_datetime(start_elem.text)
 
             end_elem = _find_element(time_spec, ".//overallEndTime")
             if end_elem is not None and end_elem.text:
-                gueltig_bis = _parse_datetime(end_elem.text)
+                valid_until = _parse_datetime(end_elem.text)
 
     impact_elem = _find_element(sr, ".//impact")
     speed_limit_kmh: int | None = None
@@ -162,14 +162,14 @@ def _parse_situation_record(sr: ET.Element, land: Land) -> DATEXIIConstructionZo
                 speed_limit_kmh = _delay_band_to_speed(delay_band.text)
 
     locations = _find_element(sr, ".//groupOfLocations")
-    koordinaten: list[tuple[float, float]] = []
+    coordinates: list[tuple[float, float]] = []
 
     if locations is not None:
         # v2.2: gml:coordinates string ("lon lat" pairs, comma-separated)
         coords_elem = _find_element(locations, ".//gml:coordinates")
         coords_elem = coords_elem or _find_element(locations, ".//coordinates")
         if coords_elem is not None and coords_elem.text:
-            koordinaten = _parse_coordinates(coords_elem.text, land)
+            coordinates = _parse_coordinates(coords_elem.text, land)
         else:
             # v2.2 fallback: <geographicPosition>/<latitude> + <longitude>
             for gp in locations.iter():
@@ -186,7 +186,7 @@ def _parse_situation_record(sr: ET.Element, land: Land) -> DATEXIIConstructionZo
                     try:
                         lat = float(lat_elem.text)
                         lon = float(lon_elem.text)
-                        koordinaten.append((lat, lon))
+                        coordinates.append((lat, lon))
                     except ValueError:
                         continue
 
@@ -196,7 +196,7 @@ def _parse_situation_record(sr: ET.Element, land: Land) -> DATEXIIConstructionZo
         # Prefer line geometry: gmlLineString → posList (space-separated "lat lon" pairs)
         pos_list_elem = _find_element(loc_ref, ".//posList")
         if pos_list_elem is not None and pos_list_elem.text:
-            koordinaten = _parse_v3_pos_list(pos_list_elem.text)
+            coordinates = _parse_v3_pos_list(pos_list_elem.text)
         else:
             # Fall back to point geometry: coordinatesForDisplay → latitude + longitude
             coords_for_display = _find_element(loc_ref, ".//coordinatesForDisplay")
@@ -212,25 +212,25 @@ def _parse_situation_record(sr: ET.Element, land: Land) -> DATEXIIConstructionZo
                     try:
                         lat = float(lat_elem.text)
                         lon = float(lon_elem.text)
-                        koordinaten = [(lat, lon)]
+                        coordinates = [(lat, lon)]
                     except ValueError:
                         pass
 
     # NRW Mobilitaetsdaten schema variant: posList nested directly under
     # groupOfLocations (e.g. groupOfLocations/linearExtension/linearExtended/
     # gmlLineString/posList) rather than under locationReference.
-    if not koordinaten and locations is not None:
+    if not coordinates and locations is not None:
         pos_list_in_group = _find_element(locations, ".//posList")
         if pos_list_in_group is not None and pos_list_in_group.text:
-            koordinaten = _parse_v3_pos_list(pos_list_in_group.text)
+            coordinates = _parse_v3_pos_list(pos_list_in_group.text)
 
     source_elem = _find_element(sr, ".//source")
-    umleitungshinweis: str | None = None
+    detour_info: str | None = None
 
     if source_elem is not None:
         source_name = _find_element(source_elem, ".//sourceName/value")
         if source_name is not None and source_name.text:
-            umleitungshinweis = source_name.text
+            detour_info = source_name.text
 
     closure_type = xsi_type
     if "Roadworks" in closure_type:
@@ -240,10 +240,10 @@ def _parse_situation_record(sr: ET.Element, land: Land) -> DATEXIIConstructionZo
 
     return DATEXIIConstructionZoneInternal(
         closure_type=closure_type,
-        gueltig_von=gueltig_von,
-        gueltig_bis=gueltig_bis,
-        koordinaten=koordinaten,
-        umleitungshinweis=umleitungshinweis,
+        valid_from=valid_from,
+        valid_until=valid_until,
+        coordinates=coordinates,
+        detour_info=detour_info,
         speed_limit_kmh=speed_limit_kmh,
         affected_direction_value=None,
     )

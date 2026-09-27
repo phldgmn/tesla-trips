@@ -1,4 +1,4 @@
-"""Fake-ChargingStationprovider fuer Unit-Tests."""
+"""Fake ChargingStationProvider for unit tests."""
 
 from __future__ import annotations
 
@@ -23,14 +23,14 @@ if TYPE_CHECKING:
 class FakeChargingStationProvider(ChargingStationProvider):
     """Fake provider for unit tests without file access.
 
-    Liefert feste Testdaten based auf dem Suchparameter.
+    Returns fixed test data based on the search parameter.
     """
 
     def __init__(self, test_stations: list[ChargingStation] | None = None) -> None:
-        """Initialisiere den Fake-provider mit optionalen Test-Stationen.
+        """Initialize the fake provider with optional test stations.
 
         Args:
-            test_stations: Liste von Test-Stationen (default: einige Dummy-Stationen)
+            test_stations: List of test stations (default: some dummy stations)
         """
         if test_stations is None:
             test_stations = [
@@ -89,7 +89,7 @@ class FakeChargingStationProvider(ChargingStationProvider):
         Filtert die eingebenen Test-Stationen nach Radius und Laenderfilter.
         Sortiert nach distance (aufsteigend).
         """
-        # Laenderfilter anwenden
+        # Apply country filter
         stations = self._stations
         if country_filter:
             stations = [s for s in stations if s.country == country_filter]

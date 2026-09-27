@@ -13,11 +13,11 @@ from .common import _debug_log
 class SuperchargeInfoClient:
     """HTTP client for the supercharge.info REST API.
 
-    Den API is public, requires no API key and does not block any
-    einfachen HTTP-Clients (kein WAF). Dokumentierte Endpunkte:
-    - /service/supercharge/allSites   -> vollstaendiger datasatz
-    - /service/supercharge/databaseInfo -> Aenderungs-Timestamp
-    - /service/supercharge/allChanges  -> Delta-Aenderungen
+    The API is public, requires no API key and does not block any
+    simple HTTP clients (no WAF). Documented endpoints:
+    - /service/supercharge/allSites   -> complete dataset
+    - /service/supercharge/databaseInfo -> change timestamp
+    - /service/supercharge/allChanges  -> delta changes
     """
 
     BASE_URL: str = "https://supercharge.info/service/supercharge"
@@ -43,7 +43,7 @@ class SuperchargeInfoClient:
         self._debug_log = debug_log
 
     async def _log_response(self, response: httpx.Response, label: str) -> None:
-        """Loggt eine HTTP-response fuer Debug-Zwecke."""
+        """Logs an HTTP response for debugging purposes."""
         body = response.text[:2000]
         _debug_log(
             self._debug_log,

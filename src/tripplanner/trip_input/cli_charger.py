@@ -116,10 +116,10 @@ def refresh(  # noqa: PLR0913, PLR0917
         count = asyncio.run(_run_refresh())
     except TeslaLocationsClient.CurlError as e:
         typer.echo(
-            f"Tesla API nicht erreichbar: {e}\n"
-            "Hinweis: Die Tesla API ist durch Akamai WAF geschuetzt. "
-            "Bei wiederholten Fehlversuchen wird die IP temporaer "
-            "blockiert.\n"
+            f"Tesla API unreachable: {e}\n"
+            "Note: The Tesla API is protected by Akamai WAF. "
+            "On repeated failures, the IP will be temporarily "
+            "blocked.\n"
             "Alternativ 'charger refresh supercharge-info' nutzen.",
             err=True,
         )
@@ -134,8 +134,8 @@ def refresh(  # noqa: PLR0913, PLR0917
 
     if source == "tesla":
         typer.echo(
-            "Keine Stationen geladen. Die Tesla API ist ggf. nicht "
-            "erreichbar (Rate-Limit oder WAF-Block).\n"
+            "No stations loaded. The Tesla API may not be "
+            "available (rate limit or WAF block).\n"
             "Alternativ: 'charger refresh supercharge-info' "
             "nutzen (kein WAF).",
             err=True,

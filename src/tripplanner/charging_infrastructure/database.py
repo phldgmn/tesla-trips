@@ -1,7 +1,7 @@
 """SQLite database manager for Tesla Supercharger data.
 
-Manages the local SQLite database for Supercharger data from der
-supercharge.info-API. Enthaelt Schema-Definitionen, CRUD-Zugriff und
+Manages the local SQLite database for Supercharger data from the
+supercharge.info API. Contains schema definitions, CRUD access and
 transaction logic for station and pricing data.
 """
 
@@ -62,10 +62,10 @@ class SQLiteDatabase:
     """
 
     def __init__(self, db_path: Path) -> None:
-        """Initialisiert die databank mit dem Pfad zur Datei.
+        """Initializes the database with the path to the file.
 
         Args:
-            db_path: Pfad zur SQLite-databankdatei.
+            db_path: Path to the SQLite database file.
         """
         self._db_path = db_path
         self._initialized: bool = False
@@ -83,10 +83,10 @@ class SQLiteDatabase:
             conn.close()
 
     def initialize(self) -> None:
-        """Erstellt Tabellen und Indizes (idempotent).
+        """Creates tables and indexes (idempotent).
 
-        Erstellt die Tabellen charging_stations, charging_pricing und db_meta
-        sofern sie nicht existieren. Setzt den (persistenten) WAL-Modus.
+        Creates the charging_stations, charging_pricing and db_meta
+        tables if they do not exist. Sets the (persistent) WAL mode.
         """
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn, conn:
@@ -96,7 +96,7 @@ class SQLiteDatabase:
 
     @staticmethod
     def _create_schema(conn: sqlite3.Connection) -> None:
-        """Legt alle Tabellen und Indizes an, sofern sie fehlen."""
+        """Creates all tables and indexes if they are missing."""
         _ = conn.execute("""
             CREATE TABLE IF NOT EXISTS charging_stations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -656,7 +656,7 @@ class SQLiteDatabase:
             return row[0] if row else None
 
     def set_meta(self, key: str, value: str) -> None:
-        """Speichert einen Meta-Wert in der databank.
+        """Stores a meta value in the database.
 
         Args:
         key: The metadata key.
