@@ -10,7 +10,7 @@
 import type { TripSimulationResult } from "../types";
 import type { TripRequestPayload } from "../types/trip-request";
 
-/** Fehler, der bei einer fehlgeschlagenen `/trips`-Anfrage geworfen wird. */
+/** Error thrown when a `/trips` request fails. */
 export class TripApiError extends Error {
   constructor(
     message: string,
@@ -21,7 +21,7 @@ export class TripApiError extends Error {
   }
 }
 
-/** Sendet eine Reiseanfrage an das Backend und liefert das Simulationsergebnis. */
+/** Send a trip request to the backend and return the simulation result. */
 export async function submitTripRequest(
   payload: TripRequestPayload,
   signal?: AbortSignal,
@@ -57,7 +57,7 @@ export async function submitTripRequest(
       // Antwort war kein JSON – leeren body auf Backend-Connectivity prüfen
       if (response.status === 500) {
         detail =
-          "Backend nicht erreichbar oder fehlerhaft. " +
+          "Backend unreachable or faulty. " +
           "Stelle sicher, dass der Server unter http://localhost:8000 läuft " +
           "(siehe README.md für Start-Kommando).";
       }

@@ -1,4 +1,4 @@
-/** API-Client fuer die Supercharger-Endpunkte. */
+/** API client for the supercharger endpoints. */
 
 export interface SuperchargerStation {
   slug: string;
@@ -42,7 +42,7 @@ class ChargingApiError extends Error {
   }
 }
 
-/** Holt alle Supercharger-Stationen aus der Datenbank. */
+/** Fetch all supercharger stations from the database. */
 export async function fetchSuperchargers(
   country?: string,
 ): Promise<SuperchargerStation[]> {
@@ -50,14 +50,14 @@ export async function fetchSuperchargers(
   const response = await fetch(`/api/superchargers${params}`);
   if (!response.ok) {
     throw new ChargingApiError(
-      `Fehler beim Abruf der Supercharger (${response.status})`,
+      `Error fetching superchargers (${response.status})`,
       response.status,
     );
   }
   return response.json() as Promise<SuperchargerStation[]>;
 }
 
-/** Holt Details zu einer einzelnen Supercharger-Station. */
+/** Fetch details for a single supercharger station. */
 export async function fetchSuperchargerDetail(
   slug: string,
 ): Promise<SuperchargerStation> {
@@ -66,23 +66,23 @@ export async function fetchSuperchargerDetail(
   );
   if (!response.ok) {
     if (response.status === 404) {
-      throw new ChargingApiError("Station nicht gefunden", 404);
+      throw new ChargingApiError("Station not found", 404);
     }
     throw new ChargingApiError(
-      `Fehler beim Abruf der Station (${response.status})`,
+      `Error fetching station (${response.status})`,
       response.status,
     );
   }
   return response.json() as Promise<SuperchargerStation>;
 }
 
-/** Aktualisiert eine Supercharger-Station mit frischen Daten von der Tesla API.
+/** Refresh a supercharger station with fresh data from the Tesla API.
  *
- *  Der Abruf laeuft komplett server-seitig (Backend nutzt System-curl mit
- *  Browser-TLS-Fingerprint, um den Akamai-WAF-Block zu umgehen). Ein
- *  direkter Cross-Origin-Fetch aus dem Frontend ist keine Option: die
- *  Tesla-API liefert keinen Access-Control-Allow-Origin-Header, wodurch der
- *  Browser das Lesen der Antwort unabhaengig vom WAF-Status verweigert.
+ *  The fetch runs entirely server-side (backend uses system curl with
+ *  browser TLS fingerprint to bypass the Akamai WAF block). A
+ *  direct cross-origin fetch from the frontend is not an option: the
+ *  Tesla API does not send an Access-Control-Allow-Origin header, causing the
+ *  browser to reject reading the response regardless of WAF status.
  */
 export async function refreshSupercharger(
   slug: string,
@@ -101,7 +101,7 @@ export async function refreshSupercharger(
   return response.json() as Promise<SuperchargerStation>;
 }
 
-/** Liest zwischengespeicherte Preisdaten einer Station, ohne sie neu abzurufen. */
+/** Read cached pricing data for a station without fetching it again. */
 export async function fetchSuperchargerPricing(
   slug: string,
 ): Promise<SuperchargerPricing> {
@@ -110,17 +110,17 @@ export async function fetchSuperchargerPricing(
   );
   if (!response.ok) {
     throw new ChargingApiError(
-      `Fehler beim Abruf der Preisdaten (${response.status})`,
+      `Error fetching pricing data (${response.status})`,
       response.status,
     );
   }
   return response.json() as Promise<SuperchargerPricing>;
 }
 
-/** Scraped aktuelle Preisdaten einer Station von Tesla und speichert sie.
+/** Scrapes current pricing data for a station from Tesla and stores it.
  *
- *  Wie `refreshSupercharger` server-seitig via `TeslaClient`, um den
- *  Akamai-WAF-Block und fehlende CORS-Header der Tesla-API zu umgehen.
+ *  Server-side via `TeslaClient` like `refreshSupercharger`, to bypass
+ *  the Akamai WAF block and missing CORS headers from the Tesla API.
  */
 export async function refreshSuperchargerPricing(
   slug: string,
@@ -132,7 +132,7 @@ export async function refreshSuperchargerPricing(
   if (!response.ok) {
     const detail = await response.text();
     throw new ChargingApiError(
-      detail || `Fehler bei der Preisaktualisierung (${response.status})`,
+      detail || `Error updating pricing (${response.status})`,
       response.status,
     );
   }

@@ -1,9 +1,9 @@
-/** Parsing-Hilfsfunktionen für Nominatim-JSON-Antworten.
+/** Parsing helpers for Nominatim JSON responses.
  *
- * Diese Module sind rein funktional und frei von I/O-Code — sie können
- * ohne Netzwerkanbindung getestet werden. */
+ * These modules are purely functional and free of I/O code — they can
+ * be tested without a network connection. */
 
-/** Liest ein Feld aus einem unbekannten JSON-Wert, falls vorhanden und vom erwarteten Typ. */
+/** Read a field from an unknown JSON value, if present and of the expected type. */
 function readStringField(value: object, field: string): string | null {
   if (field in value) {
     const raw = (value as Record<string, unknown>)[field];
@@ -12,11 +12,11 @@ function readStringField(value: object, field: string): string | null {
   return null;
 }
 
-/** Ein Adressvorschlag aus der Geocoding-Suche. */
+/** An address suggestion from the geocoding search. */
 export interface GeocodeSuggestion {
-  /** Menschenlesbare Adresse (formatiert). */
+  /** Human-readable address (formatted). */
   label: string;
-  /** Aufgelöste Koordinate [lat, lon]. */
+  /** Resolved coordinate [lat, lon]. */
   position: [number, number];
 }
 
@@ -60,7 +60,7 @@ export function formatDisplayAddress(entry: object, fallback: string): string {
   return parts.length > 0 ? parts.join(", ") : fallback;
 }
 
-/** Liest einen einzelnen Nominatim-Ergebniseintrag in einen `GeocodeSuggestion`. */
+/** Parse a single Nominatim result entry into a `GeocodeSuggestion`. */
 export function parseSuggestion(entry: unknown): GeocodeSuggestion | null {
   if (!entry || typeof entry !== "object") return null;
   const latRaw = readStringField(entry, "lat");

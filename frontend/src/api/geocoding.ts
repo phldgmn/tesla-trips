@@ -1,28 +1,28 @@
-/** Adress-Geocoding über die öffentliche OpenStreetMap-Nominatim-API.
+/** Address geocoding via the public OpenStreetMap Nominatim API.
  *
- * Ersetzt manuelle Lat/Lon-Eingabe durch Adresssuche ("Vorwärts-Geocoding":
- * Adresstext → Koordinate) sowie Rückwärts-Auflösung eines Kartenklicks in
- * eine lesbare Adresse ("Reverse-Geocoding": Koordinate → Adresstext).
+ * Replaces manual lat/lon input with address search ("forward geocoding":
+ * address text → coordinate) and reverse resolution of a map click into
+ * a readable address ("reverse geocoding": coordinate → address text).
  *
- * Nominatim-Nutzungsrichtlinie (https://operations.osmfoundation.org/policies/nominatim/):
- * max. 1 Anfrage/Sekunde, aussagekräftiger Referer/User-Agent (der Browser
- * sendet den Referer automatisch). Aufrufer MÜSSEN Anfragen debouncen
- * (siehe `TripPlannerForm.tsx`) und laufende Anfragen bei neuer Eingabe
- * abbrechen (`AbortController`), um die Richtlinie einzuhalten.
+ * Nominatim usage policy (https://operations.osmfoundation.org/policies/nominatim/):
+ * max. 1 request/second, meaningful Referer/User-Agent (the browser
+ * sends the Referer automatically). Callers MUST debounce requests
+ * (see `TripPlannerForm.tsx`) and cancel in-flight requests on new input
+ * (`AbortController`) to comply with the policy.
  */
 
 const NOMINATIM_BASE = "https://nominatim.openstreetmap.org";
 const MIN_QUERY_LENGTH = 3;
 
-/** Ein Adressvorschlag aus der Geocoding-Suche. */
+/** An address suggestion from the geocoding search. */
 export interface GeocodeSuggestion {
-  /** Menschenlesbare Adresse (formatiert). */
+  /** Human-readable address (formatted). */
   label: string;
-  /** Aufgelöste Koordinate [lat, lon]. */
+  /** Resolved coordinate [lat, lon]. */
   position: [number, number];
 }
 
-/** Liest ein Feld aus einem unbekannten JSON-Wert, falls vorhanden und vom erwarteten Typ. */
+/** Read a field from an unknown JSON value, if present and of the expected type. */
 function readStringField(value: object, field: string): string | null {
   if (field in value) {
     const raw = (value as Record<string, unknown>)[field];
@@ -88,7 +88,7 @@ function parseSuggestion(entry: unknown): GeocodeSuggestion | null {
   return { label, position: [lat, lon] };
 }
 
-/** Sucht Adressen, die zu `query` passen. Liefert `[]` für zu kurze Anfragen
+/** Search for addresses matching `query`. Returns `[]` for queries that are too short
  *  oder wenn Nominatim nichts findet. Wirft bei Netzwerk-/HTTP-Fehlern
  *  (außer Abbruch durch `signal`). */
 export async function searchAddress(
@@ -117,7 +117,7 @@ export async function searchAddress(
   return suggestions;
 }
 
-/** Löst eine Koordinate in eine lesbare Adresse auf (z. B. nach Kartenklick/Drag).
+/** Resolve a coordinate into a readable address (e.g. after map click/drag).
  *  Liefert `null`, wenn keine Adresse gefunden wurde oder die Anfrage fehlschlägt
  *  (Aufrufer sollte dann auf die rohen Koordinaten als Anzeigetext zurückfallen). */
 export async function reverseGeocode(
