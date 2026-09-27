@@ -68,7 +68,7 @@ describe("buildTripExportData", () => {
     stops[1].position = [53.55, 9.99];
     const data = buildTripExportData(makeResult(), stops, new Date(0));
     expect(data.version).toBe(TRIP_EXPORT_VERSION);
-    expect(data.title).toBe("Reise Berlin Hbf → 53.5500, 9.9900");
+    expect(data.title).toBe("Berlin Hbf → 53.5500, 9.9900");
   });
 
   it("falls back to role labels for stops without address/position", () => {
@@ -77,7 +77,7 @@ describe("buildTripExportData", () => {
       [createEmptyStop("a"), createEmptyStop("b")],
       new Date(0),
     );
-    expect(data.title).toBe("Reise Start → Ziel");
+    expect(data.title).toBe("Start → Ziel");
   });
 });
 
