@@ -26,51 +26,67 @@ async function bundleSingleFile(
   root: string,
   entry: string,
 ): Promise<{ js: string; css: string }> {
-  const out = await build({
-    configFile: false,
-    root,
-    logLevel: "warn",
-    mode: "production",
-    publicDir: false,
-    plugins: [react()],
-    resolve: {
-      alias: { "@": path.resolve(root, "src") },
-    },
-    define: { "process.env.NODE_ENV": JSON.stringify("production") },
-    build: {
-      write: false,
-      minify: true,
-      sourcemap: false,
-      cssCodeSplit: false,
-      assetsInlineLimit: Number.MAX_SAFE_INTEGER,
-      lib: { entry, formats: ["es"], fileName: () => "bundle.js" },
-    },
-    rolldownOptions: { output: { codeSplitting: false } },
-  });
-  const outputs = (Array.isArray(out) ? out : [out]).map((o) => {
-    if (!o || typeof o !== "object" || !("output" in o)) {
-      throw new Error("trip-export-bundle: unexpected watcher output");
-    }
-    return o.output;
-  });
-  let js = "";
-  const cssParts: string[] = [];
-  for (const item of outputs.flat()) {
-    if (item.type === "chunk") {
-      if (js !== "") {
-        throw new Error(
-          `trip-export-bundle: expected exactly one JS chunk for ${entry}, got 2`,
-        );
+  // The nested build inherits the parent's process.env.NODE_ENV (e.g.
+  // "development" during `vite dev`), which makes @vitejs/plugin-react pick
+  // the dev JSX runtime (jsxDEV) - it crashes in a real browser. `mode:
+  // "production"` alone does NOT reset an already-set NODE_ENV, so force it.
+  const previousNodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = "production";
+  try {
+    const out = await build({
+      configFile: false,
+      root,
+      logLevel: "warn",
+      mode: "production",
+      publicDir: false,
+      plugins: [react()],
+      resolve: {
+        alias: { "@": path.resolve(root, "src") },
+      },
+      define: { "process.env.NODE_ENV": JSON.stringify("production") },
+      build: {
+        write: false,
+        minify: true,
+        sourcemap: false,
+        cssCodeSplit: false,
+        assetsInlineLimit: Number.MAX_SAFE_INTEGER,
+        lib: { entry, formats: ["es"], fileName: () => "bundle.js" },
+      },
+      rolldownOptions: { output: { codeSplitting: false } },
+    });
+    const outputs = (Array.isArray(out) ? out : [out]).map((o) => {
+      if (!o || typeof o !== "object" || !("output" in o)) {
+        throw new Error("trip-export-bundle: unexpected watcher output");
       }
-      js = item.code;
-    } else if (item.type === "asset" && item.fileName.endsWith(".css")) {
-      cssParts.push(String(item.source));
+      return o.output;
+    });
+    let js = "";
+    const cssParts: string[] = [];
+    let chunkCount = 0;
+    for (const item of outputs.flat()) {
+      if (item.type === "chunk") {
+        chunkCount += 1;
+        if (chunkCount > 1) {
+          throw new Error(
+            `trip-export-bundle: expected a single JS chunk for ${entry}, got ${chunkCount}`,
+          );
+        }
+        js = item.code;
+      } else if (item.type === "asset" && item.fileName.endsWith(".css")) {
+        cssParts.push(String(item.source));
+      }
+    }
+    if (chunkCount === 0) {
+      throw new Error(`trip-export-bundle: no JS chunk produced for ${entry}`);
+    }
+    return { js, css: cssParts.join("\n") };
+  } finally {
+    if (previousNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = previousNodeEnv;
     }
   }
-  if (js === "") {
-    throw new Error(`trip-export-bundle: no JS chunk produced for ${entry}`);
-  }
-  return { js, css: cssParts.join("\n") };
 }
 
 /** Plugin providing `virtual:trip-export-bundle` (see module docstring). */
