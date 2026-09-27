@@ -4,7 +4,10 @@ import { toLngLat } from "../../../utils/geo-utils";
 import { refreshSuperchargerPricing } from "../../../api/chargingApi";
 import type { ChargingStop } from "../../../types";
 import { buildChargingStopMarkerElement } from "../markers";
-import { buildChargingStopPopupElement } from "../popups";
+import {
+  buildChargingStopPopupElement,
+  buildChargingStopPopupHtml,
+} from "../popups";
 import type { PricingRefreshState } from "../superchargers";
 import { raiseStopMarkersToTop, type MapRef } from "./map-ref";
 
@@ -29,12 +32,15 @@ async function refreshChargingStopPricing(
 
 /** One marker per actual charging stop (not per charging frame), placed at
  *  the station, with a click popup. Without a known price the popup also
- *  offers a pricing refresh button. */
+ *  offers a pricing refresh button - unless `allowPricingRefresh` is false
+ *  (interactive export: no backend reachable, popup shows the same content
+ *  without the refresh action). */
 export function useChargingStopMarkers(
   mapRef: MapRef,
   isMapLoaded: boolean,
   chargingStops: ChargingStop[] | undefined,
   stopMarkersRef: RefObject<Record<string, Marker>>,
+  allowPricingRefresh = true,
 ): void {
   useEffect(() => {
     const map = mapRef.current;
@@ -42,6 +48,15 @@ export function useChargingStopMarkers(
 
     const markers = chargingStops.map((stop) => {
       const popup = new Popup({ offset: 14 });
+      if (!allowPricingRefresh) {
+        // Same content as the element version, without the pricing-refresh
+        // section/button that calls the backend.
+        popup.setHTML(buildChargingStopPopupHtml(stop));
+        return new Marker({ element: buildChargingStopMarkerElement() })
+          .setLngLat(toLngLat(stop.position))
+          .setPopup(popup)
+          .addTo(map);
+      }
       const render = (state: PricingRefreshState) => {
         popup.setDOMContent(
           buildChargingStopPopupElement(stop, state, () =>
@@ -60,5 +75,5 @@ export function useChargingStopMarkers(
     return () => {
       for (const marker of markers) marker.remove();
     };
-  }, [mapRef, isMapLoaded, chargingStops, stopMarkersRef]);
+  }, [mapRef, isMapLoaded, chargingStops, stopMarkersRef, allowPricingRefresh]);
 }

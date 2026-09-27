@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Map, type Marker } from "maplibre-gl";
+import { Map, type Marker, type StyleSpecification } from "maplibre-gl";
 import { usePersistentState } from "../../utils/persistent-state";
 import type { TripSimulationResult } from "../../types";
 import type { Stop } from "../../types/trip-request";
@@ -31,6 +31,11 @@ interface MapProps {
   superchargerVisible?: boolean;
   /** Toggles the Supercharger overlay. */
   onToggleSuperchargers?: () => void;
+  /** Basemap style; defaults to the local-tile-server `basemapStyle`. */
+  mapStyle?: StyleSpecification;
+  /** Read-only display (interactive export): no marker dragging, no pick
+   *  mode, no Supercharger overlay, no backend pricing refresh. */
+  readOnly?: boolean;
 }
 
 /** Map for planning and for visualizing simulation results.
@@ -52,6 +57,8 @@ export function MapVisualization({
   onStopMove,
   superchargerVisible,
   onToggleSuperchargers,
+  mapStyle,
+  readOnly = false,
 }: MapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
@@ -76,7 +83,7 @@ export function MapVisualization({
 
     const map = new Map({
       container: mapContainerRef.current,
-      style: basemapStyle,
+      style: mapStyle ?? basemapStyle,
       center: initialMapViewRef.current.center,
       zoom: initialMapViewRef.current.zoom,
     });
@@ -108,36 +115,43 @@ export function MapVisualization({
     isMapLoaded,
     simulationResult?.chargingStops,
     stopMarkersRef,
+    // Interactive export: no backend pricing refresh (no backend reachable).
+    !readOnly,
   );
   useStopMarkers(
     mapRef,
     isMapLoaded,
     stops,
     simulationResult?.waypointStops,
-    onStopMove,
+    // Interactive export: markers are not draggable (no state to update).
+    readOnly ? undefined : onStopMove,
     stopMarkersRef,
   );
   const supercharger = useSuperchargerLayer(
     mapRef,
     isMapLoaded,
-    superchargerVisible,
+    // Interactive export: the overlay stays hidden and never fetches
+    // /api/superchargers (no backend reachable).
+    readOnly ? false : superchargerVisible,
   );
 
   // Picking mode: a map click sets the position for `pickingStopId`. The
-  // handler is only registered while `pickingStopId` is set.
+  // handler is only registered while `pickingStopId` is set. Disabled in
+  // read-only display (interactive export).
+  const activePickingStopId = readOnly ? null : pickingStopId;
   useEffect(() => {
     const map = mapRef.current;
     if (!isMapLoaded || !map) return;
     const canvas = map.getCanvas();
 
-    if (!pickingStopId) {
+    if (!activePickingStopId) {
       canvas.style.cursor = "";
       return;
     }
     canvas.style.cursor = "crosshair";
     const onClick = (e: { lngLat: { lat: number; lng: number } }) => {
       // [lat, lon] - project-wide convention
-      onPickPosition?.(pickingStopId, [e.lngLat.lat, e.lngLat.lng]);
+      onPickPosition?.(activePickingStopId, [e.lngLat.lat, e.lngLat.lng]);
     };
     map.on("click", onClick);
 
@@ -145,7 +159,7 @@ export function MapVisualization({
       map.off("click", onClick);
       canvas.style.cursor = "";
     };
-  }, [pickingStopId, isMapLoaded, onPickPosition]);
+  }, [activePickingStopId, isMapLoaded, onPickPosition]);
 
   return (
     <div
@@ -153,41 +167,44 @@ export function MapVisualization({
       ref={mapContainerRef}
       style={{ width: "100%", height: "100%" }}
     >
-      {/* Supercharger toggle */}
-      <button
-        onClick={onToggleSuperchargers}
-        style={{
-          position: "absolute",
-          top: "1rem",
-          left: "1rem",
-          zIndex: 10,
-          padding: "8px 14px",
-          fontSize: "13px",
-          fontWeight: 600,
-          border: "none",
-          borderRadius: "6px",
-          cursor: "pointer",
-          background: superchargerVisible ? "#2563eb" : "#ffffff",
-          color: superchargerVisible ? "#ffffff" : "#333333",
-          boxShadow: "0 1px 6px rgba(0,0,0,0.18)",
-          display: "flex",
-          alignItems: "center",
-          gap: "6px",
-        }}
-      >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill={superchargerVisible ? "#fff" : "#2563eb"}
+      {/* Supercharger toggle - hidden in read-only display (interactive
+          export): the overlay is disabled entirely (see `useSuperchargerLayer`). */}
+      {!readOnly && (
+        <button
+          onClick={onToggleSuperchargers}
+          style={{
+            position: "absolute",
+            top: "1rem",
+            left: "1rem",
+            zIndex: 10,
+            padding: "8px 14px",
+            fontSize: "13px",
+            fontWeight: 600,
+            border: "none",
+            borderRadius: "6px",
+            cursor: "pointer",
+            background: superchargerVisible ? "#2563eb" : "#ffffff",
+            color: superchargerVisible ? "#ffffff" : "#333333",
+            boxShadow: "0 1px 6px rgba(0,0,0,0.18)",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+          }}
         >
-          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-        </svg>
-        Supercharger
-      </button>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill={superchargerVisible ? "#fff" : "#2563eb"}
+          >
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+          </svg>
+          Supercharger
+        </button>
+      )}
 
       {/* Loading indicator */}
-      {supercharger.loading && (
+      {!readOnly && supercharger.loading && (
         <div
           style={{
             position: "absolute",
@@ -207,7 +224,7 @@ export function MapVisualization({
       )}
 
       {/* Error indicator */}
-      {supercharger.error && (
+      {!readOnly && supercharger.error && (
         <div
           style={{
             position: "absolute",

@@ -10,8 +10,10 @@ import { raiseStopMarkersToTop, type MapRef } from "./map-ref";
 /** Draggable start/waypoint/destination markers, kept in sync with `stops`.
  *  Existing markers are moved with `setLngLat` instead of being recreated, to
  *  avoid flicker and losing drag state. Stops without a position (not yet
- *  geocoded) are skipped. Popups are rebuilt on every run so a new simulation
- *  result updates the stay details (see `buildStopPopupHtml`). */
+ *  geocoded) are skipped. Markers are draggable only when `onStopMove` is
+ *  given (absent in the read-only interactive export). Popups are rebuilt on
+ *  every run so a new simulation result updates the stay details (see
+ *  `buildStopPopupHtml`). */
 export function useStopMarkers(
   mapRef: MapRef,
   isMapLoaded: boolean,
@@ -48,15 +50,17 @@ export function useStopMarkers(
       } else {
         const marker = new Marker({
           element: buildMarkerElement(role),
-          draggable: true,
+          draggable: onStopMove !== undefined,
         });
         marker.setLngLat(toLngLat(stop.position));
         marker.setPopup(popup);
-        marker.on("dragend", () => {
-          const ll = marker.getLngLat();
-          // [lat, lon] - project-wide convention (see geo-utils.ts)
-          onStopMove?.(stop.id, [ll.lat, ll.lng]);
-        });
+        if (onStopMove) {
+          marker.on("dragend", () => {
+            const ll = marker.getLngLat();
+            // [lat, lon] - project-wide convention (see geo-utils.ts)
+            onStopMove(stop.id, [ll.lat, ll.lng]);
+          });
+        }
         marker.addTo(map);
         markers[stop.id] = marker;
       }
