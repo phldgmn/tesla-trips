@@ -180,6 +180,11 @@ Further frontend commands: `npm --prefix frontend run build`,
 `npm --prefix frontend run lint`, `npm --prefix frontend run typecheck`,
 `npm --prefix frontend run test`.
 
+After computing a route, "Interaktiven Export herunterladen" (in the trip
+summary) downloads a single self-contained HTML file with the interactive
+map, a read-only route timeline and the detailed "Zeitplan" - open it in any
+browser, no backend needed (the basemap tiles require internet).
+
 ## Documentation
 
 - Functional specification: `docs/01-project-specifications.md` through
