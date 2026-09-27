@@ -1,10 +1,10 @@
-/** Generische Modal-Komponente (Overlay + Panel), ohne Portal.
+/** Generic modal component (overlay + panel), without portal.
  *
  * Wird für alle "versteckten" Bereiche verwendet, die per Button geöffnet
- * werden: Zeitplan (Vollbild), Fahrzeug & Ladestand, Ignorierte Fähren.
+ * are toggled via buttons: Time Plan (fullscreen), Vehicle & SoC, Ignored Ferries.
  * Kein `createPortal` nötig – `position: fixed` legt sich unabhängig von
  * der DOM-Verschachtelung über den gesamten Viewport, solange kein
- * Vorfahre `transform`/`filter`/`will-change` setzt (im gesamten Frontend
+ * ancestor `transform`/`filter`/`will-change` (not the case in the entire frontend
  * nicht der Fall, siehe `App.tsx`/`TripSummary.tsx`).
  */
 
@@ -21,8 +21,8 @@ export interface ModalProps {
   children: ReactNode;
 }
 
-/** Zeigt `children` in einem zentrierten Overlay-Panel, sobald `open` true
- *  ist. Schließt bei Klick auf das Overlay, den ✕-Button oder Escape. */
+/** Shows `children` in a centered overlay panel when `open` is true.
+ *  Closes on click outside, the ✕ button, or Escape. */
 export function Modal({
   open,
   onClose,
@@ -88,7 +88,7 @@ export function Modal({
           <button
             type="button"
             onClick={onClose}
-            aria-label="Schließen"
+            aria-label="Close"
             style={{
               padding: "0.25rem 0.6rem",
               background: "#f3f4f6",

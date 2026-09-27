@@ -1,10 +1,10 @@
-/** Komponente zur Anzeige der Reisezusammenfassung nach der Simulation.
+/** Component for displaying the trip summary after simulation.
  *
  * Zeigt Gesamtdistanz, Fahrzeit, Ladezeit und Start-/Ziel-SoC. Der
- * detaillierte, chronologische "Zeitplan" (alle Stopps, Ladehalte und vom
- * Nutzer terminierten Fähren mit Streckenabschnitten, SoC-Verlauf und
- * geladener Energie) wird platzsparend in einem Vollbild-Modal angezeigt,
- * das über einen Button geöffnet wird (siehe `Modal`).
+ * detailed, chronological "time plan" (all stops, charging stops and
+ * user-terminated ferries with route segments, SoC curve and
+ * charged energy) is displayed space-efficiently in a fullscreen modal,
+ * that is opened via a button (see `Modal`).
  */
 
 import { forwardRef, useImperativeHandle, useEffect, useState } from "react";
@@ -38,14 +38,14 @@ export interface TripSummaryProps {
   onExport?: () => Promise<void>;
 }
 
-/** Kurzadresse: nur der erste Teil vor dem ersten Komma (Stadt oder Straße). */
+/** Short address: only the first part before the first comma (city or street). */
 function shortAddress(address: string): string {
   const comma = address.indexOf(",");
   return comma > 0 ? address.slice(0, comma) : address;
 }
 
-/** Gibt eine kurze Anzeigeadresse eines Stopps zurück: Kurzform der Adresse,
- *  sonst gerundete Koordinaten, sonst "(unbekannt)". */
+/** Return a short display address for a stop: short form of address,
+ *  otherwise rounded coordinates, otherwise "(unknown)". */
 function stopLabel(stop: Stop): string {
   if (stop.address) return shortAddress(stop.address);
   if (stop.position) {
@@ -54,8 +54,8 @@ function stopLabel(stop: Stop): string {
   return "(unbekannt)";
 }
 
-/** Ein Eintrag im vereinheitlichten, chronologischen Zeitplan - entweder ein
- *  Nutzer-Stopp, ein Ladehalt oder eine terminierte Fähre. */
+/** An entry in the unified, chronological time plan - either a
+ *  user stop, a charging stop, or a terminated ferry. */
 export interface TimePlanEntry {
   key: string;
   art: "Stopp" | "Ladehalt" | "Fähre";
@@ -69,11 +69,11 @@ export interface TimePlanEntry {
   /** Fahrzeit seit dem vorherigen Eintrag in Minuten, gleiche
    *  Verfügbarkeitsbedingung wie `distanceSinceLastKm`. */
   durationSinceLastMin: number | null;
-  /** SoC bei Ankunft in %, oder null (z. B. am Start, der keine Ankunft hat). */
+  /** SoC at arrival in %, or null (e.g. at the start which has no arrival). */
   arrivalSocPct: number | null;
   /** SoC bei Abfahrt in %, oder null (z. B. am Ziel, das keine Abfahrt hat). */
   departureSocPct: number | null;
-  /** Während eines Ladehalts geladene Energie in kWh, sonst null. */
+  /** Energy charged in kWh during a charging stop, or null. */
   energyChargedKwh: number | null;
   /** Geschätzte Kosten dieses Ladehalts, oder null (kein Ladehalt oder keine
    *  gecachten Preisdaten für die Station vorhanden). */
@@ -82,13 +82,13 @@ export interface TimePlanEntry {
   costCurrency: string | null;
 }
 
-/** Baut den vereinheitlichten, chronologischen Zeitplan aus Stopps, Ladehalten
- *  und erkannten Fähren, sortiert nach Ankunft (Stopps ohne Ankunft, z. B.
- *  der Start, werden nach ihrer Abfahrt einsortiert). Fähren ohne vom Nutzer
- *  vorgegebene Zeit erhalten eine geschätzte Ankunfts-/Abfahrtszeit anhand
- *  ihrer Bounding-Box-Mitte (siehe `estimatePositionTiming`), damit auch sie
- *  chronologisch einsortiert werden können (gleiches Vorgehen wie in
- *  `route-entries.ts` für die Routen-Hoverkarte).
+/** Build the unified, chronological time plan from stops, charging stops
+ *  and detected ferries, sorted by arrival (stops without arrival, e.g.
+ *  the start, are sorted by their departure). Ferries without a user-specified
+ *  time get an estimated arrival/departure time based on
+ *  their bounding box center (see `estimatePositionTiming`), so they can also
+ *  be sorted chronologically (same approach as in
+ *  `route-entries.ts` for the route hover card).
  *
  * Ergänzt für jeden Eintrag (soweit ermittelbar) die seit dem vorherigen
  * Eintrag gefahrene Strecke/Zeit sowie den SoC bei Ankunft/Abfahrt, indem der
@@ -462,8 +462,8 @@ const TripSummary = forwardRef<TripSummaryRef, TripSummaryProps>(
   },
 );
 
-/** Formatiert eine Distanz in km mit deutscher Locale (Komma statt Punkt),
- *  fest auf eine Nachkommastelle gerundet. */
+/** Format a distance in km with German locale (comma instead of period),
+ *  rounded to exactly one decimal place. */
 export function formatKm(km: number): string {
   return `${km.toLocaleString("de-DE", {
     minimumFractionDigits: 1,
@@ -503,11 +503,11 @@ function formatKwhOrDash(kwh: number | null): string {
   })} kWh`;
 }
 
-/** Formatiert die nach Währung gruppierten Gesamt-Ladekosten
- *  (`TripSimulationResult.total_charging_cost`), z. B. "10,00 € + 40,00 DKK".
- *  Hängt einen Hinweis an, falls für einzelne Ladehalte keine Preisdaten
- *  vorliegen (`charging_stops_missing_pricing`). Ohne jegliche Preisdaten
- *  wird ein entsprechender Platzhaltertext zurückgegeben. */
+/** Format the total charging costs grouped by currency
+ *  (`TripSimulationResult.total_charging_cost`), e.g. "10.00 EUR + 40.00 DKK".
+ *  Appends a note if pricing data is missing for individual charging stops
+ *  (`charging_stops_missing_pricing`). If no pricing data at all
+ *  is available, returns a corresponding placeholder text. */
 export function formatChargingCosts(
   totals: ChargingCostByCurrency[],
   missingPricingCount: number,
