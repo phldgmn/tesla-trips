@@ -26,6 +26,9 @@ import type { Stop } from "../types/trip-request";
 export interface TripSummaryProps {
   result: TripSimulationResult;
   stops: Stop[];
+  /** Creates the interactive HTML export; the button is hidden when absent,
+   *  e.g. inside the export itself. */
+  onExport?: () => Promise<void>;
 }
 
 /** Kurzadresse: nur der erste Teil vor dem ersten Komma (Stadt oder Straße). */
@@ -230,8 +233,10 @@ export function buildTimePlan(
   return sorted;
 }
 
-function TripSummary({ result, stops }: TripSummaryProps) {
+function TripSummary({ result, stops, onExport }: TripSummaryProps) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [eurTotal, setEurTotal] = useState<number | null>(null);
   const [eurBreakdown, setEurBreakdown] = useState<
     Array<{ currency: string; originalAmount: number; eurAmount: number }>
@@ -406,6 +411,50 @@ function TripSummary({ result, stops }: TripSummaryProps) {
       >
         Zeitplan öffnen ({schedule.length} Einträge)
       </button>
+
+      {onExport && (
+        <>
+          <button
+            type="button"
+            disabled={exporting}
+            onClick={() => {
+              setExporting(true);
+              setExportError(null);
+              onExport()
+                .catch((e: unknown) =>
+                  setExportError(e instanceof Error ? e.message : String(e)),
+                )
+                .finally(() => setExporting(false));
+            }}
+            style={{
+              width: "100%",
+              marginTop: "0.5rem",
+              padding: "0.5rem",
+              background: "#f3f4f6",
+              border: "1px solid #d1d5db",
+              borderRadius: "4px",
+              cursor: exporting ? "wait" : "pointer",
+              fontSize: "0.85rem",
+              fontWeight: 600,
+            }}
+          >
+            {exporting
+              ? "Export wird erstellt…"
+              : "Interaktiven Export herunterladen"}
+          </button>
+          {exportError && (
+            <div
+              style={{
+                color: "#ef4444",
+                fontSize: "0.75rem",
+                marginTop: "0.25rem",
+              }}
+            >
+              Export fehlgeschlagen: {exportError}
+            </div>
+          )}
+        </>
+      )}
 
       <Modal
         open={scheduleOpen}

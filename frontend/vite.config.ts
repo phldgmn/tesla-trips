@@ -1,9 +1,10 @@
 import path from "path";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import { tripExportBundle } from "./vite-plugins/trip-export-bundle";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tripExportBundle(import.meta.dirname)],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),

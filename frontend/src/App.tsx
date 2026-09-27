@@ -6,6 +6,7 @@ import { MapVisualization } from "./components/Map";
 import { TripPlannerForm } from "./components/TripPlannerForm";
 import { TripSummary } from "./components/TripSummary";
 import { submitTripRequest, TripApiError } from "./api/tripApi";
+import { downloadTripExport } from "./export/download-export";
 import type { TripSimulationResult } from "./types";
 import type { Stop, TripRequestPayload } from "./types/trip-request";
 
@@ -144,7 +145,11 @@ export function App() {
               boxShadow: "0 2px 12px rgba(0, 0, 0, 0.18)",
             }}
           >
-            <TripSummary result={simulationResult} stops={stops} />
+            <TripSummary
+              result={simulationResult}
+              stops={stops}
+              onExport={() => downloadTripExport(simulationResult, stops)}
+            />
           </div>
         )}
       </div>
