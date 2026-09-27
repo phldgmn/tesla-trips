@@ -1,4 +1,4 @@
-/** Von der Karte persistierter Kartenausschnitt (Mittelpunkt + Zoomstufe). */
+/** Persisted map viewport (center + zoom level). */
 export interface MapViewState {
   center: [number, number];
   zoom: number;

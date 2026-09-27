@@ -28,7 +28,7 @@ function renderRow([label, value]: [string, string]): string {
   );
 }
 
-/** Popup-Text für einen Stopp: Adresse falls vorhanden, sonst Rolle + gerundete Koordinaten. */
+/** Popup text for a stop: address if available, otherwise role + rounded coordinates. */
 export function buildPopupText(stop: Stop, role: StopRole): string {
   if (stop.address) return stop.address;
   if (!stop.position) return roleToLabel(role);
@@ -37,7 +37,7 @@ export function buildPopupText(stop: Stop, role: StopRole): string {
   return `${roleToLabel(role)} (${r(lat)}, ${r(lng)})`;
 }
 
-/** Erzeugt ein gestyltes DOM-Element fuer einen Ladehalt-Marker (Blitz-Symbol).
+/** Create a styled DOM element for a charging stop marker (lightning icon).
  *
  * Ein Marker pro tatsaechlichem Ladehalt (`TripSimulationResult.charging_stops`),
  * nicht pro Simulationsframe - eine Ladepause erzeugt sonst mehrere
@@ -53,7 +53,7 @@ export function formatChargingDuration(seconds: number): string {
   const minutes = totalMinutes % 60;
   return hours > 0 ? `${hours}h ${minutes}min` : `${minutes}min`;
 }
-/** Formatiert eine Laenge in Metern: ab 1000 m in km (eine Dezimalstelle),
+/** Format a length in meters: from 1000 m in km (one decimal place),
  *  darunter als ganze Meter. */
 function formatLength(m: number): string {
   if (m >= 1000) {
@@ -65,16 +65,16 @@ function formatLength(m: number): string {
   return `${Math.round(m)} m`;
 }
 
-/** Popup-HTML fuer einen Ladehalt: Name, Ankunfts-/Ziel-SoC samt Uhrzeit, Dauer, geladene Energie, Preis. */
+/** Popup HTML for a charging stop: name, arrival/target SoC with time, duration, charged energy, price. */
 export function buildChargingStopPopupHtml(stop: ChargingStop): string {
   const rows: [string, string][] = [
-    ["Ankunft", `${stop.arrivalSocPct.toFixed(0)}% SoC`],
-    ["Ankunftszeit", formatTimestamp(stop.arrivalTime)],
+    ["Arrival", `${stop.arrivalSocPct.toFixed(0)}% SoC`],
+    ["Arrival time", formatTimestamp(stop.arrivalTime)],
     ["Abfahrt", `${stop.targetSocPct.toFixed(0)}% SoC`],
-    ["Abfahrtszeit", formatTimestamp(stop.departureTime)],
-    ["Dauer", formatChargingDuration(stop.chargingDurationS)],
+    ["Departure time", formatTimestamp(stop.departureTime)],
+    ["Duration", formatChargingDuration(stop.chargingDurationS)],
     ["Geladen", `${stop.energyChargedKwh.toFixed(1)} kWh`],
-    ["Preis", formatCostOrDash(stop.estimatedCost, stop.currency)],
+    ["Price", formatCostOrDash(stop.estimatedCost, stop.currency)],
   ];
   const rowsHtml = rows.map(renderRow).join("");
   return (
@@ -85,7 +85,7 @@ export function buildChargingStopPopupHtml(stop: ChargingStop): string {
   );
 }
 
-/** Baut ein DOM-Element fuer einen Ladehalt-Popup: identischer Inhalt wie
+/** Build a DOM element for a charging stop popup: identical content to
  *  `buildChargingStopPopupHtml`, ergaenzt um eine Preis-Refresh-Aktion
  *  (`buildPricingSection`, siehe `superchargers.ts`), wenn fuer diesen Halt
  *  noch keine Preisdaten gecacht sind (`stop.price_per_kwh === null`).
@@ -119,8 +119,8 @@ export function buildChargingStopPopupElement(
   return container;
 }
 
-/** Popup-HTML fuer einen Stopp-Marker: Adresse/Rolle als Titel, ergaenzt um
- *  Aufenthalts-Details (Ankunfts-/Abfahrts-SoC und -zeit, ggf. genutzte
+/** Popup HTML for a stop marker: address/role as title, extended with
+ *  stay details (arrival/departure SoC and time, if charging power was
  *  Ladeleistung/geladene Energie), sobald ein passender `WaypointStop` aus
  *  dem Simulationsergebnis vorliegt (erzwungene Wartezeit an diesem Stopp).
  *  Ersetzt zwei vormals getrennte Marker (editierbarer Adress-Marker +
@@ -137,10 +137,10 @@ export function buildStopPopupHtml(
     return `<div style="font-family:system-ui,sans-serif;font-size:13px;">${escapeHtml(title)}</div>`;
   }
   const rows: [string, string][] = [
-    ["Ankunft", `${waypointStop.arrivalSocPct.toFixed(0)}% SoC`],
-    ["Ankunftszeit", formatTimestamp(waypointStop.arrivalTime)],
+    ["Arrival", `${waypointStop.arrivalSocPct.toFixed(0)}% SoC`],
+    ["Arrival time", formatTimestamp(waypointStop.arrivalTime)],
     ["Abfahrt", `${waypointStop.targetSocPct.toFixed(0)}% SoC`],
-    ["Abfahrtszeit", formatTimestamp(waypointStop.departureTime)],
+    ["Departure time", formatTimestamp(waypointStop.departureTime)],
   ];
   if (waypointStop.chargingPowerKw !== null) {
     rows.push([
@@ -158,10 +158,10 @@ export function buildStopPopupHtml(
   );
 }
 
-/** Findet den `WaypointStop` (falls vorhanden), dessen Position mit `position`
- *  uebereinstimmt (innerhalb einer kleinen Toleranz gegen Fliesskomma-
- *  Rundung) - verknuepft einen editierbaren `Stop` mit seinen berechneten
- *  Aufenthalts-Details, da `WaypointStop` selbst keine `Stop.id` traegt. */
+/** Find the `WaypointStop` (if any) whose position matches `position`
+ *  (within a small tolerance against floating-point
+ *  rounding) - links an editable `Stop` with its computed
+ *  stay details, since `WaypointStop` itself carries no `Stop.id`. */
 const WAYPOINT_STOP_MATCH_TOLERANCE_M = 25;
 
 export function findWaypointStopAt(
@@ -177,10 +177,10 @@ export function findWaypointStopAt(
   );
 }
 
-/** Kurzes, deutsches Label je `Sperrungstyp`-Enum-Wert aus dem Backend
- *  (`tripplanner.construction.models.Sperrungstyp`). Unbekannte Werte
- *  (z. B. ein zukuenftiger Backend-Enum-Wert) fallen auf den Rohwert
- *  zurueck statt eine leere Zeile zu erzeugen. */
+/** Short, German label per `closure type` enum value from the backend
+ *  (`tripplanner.construction.models.Sperrungstyp`). Unknown values
+ *  (e.g. a future backend enum value) fall back to the raw value
+ *  back instead of producing an empty row. */
 const CLOSURE_TYPE_LABELS: Record<string, string> = {
   fullyClosed: "Vollsperrung",
   partiallyClosed: "Teilsperrung",

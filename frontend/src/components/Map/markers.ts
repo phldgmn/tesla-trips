@@ -7,19 +7,19 @@ export function stopRole(index: number, total: number): StopRole {
   return "middle";
 }
 
-/** Liefert die Markerfarbe (CSS-Hex) für eine StopRole. */
+/** Return the marker color (CSS hex) for a StopRole. */
 export function roleToMarkerColor(role: StopRole): string {
   switch (role) {
     case "start":
-      return "#22c55e"; // grün
+      return "#22c55e"; // green
     case "end":
-      return "#ef4444"; // rot
+      return "#ef4444"; // red
     case "middle":
       return "#3b82f6"; // blau
   }
 }
 
-/** Anzeige-Label für einen Stopp in Popup/Header (Rolle als Fallback). */
+/** Display label for a stop in popup/header (role as fallback). */
 export function roleToLabel(role: StopRole): string {
   switch (role) {
     case "start":
@@ -31,7 +31,7 @@ export function roleToLabel(role: StopRole): string {
   }
 }
 
-/** Kürzel für die Markerdarstellung: A (Start), B (Ziel), Punkt sonst. */
+/** Glyph for marker display: A (start), B (destination), dot otherwise. */
 export function roleToMarkerGlyph(role: StopRole): string {
   switch (role) {
     case "start":
@@ -140,7 +140,7 @@ export function buildConstructionZoneMarkerElement(): HTMLElement {
   return el;
 }
 
-/** Erzeugt Popup-HTML für eine ConstructionZone: ein Abschnitt pro Event.
+/** Create popup HTML for a ConstructionZone: one section per event.
  *
  *  Einzelne Events werden wie zuvor gerendert; bei mehreren Events (gemerged)
  *  erzeugt jeder Event einen eigenen, optisch abgesetzten Abschnitt mit

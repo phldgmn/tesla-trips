@@ -18,15 +18,15 @@ const ZOOM_MIN_LENGTH_THRESHOLDS: ReadonlyArray<{
   { minZoom: 0, minLengthM: 15000 },
 ];
 
-/** Liefert die Mindestlaenge (Meter), die eine Baustelle bei `zoom` haben
- *  muss, um noch als Marker angezeigt zu werden (siehe
- *  `ZOOM_MIN_LAENGE_THRESHOLDS`). */
+/** Return the minimum length (meters) a construction zone at `zoom` must
+ *  have to still be displayed as a marker (see
+ *  `ZOOM_MIN_LENGTH_THRESHOLDS`). */
 export function minConstructionZoneLengthForZoom(zoom: number): number {
   for (const {
     minZoom,
-    minLengthM: minLaengeM,
+    minLengthM: minLengthM,
   } of ZOOM_MIN_LENGTH_THRESHOLDS) {
-    if (zoom >= minZoom) return minLaengeM;
+    if (zoom >= minZoom) return minLengthM;
   }
   // Unerreichbar, da der letzte Eintrag `minZoom: 0` jeden gueltigen
   // (nicht-negativen) Zoom-Wert abdeckt - Fallback nur fuer den
@@ -35,10 +35,10 @@ export function minConstructionZoneLengthForZoom(zoom: number): number {
     .minLengthM;
 }
 
-/** Entscheidet, ob ein Baustellen-Marker bei gegebenem Zoom sichtbar sein
- *  soll. Baustellen ohne bekannte Laenge (`laengeM === null`) werden IMMER
- *  angezeigt, da ihr Impact nicht abschaetzbar ist und ein Verstecken sie
- *  faelschlich als "unwichtig" einstufen wuerde. */
+/** Decide whether a construction zone marker should be visible at a given zoom.
+ *  Construction zones without a known length (`lengthM === null`) are ALWAYS
+ *  displayed since their impact is not assessable and hiding them
+ *  would falsely classify them as "unimportant". */
 export function isConstructionZoneVisibleAtZoom(
   lengthM: number | null,
   zoom: number,

@@ -3,17 +3,17 @@ import type {
   SuperchargerStation,
 } from "../../api/chargingApi";
 
-/** Zustand eines Preis-Refresh-Vorgangs fuer eine einzelne Station. */
+/** State of a pricing refresh operation for a single station. */
 export type PricingRefreshState =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "loaded"; pricing: SuperchargerPricing }
   | { status: "error"; message: string; pricing?: SuperchargerPricing };
 
-/** Innere SVG-Pfade (Lucide-Icon-Set, stroke-basiert, 24x24-Viewbox) fuer
- *  die minimalistischen Icon-Buttons unten im Popover - je einer fuer
- *  Stationsdaten-, Preis- und Komplett-Refresh, damit die drei Aktionen auf
- *  einen Blick unterscheidbar bleiben. */
+/** Inner SVG paths (Lucide icon set, stroke-based, 24x24 viewBox) for
+ *  the minimalist icon buttons at the bottom of the popover - one each for
+ *  station data, pricing, and full refresh, so the three actions remain
+ *  distinguishable at a glance. */
 const ICON_INFO_PATHS =
   '<circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path>';
 const ICON_TAG_PATHS =
@@ -21,10 +21,10 @@ const ICON_TAG_PATHS =
 const ICON_REFRESH_PATHS =
   '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path>';
 
-/** Baut einen minimalistischen, quadratischen Icon-only-Button (kein
- *  sichtbarer Text - Zweck/Ziel wird ueber `title`/`aria-label` als Tooltip
- *  bzw. fuer Screenreader vermittelt). `disabled` graut den Button aus und
- *  unterbindet Klicks waehrend ein Refresh bereits laeuft. */
+/** Build a minimalist, square icon-only button (no
+ *  visible text - purpose conveyed via `title`/`aria-label` as tooltip
+ *  or for screen readers). `disabled` grays out the button and
+ *  prevents clicks while a refresh is already running. */
 function buildIconButton(
   iconPaths: string,
   title: string,
@@ -54,17 +54,17 @@ function buildIconButton(
   return btn;
 }
 
-/** Formatiert den Preis eines `SuperchargerPricingTier` ohne Zeitfenster,
+/** Format the price of a `SuperchargerPricingTier` without a time window,
  *  z. B. "0.42 EUR/kWh". */
 function formatTierPrice(tier: SuperchargerPricing["tiers"][number]): string {
   return `${tier.amount.toFixed(2)} ${tier.currency}/${tier.unit}`;
 }
 
-/** Wandelt ein 12h-Zeitfenster-Label (z. B. "12:00 AM - 4:00 PM", wie von
- *  Tesla geliefert) in 24h-Notation um ("00:00 - 16:00"). Ersetzt jedes
- *  `H:MM AM/PM`-Vorkommen im String einzeln, damit Trennzeichen/Layout des
- *  Original-Labels unangetastet bleiben. Labels ohne AM/PM (bereits 24h
- *  oder unerwartetes Format) werden unveraendert zurueckgegeben. */
+/** Convert a 12h time window label (e.g. "12:00 AM - 4:00 PM", as delivered
+ *  by Tesla) to 24h notation ("00:00 - 16:00"). Replaces each
+ *  `H:MM AM/PM` occurrence in the string individually, so delimiters/layout of the
+ *  original label remain untouched. Labels without AM/PM (already 24h
+ *  or unexpected format) are returned unchanged. */
 function formatTimeLabel24h(label: string): string {
   return label.replace(
     /(\d{1,2}):(\d{2})\s*(AM|PM)/gi,
@@ -78,8 +78,7 @@ function formatTimeLabel24h(label: string): string {
   );
 }
 
-/** Gruppiert Preis-Tiers nach `tier_label`, Reihenfolge des ersten
- *  Auftretens bleibt erhalten (Backend liefert Tiers bereits gruppiert). */
+/** Group price tiers by `tier_label`, first occurrence order is preserved (backend delivers tiers already grouped). */
 function groupTiersByLabel(
   tiers: SuperchargerPricing["tiers"],
 ): Map<string, SuperchargerPricing["tiers"]> {
@@ -205,7 +204,7 @@ export function buildPricingSection(
 
 /** Baut den einzelnen Icon-Button "Preise aktualisieren", wiederverwendet
  *  im Ladehalt-Popup (`popups.ts::buildChargingStopPopupElement`), das nur
- *  ueber eine Preis-, aber keine Stationsdaten-Refresh-Aktion verfuegt. */
+ *  has only a pricing refresh action, not a station data refresh action. */
 export function buildPricingRefreshIconButton(
   state: PricingRefreshState,
   onRefresh: () => void,
@@ -218,9 +217,9 @@ export function buildPricingRefreshIconButton(
   );
 }
 
-/** Baut ein DOM-Element fuer ein Supercharger-Popover mit minimalistischer,
- *  icon-only Aktionsleiste am unteren Rand (Stationsdaten / Preise / beides
- *  aktualisieren). */
+/** Build a DOM element for a supercharger popover with a minimalist,
+ *  icon-only action bar at the bottom (station data / prices / both
+ *  refresh). */
 export function buildSuperchargerPopoverElement(
   station: SuperchargerStation,
   isRefreshing: boolean,
@@ -330,7 +329,7 @@ export function buildSuperchargerPopoverElement(
   return container;
 }
 
-/** Layer-IDs für das geclusterte Supercharger-Overlay (siehe
+/** Layer IDs for the clustered supercharger overlay (see
  * `addSuperchargerLayers`).
  */
 export const SUPERCHARGER_LAYER_IDS = [
@@ -339,9 +338,9 @@ export const SUPERCHARGER_LAYER_IDS = [
   "supercharger-unclustered",
 ] as const;
 
-/** Baut die GeoJSON-FeatureCollection für das Supercharger-Overlay aus den
- * geladenen Stationen. `slug` in den Feature-Properties verweist beim
- * Klick auf die volle Stationsdaten in `superchargerStationsRef`.
+/** Build the GeoJSON FeatureCollection for the supercharger overlay from the
+ * loaded stations. `slug` in the feature properties references the full
+ * station data in `superchargerStationsRef` on click.
  */
 export function buildSuperchargerGeoJson(
   stations: SuperchargerStation[],

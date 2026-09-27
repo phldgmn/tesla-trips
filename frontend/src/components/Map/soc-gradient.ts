@@ -1,6 +1,6 @@
 import type { RouteSample } from "../../utils/route-line";
 
-// Farbpalette für den kontinuierlichen SoC-Verlauf: rot (≤5%) → orange (5-15%) → gelb (15-25%) → grün (25-75%) → blau (>75%).
+// Color palette for the continuous SoC gradient: red (≤5%) → orange (5-15%) → yellow (15-25%) → green (25-75%) → blue (>75%).
 const SOC_COLOR_STOPS: readonly [
   soc: number,
   r: number,
@@ -19,14 +19,14 @@ function toHex(value: number): string {
   return Math.round(value).toString(16).padStart(2, "0");
 }
 
-/** Bildet einen SoC-Wert (0–100) linear auf eine Farbe entlang der Palette
- * `SOC_COLOR_STOPS` ab. Anders als eine Bucket-Funktion (feste Farbe je
- * Wertebereich) liefert dies für jeden SoC-Wert eine eigene, kontinuierlich
- * zwischen den Nachbar-Stützfarben interpolierte Farbe - Voraussetzung dafür,
- * dass der `line-gradient` in `buildSocGradientExpression` tatsächlich
- * stufenlos verläuft statt aus flachen Farbplateaus mit kurzen, abrupten
- * Übergängen an den alten Bucket-Grenzen zu bestehen (siehe dortiger
- * Docstring).
+/** Map an SoC value (0-100) linear to a color along the palette
+ * `SOC_COLOR_STOPS`. Unlike a bucket function (fixed color per value range)
+ * this provides each SoC value with its own, continuously interpolated color
+ * between neighboring reference colors - a prerequisite for
+ * the `line-gradient` in `buildSocGradientExpression` to actually
+ * flow smoothly instead of consisting of flat color plateaus with short, abrupt
+ * transitions at the old bucket boundaries (see its
+ * docstring).
  */
 export function socToColor(soc: number): string {
   const clamped = Math.min(100, Math.max(0, soc));
@@ -49,20 +49,20 @@ export function socToColor(soc: number): string {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
-/** Baut die MapLibre `line-gradient`-Expression für den SoC-Farbverlauf entlang
- * der gesamten (gespliceten) Route aus einer einzigen Linie (statt vieler
- * einzelner Segment-Layer – siehe `MapVisualization`). `samples` kommt aus
- * `buildSplicedRoute()` und enthält sowohl Fahr-Stützpunkte (per `distanz_m`
- * positioniert) als auch `critical`-markierte Ladehalt-Ankunfts-/Abfahrts-
- * Stützpunkte, die beim Downsampling nie übersprungen werden - sonst wäre der
- * SoC-Sprung an einer Ladestation (niedriger Ankunfts- zu höherem Ziel-SoC)
- * nicht sichtbar. Alle Distanzwerte sind relativ zur gespliceten Linie
- * (inkl. Ladehalt-Abstecher), passend zu `line-progress`. Reguläre
- * Stützpunkte werden auf maximal `maxStops - critical.length` gleichmässig
- * heruntergesampelt (vermeidet riesige Expressions bei langen Trips mit
- * tausenden Frames); Stützpunkte mit identischer Distanz (z. B. während
- * eines Ladehalts) werden bereinigt, da `interpolate`-Stops strikt
- * aufsteigend sein müssen.
+/** Build the MapLibre `line-gradient` expression for the SoC color gradient along
+ * the entire (spliced) route from a single line (instead of many
+ * individual segment layers – see `MapVisualization`). `samples` comes from
+ * `buildSplicedRoute()` and contains both driving reference points (positioned by `distanz_m`)
+ * and `critical`-marked charging stop arrival/departure
+ * reference points, which are never skipped during downsampling - otherwise the
+ * SoC jump at a charging station (low arrival to higher target SoC)
+ * would not be visible. All distance values are relative to the spliced line
+ * (including charging detours), matching `line-progress`. Regular
+ * reference points are downsampled to at most `maxStops - critical.length` evenly
+ * (avoids huge expressions for long trips with
+ * thousands of frames); reference points with identical distance (e.g. during
+ * a charging stop) are cleaned up since `interpolate` stops must be strictly
+ * ascending.
  */
 export function buildSocGradientExpression(
   samples: RouteSample[],
