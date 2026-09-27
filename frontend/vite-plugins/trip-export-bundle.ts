@@ -25,6 +25,7 @@ const RESOLVED_ID = "\0" + VIRTUAL_ID;
 async function bundleSingleFile(
   root: string,
   entry: string,
+  format: "es" | "iife" = "es",
 ): Promise<{ js: string; css: string }> {
   // The nested build inherits the parent's process.env.NODE_ENV (e.g.
   // "development" during `vite dev`), which makes @vitejs/plugin-react pick
@@ -50,7 +51,13 @@ async function bundleSingleFile(
         sourcemap: false,
         cssCodeSplit: false,
         assetsInlineLimit: Number.MAX_SAFE_INTEGER,
-        lib: { entry, formats: ["es"], fileName: () => "bundle.js" },
+        lib: {
+          entry,
+          formats: [format],
+          // Required by rolldown when the format is "iife" (unused for "es").
+          name: "TripExportWorker",
+          fileName: () => "bundle.js",
+        },
       },
       rolldownOptions: { output: { codeSplitting: false } },
     });
@@ -113,12 +120,20 @@ export function tripExportBundle(root: string): Plugin {
           root,
           path.resolve(root, "src/export/viewer/main.tsx"),
         ),
+        // IIFE (classic worker script): module workers from blob URLs fail on
+        // file:// pages (opaque origin - WebKit and Chrome block the load,
+        // and the failure is ASYNC, so MapLibre's try/catch around
+        // `new Worker(url, { type: "module" })` never falls back to classic;
+        // see `Dw` in maplibre-gl.mjs). The viewer appends "#.cjs" to the
+        // blob URL so MapLibre's `!url.endsWith(".cjs")` heuristic picks the
+        // classic worker directly. An IIFE has no imports, so classic works.
         bundleSingleFile(
           root,
           path.resolve(
             root,
             "node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs",
           ),
+          "iife",
         ),
       ]).then(([viewer, worker]) => ({
         viewerJs: viewer.js,

@@ -21,12 +21,17 @@ import "../../index.css";
 // creates its Web Workers from this URL, so it must be a same-origin,
 // fetchable URL: a blob URL (never revoked - MapLibre may spawn more workers
 // later, e.g. on style changes).
+//
+// The "#.cjs" fragment is load-bearing: the worker bundle is a classic IIFE
+// (module workers from blob URLs fail on file:// pages), and MapLibre only
+// picks the classic worker when its URL ends with ".cjs" (see `Xi` in
+// maplibre-gl.mjs). The fragment is ignored when the blob is fetched.
 const workerSrc = document.getElementById(
   WORKER_SOURCE_ELEMENT_ID,
 )?.textContent;
 if (workerSrc) {
   setWorkerUrl(
-    URL.createObjectURL(new Blob([workerSrc], { type: "text/javascript" })),
+    `${URL.createObjectURL(new Blob([workerSrc], { type: "text/javascript" }))}#.cjs`,
   );
 }
 
