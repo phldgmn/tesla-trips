@@ -47,7 +47,7 @@ class TestParsePricingTiers:
             ]
         )
         tiers = parse_pricing_tiers(html)
-        assert len(tiers) == 2
+        assert len(tiers) == 2  # noqa: PLR2004 - 2 price windows in the fixture
         peak, offpeak = tiers
         assert peak.tier_label == "Charging Fees for Tesla Owner"
         assert peak.time_label == "4:00 PM - 8:00 PM"
@@ -147,8 +147,10 @@ class TestParsePricingTiers:
             parse_pricing_tiers(html)
 
     def test_non_positive_amount_is_skipped(self) -> None:
-        """Ein Tier mit nicht-positivem Betrag (Pydantic-Validierung) wird
-        übersprungen, ohne den gesamten Parse-Vorgang scheitern zu lassen.
+        """Ein Tier mit nicht-positivem Betrag wird uebersprungen.
+
+        (Pydantic-Validierung) ohne den gesamten Parse-Vorgang scheitern zu
+        lassen.
         """
         html = _charger_pricing_html(
             [
@@ -227,8 +229,9 @@ class TestSelectOwnerRateForTime:
         assert rate.amount == pytest.approx(3.79)
 
     def test_falls_back_to_single_tier_without_owner_keyword(self) -> None:
-        """Ein einzelner, nicht als 'owner' gekennzeichneter Tier gilt per
-        Ausschlussverfahren als Owner-Rate.
+        """A single tier without an 'owner' keyword is the owner rate.
+
+        Fallback by elimination.
         """
         html = _charger_pricing_html([{"label": "Charging Fees", "price": "DKK 4.50/kWh"}])
         tiers = parse_pricing_tiers(html)
@@ -236,9 +239,31 @@ class TestSelectOwnerRateForTime:
         assert rate is not None
         assert rate.amount == pytest.approx(4.50)
 
+    def test_selects_tesla_owner_tier_with_german_labels(self) -> None:
+        """de_DE-locale pages render German tier labels.
+
+        ('Ladegebühren für Tesla-Besitzer') - the Tesla-owner tier must
+        still be detected.
+        """
+        html = _charger_pricing_html(
+            [
+                {"label": "Ladegebühren für Tesla-Besitzer", "price": "€0,39/kWh"},
+                {
+                    "label": "Ladegebühren für Besitzer anderer Elektrofahrzeuge",
+                    "price": "€0,54/kWh",
+                },
+            ]
+        )
+        tiers = parse_pricing_tiers(html)
+        rate = select_owner_rate_for_time(tiers, datetime(2026, 1, 1, 9, 0, tzinfo=UTC))
+        assert rate is not None
+        assert rate.amount == pytest.approx(0.39)
+        assert rate.currency == "EUR"
+
     def test_returns_none_when_only_other_ev_and_another_distinct_tier_exist(self) -> None:
-        """Bei mehreren nicht als 'owner' erkennbaren Tiers ist die Zuordnung
-        mehrdeutig - kein Rate wird zurueckgegeben.
+        """Several non-'owner' tiers make ownership ambiguous.
+
+        No rate is returned in that case.
         """
         html = _charger_pricing_html(
             [

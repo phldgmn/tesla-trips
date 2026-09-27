@@ -152,7 +152,7 @@ class TeslaLocationsClient(TeslaJsonEndpointsMixin):
             except Exception as e:
                 raise self.CurlError(f"request failed: {e}") from e
 
-            body = response.text
+            body: str = response.text
             await self._log_response(response, body[:DEBUG_BODY_PREVIEW_CHARS])
 
             if is_waf_block(body):

@@ -112,7 +112,7 @@ class NodriverBrowserFetcher:
                     "`uv sync --extra scraping`"
                 ) from exc
 
-            self._browser = await uc.start(headless=self._headless)  # type: ignore[attr-defined]
+            self._browser = await uc.start(headless=self._headless)
         return self._browser
 
     async def _fetch_async(self, url: str) -> tuple[int, str]:

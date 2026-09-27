@@ -212,7 +212,8 @@ def select_owner_rate_for_time(
     `docs/Tesla-Supercharger-Detail-Scraping.md`):
 
     1. Prefer tiers whose label suggests Tesla-owner pricing (contains
-       "owner"); if none do, but every kWh tier shares one label (a station
+       "owner", or the German "Tesla-Besitzer" rendered by de_DE pages);
+       if none do, but every kWh tier shares one label (a station
        that only publishes a single, undifferentiated rate), treat those as
        the owner rate by elimination.
     2. Among owner-rate candidates, prefer a window whose `time_label` covers
@@ -229,7 +230,14 @@ def select_owner_rate_for_time(
     conversion.
     """
     kwh_tiers = [t for t in tiers if t.unit == "kWh"]
-    owner_tiers = [t for t in kwh_tiers if "owner" in t.tier_label.lower()]
+    owner_tiers = [
+        t
+        for t in kwh_tiers
+        # de_DE pages render "Ladegebühren für Tesla-Besitzer" instead of
+        # "Charging Fees for Tesla Owner" - match the German label too.
+        if "owner" in t.tier_label.lower()
+        or ("tesla" in t.tier_label.lower() and "besitzer" in t.tier_label.lower())
+    ]
     if not owner_tiers:
         distinct_labels = {t.tier_label for t in kwh_tiers}
         if len(distinct_labels) == 1:
